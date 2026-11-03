@@ -1,6 +1,25 @@
 # 第三方许可（Third-Party Licenses）
 
-Rotor Trails 的游戏代码、地形、建筑、植被、纹理、仪表画面与音效**全部由本项目程序化生成**，没有使用任何外部美术、模型、音频或字体素材。
+Rotor Trails 的游戏代码、地形高度、仪表画面与音效由本项目程序生成；驾驶舱、直升机外观、建筑与树木由本仓库 `tools/blender/` 里的脚本在 Blender 中建模生成。没有使用外部的模型、音频或字体素材。
+
+## 照片材质：Poly Haven（CC0）
+
+地形与建筑表面使用 [Poly Haven](https://polyhaven.com) 的照片材质（漫反射、法线、粗糙度），许可为 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)（公共领域，可商用、可再分发，无需署名；这里仍列出以便追溯）。游戏里使用的是缩小、转换格式或调整颜色后的版本（`public/textures/`，以及嵌在 `public/models/*.glb` 里的贴图）。
+
+游戏里用到的 28 种：aerial_grass_rock、aerial_rocks_02、brown_mud_02、clay_plaster、cliff_side、coast_sand_01、concrete_wall_008、corrugated_iron、cracked_red_ground、distressed_painted_planks、dry_ground_01、forest_ground_04、forest_leaves_02、gravelly_sand、grey_roof_tiles、hinoki_planks、japanese_cedar_planks、mossy_rock、palm_bark、pine_bark、poly_wool_herringbone、rabdentse_ruins_wall、red_laterite_soil_stones、rock_face、rocky_terrain_02、snow_field_aerial、thatch_roof_angled、white_plaster_02（下载清单与脚本见 `tools/assets/sources.json`、`tools/fetch_assets.mjs`；清单里另有几种下载过但最终没有使用）。木板教堂的焦油木瓦贴图为程序生成。
+
+## 建模参照照片（不随游戏分发）
+
+以下照片只在建模时用来对照比例与细节，**不包含在仓库和网站中**：
+
+| 照片（维基共享资源） | 作者 | 许可 | 用途 |
+| --- | --- | --- | --- |
+| F-HGRU Airbus H125 helicopter cockpit (Ardèche, 2024) | Kakoula10 | CC BY-SA 4.0 | 驾驶舱仪表板布局 |
+| AS350 B3 Écureuil – SDIS 04 à Digne-les-Bains（07、08 两张） | X-Javier | CC BY-SA 4.0 | 座椅、风挡、舱门、顶窗结构 |
+
+另外在维基共享资源上浏览查看过（未下载）的建筑照片：博尔贡木板教堂（Borgund Stave Church）、丹波切寺（Tengboche Monastery）、马瑙斯港客运木船（Riverboat, Manaus）、鞆之浦民居与严岛神社大鸟居。模型是按照片里的结构与比例重新建模的，没有使用照片像素。
+
+## 程序库
 
 构建产物（`dist/`，即部署到网页上的文件）中包含以下第三方开源库的代码：
 

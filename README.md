@@ -3,7 +3,7 @@
 第一人称拟真直升机闯关网页游戏。驾驶一架轻型直升机，在五张风格迥异的地图里执行运输、空投、巡查与精确降落任务：日本海湾群岛、美国西南峡谷、亚马孙雨林、挪威峡湾、喜马拉雅雪域。
 
 - 纯前端静态网站：TypeScript + Vite + three.js（WebGL2）+ Rapier 物理（WebAssembly），无后端、无在线 AI、无付费接口
-- 全部地形、建筑、植被、纹理、仪表画面与音效均为程序化生成，没有外部素材
+- 驾驶舱、直升机外观、五张地图的建筑与 10 种树木都用本仓库里的 Blender 脚本建模（对照维基共享资源上的真实照片，照片只作参照、不随游戏分发）；地形与建筑使用 [Poly Haven](https://polyhaven.com) 的 CC0 照片材质；地形高度、天空、水面、仪表画面与音效为程序生成
 
 ![濑户湾群岛](docs/screenshots/04_japan.jpg)
 
@@ -25,6 +25,7 @@
 - **Buff**：动力增强（储存一次，Shift 使用）、免伤护盾（挡耐久损失但不挡碰撞）、维修补给
 - **检查点**：可从最近检查点或更早的安全检查点恢复，也可“安全恢复”（稳定悬停状态继续），不会卡死
 - **不计时的评分**：主线、可选任务、剩余耐久、碰撞次数、最终降落质量
+- **写实画面**：对照 H125 实机照片建模的驾驶舱（指针式仪表、发动机/地图/姿态屏实时显示）；物理天空与随高度变淡的雾（顺光方向带阳光色）；四级分层阴影；照片材质地形（陡坡三平面投影、积雪按坡面朝向堆积）；带波浪、岸边白沫和浑浊河水的水面；泛光与多重采样抗锯齿。画质分低 / 中 / 高 / 极高四档，首次启动按显卡自动选择（集成显卡默认低画质并提示）
 
 ## 快速开始
 
@@ -100,6 +101,17 @@ MAP=himalaya PATHS=0,1 npx vitest run --config vitest.tools.config.ts tools/auto
 
 每张正式地图都有 2 个可选任务、维修/备降点、多处检查点和地标。自动驾驶完成主线的仿真时间为 5–12 分钟；真人玩家的用时会更长，但**尚未经过真人试玩测量**（见 [测试报告](docs/test-report.md)）。
 
+## 美术素材（重新生成）
+
+模型与贴图已经生成好并提交在 `public/` 下，平时不需要重新生成。修改建模脚本后的重新生成步骤（需要 Blender 4.x / 5.x，以及装有 Pillow、NumPy、SciPy 的 Python 3）：
+
+1. `node tools/fetch_assets.mjs`：按 [tools/assets/sources.json](tools/assets/sources.json) 下载 Poly Haven 材质与参照照片到 `art/src/`（不进仓库）
+2. `python tools/prep_textures.py <材质id>:1024 …`、`python tools/prep_terrain.py`、`python tools/prep_detail.py`：缩放、转换贴图
+3. `python tools/blender/tex_variants.py`、`python tools/blender/leaf_atlas.py art/out/trees`、`python tools/blender/cockpit_textures.py art/out/cockpit_tex`：颜色变体、木瓦、叶片图集、仪表盘面
+4. `blender -b --factory-startup --python tools/blender/<脚本>.py -- public/models/<文件>.glb [--preview 预览目录]`：脚本有 `cockpit.py`（另需贴图目录与 `--bake`）、`heli_ext.py`、`trees.py`、`props_japan.py`、`props_fjord.py`、`props_himalaya.py`、`props_amazon.py`、`props_canyon.py`，用法写在各脚本开头
+
+模型文件缺失或加载失败时，游戏会退回程序生成的几何体，仍然可以玩。
+
 ## 部署到 GitHub Pages
 
 仓库里的 [.github/workflows/deploy.yml](.github/workflows/deploy.yml) 在每次推送到 `main` 时自动执行类型检查、测试和构建；构建产物使用相对路径（`base: './'`），可以放在任何子路径下（例如 `https://<用户名>.github.io/rotor-trails/`）。
@@ -128,7 +140,12 @@ src/
   ui/          HUD、菜单与样式
   audio/       程序化音效（旋翼、发动机、风、雨、告警）
 tests/         自动化测试（Vitest）
+public/
+  models/      Blender 导出的模型（驾驶舱、直升机外观、各地图建筑、树木）
+  textures/    地形照片材质、建筑细节贴图
 tools/         地图俯视图、航线净空、自动驾驶回归、截图等开发工具
+  blender/     Blender 建模脚本（驾驶舱、直升机、建筑、树木）与贴图生成脚本
+  assets/      美术素材来源清单（Poly Haven 材质、参照照片及其作者与许可）
 docs/          设计文档、进度、测试报告、截图
 ```
 
@@ -141,4 +158,4 @@ docs/          设计文档、进度、测试报告、截图
 
 ## 许可
 
-本项目代码尚未指定开源许可证（默认保留所有权利）。所用第三方库的许可见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。
+本项目代码尚未指定开源许可证（默认保留所有权利）。所用第三方库、Poly Haven 材质（CC0）与参照照片的说明见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。
