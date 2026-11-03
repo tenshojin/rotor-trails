@@ -1,11 +1,11 @@
 // 地形渲染：按块（64 格）分级 LOD，近处使用与碰撞完全一致的全分辨率三角网格；
 // 着色器见 terrainShader.ts（照片材质 8 层混合，按坡度/高度/掩码）。
 
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import type { BiomeDef, MapDef } from '../maps/types';
 import type { Heightfield } from '../sim/terrain';
 import type { TerrainLayers } from './terrainLayers';
-import { patchTerrainMaterial, type TerrainUniforms } from './terrainShader';
+import { makeTerrainMaterial, makeWetUniform, type TerrainUniforms } from './terrainShader';
 import { getNoiseTexture } from './textures';
 
 const CH = 64;
@@ -20,40 +20,30 @@ function col(hex: number): THREE.Color {
 export function makeTerrainUniforms(map: MapDef, surfaceTex: THREE.Texture, forestTex: THREE.Texture, layers: TerrainLayers | null = null): TerrainUniforms {
   const B: BiomeDef = map.biome;
   const strata = B.strataColors ?? [B.rock, B.rock2, B.dirt, B.sand];
-  const photo: TerrainUniforms = layers
-    ? {
-        uTerC: { value: layers.color },
-        uTerN: { value: layers.normal },
-        uTile: { value: layers.tiles },
-        uMeanL: { value: layers.meanLum },
-        uBiomeC: { value: layers.biome },
-        uTintK: { value: layers.tintK },
-      }
-    : {};
   return {
-    ...photo,
-    uNoise: { value: getNoiseTexture() },
-    uSurface: { value: surfaceTex },
-    uForest: { value: forestTex },
-    uMapSize: { value: map.size },
-    uSand: { value: col(B.sand) },
-    uGrass: { value: col(B.grass) },
-    uGrass2: { value: col(B.grass2) },
-    uDirt: { value: col(B.dirt) },
-    uRock: { value: col(B.rock) },
-    uRock2: { value: col(B.rock2) },
-    uSnow: { value: col(B.snow) },
-    uForestFloor: { value: col(B.forestFloor) },
-    uStrataA: { value: col(strata[0]) },
-    uStrataB: { value: col(strata[1]) },
-    uStrataC: { value: col(strata[2]) },
-    uStrataD: { value: col(strata[3] ?? strata[0]) },
-    uStrata: { value: B.strata },
-    uBeachTop: { value: B.beachTop },
-    uSnowLine: { value: B.snowLine },
-    uRockSlope: { value: B.rockSlope },
-    uWet: { value: 0 },
-    uWaterLevel: { value: map.waterLevel ?? -9999 },
+    noise: getNoiseTexture(),
+    surface: surfaceTex,
+    forest: forestTex,
+    layers,
+    mapSize: map.size,
+    sand: col(B.sand),
+    grass: col(B.grass),
+    grass2: col(B.grass2),
+    dirt: col(B.dirt),
+    rock: col(B.rock),
+    rock2: col(B.rock2),
+    snow: col(B.snow),
+    forestFloor: col(B.forestFloor),
+    strataA: col(strata[0]),
+    strataB: col(strata[1]),
+    strataC: col(strata[2]),
+    strataD: col(strata[3] ?? strata[0]),
+    strata: B.strata,
+    beachTop: B.beachTop,
+    snowLine: B.snowLine,
+    rockSlope: B.rockSlope,
+    waterLevel: map.waterLevel ?? -9999,
+    uWet: makeWetUniform(),
   };
 }
 
@@ -69,7 +59,7 @@ interface Chunk {
 
 export class TerrainView {
   readonly group = new THREE.Group();
-  readonly material: THREE.MeshStandardMaterial;
+  readonly material: THREE.MeshStandardNodeMaterial;
   private hf: Heightfield;
   private chunks: Chunk[] = [];
   private cache = new Map<string, THREE.BufferGeometry>();
@@ -81,8 +71,7 @@ export class TerrainView {
 
   constructor(map: MapDef, hf: Heightfield, uniforms: TerrainUniforms) {
     this.hf = hf;
-    this.material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0 });
-    patchTerrainMaterial(this.material, uniforms);
+    this.material = makeTerrainMaterial(uniforms);
     this.nChunks = Math.round((hf.res - 1) / CH);
     for (let l = 0; l < LOD_STEPS.length; l++) this.indexByLod.push(this.buildIndex(CH / LOD_STEPS[l]));
     for (let cz = 0; cz < this.nChunks; cz++) {

@@ -1,16 +1,26 @@
 // 天气特效：三维雨线（方向 = 雨滴相对飞机的速度，能直观看出风向与飞行速度）、低云层、闪电。
 
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { attribute, cameraPosition, clamp, cross, distance, float, length, mix, mod, normalize, positionGeometry, positionWorld, smoothstep, texture, uniform, vec3 } from 'three/tsl';
 import { getNoiseTexture } from './textures';
 
 export class RainFx {
   readonly mesh: THREE.InstancedMesh;
-  private mat: THREE.ShaderMaterial;
+  private mat: THREE.MeshBasicNodeMaterial;
   private count: number;
+  private u = {
+    cam: uniform(new THREE.Vector3()),
+    vel: uniform(new THREE.Vector3(0, -9, 0)),
+    rel: uniform(new THREE.Vector3(0, -9, 0)),
+    time: uniform(0),
+    box: uniform(new THREE.Vector3(60, 40, 60)),
+    opacity: uniform(0),
+  };
 
   constructor(maxCount: number) {
     this.count = maxCount;
-    const g = new THREE.InstancedBufferGeometry();
+    // 普通几何体 + 逐实例属性（实例数由 InstancedMesh.count 控制；InstancedBufferGeometry 的实例数默认是无穷大）
+    const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0, 0.5, 1, 0, -0.5, 1, 0], 3));
     g.setIndex([0, 1, 2, 0, 2, 3]);
     const off = new Float32Array(maxCount * 4);
@@ -21,48 +31,23 @@ export class RainFx {
       off[i * 4 + 3] = Math.random();
     }
     g.setAttribute('aOff', new THREE.InstancedBufferAttribute(off, 4));
-    this.mat = new THREE.ShaderMaterial({
-      transparent: true,
-      depthWrite: false,
-      uniforms: {
-        uCam: { value: new THREE.Vector3() },
-        uVel: { value: new THREE.Vector3(0, -9, 0) },
-        uRel: { value: new THREE.Vector3(0, -9, 0) },
-        uTime: { value: 0 },
-        uBox: { value: new THREE.Vector3(60, 40, 60) },
-        uOpacity: { value: 0 },
-        uColor: { value: new THREE.Color(0.72, 0.76, 0.8) },
-      },
-      vertexShader: /* glsl */ `
-attribute vec4 aOff;
-uniform vec3 uCam, uVel, uRel, uBox;
-uniform float uTime;
-varying float vA;
-varying float vT;
-void main() {
-  vec3 P = aOff.xyz + uVel * uTime * (0.85 + 0.3 * aOff.w);
-  P = mod(P - uCam + uBox * 0.5, uBox) - uBox * 0.5 + uCam;
-  float d = distance(P, cameraPosition);
-  vec3 D = normalize(uRel);
-  vec3 toCam = normalize(cameraPosition - P);
-  vec3 S = normalize(cross(D, toCam) + vec3(1e-4));
-  float len = clamp(length(uRel) * 0.045, 0.35, 3.2);
-  vec3 pos = P - D * position.y * len + S * position.x * 0.018 * (1.0 + d * 0.02);
-  vA = smoothstep(2.6, 4.5, d) * (1.0 - smoothstep(18.0, 30.0, d));
-  vT = position.y;
-  gl_Position = projectionMatrix * viewMatrix * vec4(pos, 1.0);
-}`,
-      fragmentShader: /* glsl */ `
-uniform float uOpacity;
-uniform vec3 uColor;
-varying float vA;
-varying float vT;
-void main() {
-  float a = uOpacity * vA * (0.35 + 0.65 * vT);
-  if (a < 0.003) discard;
-  gl_FragColor = vec4(uColor, a);
-}`,
-    });
+    const U = this.u;
+    this.mat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, fog: false });
+    // 每条雨线：在相机周围的盒子里循环下落；朝向 = 雨滴相对飞机的速度，宽度随距离略增（远处不至于断线）
+    const aOff = attribute('aOff', 'vec4');
+    const P0 = aOff.xyz.add(U.vel.mul(U.time).mul(aOff.w.mul(0.3).add(0.85)));
+    const P = mod(P0.sub(U.cam).add(U.box.mul(0.5)), U.box).sub(U.box.mul(0.5)).add(U.cam);
+    const d = distance(P, cameraPosition);
+    const D = normalize(U.rel);
+    const toCam = normalize(cameraPosition.sub(P));
+    const S = normalize(cross(D, toCam).add(vec3(1e-4)));
+    const len = clamp(length(U.rel).mul(0.045), 0.35, 3.2);
+    this.mat.positionNode = P.sub(D.mul(positionGeometry.y).mul(len)).add(S.mul(positionGeometry.x).mul(d.mul(0.02).add(1.0).mul(0.018)));
+    const dist = distance(positionWorld, cameraPosition);
+    const vA = smoothstep(2.6, 4.5, dist).mul(float(1).sub(smoothstep(18.0, 30.0, dist)));
+    this.mat.colorNode = vec3(0.72, 0.76, 0.8);
+    this.mat.opacityNode = U.opacity.mul(vA).mul(positionGeometry.y.mul(0.65).add(0.35));
+    this.mat.alphaTest = 0.003;
     this.mesh = new THREE.InstancedMesh(g, this.mat, maxCount);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 30;
@@ -71,13 +56,13 @@ void main() {
 
   /** rain 0..1；wind：空气速度；camVel：相机（飞机）速度 */
   update(t: number, cam: THREE.Vector3, rain: number, wind: THREE.Vector3, camVel: THREE.Vector3, density: number): void {
-    const u = this.mat.uniforms;
-    (u.uCam.value as THREE.Vector3).copy(cam);
+    const u = this.u;
+    u.cam.value.copy(cam);
     const fall = 8.5 + rain * 2;
-    (u.uVel.value as THREE.Vector3).set(wind.x, -fall + wind.y, wind.z);
-    (u.uRel.value as THREE.Vector3).set(wind.x - camVel.x, -fall + wind.y - camVel.y, wind.z - camVel.z);
-    u.uTime.value = t;
-    u.uOpacity.value = Math.min(0.55, rain * 0.6);
+    u.vel.value.set(wind.x, -fall + wind.y, wind.z);
+    u.rel.value.set(wind.x - camVel.x, -fall + wind.y - camVel.y, wind.z - camVel.z);
+    u.time.value = t;
+    u.opacity.value = Math.min(0.55, rain * 0.6);
     this.mesh.count = rain > 0.02 ? Math.floor(this.count * Math.min(1, rain * 1.2) * density) : 0;
   }
 
@@ -89,48 +74,31 @@ void main() {
 
 export class CloudLayer {
   readonly group = new THREE.Group();
-  private mats: THREE.ShaderMaterial[] = [];
+  private mats: THREE.MeshBasicNodeMaterial[] = [];
+  private layers: Array<{ off: ReturnType<typeof makeCloudU>['off']; density: ReturnType<typeof makeCloudU>['density']; dark: ReturnType<typeof makeCloudU>['dark'] }> = [];
   private geo: THREE.PlaneGeometry;
   private offset = new THREE.Vector2();
 
   constructor(size: number) {
     this.geo = new THREE.PlaneGeometry(size * 1.8, size * 1.8, 1, 1);
     this.geo.rotateX(-Math.PI / 2);
+    const noise = getNoiseTexture();
     for (let i = 0; i < 7; i++) {
-      const m = new THREE.ShaderMaterial({
-        transparent: true,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        uniforms: {
-          uNoise: { value: getNoiseTexture() },
-          uOff: { value: new THREE.Vector2(i * 0.137, i * 0.071) },
-          uDensity: { value: 0 },
-          uLayer: { value: i / 6 },
-          uLit: { value: new THREE.Color(0.92, 0.93, 0.95) },
-          uDark: { value: new THREE.Color(0.55, 0.58, 0.62) },
-          uFade: { value: 3000 },
-        },
-        vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
-        fragmentShader: /* glsl */ `
-uniform sampler2D uNoise;
-uniform vec2 uOff;
-uniform float uDensity, uLayer, uFade;
-uniform vec3 uLit, uDark;
-varying vec3 vW;
-void main() {
-  vec2 p = vW.xz * 0.00045 + uOff;
-  float n = texture2D(uNoise, p).r * 0.6 + texture2D(uNoise, p * 3.1 + 0.3).g * 0.3 + texture2D(uNoise, p * 9.0).a * 0.1;
-  float edge = 1.0 - abs(uLayer - 0.5) * 2.0;
-  float c = smoothstep(0.62 - uDensity * 0.35 - edge * 0.12, 0.85 - uDensity * 0.2, n);
-  float d = distance(vW, cameraPosition);
-  float a = c * uDensity * (0.35 + 0.25 * edge) * (1.0 - smoothstep(uFade * 0.5, uFade, d));
-  if (a < 0.004) discard;
-  vec3 col = mix(uDark, uLit, clamp(uLayer * 0.8 + n * 0.5, 0.0, 1.0));
-  gl_FragColor = vec4(col, a);
-  #include <colorspace_fragment>
-}`,
-      });
+      const U = makeCloudU(i);
+      const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false });
+      const W = positionWorld;
+      const p = W.xz.mul(0.00045).add(U.off);
+      const n = texture(noise, p).r.mul(0.6).add(texture(noise, p.mul(3.1).add(0.3)).g.mul(0.3)).add(texture(noise, p.mul(9.0)).a.mul(0.1));
+      const layer = i / 6;
+      const edge = 1 - Math.abs(layer - 0.5) * 2;
+      const c = smoothstep(float(0.62 - edge * 0.12).sub(U.density.mul(0.35)), float(0.85).sub(U.density.mul(0.2)), n);
+      const d = distance(W, cameraPosition);
+      const a = c.mul(U.density).mul(0.35 + 0.25 * edge).mul(float(1).sub(smoothstep(1500.0, 3000.0, d)));
+      m.colorNode = mix(U.dark, vec3(0.92, 0.93, 0.95), clamp(n.mul(0.5).add(layer * 0.8), 0.0, 1.0));
+      m.opacityNode = a;
+      m.alphaTest = 0.004;
       this.mats.push(m);
+      this.layers.push(U);
       const mesh = new THREE.Mesh(this.geo, m);
       mesh.renderOrder = 15;
       mesh.frustumCulled = false;
@@ -145,10 +113,10 @@ void main() {
     this.offset.y += windZ * dt * 0.00045;
     this.group.children.forEach((m, i) => {
       m.position.set(camPos.x, base + ((top - base) * i) / 6, camPos.z);
-      const u = this.mats[i].uniforms;
-      (u.uOff.value as THREE.Vector2).set(i * 0.137 - this.offset.x - camPos.x * 0, i * 0.071 - this.offset.y);
-      u.uDensity.value = density;
-      (u.uDark.value as THREE.Color).setRGB(0.6 - overcast * 0.2, 0.62 - overcast * 0.2, 0.66 - overcast * 0.2);
+      const u = this.layers[i];
+      u.off.value.set(i * 0.137 - this.offset.x, i * 0.071 - this.offset.y);
+      u.density.value = density;
+      u.dark.value.setRGB(0.6 - overcast * 0.2, 0.62 - overcast * 0.2, 0.66 - overcast * 0.2);
     });
   }
 
@@ -156,6 +124,10 @@ void main() {
     this.geo.dispose();
     for (const m of this.mats) m.dispose();
   }
+}
+
+function makeCloudU(i: number) {
+  return { off: uniform(new THREE.Vector2(i * 0.137, i * 0.071)), density: uniform(0), dark: uniform(new THREE.Color(0.55, 0.58, 0.62)) };
 }
 
 /** 闪电：根据天气强度随机触发，返回当前闪光亮度；thunder 回调用于延迟雷声。 */

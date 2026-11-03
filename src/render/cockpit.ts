@@ -2,7 +2,8 @@
 // 指针、刻度盘按真实飞行数据转动；五块电子屏用 Canvas 实时绘制；周期变距杆/总距杆/脚蹬随操纵动画；
 // 窗玻璃使用带雨滴/水流效果的材质。模型加载失败时座舱内部为空，游戏照常可玩。
 
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { abs, clamp, float, max, mix, normalGeometry, normalize, positionGeometry, select, smoothstep, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl';
 import { loadGltf } from './gltf';
 import { drawAnnunciator, drawAttitude, drawGps, drawVemdBottom, drawVemdTop, NEEDLE, type InstrumentData } from './instruments';
 import { getNoiseTexture } from './textures';
@@ -41,7 +42,7 @@ const _q = new THREE.Quaternion();
 
 export class Cockpit {
   readonly root = new THREE.Group();
-  readonly glassUniforms = { uRain: { value: 0 }, uTime: { value: 0 }, uFlow: { value: 0 }, uNoise: { value: getNoiseTexture() }, uShield: { value: 0 } };
+  readonly glassUniforms = { uRain: uniform(0), uTime: uniform(0), uFlow: uniform(0), uShield: uniform(0) };
   /** 模型加载完成（失败也会 resolve，loaded 为 false） */
   readonly ready: Promise<void>;
   loaded = false;
@@ -173,11 +174,13 @@ export class Cockpit {
     this.screens.push({ tex, ctx, w, h, kind });
   }
 
-  private makeGlassMaterial(roof: boolean): THREE.MeshStandardMaterial {
-    const mat = new THREE.MeshStandardMaterial({
-      color: roof ? 0x3f8fbe : 0xb8c8d0,
+  private makeGlassMaterial(roof: boolean): THREE.MeshStandardNodeMaterial {
+    const base = new THREE.Color(roof ? 0x3f8fbe : 0xb8c8d0);
+    const opacity = roof ? 0.42 : 0.07;
+    const mat = new THREE.MeshStandardNodeMaterial({
+      color: base,
       transparent: true,
-      opacity: roof ? 0.42 : 0.07,
+      opacity,
       roughness: 0.04,
       metalness: 0.1,
       side: THREE.DoubleSide,
@@ -185,34 +188,20 @@ export class Cockpit {
       envMapIntensity: 0.8,
     });
     const GU = this.glassUniforms;
-    mat.onBeforeCompile = (shader) => {
-      Object.assign(shader.uniforms, GU);
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vLPos;\nvarying vec3 vLNrm;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLPos = position;\nvLNrm = normal;');
-      shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vLPos;\nvarying vec3 vLNrm;\nuniform float uRain, uTime, uFlow, uShield;\nuniform sampler2D uNoise;')
-        .replace(
-          '#include <alphamap_fragment>',
-          /* glsl */ `#include <alphamap_fragment>
-{
-  // 雨滴坐标：按玻璃朝向取机体坐标平面（风挡用 x/y，侧窗用 z/y，顶窗用 x/z）
-  vec3 an = abs(normalize(vLNrm));
-  vec2 p = an.z > max(an.x, an.y) ? vLPos.xy : (an.x > an.y ? vLPos.zy : vLPos.xz);
-  vec2 uv = p * vec2(9.0, 9.0);
-  float cells = texture2D(uNoise, uv * 0.25).b;
-  float drops = smoothstep(0.16, 0.05, cells) * step(0.45, texture2D(uNoise, uv * 0.031).r);
-  vec2 fuv = vec2(p.x * 14.0, p.y * 4.0 + uTime * (0.15 + uFlow * 1.6));
-  float streak = smoothstep(0.82, 0.95, texture2D(uNoise, fuv * vec2(0.08, 0.02)).g) * smoothstep(0.2, 1.0, uFlow + 0.3);
-  float w = clamp((drops * 0.85 + streak * 0.6) * uRain, 0.0, 1.0);
-  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.85, 0.9, 0.95), w);
-  diffuseColor.a = clamp(diffuseColor.a + w * 0.38, 0.0, 1.0);
-  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.3, 0.7, 1.0), uShield * 0.6);
-  diffuseColor.a += uShield * 0.08;
-}`,
-        );
-    };
-    mat.customProgramCacheKey = () => (roof ? 'cockpit-glass-roof-v2' : 'cockpit-glass-v2');
+    const noise = getNoiseTexture();
+    // 雨滴坐标：按玻璃朝向取机体坐标平面（风挡用 x/y，侧窗用 z/y，顶窗用 x/z）
+    const an = abs(normalize(normalGeometry));
+    const lp = positionGeometry;
+    const p = select(an.z.greaterThan(max(an.x, an.y)), lp.xy, select(an.x.greaterThan(an.y), lp.zy, lp.xz));
+    const ruv = p.mul(9.0);
+    const cells = texture(noise, ruv.mul(0.25)).b;
+    const drops = float(1).sub(smoothstep(0.05, 0.16, cells)).mul(step(0.45, texture(noise, ruv.mul(0.031)).r));
+    const fuv = vec2(p.x.mul(14.0), p.y.mul(4.0).add(GU.uTime.mul(GU.uFlow.mul(1.6).add(0.15))));
+    const streak = smoothstep(0.82, 0.95, texture(noise, fuv.mul(vec2(0.08, 0.02))).g).mul(smoothstep(0.2, 1.0, GU.uFlow.add(0.3)));
+    const w = clamp(drops.mul(0.85).add(streak.mul(0.6)).mul(GU.uRain), 0.0, 1.0);
+    const c = mix(mix(vec3(base.r, base.g, base.b), vec3(0.85, 0.9, 0.95), w), vec3(0.3, 0.7, 1.0), GU.uShield.mul(0.6));
+    mat.colorNode = vec4(c, 1.0);
+    mat.opacityNode = clamp(w.mul(0.38).add(opacity), 0.0, 1.0).add(GU.uShield.mul(0.08));
     return mat;
   }
 

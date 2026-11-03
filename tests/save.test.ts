@@ -74,6 +74,10 @@ describe('本地存档', () => {
     expect(d.settings.viewCenter).toBe(defaultSettings().viewCenter);
     expect(sanitizeSettings({ viewCenter: 3 }).viewCenter).toBe(1);
     expect(sanitizeSettings({ viewCenter: -1 }).viewCenter).toBe(0);
+    // 光线追踪开关：旧存档没有这个字段时默认关闭，非布尔值退回默认
+    expect(d.settings.rayTracing).toBe(false);
+    expect(sanitizeSettings({ rayTracing: true }).rayTracing).toBe(true);
+    expect(sanitizeSettings({ rayTracing: 'yes' }).rayTracing).toBe(false);
   });
 
   it('v1 存档的旧默认键位升级为新键位（下降 C、视角回正 Z），自定义键位保持不变', () => {

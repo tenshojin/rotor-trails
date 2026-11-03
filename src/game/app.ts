@@ -33,22 +33,15 @@ interface RunConfig {
 const _wB = new THREE.Vector3();
 const _qInv = new THREE.Quaternion();
 
-/** WebGL 实际使用的显卡（浏览器不提供时返回空字符串） */
-function gpuName(r: THREE.WebGLRenderer): string {
-  try {
-    const gl = r.getContext();
-    const ext = gl.getExtension('WEBGL_debug_renderer_info');
-    return String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
-  } catch {
-    return '';
-  }
-}
-
-const isIntegrated = (gpu: string) => /Intel|UHD|Iris|Radeon\(TM\) Graphics|Vega \d+ Graphics|Mali|Adreno|PowerVR|SwiftShader|llvmpipe/i.test(gpu) && !/Arc/i.test(gpu);
+// 显卡名称：WebGL2 后端是驱动报告的型号（如 “NVIDIA GeForce RTX 4070”）；
+// WebGPU 后端只给厂商与架构（如 “nvidia blackwell”），所以两种写法都要能识别。
+const isIntegrated = (gpu: string) =>
+  (/Intel|UHD|Iris|Radeon\(TM\) Graphics|Vega \d+ Graphics|Mali|Adreno|PowerVR|SwiftShader|llvmpipe/i.test(gpu) && !/Arc|xe-hpg|alchemist|battlemage/i.test(gpu)) ||
+  /^intel gen-|^intel xe-lp/i.test(gpu);
 
 /** 按显卡挑默认画质：独立显卡“高”，集成显卡/软件渲染“低”，其余“中” */
 function pickQuality(gpu: string): Settings['quality'] {
-  if (/RTX|GTX 1[6-9]|GTX [2-9]\d|Radeon RX ?[5-9]|Apple M[1-9]|Arc A[57]/i.test(gpu)) return 'high';
+  if (/RTX|GTX 1[6-9]|GTX [2-9]\d|Radeon RX ?[5-9]|Apple M[1-9]|Arc A[57]|nvidia (turing|ampere|lovelace|ada|blackwell|hopper|rubin)|amd rdna-?[2-9]|apple metal-?3|xe-hpg|battlemage/i.test(gpu)) return 'high';
   if (isIntegrated(gpu)) return 'low';
   return 'medium';
 }
@@ -98,8 +91,8 @@ export class App {
   private frames = 0;
   private fpsT = 0;
   fps = 0;
-  /** WebGL 实际使用的显卡名称 */
-  readonly gpu: string;
+  /** 实际使用的显卡名称（renderer.init() 之后才知道） */
+  gpu = '';
 
   constructor(root: HTMLElement) {
     this.save = new SaveStore();
@@ -108,13 +101,6 @@ export class App {
     canvas.className = 'gl';
     root.appendChild(canvas);
     this.view = new WorldView(canvas, this.settings);
-    this.gpu = gpuName(this.view.renderer);
-    if (this.save.fresh) {
-      // 第一次运行：按显卡选默认画质
-      this.settings.quality = pickQuality(this.gpu);
-      this.view.applySettings(this.settings);
-      this.save.save();
-    }
     this.hud = new Hud(root);
     this.hud.setOpacity(this.settings.hudOpacity);
     this.tutBox = document.createElement('div');
@@ -158,6 +144,14 @@ export class App {
   }
 
   async start(): Promise<void> {
+    // 先初始化 GPU（WebGPU，不可用时自动退回 WebGL2），再按显卡选默认画质
+    await this.view.init();
+    this.gpu = this.view.gpuInfo().name;
+    if (this.save.fresh) {
+      this.settings.quality = pickQuality(this.gpu);
+      this.view.applySettings(this.settings);
+      this.save.save();
+    }
     const params = new URLSearchParams(location.search);
     const auto = params.get('map') as MapId | null;
     if (!auto) {

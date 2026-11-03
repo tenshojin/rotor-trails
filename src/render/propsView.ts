@@ -1,6 +1,7 @@
 // 建筑/道具渲染：把 PropBuilder 合批数据转成网格；锚点生成风向袋、旗帜、信标灯、经幡等动态对象。
 
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { attribute, float, max, positionGeometry, positionLocal, positionWorld, sin, texture, uniform, vec3, vec4 } from 'three/tsl';
 import type { MatKey, ModelInstance } from '../world/propBuilder';
 import type { WorldData } from '../world/worldgen';
 import { addDetail, DETAIL } from './detailTextures';
@@ -30,23 +31,14 @@ export function getGlowTexture(): THREE.CanvasTexture {
 
 function makeMaterials(detail: THREE.DataArrayTexture | null): Record<MatKey, THREE.Material> {
   const noise = getNoiseTexture();
-  const rock = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
-  rock.onBeforeCompile = (shader) => {
-    shader.uniforms.uNoise = { value: noise };
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWP;')
-      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWP;\nuniform sampler2D uNoise;')
-      .replace(
-        '#include <color_fragment>',
-        '#include <color_fragment>\nfloat rn = texture2D(uNoise, vWP.xz * 0.06 + vWP.y * 0.05).g * 0.6 + texture2D(uNoise, vWP.xy * 0.2 + 0.3).g * 0.4;\ndiffuseColor.rgb *= 0.75 + 0.5 * rn;',
-      );
-  };
-  rock.customProgramCacheKey = () => 'rock-v1';
-  const std = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
-  const rough = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
-  const metal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.6 });
+  // 岩石：顶点色 × 两层世界坐标噪声（明暗斑驳）
+  const rock = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
+  const P = positionWorld;
+  const rn = texture(noise, P.xz.mul(0.06).add(P.y.mul(0.05))).g.mul(0.6).add(texture(noise, P.xy.mul(0.2).add(0.3)).g.mul(0.4));
+  rock.colorNode = vec4(vec3(rn.mul(0.5).add(0.75)), 1.0);
+  const std = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
+  const rough = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+  const metal = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.6 });
   if (detail) {
     // 照片细节：墙面灰泥、混凝土、波纹铁皮（不再是纯色块）
     addDetail(std, detail, DETAIL.plaster, 0.8);
@@ -84,11 +76,11 @@ export class PropsView {
   private socks: Sock[] = [];
   private flags: Sock[] = [];
   private glows: Glow[] = [];
-  private flagMat: THREE.MeshStandardMaterial;
+  private flagMat: THREE.MeshStandardNodeMaterial;
   private prayerMat: THREE.Material | null = null;
   /** 经幡的风采样点（每组取一个），用于驱动摆动幅度 */
   private prayerSamples: THREE.Vector3[] = [];
-  private flagUniforms = { uTime: { value: 0 }, uWindAmt: { value: 0.5 } };
+  private flagUniforms = { uTime: uniform(0), uWindAmt: uniform(0.5) };
   private geos: THREE.BufferGeometry[] = [];
   /** 模型实例（几何体与材质属于模型库，由模型库释放） */
   private instanced: THREE.InstancedMesh[] = [];
@@ -144,18 +136,14 @@ export class PropsView {
     // 动态对象
     const sockGeo = this.makeSockGeometry();
     const sockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide });
-    this.flagMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide });
+    this.flagMat = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide });
     const FU = this.flagUniforms;
-    this.flagMat.onBeforeCompile = (shader) => {
-      shader.uniforms.uTime = FU.uTime;
-      shader.uniforms.uWindAmt = FU.uWindAmt;
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform float uWindAmt;')
-        .replace(
-          '#include <begin_vertex>',
-          '#include <begin_vertex>\nfloat fx = max(0.0, position.x);\ntransformed.z += sin(fx * 2.6 - uTime * (5.0 + uWindAmt * 6.0) + position.y * 0.8) * fx * (0.06 + 0.1 * uWindAmt);\ntransformed.y -= fx * (1.0 - uWindAmt) * 0.35;',
-        );
-    };
+    {
+      // 旗面沿旗杆外侧（+X）起伏：越远离旗杆摆得越大；风小时下垂
+      const fx = max(0.0, positionGeometry.x);
+      const wave = sin(fx.mul(2.6).sub(FU.uTime.mul(FU.uWindAmt.mul(6.0).add(5.0))).add(positionGeometry.y.mul(0.8))).mul(fx).mul(FU.uWindAmt.mul(0.1).add(0.06));
+      this.flagMat.positionNode = positionLocal.add(vec3(0.0, fx.mul(float(1).sub(FU.uWindAmt)).mul(-0.35), wave));
+    }
     const glow = getGlowTexture();
     const prayers: typeof world.builder.anchors = [];
     for (const a of world.builder.anchors) {
@@ -244,19 +232,16 @@ export class PropsView {
     g.setAttribute('aSway', new THREE.Float32BufferAttribute(sway, 3));
     g.computeBoundingSphere();
     this.geos.push(g);
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide });
+    const mat = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide });
     const FU = this.flagUniforms;
-    mat.onBeforeCompile = (shader) => {
-      shader.uniforms.uTime = FU.uTime;
-      shader.uniforms.uWindAmt = FU.uWindAmt;
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform float uWindAmt;\nattribute float aHang;\nattribute float aPhase;\nattribute vec3 aSway;')
-        .replace(
-          '#include <begin_vertex>',
-          '#include <begin_vertex>\nfloat sw = sin(uTime * (3.0 + 5.0 * uWindAmt) + aPhase) + 0.35 * sin(uTime * 7.3 + aPhase * 2.1);\ntransformed += aSway * sw * aHang * (0.06 + 0.24 * uWindAmt);\ntransformed.y += aHang * uWindAmt * 0.12;',
-        );
-    };
-    mat.customProgramCacheKey = () => 'prayer-v1';
+    {
+      // 经幡：每面小旗绕挂绳摆动（aSway = 摆动方向，aHang = 离绳子的距离，aPhase = 相位）
+      const aHang = attribute('aHang', 'float');
+      const aPhase = attribute('aPhase', 'float');
+      const aSway = attribute('aSway', 'vec3');
+      const sw = sin(FU.uTime.mul(FU.uWindAmt.mul(5.0).add(3.0)).add(aPhase)).add(sin(FU.uTime.mul(7.3).add(aPhase.mul(2.1))).mul(0.35));
+      mat.positionNode = positionLocal.add(aSway.mul(sw).mul(aHang).mul(FU.uWindAmt.mul(0.24).add(0.06))).add(vec3(0.0, aHang.mul(FU.uWindAmt).mul(0.12), 0.0));
+    }
     this.prayerMat = mat;
     const m = new THREE.Mesh(g, mat);
     m.matrixAutoUpdate = false;

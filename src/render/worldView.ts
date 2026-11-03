@@ -1,13 +1,8 @@
-// 渲染总控：WebGL2 渲染器、场景、光照、阴影、天空/环境贴图、地形、水、道具、植被、导航标记、天气特效、
-// 直升机与座舱。每次只加载一张地图的资源，切换地图时完整释放（避免内存泄漏）。
+// 渲染总控：three.js WebGPU 渲染器（不支持 WebGPU 的浏览器自动退回 WebGL2 后端）、场景、光照、分层阴影、
+// 天空/环境贴图、地形、水、道具、植被、导航标记、天气特效、直升机与座舱，以及按画质分档的后期管线（post.ts，
+// 含“光线追踪”开关）。每次只加载一张地图的资源，切换地图时完整释放（避免内存泄漏）。
 
-import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
-import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import * as THREE from 'three/webgpu';
 import type { GameSession } from '../sim/session';
 import type { WorldData } from '../world/worldgen';
 import type { WeatherParams } from '../sim/weather';
@@ -20,7 +15,8 @@ import { loadDetailTextures } from './detailTextures';
 import { NavView } from './navView';
 import { PropsView } from './propsView';
 import { SkyDome } from './sky';
-import { FOG, installFogChunks } from './atmosphere';
+import { FOG, sceneFog } from './atmosphere';
+import { buildPost, protectTransparent, type Post } from './post';
 import { SunShadows } from './sunShadows';
 import { loadTerrainLayers } from './terrainLayers';
 import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrainView';
@@ -43,23 +39,24 @@ const _vel = new THREE.Vector3();
 const _w = new THREE.Vector3();
 
 export class WorldView {
-  readonly renderer: THREE.WebGLRenderer;
+  readonly renderer: THREE.WebGPURenderer;
   readonly scene = new THREE.Scene();
   readonly rig: CameraRig;
   /** 太阳光（分层阴影） */
   readonly sun: SunShadows;
   readonly hemi: THREE.HemisphereLight;
-  private csmT = 0;
   private csmFov = 0;
   private csmAspect = 0;
-  private pmrem: THREE.PMREMGenerator;
-  private envRT: THREE.WebGLRenderTarget | null = null;
+  private pmrem: THREE.PMREMGenerator | null = null;
+  private envRT: THREE.RenderTarget | null = null;
   private envKey = '';
   private envT = -10;
-  private composer: EffectComposer | null = null;
-  private afterimage: AfterimagePass | null = null;
+  private post: Post | null = null;
   /** 当前后期管线的配置（变化时重建） */
   private postKey = '';
+  /** renderer.init() 完成后才能渲染 */
+  private ready = false;
+  private gbT = -10;
   private settings: Settings;
   // 地图相关
   world: WorldData | null = null;
@@ -78,7 +75,6 @@ export class WorldView {
   readonly cockpit: Cockpit;
   minimap: HTMLCanvasElement | null = null;
   private mapTextures: THREE.Texture[] = [];
-  private fog = new THREE.FogExp2(0xb0c0d0, 0.0002);
   /** 雾最浓的基准高度（地图最低处） */
   private fogBaseY = 0;
   flash = 0;
@@ -88,18 +84,20 @@ export class WorldView {
 
   constructor(canvas: HTMLCanvasElement, settings: Settings) {
     this.settings = settings;
-    installFogChunks();
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: settings.quality !== 'low', powerPreference: 'high-performance', reversedDepthBuffer: true, stencil: false });
+    // 反向深度缓冲：近裁剪面几厘米（座舱）到远处几千米都有足够的深度精度
+    // ?backend=webgl：强制使用 WebGL2 后端（测试不支持 WebGPU 的浏览器时的表现）
+    const forceWebGL = new URLSearchParams(location.search).get('backend') === 'webgl';
+    this.renderer = new THREE.WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', reversedDepthBuffer: true, forceWebGL });
     const r = this.renderer;
     r.outputColorSpace = THREE.SRGBColorSpace;
-    r.toneMapping = THREE.ACESFilmicToneMapping;
+    // Khronos PBR Neutral：高光柔和滚降，中间调颜色基本不偏（天空、海水、植被都接近照片），对比度和饱和度在 post.ts 的调色里补
+    r.toneMapping = THREE.NeutralToneMapping;
     r.toneMappingExposure = 1.0;
     r.shadowMap.enabled = true;
-    r.shadowMap.type = THREE.PCFShadowMap;
-    this.pmrem = new THREE.PMREMGenerator(r);
+    r.shadowMap.type = THREE.PCFSoftShadowMap;
     this.rig = new CameraRig(canvas.clientWidth / Math.max(1, canvas.clientHeight));
     this.scene.add(this.rig.camera);
-    this.scene.fog = this.fog;
+    this.scene.fogNode = sceneFog();
     this.sun = new SunShadows(this.scene, this.rig.camera, QUALITY[settings.quality].shadowSize);
     this.hemi = new THREE.HemisphereLight(0xbfd4ff, 0x4a4030, 0.6);
     this.scene.add(this.hemi);
@@ -109,7 +107,32 @@ export class WorldView {
     this.cockpit = new Cockpit();
     this.heli.root.add(this.cockpit.root);
     this.scene.add(this.heli.root);
-    this.applySettings(settings);
+  }
+
+  /** 初始化 GPU（WebGPU 不可用时退回 WebGL2），必须在第一次渲染前 await。 */
+  async init(): Promise<void> {
+    await this.renderer.init();
+    this.pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.ready = true;
+    this.applySettings(this.settings);
+  }
+
+  /** 实际使用的后端与显卡名称 */
+  gpuInfo(): { backend: 'WebGPU' | 'WebGL2'; name: string } {
+    const b = this.renderer.backend as unknown as { isWebGPUBackend?: boolean; adapter?: { info?: { vendor?: string; architecture?: string; description?: string; device?: string } }; gl?: WebGL2RenderingContext };
+    if (b.isWebGPUBackend) {
+      const i = b.adapter?.info ?? {};
+      return { backend: 'WebGPU', name: [i.vendor, i.architecture, i.description || i.device].filter(Boolean).join(' ') };
+    }
+    let name = '';
+    try {
+      const gl = b.gl!;
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      name = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+    } catch {
+      /* 拿不到显卡名：留空 */
+    }
+    return { backend: 'WebGL2', name };
   }
 
   applySettings(s: Settings): void {
@@ -127,45 +150,19 @@ export class WorldView {
     if (this.props) this.props.lodScale = q.terrainLod;
     this.lightning.enabled = s.lightning;
     this.envKey = '';
-    this.buildPost(dpr);
+    this.buildPost();
     this.resize();
   }
 
-  /**
-   * 后期管线：半浮点渲染目标（保留高光）+ 多重采样抗锯齿 → [环境光遮蔽] → [泛光] → [动态模糊] → 色调映射输出。
-   * 低画质且不开动态模糊时直接渲染到屏幕。
-   */
-  private buildPost(dpr: number): void {
+  /** 后期管线（见 post.ts）：画质或光线追踪开关变化时重建。 */
+  private buildPost(): void {
+    if (!this.ready) return;
     const s = this.settings;
-    const q = QUALITY[s.quality];
-    const key = `${q.msaa}_${q.bloom}_${q.ao}_${s.motionBlur}`;
-    if (key === this.postKey && this.composer) {
-      this.composer.setPixelRatio(dpr);
-      return;
-    }
+    const key = `${s.quality}_${s.rayTracing}`;
+    if (key === this.postKey && this.post) return;
     this.postKey = key;
-    this.composer?.dispose();
-    this.composer = null;
-    this.afterimage = null;
-    if (q.msaa === 0 && !s.motionBlur) return;
-    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: q.msaa });
-    const c = new EffectComposer(this.renderer, rt);
-    c.setPixelRatio(dpr);
-    c.addPass(new RenderPass(this.scene, this.rig.camera));
-    if (q.ao) {
-      const ao = new GTAOPass(this.scene, this.rig.camera, 1, 1);
-      ao.updateGtaoMaterial({ radius: 1.2, distanceExponent: 1.5, thickness: 2, scale: 1, samples: 12 });
-      ao.blendIntensity = 0.75;
-      c.addPass(ao);
-    }
-    // 阈值较高：只有太阳、强镜面反光、灯光会晕开（阳光下的白色表面本身也有约 3 的亮度）
-    if (q.bloom) c.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.38, 0.6, 6.0));
-    if (s.motionBlur) {
-      this.afterimage = new AfterimagePass(0.55);
-      c.addPass(this.afterimage);
-    }
-    c.addPass(new OutputPass());
-    this.composer = c;
+    this.post?.dispose();
+    this.post = buildPost(this.renderer, this.scene, this.rig.camera, this.sun.light, { quality: s.quality, rayTracing: s.rayTracing });
   }
 
   resize(): void {
@@ -176,7 +173,6 @@ export class WorldView {
     this.rig.camera.aspect = w / Math.max(1, h);
     this.rig.camera.updateProjectionMatrix();
     this.sun.updateFrustums();
-    this.composer?.setSize(w, h);
   }
 
   /** 构建地图视觉资源。 */
@@ -230,8 +226,8 @@ export class WorldView {
       progress?.(0.92, '加载直升机模型');
       await Promise.all([this.cockpit.ready, this.heli.ready]);
     }
-    this.sun.setupObject(this.scene);
     this.applySettings(this.settings);
+    protectTransparent(this.scene);
     progress?.(0.96, '编译着色器');
     await tick();
   }
@@ -275,10 +271,11 @@ export class WorldView {
     const m = new THREE.Mesh(this.sky.mesh.geometry, this.sky.material);
     envScene.add(m);
     const old = this.envRT;
+    if (!this.pmrem) return;
     // 环境贴图里不画太阳圆盘（阳光的高光由方向光负责，否则光滑表面上会出现两个太阳）
-    this.sky.material.uniforms.uDisc.value = 0;
+    this.sky.u.disc.value = 0;
     this.envRT = this.pmrem.fromScene(envScene, 0, 1, 10000, { size: QUALITY[this.settings.quality].envSize });
-    this.sky.material.uniforms.uDisc.value = 1;
+    this.sky.u.disc.value = 1;
     this.scene.environment = this.envRT.texture;
     this.scene.environmentIntensity = 0.55;
     old?.dispose();
@@ -340,13 +337,13 @@ export class WorldView {
         const inside = Math.min(1, Math.max(0, Math.min(cp.y - w.cloudBase + 30, w.cloudTop - cp.y + 30) / 60));
         this.inCloud = inside * w.lowCloud;
       }
-      this.fog.density = 1.65 / Math.max(60, w.visibility);
-      this.fog.color.copy(C.fog).lerp(_cloudGrey, this.inCloud);
-      FOG.fogSunColor.value.copy(C.fogSun).lerp(_cloudGrey, this.inCloud);
-      FOG.fogSunDir.value.copy(this.sky.sunDir);
-      FOG.fogCloud.value = (1.65 / 90) * this.inCloud;
-      FOG.fogHeightK.value = 1 / 1100;
-      FOG.fogBaseY.value = this.fogBaseY;
+      FOG.density.value = 1.65 / Math.max(60, w.visibility);
+      FOG.color.value.copy(C.fog).lerp(_cloudGrey, this.inCloud);
+      FOG.sunColor.value.copy(C.fogSun).lerp(_cloudGrey, this.inCloud);
+      FOG.sunDir.value.copy(this.sky.sunDir);
+      FOG.cloud.value = (1.65 / 90) * this.inCloud;
+      FOG.heightK.value = 1 / 1100;
+      FOG.baseY.value = this.fogBaseY;
       this.renderer.toneMappingExposure = 1.0 - w.overcast * 0.12 + this.flash * 0.6;
       const q = QUALITY[set.quality];
       // 分层阴影：视野或宽高比变了要重新划分；每帧把各层阴影框跟随相机（内部按纹素对齐，避免闪烁）
@@ -355,11 +352,11 @@ export class WorldView {
         this.csmAspect = cam.aspect;
         this.sun.updateFrustums();
       }
-      this.sun.update();
-      // 兜底：定期检查新出现的受光材质是否已接入分层阴影（未接入会叠加多份阳光）
-      if (f.t - this.csmT > 1.5 || f.t < this.csmT) {
-        this.csmT = f.t;
-        this.sun.setupObject(this.scene);
+      this.sun.update(cam);
+      // 兜底：定期给新出现的透明材质套上“只写最终颜色”（见 post.ts keepGBuffer）
+      if (f.t - this.gbT > 2 || f.t < this.gbT) {
+        this.gbT = f.t;
+        protectTransparent(this.scene);
       }
       this.updateEnv(w, f.t);
       this.terrain?.update(cp);
@@ -373,14 +370,9 @@ export class WorldView {
       this.rain.update(f.t, cp, w.rain, _w, s ? _vel : new THREE.Vector3(), q.rainDensity);
       this.clouds?.update(f.dt, w.cloudBase, w.cloudTop, w.lowCloud, _w.x, _w.z, w.overcast, cp);
     }
-    if (this.composer) {
-      if (this.afterimage) {
-        // 动态模糊只随视角/机体角速度增强
-        const spin = s ? s.body.angVel.length() : 0;
-        this.afterimage.uniforms.damp.value = Math.min(0.82, 0.35 + spin * 0.5);
-      }
-      this.composer.render(f.dt);
-    } else this.renderer.render(this.scene, cam);
+    if (!this.ready) return;
+    if (this.post) this.post.pipeline.render();
+    else this.renderer.render(this.scene, cam);
   }
 
   drawInstruments(t: number, d: InstrumentData): void {
@@ -405,7 +397,7 @@ export class WorldView {
 
   info(): string {
     const i = this.renderer.info;
-    return `draw ${i.render.calls} · tris ${(i.render.triangles / 1000).toFixed(0)}k · geo ${i.memory.geometries} · tex ${i.memory.textures}`;
+    return `${this.gpuInfo().backend} · draw ${i.render.drawCalls} · tris ${(i.render.triangles / 1000).toFixed(0)}k · geo ${i.memory.geometries} · tex ${i.memory.textures}`;
   }
 
   dispose(): void {
@@ -413,9 +405,9 @@ export class WorldView {
     this.heli.dispose();
     this.cockpit.dispose();
     this.rain.dispose();
-    this.composer?.dispose();
+    this.post?.dispose();
     this.sun.dispose();
-    this.pmrem.dispose();
+    this.pmrem?.dispose();
     this.renderer.dispose();
   }
 }

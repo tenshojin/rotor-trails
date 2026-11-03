@@ -1,7 +1,8 @@
 // 三维导航标记：当前航点光环、后续航点（较暗）、沿航线的少量箭头、任务光柱、停机坪进近框、悬停区、巡查点；
 // Buff 补给的三维外观（动力 = 黄色闪电、护盾 = 蓝色六边形、维修 = 绿色十字）。
 
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { float, positionGeometry, uniform, vec3 } from 'three/tsl';
 import type { MapDef, ObjectiveDef, V3 } from '../maps/types';
 import type { GameSession } from '../sim/session';
 import { getGlowTexture } from './propsView';
@@ -97,16 +98,15 @@ export class NavView {
     this.buildPickups(map);
   }
 
-  private beamMaterial(hex: number): THREE.ShaderMaterial {
-    const m = new THREE.ShaderMaterial({
-      transparent: true,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
-      uniforms: { uColor: { value: new THREE.Color().setHex(hex) }, uOpacity: { value: 0.5 } },
-      vertexShader: 'varying float vY; void main(){ vY = position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-      fragmentShader: 'uniform vec3 uColor; uniform float uOpacity; varying float vY; void main(){ float a = (1.0 - vY) * uOpacity; gl_FragColor = vec4(uColor * a, a); }',
-    });
+  /** 导航光柱：自下而上渐隐的加色光柱；不透明度由 userData.uOpacity（uniform 节点）控制 */
+  private beamMaterial(hex: number): THREE.MeshBasicNodeMaterial {
+    const c = new THREE.Color().setHex(hex);
+    const uOpacity = uniform(0.5);
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false });
+    const a = float(1).sub(positionGeometry.y).mul(uOpacity);
+    m.colorNode = vec3(c.r, c.g, c.b).mul(a);
+    m.opacityNode = a;
+    m.userData.uOpacity = uOpacity;
     this.mats.push(m);
     return m;
   }
@@ -230,7 +230,7 @@ export class NavView {
   /** 光柱用于远距离指示：靠近目标后逐渐淡出（此时由停机坪框、悬停区和着陆辅助接管），避免遮挡视线 */
   private setBeamOpacity(beam: THREE.Mesh, d: number): void {
     const k = 0.15 + 0.85 * Math.min(1, Math.max(0, (d - 40) / 160));
-    (beam.material as THREE.ShaderMaterial).uniforms.uOpacity.value = 0.5 * k;
+    ((beam.material as THREE.Material).userData.uOpacity as { value: number }).value = 0.5 * k;
   }
 
   private placeObjective(def: ObjectiveDef, visited: boolean[], s: GameSession, t: number, camPos: THREE.Vector3, main: boolean): void {

@@ -4,7 +4,8 @@
 // 天空在地平线处的颜色在 CPU 端用同一套公式算出，作为大气雾的颜色（远山与天空自然衔接）。
 // 散射公式参照 three.js examples/jsm/objects/Sky.js（MIT）。
 
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { acos, clamp, cos, dot, exp, float, Fn, max, mix, normalize, positionLocal, pow, smoothstep, step, texture, uniform, vec2, vec3 } from 'three/tsl';
 import type { WeatherParams } from '../sim/weather';
 import { getNoiseTexture } from './textures';
 
@@ -14,90 +15,96 @@ const CUTOFF = 1.6110731556870734;
 const STEEP = 1.5;
 const EE = 1000;
 
-const VERT = /* glsl */ `
-varying vec3 vDir;
-void main() {
-  vDir = position;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}`;
+/** 天空着色用的 uniform 节点（CPU 端每帧更新 .value） */
+function makeSkyUniforms(sunDir: THREE.Vector3, wind: THREE.Vector2) {
+  return {
+    sunDir: uniform(sunDir),
+    betaR: uniform(new THREE.Vector3()),
+    betaM: uniform(new THREE.Vector3()),
+    sunE: uniform(0),
+    mieG: uniform(0.8),
+    skyScale: uniform(1),
+    ovZenith: uniform(new THREE.Color()),
+    ovHorizon: uniform(new THREE.Color()),
+    overcast: uniform(0),
+    haze: uniform(new THREE.Color()),
+    hazeK: uniform(0),
+    ground: uniform(new THREE.Color()),
+    sunColor: uniform(new THREE.Color()),
+    sunVis: uniform(1),
+    cloudLit: uniform(new THREE.Color()),
+    cloudDark: uniform(new THREE.Color()),
+    cover: uniform(0.3),
+    flash: uniform(0),
+    /** 1 = 画太阳圆盘；烘焙环境贴图时设为 0（阳光高光由方向光负责） */
+    disc: uniform(1),
+    wind: uniform(wind),
+  };
+}
 
-const FRAG = /* glsl */ `
-uniform vec3 uSunDir;
-uniform vec3 uBetaR;
-uniform vec3 uBetaM;
-uniform float uSunE;
-uniform float uMieG;
-uniform float uSkyScale;
-uniform vec3 uOvZenith;
-uniform vec3 uOvHorizon;
-uniform float uOvercast;
-uniform vec3 uHaze;
-uniform float uHazeK;
-uniform vec3 uGround;
-uniform vec3 uSunColor;
-uniform float uSunVis;
-uniform vec3 uCloudLit;
-uniform vec3 uCloudDark;
-uniform float uCover;
-uniform float uFlash;
-uniform float uDisc;
-uniform vec2 uWind;
-uniform sampler2D uNoise;
-varying vec3 vDir;
-const float PI = 3.141592653589793;
-float fbm(vec2 p) {
-  float s = 0.0; float a = 0.5;
-  for (int i = 0; i < 5; i++) { s += a * texture2D(uNoise, p).r; p = p * 2.03 + vec2(0.17, 0.31); a *= 0.5; }
-  return s / 0.96875;
-}
-vec3 preetham(vec3 d) {
-  float za = acos(max(0.0, d.y));
-  float inv = 1.0 / (cos(za) + 0.15 * pow(93.885 - za * 180.0 / PI, -1.253));
-  vec3 Fex = exp(-(uBetaR * 8.4e3 * inv + uBetaM * 1.25e3 * inv));
-  float ct = dot(d, uSunDir);
-  float rp = 0.05968310365946075 * (1.0 + pow(ct * 0.5 + 0.5, 2.0));
-  float g2 = uMieG * uMieG;
-  float mp = 0.07957747154594767 * ((1.0 - g2) / pow(1.0 - 2.0 * uMieG * ct + g2, 1.5));
-  vec3 bt = (uBetaR * rp + uBetaM * mp) / (uBetaR + uBetaM);
-  vec3 Lin = pow(uSunE * bt * (1.0 - Fex), vec3(1.5));
-  Lin *= mix(vec3(1.0), pow(uSunE * bt * Fex, vec3(0.5)), clamp(pow(1.0 - uSunDir.y, 5.0), 0.0, 1.0));
-  vec3 c = (Lin + 0.1 * Fex) * 0.04 + vec3(0.0, 0.0003, 0.00075);
-  return pow(c, vec3(1.0 / 2.4)) * uSkyScale;
-}
-void main() {
-  vec3 d = normalize(vDir);
-  float h = d.y;
-  vec3 dh = normalize(vec3(d.x, max(h, 0.0), d.z));
-  vec3 col = preetham(dh);
-  // 阴天：天顶与地平线之间的灰色渐变
-  vec3 ov = mix(uOvHorizon, uOvZenith, pow(clamp(h, 0.0, 1.0), 0.5));
-  col = mix(col, ov, uOvercast);
-  // 低能见度：地平线附近被雾霾吞没
-  col = mix(col, uHaze, uHazeK * (1.0 - smoothstep(0.0, 0.35, h)));
-  // 地平线以下（远景地形之外）
-  col = mix(col, uGround, smoothstep(0.0, -0.18, h));
-  float sd = max(dot(d, uSunDir), 0.0);
-  // 云层（平面投影，地平线处变薄）
-  if (h > -0.02 && uCover > 0.01) {
-    float hh = max(h, 0.0);
-    vec2 uv = d.xz / (hh + 0.1) * 0.06 + uWind;
-    float n = fbm(uv * 0.5);
-    float c = smoothstep(1.0 - uCover - 0.08, 1.0 - uCover + 0.32, n);
-    float fade = smoothstep(-0.02, 0.14, h);
-    float thick = smoothstep(1.0 - uCover, 1.0, n);
+type SkyU = ReturnType<typeof makeSkyUniforms>;
+
+/** 天空颜色（线性 HDR，色调映射在后期统一做）。d：视线方向（单位向量）。 */
+function skyColorNode(U: SkyU, noise: THREE.Texture) {
+  const PI_ = Math.PI;
+  const preetham = Fn(([d]: [THREE.Node<'vec3'>]) => {
+    const dd = vec3(d);
+    const za = acos(max(0.0, dd.y));
+    const inv = float(1).div(cos(za).add(float(0.15).mul(pow(float(93.885).sub(za.mul(180 / PI_)), -1.253))));
+    const Fex = exp(U.betaR.mul(8.4e3 * 1).mul(inv).add(U.betaM.mul(1.25e3).mul(inv)).negate());
+    const ct = dot(dd, U.sunDir);
+    const rp = float(0.05968310365946075).mul(float(1).add(pow(ct.mul(0.5).add(0.5), 2.0)));
+    const g2 = U.mieG.mul(U.mieG);
+    const mp = float(0.07957747154594767).mul(float(1).sub(g2).div(pow(float(1).sub(U.mieG.mul(2).mul(ct)).add(g2), 1.5)));
+    const bt = U.betaR.mul(rp).add(U.betaM.mul(mp)).div(U.betaR.add(U.betaM));
+    const Lin = pow(U.sunE.mul(bt).mul(float(1).sub(Fex)), vec3(1.5)).toVar();
+    Lin.mulAssign(mix(vec3(1.0), pow(U.sunE.mul(bt).mul(Fex), vec3(0.5)), clamp(pow(float(1).sub(U.sunDir.y), 5.0), 0.0, 1.0)));
+    const c = Lin.add(Fex.mul(0.1)).mul(0.04).add(vec3(0.0, 0.0003, 0.00075));
+    return pow(c, vec3(1.0 / 2.4)).mul(U.skyScale);
+  });
+  const fbm = (p: THREE.Node<'vec2'>) => {
+    let sum: THREE.Node<'float'> = float(0);
+    let a = 0.5;
+    let q: THREE.Node<'vec2'> = vec2(p);
+    for (let i = 0; i < 5; i++) {
+      sum = sum.add(texture(noise, q).r.mul(a));
+      q = q.mul(2.03).add(vec2(0.17, 0.31));
+      a *= 0.5;
+    }
+    return sum.div(0.96875);
+  };
+  return Fn(() => {
+    const d = normalize(positionLocal);
+    const h = d.y;
+    const dh = normalize(vec3(d.x, max(h, 0.0), d.z));
+    const col = vec3(preetham(dh)).toVar();
+    // 阴天：天顶与地平线之间的灰色渐变
+    const ov = mix(U.ovHorizon, U.ovZenith, pow(clamp(h, 0.0, 1.0), 0.5));
+    col.assign(mix(col, ov, U.overcast));
+    // 低能见度：地平线附近被雾霾吞没
+    col.assign(mix(col, U.haze, U.hazeK.mul(float(1).sub(smoothstep(0.0, 0.35, h)))));
+    // 地平线以下（远景地形之外）
+    col.assign(mix(col, U.ground, float(1).sub(smoothstep(-0.18, 0.0, h))));
+    const sd = max(dot(d, U.sunDir), 0.0);
+    // 云层（平面投影，地平线处变薄）
+    const hh = max(h, 0.0);
+    const cuv = d.xz.div(hh.add(0.1)).mul(0.06).add(U.wind);
+    const n = fbm(cuv.mul(0.5));
+    const cov = smoothstep(float(1).sub(U.cover).sub(0.08), float(1).sub(U.cover).add(0.32), n);
+    const fade = smoothstep(-0.02, 0.14, h);
+    const thick = smoothstep(float(1).sub(U.cover), 1.0, n);
     // 厚处暗、薄处亮，朝太阳一侧有逆光银边
-    vec3 cc = mix(uCloudLit, uCloudDark, thick * 0.85);
-    cc += uSunColor * uSunVis * (pow(sd, 8.0) * 0.6 * (1.0 - thick) + pow(sd, 2.0) * 0.08);
-    col = mix(col, cc, c * fade * 0.95);
-  }
-  // 太阳圆盘（高亮，后期泛光会让它自然晕开）+ 宽光晕
-  float disc = smoothstep(0.99955, 0.99975, sd);
-  col += uSunColor * (disc * 38.0 * uDisc + pow(sd, 400.0) * 1.2 * uDisc + pow(sd, 24.0) * 0.12) * uSunVis;
-  col += uFlash * vec3(0.55, 0.6, 0.75);
-  gl_FragColor = vec4(col, 1.0);
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
-}`;
+    const cc = mix(U.cloudLit, U.cloudDark, thick.mul(0.85)).add(
+      U.sunColor.mul(U.sunVis).mul(pow(sd, 8.0).mul(0.6).mul(float(1).sub(thick)).add(pow(sd, 2.0).mul(0.08))),
+    );
+    col.assign(mix(col, cc, cov.mul(fade).mul(0.95).mul(step(0.01, U.cover))));
+    // 太阳圆盘（高亮，后期泛光会让它自然晕开）+ 宽光晕
+    const disc = smoothstep(0.99955, 0.99975, sd);
+    col.addAssign(U.sunColor.mul(disc.mul(38.0).mul(U.disc).add(pow(sd, 400.0).mul(1.2).mul(U.disc)).add(pow(sd, 24.0).mul(0.12))).mul(U.sunVis));
+    col.addAssign(vec3(0.55, 0.6, 0.75).mul(U.flash));
+    return col;
+  })();
+}
 
 export interface SkyColors {
   zenith: THREE.Color;
@@ -118,7 +125,8 @@ const c = (hex: number) => new THREE.Color().setHex(hex);
 
 export class SkyDome {
   readonly mesh: THREE.Mesh;
-  readonly material: THREE.ShaderMaterial;
+  readonly material: THREE.MeshBasicNodeMaterial;
+  readonly u: SkyU;
   readonly sunDir = new THREE.Vector3();
   readonly colors: SkyColors;
   private fogTint: THREE.Color;
@@ -139,37 +147,11 @@ export class SkyDome {
     this.fogTint = c(fogTint);
     this.groundTint = c(groundTint);
     this.setAtmosphere(2.4, 1.6, 0.005);
-    this.material = new THREE.ShaderMaterial({
-      vertexShader: VERT,
-      fragmentShader: FRAG,
-      side: THREE.BackSide,
-      depthWrite: false,
-      depthTest: false,
-      fog: false,
-      uniforms: {
-        uSunDir: { value: this.sunDir },
-        uBetaR: { value: this.betaR },
-        uBetaM: { value: this.betaM },
-        uSunE: { value: this.sunE },
-        uMieG: { value: this.mieG },
-        uSkyScale: { value: this.skyScale },
-        uOvZenith: { value: new THREE.Color() },
-        uOvHorizon: { value: new THREE.Color() },
-        uOvercast: { value: 0 },
-        uHaze: { value: new THREE.Color() },
-        uHazeK: { value: 0 },
-        uGround: { value: new THREE.Color() },
-        uSunColor: { value: new THREE.Color() },
-        uSunVis: { value: 1 },
-        uCloudLit: { value: new THREE.Color() },
-        uCloudDark: { value: new THREE.Color() },
-        uCover: { value: 0.3 },
-        uFlash: { value: 0 },
-        uDisc: { value: 1 },
-        uWind: { value: this.windOffset },
-        uNoise: { value: getNoiseTexture() },
-      },
-    });
+    this.u = makeSkyUniforms(this.sunDir, this.windOffset);
+    this.u.betaR.value = this.betaR;
+    this.u.betaM.value = this.betaM;
+    this.material = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false });
+    this.material.colorNode = skyColorNode(this.u, getNoiseTexture());
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(9000, 64, 32), this.material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = -10;
@@ -257,21 +239,21 @@ export class SkyDome {
     C.hemiSky.copy(C.zenith).lerp(C.horizon, 0.5);
     C.hemiGround.copy(this.groundTint).multiplyScalar(0.6);
     C.hemiIntensity = 0.5 + 0.6 * oc + flash * 2.5;
-    const u = this.material.uniforms;
-    (u.uOvZenith.value as THREE.Color).copy(ovZen);
-    (u.uOvHorizon.value as THREE.Color).copy(ovHor);
-    u.uOvercast.value = oc;
-    (u.uHaze.value as THREE.Color).copy(haze);
-    u.uHazeK.value = fogK * 0.85;
-    (u.uGround.value as THREE.Color).copy(C.ground);
-    (u.uSunColor.value as THREE.Color).copy(C.sun);
-    u.uSunVis.value = sunVis;
-    u.uSunE.value = this.sunE;
-    u.uSkyScale.value = this.skyScale;
-    (u.uCloudLit.value as THREE.Color).copy(c(0xf6f7f9)).lerp(c(0x9aa0a8), oc).lerp(c(0x585e66), storm);
-    (u.uCloudDark.value as THREE.Color).copy(c(0xa3abb7)).lerp(c(0x6c727a), oc).lerp(c(0x30353c), storm);
-    u.uCover.value = Math.min(0.98, w.cloudCover + oc * 0.4);
-    u.uFlash.value = flash;
+    const u = this.u;
+    u.ovZenith.value.copy(ovZen);
+    u.ovHorizon.value.copy(ovHor);
+    u.overcast.value = oc;
+    u.haze.value.copy(haze);
+    u.hazeK.value = fogK * 0.85;
+    u.ground.value.copy(C.ground);
+    u.sunColor.value.copy(C.sun);
+    u.sunVis.value = sunVis;
+    u.sunE.value = this.sunE;
+    u.skyScale.value = this.skyScale;
+    u.cloudLit.value.copy(c(0xf6f7f9)).lerp(c(0x9aa0a8), oc).lerp(c(0x585e66), storm);
+    u.cloudDark.value.copy(c(0xa3abb7)).lerp(c(0x6c727a), oc).lerp(c(0x30353c), storm);
+    u.cover.value = Math.min(0.98, w.cloudCover + oc * 0.4);
+    u.flash.value = flash;
     this.windOffset.x += windX * dt * 0.00004;
     this.windOffset.y += windZ * dt * 0.00004;
   }

@@ -85,19 +85,19 @@ export interface QualityPreset {
   envSize: number;
   /** 地形照片材质的分辨率 */
   terrainTex: number;
-  /** 多重采样抗锯齿（后期处理管线里的采样数，0 = 关闭后期、直接渲染） */
+  /** 抗锯齿：低 = FXAA，中及以上 = TRAA 时间抗锯齿（数值只用于判断是否开启，叶片用 alpha-to-coverage） */
   msaa: number;
   /** 泛光（强光、太阳、水面反光的光晕） */
   bloom: boolean;
-  /** 屏幕空间环境光遮蔽（接触阴影） */
+  /** 屏幕空间环境光遮蔽（GTAO；光线追踪开启时由 SSGI 取代） */
   ao: boolean;
 }
 
 export const QUALITY: Record<QualityId, QualityPreset> = {
   low: { label: '低', pixelRatio: 0.8, shadows: false, shadowSize: 512, shadowRange: 0, treeNear: 260, treeFar: 1300, terrainLod: 0.7, rainDensity: 0.35, envSize: 64, terrainTex: 0, msaa: 0, bloom: false, ao: false },
-  medium: { label: '中', pixelRatio: 1, shadows: true, shadowSize: 1024, shadowRange: 600, treeNear: 380, treeFar: 2000, terrainLod: 1, rainDensity: 0.65, envSize: 128, terrainTex: 1024, msaa: 4, bloom: false, ao: false },
-  high: { label: '高', pixelRatio: 1.5, shadows: true, shadowSize: 2048, shadowRange: 1200, treeNear: 520, treeFar: 2900, terrainLod: 1.35, rainDensity: 1, envSize: 256, terrainTex: 1024, msaa: 4, bloom: true, ao: false },
-  ultra: { label: '极高', pixelRatio: 2, shadows: true, shadowSize: 4096, shadowRange: 2000, treeNear: 700, treeFar: 3600, terrainLod: 1.7, rainDensity: 1, envSize: 256, terrainTex: 1024, msaa: 4, bloom: true, ao: false },
+  medium: { label: '中', pixelRatio: 1, shadows: true, shadowSize: 1024, shadowRange: 600, treeNear: 380, treeFar: 2000, terrainLod: 1, rainDensity: 0.65, envSize: 128, terrainTex: 1024, msaa: 4, bloom: false, ao: true },
+  high: { label: '高', pixelRatio: 1.5, shadows: true, shadowSize: 2048, shadowRange: 1200, treeNear: 520, treeFar: 2900, terrainLod: 1.35, rainDensity: 1, envSize: 256, terrainTex: 1024, msaa: 4, bloom: true, ao: true },
+  ultra: { label: '极高（Ultra）', pixelRatio: 2, shadows: true, shadowSize: 4096, shadowRange: 2000, treeNear: 700, treeFar: 3600, terrainLod: 1.7, rainDensity: 1, envSize: 256, terrainTex: 1024, msaa: 4, bloom: true, ao: true },
 };
 
 export interface Settings {
@@ -112,6 +112,8 @@ export interface Settings {
   motionBlur: boolean;
   lightning: boolean;
   quality: QualityId;
+  /** 光线追踪（屏幕空间：全局光照 + 反射 + 接触阴影），任意画质都可以单独开关 */
+  rayTracing: boolean;
   renderScale: number;
   volMaster: number;
   volEngine: number;
@@ -136,6 +138,7 @@ export function defaultSettings(): Settings {
     motionBlur: false,
     lightning: true,
     quality: 'medium',
+    rayTracing: false,
     renderScale: 1,
     volMaster: 0.8,
     volEngine: 0.8,
@@ -196,6 +199,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     motionBlur: bool(r.motionBlur, d.motionBlur),
     lightning: bool(r.lightning, d.lightning),
     quality: pick(r.quality, ['low', 'medium', 'high', 'ultra'] as const, d.quality),
+    rayTracing: bool(r.rayTracing, d.rayTracing),
     renderScale: num(r.renderScale, 0.5, 1, d.renderScale),
     volMaster: num(r.volMaster, 0, 1, d.volMaster),
     volEngine: num(r.volEngine, 0, 1, d.volEngine),

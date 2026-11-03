@@ -56,6 +56,8 @@ export class HeliModel {
   private glbBladeMats: THREE.MeshStandardMaterial[] = [];
   private glbGeos: THREE.BufferGeometry[] = [];
   private rotorSpin = new THREE.Group();
+  /** Blender 外观的桨叶网格（高速旋转时不投影） */
+  private glbBlades: THREE.Mesh[] = [];
   /** 外观模型加载完成（失败也会 resolve，extLoaded 为 false） */
   readonly ready: Promise<void>;
 
@@ -178,9 +180,10 @@ export class HeliModel {
     const g = cv.getContext('2d')!;
     const grd = g.createRadialGradient(128, 128, 10, 128, 128, 128);
     grd.addColorStop(0, 'rgba(30,30,32,0.0)');
-    grd.addColorStop(0.12, 'rgba(30,30,32,0.35)');
-    grd.addColorStop(0.92, 'rgba(30,30,32,0.22)');
-    grd.addColorStop(0.97, 'rgba(230,230,230,0.35)');
+    // 真实照片里转动的旋翼只是一层很淡的灰影，桨尖一圈略亮
+    grd.addColorStop(0.12, 'rgba(30,30,32,0.2)');
+    grd.addColorStop(0.92, 'rgba(30,30,32,0.12)');
+    grd.addColorStop(0.97, 'rgba(230,230,230,0.22)');
     grd.addColorStop(1, 'rgba(30,30,32,0)');
     g.fillStyle = grd;
     g.fillRect(0, 0, 256, 256);
@@ -262,6 +265,7 @@ export class HeliModel {
     this.rotorSpin.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.isMesh && m.name.startsWith('blades')) {
+        this.glbBlades.push(m);
         for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
           const sm = mat as THREE.MeshStandardMaterial;
           sm.transparent = true;
@@ -294,7 +298,12 @@ export class HeliModel {
       m.opacity = 1 - blur * 0.82;
       m.depthWrite = blur < 0.5;
     }
-    this.discMat.opacity = blur * 0.55;
+    this.discMat.opacity = blur * 0.45;
+    // 高速旋转时桨叶不投影：每帧角度不同的桨叶阴影会被时间抗锯齿累积成一整块深色圆盘，
+    // 而真实的旋翼阴影只是很淡的闪烁
+    const shadow = blur < 0.35;
+    this.blades.castShadow = shadow;
+    for (const m of this.glbBlades) m.castShadow = shadow;
     this.disc.rotation.y = -this.rotorAngle * 0.13;
     this.tailRotor.rotation.x = this.tailAngle;
     (this.tailDisc.material as THREE.MeshBasicMaterial).opacity = blur * 0.3;

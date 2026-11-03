@@ -2,7 +2,8 @@
 // 顶点着色器按真实风场摆动（风越大摆动越明显），叶片另有细碎抖动。模型加载失败时退回程序几何体（两级细节）。
 // 低画质只缩短远景距离，碰撞相关的近处树木始终可见。
 
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { dFdx, dFdy, dot, length, log2, max, normalLocal, normalViewGeometry, positionGeometry, positionLocal, sin, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
 import { loadGltf } from './gltf';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TREE_SPECS, TREE_TYPES, type TreeSet } from '../world/vegetation';
@@ -245,54 +246,27 @@ export function loadTreeLib(): Promise<TreeLib | null> {
   return libPromise;
 }
 
-type WindUniforms = { uTime: { value: number }; uWind: { value: THREE.Vector2 }; uGust: { value: number } };
-
-/** 风：树越高处弯得越多；叶片（TREE_LEAF）再加细碎抖动。 */
-function patchWind(shader: THREE.WebGLProgramParametersWithUniforms, U: WindUniforms, leaf: boolean): void {
-  Object.assign(shader.uniforms, U);
-  shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', `#include <common>\nuniform float uTime;\nuniform vec2 uWind;\nuniform float uGust;${leaf ? '\n#define TREE_LEAF' : ''}`)
-    .replace(
-      '#include <begin_vertex>',
-      /* glsl */ `#include <begin_vertex>
-#ifdef USE_INSTANCING
-{
-  vec3 ip = instanceMatrix[3].xyz;
-  float ph = ip.x * 0.071 + ip.z * 0.053;
-  float hgt = max(0.0, position.y);
-  float bend = hgt * hgt * 0.0011;
-  float osc = sin(uTime * 1.6 + ph) * 0.6 + sin(uTime * 3.7 + ph * 2.3) * 0.25;
-  vec2 wv = uWind * (0.55 + 0.45 * osc) * (1.0 + uGust);
-  mat3 im = mat3(instanceMatrix);
-  float sc = length(im[0]);
-  vec3 lw = transpose(im) * vec3(wv.x, 0.0, wv.y) / (sc * sc);
-  transformed += lw * bend;
-#ifdef TREE_LEAF
-  transformed += objectNormal * sin(uTime * 5.3 + dot(position, vec3(2.1, 1.7, 2.9)) + ph) * 0.035 * (0.3 + length(uWind) * 2.0) / sc;
-#endif
+function makeWindUniforms() {
+  return { uTime: uniform(0), uWind: uniform(new THREE.Vector2()), uGust: uniform(0) };
 }
-#endif`,
-    );
-}
+type WindUniforms = ReturnType<typeof makeWindUniforms>;
 
 /**
- * 叶片片元：① 远处（较小的 mip 级别）按级别放大不透明度，避免叶片越远越稀；
- * ② 双面渲染时背面不翻转法线（叶片法线朝树冠外侧，翻转会让背面发黑）。
+ * 风摆（顶点位移，实例化变换之后、世界坐标里）：越高摆得越多（与高度平方成正比），
+ * 两个频率叠加；叶片另有沿法线的细碎抖动。相位取顶点的世界坐标，一棵树的不同枝叶略有先后。
  */
-function patchLeafFragment(shader: THREE.WebGLProgramParametersWithUniforms): void {
-  shader.fragmentShader = shader.fragmentShader
-    .replace(
-      '#include <alphatest_fragment>',
-      /* glsl */ `#ifdef USE_MAP
-{
-  vec2 tsz = vec2(textureSize(map, 0));
-  vec2 ddx = dFdx(vMapUv * tsz), ddy = dFdy(vMapUv * tsz);
-  diffuseColor.a *= 1.0 + max(0.0, 0.5 * log2(max(dot(ddx, ddx), dot(ddy, ddy)))) * 0.25;
-}
-#endif
-#include <alphatest_fragment>`,
-    )
-    .replace('#include <normal_fragment_begin>', THREE.ShaderChunk.normal_fragment_begin.replace('normal *= faceDirection;', ''));
+function windPosition(U: WindUniforms, leaf: boolean): THREE.Node<'vec3'> {
+  const hgt = max(0.0, positionGeometry.y);
+  const bend = hgt.mul(hgt).mul(0.0011);
+  const ph = positionLocal.x.mul(0.071).add(positionLocal.z.mul(0.053));
+  const osc = sin(U.uTime.mul(1.6).add(ph)).mul(0.6).add(sin(U.uTime.mul(3.7).add(ph.mul(2.3))).mul(0.25));
+  const wv = U.uWind.mul(osc.mul(0.45).add(0.55)).mul(U.uGust.add(1.0));
+  let p: THREE.Node<'vec3'> = positionLocal.add(vec3(wv.x, 0.0, wv.y).mul(bend));
+  if (leaf) {
+    const flutter = sin(U.uTime.mul(5.3).add(dot(positionGeometry, vec3(2.1, 1.7, 2.9))).add(ph)).mul(0.035).mul(length(U.uWind).mul(2.0).add(0.3));
+    p = p.add(normalLocal.mul(flutter));
+  }
+  return p;
 }
 
 export interface TreeQuality {
@@ -317,9 +291,9 @@ export class TreeView {
   private lastPos = new THREE.Vector3(1e9, 0, 0);
   private lastDir = new THREE.Vector3();
   private lastT = -10;
-  private uniforms: WindUniforms = { uTime: { value: 0 }, uWind: { value: new THREE.Vector2() }, uGust: { value: 0 } };
-  private materials = new Map<string, THREE.MeshStandardMaterial>();
-  private leafMats: THREE.MeshStandardMaterial[] = [];
+  private uniforms: WindUniforms = makeWindUniforms();
+  private materials = new Map<string, THREE.MeshStandardNodeMaterial>();
+  private leafMats: THREE.MeshStandardNodeMaterial[] = [];
   private ownGeometry: THREE.BufferGeometry[] = [];
   /** 是否用 Blender 模型（三级细节）；否则为程序几何体（两级） */
   readonly modeled: boolean;
@@ -330,13 +304,8 @@ export class TreeView {
   }
 
   set quality(q: TreeQuality) {
+    // 叶片边缘的锯齿交给后期的时间抗锯齿（TRAA）处理，不再用 alpha-to-coverage
     this.q = q;
-    const aa = !!q.aa;
-    for (const m of this.leafMats) {
-      if (m.alphaToCoverage === aa) continue;
-      m.alphaToCoverage = aa;
-      m.needsUpdate = true;
-    }
     this.lastT = -10;
   }
 
@@ -384,20 +353,20 @@ export class TreeView {
   }
 
   /** GLB 材质 → 带风摆的渲染材质（同名共用）；null = 程序几何体用的顶点色材质。 */
-  private materialFor(src: THREE.MeshStandardMaterial | null): THREE.MeshStandardMaterial {
+  private materialFor(src: THREE.MeshStandardMaterial | null): THREE.MeshStandardNodeMaterial {
     const key = src ? src.name : '__procedural';
     const hit = this.materials.get(key);
     if (hit) return hit;
     const U = this.uniforms;
     const leaf = !!src && src.name.includes('leaves');
     const still = !!src && src.name.includes('cactus');
-    let m: THREE.MeshStandardMaterial;
+    let m: THREE.MeshStandardNodeMaterial;
     if (!src) {
-      m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
+      m = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
     } else {
-      m = new THREE.MeshStandardMaterial({
+      m = new THREE.MeshStandardNodeMaterial({
         map: src.map,
-        normalMap: src.normalMap,
+        normalMap: leaf ? null : src.normalMap,
         normalScale: src.normalScale.clone(),
         roughnessMap: src.roughnessMap,
         color: src.color.clone(),
@@ -407,13 +376,23 @@ export class TreeView {
         alphaTest: leaf ? 0.5 : 0,
       });
       for (const t of [src.map, src.normalMap, src.roughnessMap]) if (t) t.anisotropy = 8;
+      if (leaf && src.map) {
+        // 远处（较小的 mip 级别）按级别放大不透明度，避免叶片越远越稀
+        const map = src.map;
+        const img = map.image as { width?: number; height?: number } | null;
+        const sz = vec2(img?.width ?? 1024, img?.height ?? 1024);
+        const tuv = uv().mul(sz);
+        const ddx = dFdx(tuv);
+        const ddy = dFdy(tuv);
+        const boost = max(0.0, log2(max(dot(ddx, ddx), dot(ddy, ddy))).mul(0.5)).mul(0.25).add(1.0);
+        const c = texture(map, uv());
+        m.colorNode = vec4(c.rgb.mul(vec3(src.color.r, src.color.g, src.color.b)), c.a.mul(boost));
+        // 双面渲染时背面不翻转法线（叶片法线朝树冠外侧，翻转会让背面发黑）
+        m.normalNode = normalViewGeometry;
+      }
       if (leaf) this.leafMats.push(m);
     }
-    m.onBeforeCompile = (shader) => {
-      if (!still) patchWind(shader, U, leaf);
-      if (leaf) patchLeafFragment(shader);
-    };
-    m.customProgramCacheKey = () => `tree-v2-${leaf ? 'leaf' : still ? 'still' : src ? 'bark' : 'proc'}`;
+    if (!still) m.positionNode = windPosition(U, leaf);
     m.name = key;
     this.materials.set(key, m);
     return m;
