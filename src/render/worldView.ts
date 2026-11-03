@@ -130,9 +130,11 @@ export class WorldView {
 
   /** 实际使用的后端与显卡名称 */
   gpuInfo(): { backend: 'WebGPU' | 'WebGL2'; name: string } {
-    const b = this.renderer.backend as unknown as { isWebGPUBackend?: boolean; adapter?: { info?: { vendor?: string; architecture?: string; description?: string; device?: string } }; gl?: WebGL2RenderingContext };
+    type AdapterInfo = { vendor?: string; architecture?: string; description?: string; device?: string };
+    const b = this.renderer.backend as unknown as { isWebGPUBackend?: boolean; device?: { adapterInfo?: AdapterInfo }; gl?: WebGL2RenderingContext };
     if (b.isWebGPUBackend) {
-      const i = b.adapter?.info ?? {};
+      // three.js 不保存适配器对象；GPUDevice.adapterInfo（Chrome 128+）里有厂商与架构
+      const i = b.device?.adapterInfo ?? {};
       return { backend: 'WebGPU', name: [i.vendor, i.architecture, i.description || i.device].filter(Boolean).join(' ') };
     }
     let name = '';
