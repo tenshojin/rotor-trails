@@ -260,7 +260,7 @@ def label(d, u, v, s, h, align='c', col=WHITE, weight='SemiBold'):
     d.text(P(u, v), s, font=f, fill=col, anchor={'c': 'mm', 'l': 'lm', 'r': 'rm'}[align])
 
 
-PAINT = (43, 45, 49)
+PAINT = (50, 49, 48)  # 中性深灰略偏暖：舱内主要是天空的蓝光，底色偏冷的话整块仪表板会发蓝
 
 
 def build_decal():
@@ -270,7 +270,7 @@ def build_decal():
     img = Image.new('RGB', (DW, DH), PAINT)
     # 粉末喷涂的细微斑驳
     noise = Image.effect_noise((DW // 16, DH // 16), 18).resize((DW, DH), Image.BICUBIC)
-    img = Image.composite(img, Image.new('RGB', (DW, DH), (37, 39, 42)), noise.point(lambda p: 128 + (p - 128) // 2))
+    img = Image.composite(img, Image.new('RGB', (DW, DH), (44, 43, 42)), noise.point(lambda p: 128 + (p - 128) // 2))
     d = ImageDraw.Draw(img)
     # 分区接缝
     for u in (-0.112, 0.106):
@@ -387,6 +387,20 @@ def build_placards():
     plate('belts', (236, 236, 232), (20, 20, 20), [('SEAT BELT', 110), ('MUST BE FASTENED', 90)])
     plate('headset', (16, 16, 18), (236, 236, 230), [('HEADSET', 150)])
     plate('caution_rotor', (242, 196, 40), (20, 20, 20), [('WATCH', 120), ('ROTOR BLADES', 110)], border=(20, 20, 20))
+    # 磁罗盘的刻度带（窗口里看到的一段）：黑底白字，每 10° 一条刻度，每 30° 一个数字
+    x, y = cell('compass_drum')
+    d.rectangle([x, y, x + CW, y + CH], fill=(14, 14, 15))
+    for k in range(-16, 17):
+        px = x + CW / 2 + k * 32
+        d.line([px, y + 150, px, y + (250 if k % 3 == 0 else 205)], fill=(236, 236, 228), width=7 if k % 3 == 0 else 4)
+    for k, t in ((-9, '33'), (-6, 'N'), (-3, '3'), (0, '6'), (3, 'E'), (6, '12'), (9, '15'), (12, 'S')):
+        d.text((x + CW / 2 + k * 32 * 1.0, y + 340), t, font=font(120, 'Bold'), fill=(236, 236, 228), anchor='mm')
+    # 急救包标志：绿底白十字
+    x, y = cell('first_aid')
+    d.rounded_rectangle([x + 8, y + 8, x + CW - 8, y + CH - 8], radius=36, fill=(34, 104, 72))
+    d.rectangle([x + 150, y + 200, x + 330, y + 312], fill=(245, 245, 240))
+    d.rectangle([x + 184, y + 166, x + 296, y + 346], fill=(245, 245, 240))
+    d.text((x + 660, y + CH / 2), 'FIRST AID', font=font(110, 'Bold'), fill=(245, 245, 240), anchor='mm')
     # 罗盘校正卡：两行表格
     x, y = cell('compass_card')
     d.rectangle([x + 8, y + 8, x + CW - 8, y + CH - 8], fill=(238, 236, 228))

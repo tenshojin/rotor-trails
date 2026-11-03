@@ -3,10 +3,11 @@
 // 窗玻璃使用带雨滴/水流效果的材质。模型加载失败时座舱内部为空，游戏照常可玩。
 
 import * as THREE from 'three/webgpu';
-import { abs, cameraPosition, clamp, dot, float, max, mix, normalGeometry, normalize, positionGeometry, positionWorld, pow, select, smoothstep, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl';
+import { abs, cameraPosition, clamp, dot, float, materialColor, max, mix, normalGeometry, normalize, positionGeometry, positionWorld, pow, select, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
 import { FOG } from './atmosphere';
 import { VFOG } from './volumetricFog';
 import { loadGltf } from './gltf';
+import { STD_KEYS } from './modelLib';
 import { drawAnnunciator, drawAttitude, drawGps, drawVemdBottom, drawVemdTop, NEEDLE, type InstrumentData } from './instruments';
 import { getNoiseTexture } from './textures';
 
@@ -17,6 +18,10 @@ const MODEL_URL = 'models/cockpit.glb';
 /** Blender 烘焙的环境光遮蔽（使用模型的第二套 UV） */
 const AO_URL = 'models/cockpit_ao.jpg';
 const DEG = Math.PI / 180;
+
+/** 舱内补光：四面是窗的机舱里，天空和地面的光在内饰之间来回反射，背光的角落也不会全黑。
+ * 环境贴图只算得到“这一点看得见多少天空”，算不到这部分反射，所以另加一项（颜色和亮度由 WorldView 按天空每帧设置）。 */
+export const CABIN_FILL = uniform(new THREE.Color(0, 0, 0));
 
 interface Needle {
   obj: THREE.Object3D;
@@ -63,10 +68,6 @@ export class Cockpit {
   private lastSlow = -1;
 
   constructor() {
-    // 舱内补光（模拟窗口进来的漫反射光照亮仪表板下方）
-    const fill = new THREE.PointLight(0xf2efe8, 0.9, 3.2, 2);
-    fill.position.set(0.0, 0.35, -0.9);
-    this.root.add(fill);
     this.ready = this.load().catch((e) => {
       console.warn('驾驶舱模型加载失败：', e);
     });
@@ -89,6 +90,8 @@ export class Cockpit {
     const roofGlass = this.makeGlassMaterial(true);
     const gaugeGlass = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.1, roughness: 0.04, metalness: 0, depthWrite: false, envMapIntensity: 1.4 });
     this.mats.add(glass).add(roofGlass).add(gaugeGlass);
+    // 模型里的标准材质换成节点材质（接上舱内补光）。有第二套 UV 的网格用烘焙的遮蔽，所以同一材质按有无 UV 各一份
+    const interior = new Map<string, THREE.MeshStandardNodeMaterial>();
     scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.isMesh) {
@@ -116,21 +119,15 @@ export class Cockpit {
         }
         m.castShadow = !name.startsWith('ndl_');
         m.receiveShadow = true;
-        const mats = Array.isArray(m.material) ? m.material : [m.material];
-        const hasAoUv = !!m.geometry.getAttribute('uv1');
-        for (const mat of mats) {
-          this.mats.add(mat);
-          const sm = mat as THREE.MeshStandardMaterial;
-          if (ao && hasAoUv && 'aoMap' in sm) {
-            sm.aoMap = ao;
-            sm.aoMapIntensity = 1.0;
-          }
-          if (mat.name === 'cp_gauge_overlay') {
-            // 透明背景的航向仪固定层：用 alpha 测试代替混合，避免排序问题
-            sm.transparent = false;
-            sm.alphaTest = 0.5;
-          }
-          for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap'] as const) {
+        const src = m.material as THREE.MeshStandardMaterial;
+        const hasAoUv = !!ao && !!m.geometry.getAttribute('uv1');
+        const key = `${src.uuid}:${hasAoUv ? 1 : 0}`;
+        let sm = interior.get(key);
+        if (!sm) {
+          sm = this.interiorMaterial(src, hasAoUv ? ao : null);
+          interior.set(key, sm);
+          this.mats.add(sm);
+          for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap'] as const) {
             const t = sm[k];
             if (t) {
               t.anisotropy = 8;
@@ -138,6 +135,7 @@ export class Cockpit {
             }
           }
         }
+        m.material = sm;
       }
     });
     scene.traverse((o) => {
@@ -153,6 +151,27 @@ export class Cockpit {
     this.setPilotOffset(this.pilotDx);
     this.root.add(scene);
     this.loaded = true;
+  }
+
+  private interiorMaterial(src: THREE.MeshStandardMaterial, ao: THREE.Texture | null): THREE.MeshStandardNodeMaterial {
+    const nm = new THREE.MeshStandardNodeMaterial();
+    for (const k of STD_KEYS) (nm as unknown as Record<string, unknown>)[k] = (src as unknown as Record<string, unknown>)[k];
+    if (ao) {
+      nm.aoMap = ao;
+      nm.aoMapIntensity = 1.0;
+    }
+    if (src.name === 'cp_gauge_overlay') {
+      // 透明背景的航向仪固定层：用 alpha 测试代替混合，避免排序问题
+      nm.transparent = false;
+      nm.alphaTest = 0.5;
+    }
+    // 外表面的漆、本身发光的灯、金属（没有漫反射）都不加补光
+    const dark = src.emissive.r + src.emissive.g + src.emissive.b === 0;
+    if (dark && !src.name.startsWith('cp_paint') && src.metalness < 0.9) {
+      const occl = ao ? texture(ao, uv(1)).r : float(0.65);
+      nm.emissiveNode = (materialColor as unknown as THREE.Node<'vec4'>).rgb.mul(CABIN_FILL).mul(occl).mul(1 - src.metalness);
+    }
+    return nm;
   }
 
   private setupScreen(m: THREE.Mesh, kind: Screen['kind']): void {

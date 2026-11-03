@@ -23,7 +23,7 @@ export interface ModelLib {
 }
 
 /** 从 GLTF 的标准材质复制到节点材质的属性 */
-const STD_KEYS = ['name', 'color', 'map', 'normalMap', 'normalScale', 'roughness', 'metalness', 'roughnessMap', 'metalnessMap', 'aoMap', 'aoMapIntensity', 'emissive', 'emissiveMap', 'emissiveIntensity', 'transparent', 'opacity', 'alphaTest', 'alphaMap', 'side', 'vertexColors', 'depthWrite'];
+export const STD_KEYS = ['name', 'color', 'map', 'normalMap', 'normalScale', 'roughness', 'metalness', 'roughnessMap', 'metalnessMap', 'aoMap', 'aoMapIntensity', 'emissive', 'emissiveMap', 'emissiveIntensity', 'transparent', 'opacity', 'alphaTest', 'alphaMap', 'side', 'vertexColors', 'depthWrite'];
 
 export async function loadModelLib(file: string): Promise<ModelLib | null> {
   try {

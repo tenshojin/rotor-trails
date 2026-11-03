@@ -175,7 +175,8 @@ def cowl_point(y, t):
     k = (0.55 - y) / 3.3
     W = 0.30 + 0.28 * math.sin(math.pi * min(1.0, k * 1.15)) ** 0.6
     top = 1.18 + 0.32 * math.sin(math.pi * min(1.0, k * 1.05)) ** 0.5
-    bot = 0.86 - 0.05 * k
+    # 底面贴着机身顶壳走：座舱段不能低于舱顶内饰，否则白色整流罩会从天花板穿进客舱
+    bot = HS.section(y)[1] - 0.012 if y > -1.32 else 0.86 - 0.05 * k
     W = max(0.08, W * (1 - max(0.0, k - 0.9) * 6))
     return HS.superellipse(W, top, bot, 2.6, y, t)
 

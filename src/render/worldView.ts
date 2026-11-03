@@ -8,7 +8,7 @@ import type { WorldData } from '../world/worldgen';
 import type { WeatherParams } from '../sim/weather';
 import { QUALITY, type Settings } from '../game/settings';
 import { CameraRig } from './cameraRig';
-import { Cockpit, EYE } from './cockpit';
+import { CABIN_FILL, Cockpit, EYE } from './cockpit';
 import { HeliModel } from './heliModel';
 import { loadModelLib, MODEL_FILES, type ModelLib } from './modelLib';
 import { loadDetailTextures } from './detailTextures';
@@ -37,6 +37,7 @@ export interface FrameInfo {
 }
 
 const _cloudGrey = new THREE.Color(0.86, 0.88, 0.9);
+const _cabinWarm = new THREE.Color(1.0, 0.9, 0.76);
 const _pos = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
 const _vel = new THREE.Vector3();
@@ -394,6 +395,8 @@ export class WorldView {
       // 体积雾（光束）：贴地薄雾的浓度随能见度与降雨变化，湿润的地图更浓；雾团随风飘动
       VFOG.sun.value.copy(C.sun).multiplyScalar(C.sunIntensity);
       VFOG.amb.value.copy(FOG.color.value).multiplyScalar(0.9);
+      // 舱内补光：地平线一带的天光，混一半内饰反射出来的暖色（否则座舱背光处全是天空的蓝）
+      CABIN_FILL.value.copy(FOG.color.value).lerp(_cabinWarm, 0.3).multiplyScalar(0.42 * (1 - 0.35 * w.overcast));
       // 清晨：谷地与林间的晨雾（更浓、更厚）；清晨与黄昏的低空霾也更重（逆光时的光束最明显）
       const todMist = this.tod === 'dawn' ? 3.2 : this.tod === 'dusk' ? 1.4 : 1;
       VFOG.mist.value = Math.min(0.012, Math.max(0.0005, 8 / Math.max(300, w.visibility)) * (world.map.biome.mist ?? 1) * (1 + 0.6 * w.rain) * todMist);

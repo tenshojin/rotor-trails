@@ -1,5 +1,5 @@
 # 驾驶舱材质的微细节贴图（四方连续，1024×1024）：art/out/tex/<名字>_{diffuse,nor_gl,rough}_1024.jpg
-#   grain    舱内饰板的皮纹（细小的鹅卵石状凸起）
+#   grain    舱内饰板、座椅皮革的皮纹（细小的鹅卵石状凸起）；lining / liningd / leather 是配套的底色（浅灰、深灰、炭黑皮革）
 #   ribmat   橡胶地垫（平行凸棱 + 细微磨损）
 #   felt     顶板黑色绒布（细密纤维噪声）
 #   seatmesh 防撞座椅的网布（斜向编织）
@@ -66,6 +66,13 @@ pebble = np.clip(1.0 - v * 1.35, 0, 1) ** 0.7
 h = pebble + 0.15 * band_noise(120, 400)
 save_rgb(normal_from_height(h, 2.2), 'grain_nor_gl')
 save_l(0.62 + 0.10 * (1 - pebble) + 0.04 * band_noise(30, 120), 'grain_rough')
+save_l(0.46 + 0.10 * (1 - pebble) + 0.04 * band_noise(30, 120), 'leather_rough')  # 皮革：比饰板光滑，有柔和的光泽
+# 饰板与皮革的底色：皮纹的凹处略暗，再叠一层很淡的大块斑驳（手摸、日晒留下的深浅），整片不再是一个纯色
+mottle = band_noise(3, 12) * 0.6 + band_noise(12, 40) * 0.4
+cavity = np.clip(1.0 - pebble * 1.15, 0, 1)
+for name, rgb, mot, cav in (('lining', (0.565, 0.556, 0.535), 0.018, 0.05), ('liningd', (0.285, 0.285, 0.29), 0.022, 0.09), ('leather', (0.25, 0.255, 0.265), 0.03, 0.16)):
+    k = (1 + mot * mottle - cav * cavity)[..., None]
+    save_rgb(np.array(rgb)[None, None, :] * k, name + '_diffuse')
 
 # ---- 橡胶地垫：每张 32 条凸棱 + 磨损
 y = np.mgrid[0:N, 0:N][0].astype(np.float32)
@@ -74,25 +81,25 @@ wear = band_noise(4, 20) * 0.5 + 0.5
 h = rib * (0.9 + 0.1 * band_noise(100, 300)) - 0.15 * wear
 save_rgb(normal_from_height(h, 3.0), 'ribmat_nor_gl')
 save_l(0.86 - 0.18 * np.clip(wear - 0.55, 0, 1) - 0.05 * rib, 'ribmat_rough')
-base = np.array([0.075, 0.076, 0.08])
+base = np.array([0.205, 0.205, 0.21])
 save_rgb(base[None, None, :] * (0.85 + 0.15 * rib[..., None]) * (0.9 + 0.25 * np.clip(wear[..., None] - 0.5, 0, 1)), 'ribmat_diffuse')
 
 # ---- 黑色绒布
 fib = band_noise(200, 500)
 clump = band_noise(8, 40)
-save_rgb(np.stack([0.035 + 0.008 * fib + 0.006 * clump] * 3, -1), 'felt_diffuse')
+save_rgb(np.stack([0.235 + 0.016 * fib + 0.012 * clump] * 3, -1) * np.array([1.0, 0.99, 0.985]), 'felt_diffuse')
 save_rgb(normal_from_height(fib * 0.6 + clump * 0.3, 1.0), 'felt_nor_gl')
 save_l(0.95 + 0.03 * fib, 'felt_rough')
 
 # ---- 座椅网布：斜向编织（两组斜线）
 yy, xx = np.mgrid[0:N, 0:N].astype(np.float32)
-a = np.sin((xx + yy) / N * 96 * np.pi)
-b = np.sin((xx - yy) / N * 96 * np.pi)
+a = np.sin((xx + yy) / N * 128 * np.pi)
+b = np.sin((xx - yy) / N * 128 * np.pi)
 weave = (np.maximum(a, 0) * (b > 0) + np.maximum(b, 0) * (a <= 0))
 h = weave + 0.2 * band_noise(150, 400)
 save_rgb(normal_from_height(h, 2.5), 'seatmesh_nor_gl')
 save_l(0.9 - 0.12 * weave, 'seatmesh_rough')
-save_rgb(np.stack([0.05 + 0.03 * weave] * 3, -1) * np.array([1.0, 1.0, 1.05]), 'seatmesh_diffuse')
+save_rgb(np.stack([0.135 + 0.075 * weave] * 3, -1) * np.array([1.0, 1.0, 1.03]), 'seatmesh_diffuse')
 
 # ---- 拉丝金属：沿 x 方向的细纹
 br = np.zeros((N, N), np.float32)

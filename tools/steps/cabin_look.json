@@ -1,0 +1,173 @@
+{
+ "url": "about:blank",
+ "width": 1600,
+ "height": 900,
+ "steps": [
+  {
+   "goto": "http://localhost:5174/?map=japan&autostart=1&weather=clear"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app; A.settings.quality = 'ultra'; A.view.applySettings(A.settings); const W = A.session.world; const h = W.terrain.heightAt(-700, 600); A.debugTeleport(-700, Math.max(h, 0) + 90, 600, 200, 0); window.__keep = setInterval(() => { const s = A.session; if (s) { s.body.vel.set(0, 0, 0); s.body.pos.y = Math.max(h, 0) + 90; } }, 30); return 1; })()"
+  },
+  {
+   "wait": 3000
+  },
+  {
+   "eval": "window.__app.debugLook(0, 0)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_f_center.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(0, 0.7)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_f_up.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(0, 1.1)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_f_up2.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(0, -0.7)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_f_down.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(0, -1.25)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_f_down2.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(0.8, 0)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_l45.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(1.57, 0)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_l90.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(1.57, 0.7)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_l90_up.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(1.57, -0.8)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_l90_down.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(2.35, 0)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_l135.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(2.7, 0.1)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_l150.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(-0.8, 0)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_r45.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(-1.57, 0)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_r90.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(-1.57, 0.7)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_r90_up.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(-1.57, -0.8)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_r90_down.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(-2.35, 0)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_r135.jpg"
+  },
+  {
+   "eval": "window.__app.debugLook(-2.7, 0.1)"
+  },
+  {
+   "wait": 900
+  },
+  {
+   "shot": "c_r150.jpg"
+  }
+ ]
+}

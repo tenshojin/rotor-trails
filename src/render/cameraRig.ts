@@ -13,6 +13,10 @@ export interface CameraSettings {
   headMotion: boolean;
 }
 
+/** 眼睛相对颈椎转轴的位置（米）：前方、上方 */
+const NECK_F = 0.09;
+const NECK_U = 0.06;
+
 /** 默认视线略向下（约 8°），能同时看到前方与仪表板上缘 */
 export const DEFAULT_PITCH = -0.14;
 
@@ -81,10 +85,19 @@ export class CameraRig {
     this.impact = Math.max(0, this.impact - dt * 2.5);
 
     if (this.mode === 'cockpit') {
-      // 侧看/下看时身体前倾或偏移，便于从侧窗和下视窗观察（侧看时向前探身，不会靠进头枕）
-      const lean = clamp((Math.abs(this.yaw) - 1.0) / 1.2, 0, 1);
+      // 转头的视点运动：眼睛在颈椎转轴前方约 9 cm、上方 6 cm，转头时绕颈椎转；看向身后时上身再往看的方向转、
+      // 向前探身，从座椅肩部旁边看出去（否则头枕会挡满整个视野）；下看时前倾，便于从下视窗观察。
+      const cy = Math.cos(this.yaw);
+      const sy = Math.sin(this.yaw);
+      const cp = Math.cos(this.pitch);
+      const sp = Math.sin(this.pitch);
+      const nx = -sy * cp * NECK_F;
+      const ny = sp * NECK_F + cp * NECK_U - NECK_U;
+      const nz = NECK_F - cy * cp * NECK_F;
+      const tw = clamp((Math.abs(this.yaw) - 0.9) / 1.5, 0, 1);
+      const twist = tw * tw * (3 - 2 * tw);
       const down = clamp((-this.pitch - 0.5) / 0.6, 0, 1);
-      _off.set(s.eyeX + Math.sign(this.yaw) * lean * 0.12 - down * 0.04, EYE.y - down * 0.08, EYE.z - down * 0.1 - lean * 0.05).add(this.head);
+      _off.set(s.eyeX + nx - Math.sign(this.yaw) * twist * 0.13 - down * 0.04, EYE.y + ny - down * 0.08, EYE.z + nz - down * 0.1 - twist * 0.24).add(this.head);
       _off.applyQuaternion(quat);
       cam.position.copy(pos).add(_off);
       // 振动（真实旋翼振动 + 碰撞冲击），强度由设置控制

@@ -128,6 +128,7 @@ PLACARDS = {
     'roof_warn': (0, 0), 'pilot': (1, 0), 'copilot': (2, 0), 'no_smoking': (3, 0),
     'exit': (0, 1), 'fire_ext': (1, 1), 'door_open': (2, 1), 'compass_card': (3, 1),
     'floor_load': (0, 2), 'belts': (1, 2), 'headset': (2, 2), 'caution_rotor': (3, 2),
+    'compass_drum': (0, 3), 'first_aid': (1, 3),
 }
 
 
