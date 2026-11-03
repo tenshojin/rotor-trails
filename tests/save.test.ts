@@ -54,7 +54,7 @@ describe('本地存档', () => {
   it('字段非法或来自旧/新版本：逐项校验，非法值回退默认', () => {
     const d = migrate({
       version: 0,
-      settings: { fov: 999, volMaster: -3, quality: 'ultra', invertY: 'yes', bindings: { up: ['KeyQ'], down: 'oops' } },
+      settings: { fov: 999, volMaster: -3, quality: 'extreme', invertY: 'yes', bindings: { up: ['KeyQ'], down: 'oops' } },
       maps: { japan: { completed: true, bestScore: 'NaN', runs: 3.7 }, bogus: 5 },
       tutorialDone: true,
     });

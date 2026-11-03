@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { CSM } from 'three/addons/csm/CSM.js';
+import { injectFog } from './atmosphere';
 
 /** 各层阴影的远边界（米） */
 const SPLITS = [4, 40, 320, 2600];
@@ -97,6 +98,7 @@ export class SunShadows {
     m.onBeforeCompile = (shader, renderer) => {
       prev.call(m, shader, renderer);
       csmHook.call(m, shader, renderer);
+      injectFog(shader);
     };
     m.customProgramCacheKey = () => prevKey + '|csm';
     m.needsUpdate = true;

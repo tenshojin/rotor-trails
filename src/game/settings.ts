@@ -68,25 +68,36 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   lookDown: ['ArrowDown'],
 };
 
-export type QualityId = 'low' | 'medium' | 'high';
+export type QualityId = 'low' | 'medium' | 'high' | 'ultra';
 
 export interface QualityPreset {
   label: string;
   pixelRatio: number;
   shadows: boolean;
+  /** 每层阴影贴图的边长（共 4 层） */
   shadowSize: number;
+  /** 地形参与投影的距离（米） */
   shadowRange: number;
   treeNear: number;
   treeFar: number;
   terrainLod: number;
   rainDensity: number;
   envSize: number;
+  /** 地形照片材质的分辨率 */
+  terrainTex: number;
+  /** 多重采样抗锯齿（后期处理管线里的采样数，0 = 关闭后期、直接渲染） */
+  msaa: number;
+  /** 泛光（强光、太阳、水面反光的光晕） */
+  bloom: boolean;
+  /** 屏幕空间环境光遮蔽（接触阴影） */
+  ao: boolean;
 }
 
 export const QUALITY: Record<QualityId, QualityPreset> = {
-  low: { label: '低', pixelRatio: 0.8, shadows: false, shadowSize: 512, shadowRange: 0, treeNear: 260, treeFar: 1300, terrainLod: 0.7, rainDensity: 0.35, envSize: 64 },
-  medium: { label: '中', pixelRatio: 1, shadows: true, shadowSize: 1024, shadowRange: 600, treeNear: 380, treeFar: 2000, terrainLod: 1, rainDensity: 0.65, envSize: 128 },
-  high: { label: '高', pixelRatio: 1.5, shadows: true, shadowSize: 2048, shadowRange: 1200, treeNear: 520, treeFar: 2900, terrainLod: 1.35, rainDensity: 1, envSize: 256 },
+  low: { label: '低', pixelRatio: 0.8, shadows: false, shadowSize: 512, shadowRange: 0, treeNear: 260, treeFar: 1300, terrainLod: 0.7, rainDensity: 0.35, envSize: 64, terrainTex: 512, msaa: 0, bloom: false, ao: false },
+  medium: { label: '中', pixelRatio: 1, shadows: true, shadowSize: 1024, shadowRange: 600, treeNear: 380, treeFar: 2000, terrainLod: 1, rainDensity: 0.65, envSize: 128, terrainTex: 1024, msaa: 4, bloom: false, ao: false },
+  high: { label: '高', pixelRatio: 1.5, shadows: true, shadowSize: 2048, shadowRange: 1200, treeNear: 520, treeFar: 2900, terrainLod: 1.35, rainDensity: 1, envSize: 256, terrainTex: 1024, msaa: 4, bloom: true, ao: false },
+  ultra: { label: '极高', pixelRatio: 2, shadows: true, shadowSize: 4096, shadowRange: 2000, treeNear: 700, treeFar: 3600, terrainLod: 1.7, rainDensity: 1, envSize: 256, terrainTex: 1024, msaa: 4, bloom: true, ao: true },
 };
 
 export interface Settings {
@@ -180,7 +191,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     headMotion: bool(r.headMotion, d.headMotion),
     motionBlur: bool(r.motionBlur, d.motionBlur),
     lightning: bool(r.lightning, d.lightning),
-    quality: pick(r.quality, ['low', 'medium', 'high'] as const, d.quality),
+    quality: pick(r.quality, ['low', 'medium', 'high', 'ultra'] as const, d.quality),
     renderScale: num(r.renderScale, 0.5, 1, d.renderScale),
     volMaster: num(r.volMaster, 0, 1, d.volMaster),
     volEngine: num(r.volEngine, 0, 1, d.volEngine),

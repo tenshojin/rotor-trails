@@ -16,7 +16,9 @@ import { HeliModel } from './heliModel';
 import { NavView } from './navView';
 import { PropsView } from './propsView';
 import { SkyDome } from './sky';
+import { FOG, installFogChunks } from './atmosphere';
 import { SunShadows } from './sunShadows';
+import { loadTerrainLayers } from './terrainLayers';
 import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrainView';
 import { makeForestTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
 import { TreeView } from './treeView';
@@ -30,6 +32,7 @@ export interface FrameInfo {
   alpha: number;
 }
 
+const _cloudGrey = new THREE.Color(0.86, 0.88, 0.9);
 const _pos = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
 const _vel = new THREE.Vector3();
@@ -69,6 +72,8 @@ export class WorldView {
   minimap: HTMLCanvasElement | null = null;
   private mapTextures: THREE.Texture[] = [];
   private fog = new THREE.FogExp2(0xb0c0d0, 0.0002);
+  /** 雾最浓的基准高度（地图最低处） */
+  private fogBaseY = 0;
   flash = 0;
   /** 雷声回调（音频层） */
   onThunder: ((delay: number, strength: number) => void) | null = null;
@@ -76,6 +81,7 @@ export class WorldView {
 
   constructor(canvas: HTMLCanvasElement, settings: Settings) {
     this.settings = settings;
+    installFogChunks();
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: settings.quality !== 'low', powerPreference: 'high-performance', reversedDepthBuffer: true, stencil: false });
     const r = this.renderer;
     r.outputColorSpace = THREE.SRGBColorSpace;
@@ -149,11 +155,19 @@ export class WorldView {
     const surfaceTex = makeSurfaceTexture(world.surface, world.terrain.res);
     const forestTex = makeForestTexture(world.trees, map.size);
     this.mapTextures.push(surfaceTex, forestTex);
-    this.terrainUniforms = makeTerrainUniforms(map, surfaceTex, forestTex);
+    progress?.(0.84, '加载地形材质');
+    const layers = await loadTerrainLayers(map.id, map.biome, QUALITY[this.settings.quality].terrainTex);
+    if (layers) this.mapTextures.push(layers.color, layers.normal);
+    this.terrainUniforms = makeTerrainUniforms(map, surfaceTex, forestTex, layers);
     this.terrain = new TerrainView(map, world.terrain, this.terrainUniforms);
     this.scene.add(this.terrain.group);
     this.sky = new SkyDome(map.sun[0], map.sun[1], map.biome.fogTint, map.biome.grass);
     this.scene.add(this.sky.mesh);
+    // 雾的基准高度：地图最低处（有水面时取水面）
+    const hf = world.terrain;
+    let minH = Infinity;
+    for (let i = 0; i <= 32; i++) for (let j = 0; j <= 32; j++) minH = Math.min(minH, hf.heightAt(-hf.half + (i * hf.size) / 32, -hf.half + (j * hf.size) / 32));
+    this.fogBaseY = map.waterLevel !== null ? Math.max(minH, map.waterLevel) : minH;
     if (map.waterLevel !== null) {
       const depth = makeWaterDepthTexture(world.terrain, map.waterLevel);
       this.mapTextures.push(depth);
@@ -219,7 +233,10 @@ export class WorldView {
     const m = new THREE.Mesh(this.sky.mesh.geometry, this.sky.material);
     envScene.add(m);
     const old = this.envRT;
+    // 环境贴图里不画太阳圆盘（阳光的高光由方向光负责，否则光滑表面上会出现两个太阳）
+    this.sky.material.uniforms.uDisc.value = 0;
     this.envRT = this.pmrem.fromScene(envScene, 0, 1, 10000, { size: QUALITY[this.settings.quality].envSize });
+    this.sky.material.uniforms.uDisc.value = 1;
     this.scene.environment = this.envRT.texture;
     this.scene.environmentIntensity = 0.55;
     old?.dispose();
@@ -272,16 +289,19 @@ export class WorldView {
       this.hemi.color.copy(C.hemiSky);
       this.hemi.groundColor.copy(C.hemiGround);
       this.hemi.intensity = C.hemiIntensity * 0.65;
-      // 雾：能见度 → 指数平方雾密度；进入低云层时能见度骤降
-      let vis = w.visibility;
+      // 雾：能见度 → 指数平方雾密度（随高度变稀，见 atmosphere.ts）；进入低云层时另加均匀浓雾
       this.inCloud = 0;
       if (w.lowCloud > 0.05) {
         const inside = Math.min(1, Math.max(0, Math.min(cp.y - w.cloudBase + 30, w.cloudTop - cp.y + 30) / 60));
         this.inCloud = inside * w.lowCloud;
-        vis = Math.exp(Math.log(vis) * (1 - this.inCloud) + Math.log(90) * this.inCloud);
       }
-      this.fog.density = 1.65 / Math.max(60, vis);
-      this.fog.color.copy(C.fog).lerp(new THREE.Color(0.86, 0.88, 0.9), this.inCloud);
+      this.fog.density = 1.65 / Math.max(60, w.visibility);
+      this.fog.color.copy(C.fog).lerp(_cloudGrey, this.inCloud);
+      FOG.fogSunColor.value.copy(C.fogSun).lerp(_cloudGrey, this.inCloud);
+      FOG.fogSunDir.value.copy(this.sky.sunDir);
+      FOG.fogCloud.value = (1.65 / 90) * this.inCloud;
+      FOG.fogHeightK.value = 1 / 1100;
+      FOG.fogBaseY.value = this.fogBaseY;
       this.renderer.toneMappingExposure = 1.0 - w.overcast * 0.12 + this.flash * 0.6;
       const q = QUALITY[set.quality];
       // 分层阴影：视野或宽高比变了要重新划分；每帧把各层阴影框跟随相机（内部按纹素对齐，避免闪烁）

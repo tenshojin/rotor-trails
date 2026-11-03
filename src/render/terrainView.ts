@@ -1,26 +1,37 @@
 // 地形渲染：按块（64 格）分级 LOD，近处使用与碰撞完全一致的全分辨率三角网格；
-// 着色器按坡度/高度/掩码混合沙滩、草地、裸土、岩石（含岩层条带）、积雪与森林地面。
+// 着色器见 terrainShader.ts（照片材质 8 层混合，按坡度/高度/掩码）。
 
 import * as THREE from 'three';
 import type { BiomeDef, MapDef } from '../maps/types';
 import type { Heightfield } from '../sim/terrain';
+import type { TerrainLayers } from './terrainLayers';
+import { patchTerrainMaterial, type TerrainUniforms } from './terrainShader';
 import { getNoiseTexture } from './textures';
 
 const CH = 64;
 const LOD_STEPS = [1, 2, 4, 8];
 
-export interface TerrainUniforms {
-  [k: string]: THREE.IUniform;
-}
+export type { TerrainUniforms };
 
 function col(hex: number): THREE.Color {
   return new THREE.Color().setHex(hex);
 }
 
-export function makeTerrainUniforms(map: MapDef, surfaceTex: THREE.Texture, forestTex: THREE.Texture): TerrainUniforms {
+export function makeTerrainUniforms(map: MapDef, surfaceTex: THREE.Texture, forestTex: THREE.Texture, layers: TerrainLayers | null = null): TerrainUniforms {
   const B: BiomeDef = map.biome;
   const strata = B.strataColors ?? [B.rock, B.rock2, B.dirt, B.sand];
+  const photo: TerrainUniforms = layers
+    ? {
+        uTerC: { value: layers.color },
+        uTerN: { value: layers.normal },
+        uTile: { value: layers.tiles },
+        uMeanL: { value: layers.meanLum },
+        uBiomeC: { value: layers.biome },
+        uTintK: { value: layers.tintK },
+      }
+    : {};
   return {
+    ...photo,
     uNoise: { value: getNoiseTexture() },
     uSurface: { value: surfaceTex },
     uForest: { value: forestTex },
@@ -44,116 +55,6 @@ export function makeTerrainUniforms(map: MapDef, surfaceTex: THREE.Texture, fore
     uWet: { value: 0 },
     uWaterLevel: { value: map.waterLevel ?? -9999 },
   };
-}
-
-/** 给 MeshStandardMaterial 注入地形着色。 */
-export function patchTerrainMaterial(mat: THREE.MeshStandardMaterial, uniforms: TerrainUniforms): void {
-  mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWNrm;')
-      .replace(
-        '#include <worldpos_vertex>',
-        '#include <worldpos_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvWNrm = normalize((modelMatrix * vec4(objectNormal, 0.0)).xyz);',
-      );
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        '#include <common>',
-        /* glsl */ `#include <common>
-varying vec3 vWPos;
-varying vec3 vWNrm;
-uniform sampler2D uNoise;
-uniform sampler2D uSurface;
-uniform sampler2D uForest;
-uniform float uMapSize;
-uniform vec3 uSand, uGrass, uGrass2, uDirt, uRock, uRock2, uSnow, uForestFloor;
-uniform vec3 uStrataA, uStrataB, uStrataC, uStrataD;
-uniform float uStrata, uBeachTop, uSnowLine, uRockSlope, uWet, uWaterLevel;
-float tRough = 0.95;
-float tBump = 0.0;
-// 三平面投影权重（陡坡/峭壁上不会出现纹理拉伸成竖条的“雪花”）
-vec3 triW() {
-  vec3 a = pow(abs(normalize(vWNrm)), vec3(4.0));
-  return a / (a.x + a.y + a.z);
-}
-float triG(vec3 w, float s, float o) {
-  return texture2D(uNoise, vWPos.zy * s + o).g * w.x + texture2D(uNoise, vWPos.xz * s + o).g * w.y + texture2D(uNoise, vWPos.xy * s + o).g * w.z;
-}
-float triR(vec3 w, float s, float o) {
-  return texture2D(uNoise, vWPos.zy * s + o).r * w.x + texture2D(uNoise, vWPos.xz * s + o).r * w.y + texture2D(uNoise, vWPos.xy * s + o).r * w.z;
-}
-vec3 strataColor(float y) {
-  float t = fract(y / 46.0);
-  float b = fract(y / 11.0);
-  vec3 c = mix(uStrataA, uStrataB, smoothstep(0.15, 0.35, t));
-  c = mix(c, uStrataC, smoothstep(0.45, 0.6, t));
-  c = mix(c, uStrataD, smoothstep(0.75, 0.9, t));
-  return c * (0.88 + 0.24 * b);
-}
-vec3 terrainAlbedo() {
-  vec3 n = normalize(vWNrm);
-  float slope = 1.0 - n.y;
-  float h = vWPos.y;
-  vec2 muv = vWPos.xz / uMapSize + 0.5;
-  vec4 surf = texture2D(uSurface, muv);
-  float forest = texture2D(uForest, muv).r;
-  float n1 = texture2D(uNoise, vWPos.xz * 0.0021).r;
-  vec3 tw = triW();
-  float n2 = triG(tw, 0.019, 0.0);
-  float n3 = triG(tw, 0.045, 0.37);
-  vec3 c = mix(uGrass, uGrass2, smoothstep(0.35, 0.65, n1));
-  c = mix(c, uForestFloor, clamp(forest * 1.3, 0.0, 0.85));
-  float sandW = 1.0 - smoothstep(uBeachTop - 0.5, uBeachTop + 2.0, h + (n2 - 0.5) * 2.5);
-  sandW = max(sandW, surf.r);
-  c = mix(c, uSand, sandW);
-  c = mix(c, uDirt, surf.g * 0.9);
-  // 三平面采样的岩石细节
-  vec3 an = tw;
-  // 岩石明暗：大尺度斑块为主、细节为辅（细节频率过高时远处会变成“椒盐”噪点）
-  float rk = triR(tw, 0.006, 0.0) * 0.65 + triG(tw, 0.028, 0.0) * 0.35;
-  vec3 rock = mix(uRock, uRock2, smoothstep(0.32, 0.68, rk));
-  if (uStrata > 0.0) rock = mix(rock, strataColor(h + (n1 - 0.5) * 18.0), uStrata * (0.6 + 0.4 * an.x + 0.4 * an.z));
-  float rockW = smoothstep(uRockSlope - 0.07, uRockSlope + 0.06, slope + (n1 - 0.5) * 0.14);
-  c = mix(c, rock, rockW);
-  float snowW = smoothstep(uSnowLine - 50.0, uSnowLine + 30.0, h + (n1 - 0.5) * 90.0) * (1.0 - smoothstep(0.42, 0.62, slope));
-  snowW = max(snowW, surf.a * (1.0 - smoothstep(0.55, 0.8, slope)));
-  c = mix(c, uSnow, snowW);
-  // 水下：变暗偏蓝绿
-  float under = smoothstep(uWaterLevel + 0.3, uWaterLevel - 2.0, h);
-  c = mix(c, c * vec3(0.55, 0.7, 0.72), under);
-  float wet = uWet * (1.0 - snowW);
-  c *= mix(1.0, 0.68, wet);
-  c *= 0.86 + 0.28 * n2;
-  c *= 0.93 + 0.14 * n3;
-  tRough = mix(mix(0.96, 0.88, rockW), 0.55, wet * 0.7);
-  tRough = mix(tRough, 0.7, snowW);
-  tBump = mix(0.25, 1.0, rockW) * (1.0 - snowW * 0.6);
-  return c;
-}`,
-      )
-      .replace('#include <map_fragment>', 'diffuseColor.rgb *= terrainAlbedo();')
-      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness * tRough;')
-      .replace(
-        '#include <normal_fragment_maps>',
-        /* glsl */ `#include <normal_fragment_maps>
-{
-  vec3 tw2 = triW();
-  float hb = triG(tw2, 0.035, 0.0) * 0.65 + triG(tw2, 0.1, 0.5) * 0.35;
-  // 远处（每像素对应的世界尺寸变大）逐渐减弱凹凸细节，避免闪烁颗粒
-  tBump *= 1.0 - 0.75 * smoothstep(0.12, 0.7, length(fwidth(vWPos)));
-  vec3 dpdx = dFdx(-vViewPosition);
-  vec3 dpdy = dFdy(-vViewPosition);
-  float dhx = dFdx(hb);
-  float dhy = dFdy(hb);
-  vec3 r1 = cross(dpdy, normal);
-  vec3 r2 = cross(normal, dpdx);
-  float det = dot(dpdx, r1);
-  vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
-  normal = normalize(abs(det) * normal - grad * 1.2 * tBump);
-}`,
-      );
-  };
-  mat.customProgramCacheKey = () => 'terrain-v3';
 }
 
 interface Chunk {

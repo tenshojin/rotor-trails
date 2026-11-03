@@ -1,0 +1,38 @@
+{
+  "url": "http://localhost:5174/?map=japan&autostart=1&weather=clear",
+  "width": 1600,
+  "height": 900,
+  "steps": [
+    { "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded", "timeout": 120000 },
+    { "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); window.__app.debugTeleport(-640, 70, 700, 330, 30); window.__app.debugHold(['KeyV'], 120); return 1; })()" },
+    { "wait": 3500 },
+    { "shot": "w1_japan_chase.jpg" },
+    { "eval": "(() => { window.__app.debugHold(['KeyV'], 120); const p = window.__app.session.pad('J-A').pos; window.__app.debugTeleport(p[0] - 120, p[1] + 40, p[2] + 90, 125, 10); window.__app.debugLook(0, -0.25); return 1; })()" },
+    { "wait": 3000 },
+    { "shot": "w2_japan_village.jpg" },
+
+    { "goto": "http://localhost:5174/?map=fjord&autostart=1&weather=clear" },
+    { "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded", "timeout": 120000 },
+    { "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const n = window.__app.session.world.map.nodes; const a = n[Math.min(3, n.length - 1)]; window.__app.debugTeleport(a.pos[0], a.pos[1] + 40, a.pos[2], 0, 20); window.__app.debugLook(0, -0.12); return 1; })()" },
+    { "wait": 3500 },
+    { "shot": "w3_fjord.jpg" },
+
+    { "goto": "http://localhost:5174/?map=canyon&autostart=1&weather=clear" },
+    { "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded", "timeout": 120000 },
+    { "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const n = window.__app.session.world.map.nodes; const a = n.find(x => x.id === 'c-k3') || n[2]; const b = n.find(x => x.id === 'c-k4') || n[3]; const h = Math.atan2(b.pos[0]-a.pos[0], -(b.pos[2]-a.pos[2])) * 180 / Math.PI; window.__app.debugTeleport(a.pos[0], a.pos[1], a.pos[2], h, 20); window.__app.debugLook(0, -0.12); return 1; })()" },
+    { "wait": 3500 },
+    { "shot": "w4_canyon.jpg" },
+
+    { "goto": "http://localhost:5174/?map=himalaya&autostart=1&weather=clear" },
+    { "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded", "timeout": 120000 },
+    { "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const n = window.__app.session.world.map.nodes; const a = n.find(x => x.id === 'h-c1') || n[2]; window.__app.debugTeleport(a.pos[0], a.pos[1] + 60, a.pos[2] + 200, 10, 15); window.__app.debugLook(0, -0.08); return 1; })()" },
+    { "wait": 3500 },
+    { "shot": "w5_himalaya.jpg" },
+
+    { "goto": "http://localhost:5174/?map=amazon&autostart=1&weather=clear" },
+    { "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded", "timeout": 120000 },
+    { "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const p = window.__app.session.pad('A-camp').pos; const x = p[0] - 330, z = p[2] + 200; window.__app.debugTeleport(x, 95, z, Math.atan2(p[0] - x, -(p[2] - z)) * 180 / Math.PI, 15); window.__app.debugLook(0, -0.2); return 1; })()" },
+    { "wait": 3500 },
+    { "shot": "w6_amazon.jpg" }
+  ]
+}
