@@ -44,8 +44,9 @@
 
 ## 发布状态（2026-11-03）
 
-- **代码**：已推送到私有仓库 https://github.com/tenshojin/rotor-trails ，分支 `main`。
-- **持续集成**：推送后 GitHub Actions “CI / Pages” 自动运行，`build` 任务通过（Ubuntu + Node 24：`npm ci`、类型检查、80 个测试全部通过、生产构建），用时约 40 秒。
+- **代码**：已推送到私有仓库 https://github.com/tenshojin/rotor-trails ，分支 `main`（画面升级于 2026-11-03 下午推送）。
+- **持续集成**：推送后 GitHub Actions “CI / Pages” 自动运行，`build` 任务通过（Ubuntu + Node 24：`npm ci`、类型检查、81 个测试全部通过、生产构建），用时约 50 秒。
+- **私有试玩页**（claude.ai Artifact，只有所有者能打开）已更新为画面升级版：`npm run build` 后用 `node tools/artifact-page.mjs <输出 html>` 生成页面与附属文件清单（模型以 base64 文本发布）。
 - **网页上线：尚未上线。** `deploy` 任务按设计跳过，GitHub Pages 没有开启，原因：
   1. 私有仓库使用 GitHub Pages 需要付费方案（GitHub Pro / Team / Enterprise）；免费账号需要把仓库改为公开。
   2. 开启 Pages 会让游戏网站对所有人公开可访问，属于仓库所有者的发布决定，没有得到授权前不擅自开启、也不改变仓库可见性。
