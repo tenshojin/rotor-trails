@@ -18,6 +18,7 @@
 | 自动驾驶回归（恶劣天气） | `bash tools/regress.sh weather`，11 种天气 × 2 种路线组合 | **22 / 22 完成，0 碰撞，耐久全部 100** |
 | 画面检查 | 无头 Chrome 截图（`tools/steps/cockpit_check.json`、`world_check.json`、`trees_check.json`、`props_check.json`、`props_fjord_check.json`）与 Blender 预览渲染 | 驾驶舱、五张地图的地形 / 水面 / 树木 / 建筑都按预期显示；游戏本身 0 个控制台错误。17 张文档截图已用新画面重新生成 |
 | 帧率 | 无头 Chrome + RTX 5070 Ti Laptop，1920×1080，生产构建，悬停时 | 日本、峡湾：低 / 中 / 高 / 极高 都在 233–240 帧（无头模式可能有约 240 帧的上限）；亚马孙（树最多）：低 240、中 240、高 188、极高 130 |
+| 线上网站 | GitHub Pages（https://tenshojin.github.io/rotor-trails/），无头 Chrome 实际访问 | 部署成功（GitHub Actions 的 build、deploy 两个任务都通过）；网址返回 200，程序、模型、贴图文件都能正常下载；用无头 Chrome 实际打开网址，主菜单、峡湾地图、日本地图都能进入，驾驶舱、直升机外观、建筑、树木模型全部加载成功，控制台 0 个错误。 |
 | 真人试玩 | — | **未进行** |
 
 以下第 1–5 节是上一轮（画面升级之前）的完整测试记录。
@@ -129,4 +130,4 @@
 - **声音**：程序化音效（旋翼、发动机、风、雨、告警、Buff）在测试中静音运行，**未经人耳检查**。
 - **其他浏览器**：Firefox、Safari **未测试**；移动设备/触屏不支持（需要键盘和鼠标）。
 - **低配置性能**：未测试；可在设置中降低画质与渲染比例。
-- **GitHub Pages**：尚未开启（私有仓库需要付费方案，且公开发布需由仓库所有者决定），详见 [progress.md](progress.md) 的“发布状态”。代码推送后 GitHub Actions 上的类型检查、80 个测试与生产构建已通过。
+- **GitHub Pages**：（上一轮时尚未开启）2026-11-03 晚仓库改为公开并上线：https://tenshojin.github.io/rotor-trails/ ，详见 [progress.md](progress.md) 的“发布状态”。

@@ -47,7 +47,8 @@
 - **代码**：已推送到私有仓库 https://github.com/tenshojin/rotor-trails ，分支 `main`（画面升级于 2026-11-03 下午推送）。
 - **持续集成**：推送后 GitHub Actions “CI / Pages” 自动运行，`build` 任务通过（Ubuntu + Node 24：`npm ci`、类型检查、81 个测试全部通过、生产构建），用时约 50 秒。
 - **私有试玩页**（claude.ai Artifact，只有所有者能打开）已更新为画面升级版：`npm run build` 后用 `node tools/artifact-page.mjs <输出 html>` 生成页面与附属文件清单（模型以 base64 文本发布）。
-- **网页上线：尚未上线。** `deploy` 任务按设计跳过，GitHub Pages 没有开启，原因：
-  1. 私有仓库使用 GitHub Pages 需要付费方案（GitHub Pro / Team / Enterprise）；免费账号需要把仓库改为公开。
-  2. 开启 Pages 会让游戏网站对所有人公开可访问，属于仓库所有者的发布决定，没有得到授权前不擅自开启、也不改变仓库可见性。
-- 需要上线时：在 Settings → Pages 把 Source 设为 “GitHub Actions”，再新建仓库变量 `DEPLOY_PAGES=true`（或手动运行一次工作流）；部署完成后访问 Pages 网址验证。在本地也可以随时用 `npm run build` + `npm run preview` 运行生产版本。
+- **公开与上线（2026-11-03 晚）**：经仓库所有者同意（“可以先公开，后续问题之后再调”），仓库改为**公开**，GitHub Pages 以 GitHub Actions 方式开启，并设置仓库变量 `DEPLOY_PAGES=true`——之后每次推送到 `main`，检查通过就自动部署。
+- **网址**：https://tenshojin.github.io/rotor-trails/
+- **上线验证**：部署成功（GitHub Actions 的 build、deploy 两个任务都通过）；网址返回 200，程序、模型、贴图文件都能正常下载；用无头 Chrome 实际打开网址，主菜单、峡湾地图、日本地图都能进入，驾驶舱、直升机外观、建筑、树木模型全部加载成功，控制台 0 个错误。
+- 公开前检查过：提交作者均为 GitHub 的匿名邮箱（noreply），仓库里没有密钥、Token 或个人信息；参照照片不在仓库里。
+- 在本地也可以随时用 `npm run build` + `npm run preview` 运行生产版本。

@@ -2,6 +2,8 @@
 
 第一人称拟真直升机闯关网页游戏。驾驶一架轻型直升机，在五张风格迥异的地图里执行运输、空投、巡查与精确降落任务：日本海湾群岛、美国西南峡谷、亚马孙雨林、挪威峡湾、喜马拉雅雪域。
 
+**在线试玩：https://tenshojin.github.io/rotor-trails/** （需要键盘和鼠标，推荐桌面版 Chrome / Edge 并开启硬件加速）
+
 - 纯前端静态网站：TypeScript + Vite + three.js（WebGL2）+ Rapier 物理（WebAssembly），无后端、无在线 AI、无付费接口
 - 驾驶舱、直升机外观、五张地图的建筑与 10 种树木都用本仓库里的 Blender 脚本建模（对照维基共享资源上的真实照片，照片只作参照、不随游戏分发）；地形与建筑使用 [Poly Haven](https://polyhaven.com) 的 CC0 照片材质；地形高度、天空、水面、仪表画面与音效为程序生成
 
@@ -114,9 +116,11 @@ MAP=himalaya PATHS=0,1 npx vitest run --config vitest.tools.config.ts tools/auto
 
 ## 部署到 GitHub Pages
 
+本仓库已开启 GitHub Pages：每次推送到 `main`，工作流通过检查后自动部署到 https://tenshojin.github.io/rotor-trails/ 。
+
 仓库里的 [.github/workflows/deploy.yml](.github/workflows/deploy.yml) 在每次推送到 `main` 时自动执行类型检查、测试和构建；构建产物使用相对路径（`base: './'`），可以放在任何子路径下（例如 `https://<用户名>.github.io/rotor-trails/`）。
 
-发布步骤：
+在自己的仓库（例如复刻后）开启发布的步骤：
 
 1. 仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**
 2. 仓库 **Settings → Secrets and variables → Actions → Variables** 新建变量 `DEPLOY_PAGES`，值为 `true`（或在 Actions 页面手动运行一次 “CI / Pages” 工作流）
