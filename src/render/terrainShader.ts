@@ -36,6 +36,8 @@ import {
   vec2,
   vec3,
   vec4,
+  mx_noise_float,
+  mx_worley_noise_float,
 } from 'three/tsl';
 import type { TerrainLayers } from './terrainLayers';
 
@@ -287,6 +289,27 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     }
     // 整体降低一点饱和度：照片材质向地图配色靠拢后草地偏艳，在中性色调映射下会显得发荧光
     col.assign(mix(col, vec3(dot(col, LUMW)), 0.18));
+    // 森林区远处的“树冠层”：从空中看真实的森林是连成一片的树冠，而不是一棵棵树之间露出草地。
+    // 用 Worley 噪声画出一团团树冠（中心亮、缝隙暗）与按位置变化的松林 / 阔叶林色调，并随树冠起伏扰动法线；
+    // 离镜头近（< 90 m）时淡出，只看真实的树。
+    const camDist = length(P.sub(cameraPosition));
+    const canopyK = smoothstep(0.25, 0.75, forest).mul(smoothstep(90.0, 300.0, camDist)).mul(float(1).sub(snowW)).toVar();
+    If(canopyK.greaterThan(0.01), () => {
+      const cp = P.xz.div(5.2);
+      const f1 = mx_worley_noise_float(cp);
+      const dome = clamp(float(1).sub(f1.mul(f1).mul(1.7)), 0.0, 1.0);
+      const hue = mx_noise_float(P.xz.mul(0.012)).mul(0.5).add(0.5);
+      const fine = mx_noise_float(P.xz.mul(0.35)).mul(0.5).add(0.5);
+      const canopy = mix(vec3(0.045, 0.085, 0.04), vec3(0.085, 0.13, 0.045), hue).mul(dome.mul(0.75).add(0.35)).mul(fine.mul(0.3).add(0.85));
+      col.assign(mix(col, canopy, canopyK));
+      // 树冠起伏的法线（用 Worley 距离在 x / z 方向的差分）
+      const e = 0.6;
+      const fx = mx_worley_noise_float(cp.add(vec2(e / 5.2, 0)));
+      const fz = mx_worley_noise_float(cp.add(vec2(0, e / 5.2)));
+      const bump = vec3(fx.sub(f1).mul(-2.2), 1.0, fz.sub(f1).mul(-2.2));
+      nb.assign(normalize(mix(nb, normalize(bump.mul(vec3(1, 1, 1))), canopyK.mul(0.6))));
+      rough.assign(mix(rough, 0.85, canopyK));
+    });
     // 水下：变暗偏蓝绿；雨后变湿：变暗、更光滑
     const under = float(1).sub(smoothstep(U.waterLevel - 2.0, U.waterLevel + 0.3, h));
     col.assign(mix(col, col.mul(vec3(0.55, 0.7, 0.72)), under));

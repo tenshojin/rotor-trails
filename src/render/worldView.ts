@@ -17,7 +17,7 @@ import { PropsView } from './propsView';
 import { SkyDome } from './sky';
 import { FOG, sceneFog } from './atmosphere';
 import { buildPost, protectTransparent, type Post } from './post';
-import { SunShadows } from './sunShadows';
+import { markNearShadow, SunShadows } from './sunShadows';
 import { loadTerrainLayers } from './terrainLayers';
 import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrainView';
 import { makeForestTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
@@ -61,6 +61,8 @@ export class WorldView {
   private gpuBusy = false;
   /** GPU 每帧耗时的滑动平均（毫秒），只在 ?gputime=1 时有值 */
   gpuMs = 0;
+  /** 上一帧的绘制次数与三角形数（含阴影与后期） */
+  readonly frameStats = { calls: 0, tris: 0 };
   private settings: Settings;
   // 地图相关
   world: WorldData | null = null;
@@ -102,6 +104,8 @@ export class WorldView {
     r.toneMappingExposure = 1.0;
     r.shadowMap.enabled = true;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
+    // 绘制统计按整帧累计（后期管线一帧里有多次 render，自动清零只会留下最后一次）
+    r.info.autoReset = false;
     this.rig = new CameraRig(canvas.clientWidth / Math.max(1, canvas.clientHeight));
     this.scene.add(this.rig.camera);
     this.scene.fogNode = sceneFog();
@@ -167,11 +171,11 @@ export class WorldView {
   private buildPost(): void {
     if (!this.ready) return;
     const s = this.settings;
-    const key = `${s.quality}_${s.rayTracing}`;
+    const key = `${s.quality}_${s.rayTracing}_${s.motionBlur}`;
     if (key === this.postKey && this.post) return;
     this.postKey = key;
     this.post?.dispose();
-    this.post = buildPost(this.renderer, this.scene, this.rig.camera, this.sun.light, { quality: s.quality, rayTracing: s.rayTracing });
+    this.post = buildPost(this.renderer, this.scene, this.rig.camera, this.sun.light, { quality: s.quality, rayTracing: s.rayTracing, motionBlur: s.motionBlur });
   }
 
   resize(): void {
@@ -242,6 +246,7 @@ export class WorldView {
     }
     this.applySettings(this.settings);
     protectTransparent(this.scene);
+    markNearShadow(this.scene);
     progress?.(0.96, '编译着色器');
     await tick();
   }
@@ -371,6 +376,7 @@ export class WorldView {
       if (f.t - this.gbT > 2 || f.t < this.gbT) {
         this.gbT = f.t;
         protectTransparent(this.scene);
+        markNearShadow(this.scene);
       }
       this.updateEnv(w, f.t);
       this.terrain?.update(cp);
@@ -385,8 +391,11 @@ export class WorldView {
       this.clouds?.update(f.dt, w.cloudBase, w.cloudTop, w.lowCloud, _w.x, _w.z, w.overcast, cp);
     }
     if (!this.ready) return;
+    this.renderer.info.reset();
     if (this.post) this.post.pipeline.render();
     else this.renderer.render(this.scene, cam);
+    this.frameStats.calls = this.renderer.info.render.drawCalls;
+    this.frameStats.tris = this.renderer.info.render.triangles;
     if (this.trackGpu && !this.gpuBusy) {
       this.gpuBusy = true;
       this.renderer
@@ -422,7 +431,7 @@ export class WorldView {
 
   info(): string {
     const i = this.renderer.info;
-    return `${this.gpuInfo().backend} · draw ${i.render.drawCalls} · tris ${(i.render.triangles / 1000).toFixed(0)}k · geo ${i.memory.geometries} · tex ${i.memory.textures}`;
+    return `${this.gpuInfo().backend} · draw ${this.frameStats.calls} · tris ${(this.frameStats.tris / 1000).toFixed(0)}k · geo ${i.memory.geometries} · tex ${i.memory.textures}`;
   }
 
   dispose(): void {

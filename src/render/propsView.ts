@@ -52,6 +52,8 @@ function makeMaterials(detail: THREE.DataArrayTexture | null): Record<MatKey, TH
     glass: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.08, metalness: 0.3, envMapIntensity: 1.6 }),
     emit: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
     cloth: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0, side: THREE.DoubleSide }),
+    // 电线：细杆，不投影（几毫米宽的影子看不见，却要在每层阴影里各画一遍）
+    wire: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.2 }),
     rock,
   };
 }
@@ -128,7 +130,7 @@ export class PropsView {
       g.computeBoundingSphere();
       this.geos.push(g);
       const m = new THREE.Mesh(g, this.materials[mat]);
-      m.castShadow = mat !== 'emit' && mat !== 'glass';
+      m.castShadow = mat !== 'emit' && mat !== 'glass' && mat !== 'wire';
       m.receiveShadow = mat !== 'emit';
       m.matrixAutoUpdate = false;
       this.group.add(m);

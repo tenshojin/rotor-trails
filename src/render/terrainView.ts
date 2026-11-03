@@ -199,6 +199,8 @@ export class TerrainView {
         c.lod = want;
       }
       c.mesh.castShadow = d < this.shadowRange && c.lod <= 1;
+      // 较粗的地形块离镜头至少几百米，不会落进最近两层阴影（图层 1）；最细的一级带图层 0 + 2
+      c.mesh.layers.mask = c.lod >= 1 ? 1 << 1 : (1 << 0) | (1 << 2);
     }
     // 回收：远处的高精度块
     if (this.cache.size > 900) {

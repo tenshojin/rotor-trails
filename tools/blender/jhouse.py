@@ -54,6 +54,9 @@ def mats():
         pot=M('sugi'),
         curtain=[F('curtain', 0xd6ccb4, rough=0.95)],
         concrete=M('granite'),
+        stonewall=M('ishigaki'),
+        gravel=M('gravel'),
+        moss=F('moss', 0x4a5a2c, rough=0.95),
     )
     return _M
 
@@ -558,6 +561,87 @@ def downpipe(name, gpt, wall_pt, out_dir, mt, z_end=0.12, r=0.03):
     return p
 
 
+# ------------------------------------------------------------------ 石垣平台（坡地上的房子都建在石砌平台上）
+PLAT_M = 1.5  # 平台比房子四周各宽出的距离（米）
+PLAT_DEPTH = 3.2  # 平台向下延伸的深度（坡地上下坡一侧露出来，其余埋在地下）
+
+
+def platform(name, W, D, mt, lod=0, door_u=None, rnd=None):
+    """石垣平台：野面积み的自然石挡土墙，带“勾配”（越往下越向外，真实石垣都是这样砌的），顶面碎石院子。
+    近景另加压顶的切石（天端石）、门前飞石、石灯笼、修剪成团的杜鹃。"""
+    X0, Y0 = W / 2 + PLAT_M, D / 2 + PLAT_M
+    b = PLAT_DEPTH * 0.14
+    top = [(-X0, -Y0, 0.0), (X0, -Y0, 0.0), (X0, Y0, 0.0), (-X0, Y0, 0.0)]
+    bot = [(-X0 - b, -Y0 - b, -PLAT_DEPTH), (X0 + b, -Y0 - b, -PLAT_DEPTH), (X0 + b, Y0 + b, -PLAT_DEPTH), (-X0 - b, Y0 + b, -PLAT_DEPTH)]
+    parts = []
+    for i in range(4):
+        j = (i + 1) % 4
+        quad = [bot[i], bot[j], top[j], top[i]]
+        ob = K.mesh_obj(f'{name}_w{i}', quad, [(0, 1, 2, 3)], mt['stonewall'], smooth=0)
+        K.fix_normals(ob)
+        # 法线朝外（平台中心在原点）
+        cx = sum(v[0] for v in quad) / 4
+        cy = sum(v[1] for v in quad) / 4
+        if ob.data.polygons[0].normal.x * cx + ob.data.polygons[0].normal.y * cy < 0:
+            ob.data.flip_normals()
+        BK.uv_world(ob)
+        parts.append(ob)
+    g = K.mesh_obj(name + '_yard', top, [(0, 1, 2, 3)], mt['gravel'], smooth=0)
+    if g.data.polygons[0].normal.z < 0:
+        g.data.flip_normals()
+    BK.uv_world(g)
+    parts.append(g)
+    if lod > 0:
+        return parts
+    rnd = rnd or random.Random(name)
+    G = mt['granite']
+    # 天端石：沿平台上沿一圈切石，略向外挑
+    for side, (a, c) in enumerate(((top[0], top[1]), (top[1], top[2]), (top[2], top[3]), (top[3], top[0]))):
+        a, c = Vector(a), Vector(c)
+        L = (c - a).length
+        d = (c - a).normalized()
+        out = Vector((d.y, -d.x, 0))
+        x = 0.0
+        while x < L - 0.05:
+            ln = min(rnd.uniform(0.7, 1.3), L - x)
+            mid = a + d * (x + ln / 2) + out * 0.02 - ZUP * 0.1
+            ob = J.obox(f'{name}_cp{side}_{int(x * 10)}', mid, d, out, ZUP, ln - 0.015, 0.34, 0.22, G)
+            K.add_bevel(ob, 0.012, 1)
+            K.apply_mods(ob)
+            BK.uv_world(ob)
+            parts.append(ob)
+            x += ln
+    # 门前飞石：从玄关踏石到平台前沿
+    if door_u is not None:
+        for k in range(4):
+            y = D / 2 + 0.75 + k * (PLAT_M - 0.9) / 3 + rnd.uniform(-0.05, 0.05)
+            r = rnd.uniform(0.2, 0.28)
+            st = K.cylinder(f'{name}_ts{k}', r, 0.07, (door_u + rnd.uniform(-0.15, 0.15), y, 0.035), G, 7)
+            st.rotation_euler.z = rnd.uniform(0, 3.14)
+            K.bake_transform(st)
+            BK.uv_world(st)
+            parts.append(st)
+    # 院角的石灯笼（雪见灯笼的简化：台座 + 灯身 + 伞 + 宝珠）
+    lx, ly = (X0 - 0.55, Y0 - 0.55) if (door_u or 0) < 0 else (-X0 + 0.55, Y0 - 0.55)
+    for nm, r, h, z in (('b', 0.16, 0.35, 0.175), ('f', 0.22, 0.2, 0.45), ('l', 0.15, 0.3, 0.7), ('k', 0.32, 0.12, 0.91), ('h', 0.07, 0.12, 1.03)):
+        ob = K.cylinder(f'{name}_tr{nm}', r, h, (lx, ly, z), G, 6 if nm in ('f', 'l', 'k') else 10)
+        BK.uv_world(ob)
+        parts.append(ob)
+    # 修剪成团的杜鹃（几团扁圆的绿叶球），沿平台前沿
+    for k in range(5):
+        u = rnd.uniform(-X0 + 0.6, X0 - 0.6)
+        if door_u is not None and abs(u - door_u) < 1.3:
+            continue
+        r = rnd.uniform(0.35, 0.55)
+        # 一团修剪过的杜鹃：几个小叶球挤在一起（比一个光滑的球自然）
+        for j in range(5):
+            a = rnd.uniform(0, 6.28)
+            rr = r * rnd.uniform(0.45, 0.7)
+            off = Vector((math.cos(a) * r * 0.55, math.sin(a) * r * 0.35, 0.0))
+            parts.append(K.sphere(f'{name}_az{k}_{j}', rr, (u + off.x, Y0 - 0.45 + off.y, rr * 0.8 + rnd.uniform(0.0, r * 0.25)), mt['leaf'], 8, 5, scale=(1.15, 1.0, 0.8)))
+    return parts
+
+
 # ------------------------------------------------------------------ 布局
 
 
@@ -654,6 +738,7 @@ def lod0(name, two, style, W=8.5, D=7.0):
     parts.append(fb(name + '_nm', '+Y', D / 2, dc + side * 1.05 - 0.05, dc + side * 1.05 + 0.05, 1.45, 1.7, 0.0, 0.02, mt['board']))
     parts.append(fb(name + '_mb', '+Y', D / 2, dc + side * 1.05 - 0.16, dc + side * 1.05 + 0.16, 1.0, 1.32, 0.0, 0.12, mt['gutter']))
     parts += plants(name + '_pl', '+Y', D / 2, dc + side * 1.6, mt, rnd, n=3)
+    parts += platform(name + '_pf', W, D, mt, 0, door_u=dc, rnd=rnd)
     if not two:
         roof, corners, infos = J.hip_roof(name + '_r', W, D, 2.2, 0.75, 0.45, ZT, dict(tile=mt['tile'], ibushi=mt['ibushi'], mendo=mt['plaster'], board=mt['board']))
         parts += roof
@@ -771,6 +856,7 @@ def lod1(name, two, style, W=8.5, D=7.0):
     """中景：墙体分区贴图 + 简化门窗 + 平板瓦屋面（瓦格子贴图 + 法线）+ 简化屋脊。"""
     mt = mats()
     p = [BK.bx(name + '_base', (W + 0.2, D + 0.2, ZB), (0, 0, ZB / 2), mt['granite'])]
+    p += platform(name + '_pf', W, D, mt, 1)
     zsplit = ZB + (0.45 if style == 'plaster' else 1.75)
     lo = mt['sugi'] if style == 'plaster' else mt['yakisugi']
     p.append(BK.bx(name + '_lo', (W + 0.024, D + 0.024, zsplit - ZB), (0, 0, (ZB + zsplit) / 2), lo))
@@ -850,6 +936,7 @@ def lod2(name, two, style, W=8.5, D=7.0):
     zsplit = ZB + (0.45 if style == 'plaster' else 1.75)
     p = [BK.bx(name + '_lo', (W, D, zsplit), (0, 0, zsplit / 2), lo, uv=True),
          BK.bx(name + '_hi', (W, D, ZT - zsplit), (0, 0, (zsplit + ZT) / 2), mt['plaster'])]
+    p += platform(name + '_pf', W, D, mt, 2)
     if not two:
         objs, _l, _e = BK.roof_hip(name + '_r', W, D, 2.2, 0.75, 0.45, 0.14, mt['flat'], ZT)
         p += objs

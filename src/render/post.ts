@@ -11,7 +11,7 @@
 // 只能看到屏幕上可见的物体；屏幕外的信息由环境贴图补足。
 
 import * as THREE from 'three/webgpu';
-import { clamp, diffuseColor, dot, float, luminance, metalness, mix, mrt, normalView, output, packNormalToRGB, pass, perspectiveDepthToViewZ, reference, renderOutput, roughness, sample, screenUV, smoothstep, unpackRGBToNormal, vec2, vec3, vec4, velocity, vibrance } from 'three/tsl';
+import { clamp, convertToTexture, diffuseColor, dot, float, int, length, max, min, luminance, metalness, mix, mrt, normalView, output, packNormalToRGB, pass, perspectiveDepthToViewZ, reference, renderOutput, roughness, sample, screenUV, smoothstep, unpackRGBToNormal, vec2, vec3, vec4, velocity, vibrance } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
@@ -19,6 +19,7 @@ import { ssgi } from 'three/addons/tsl/display/SSGINode.js';
 import { ssr } from 'three/addons/tsl/display/SSRNode.js';
 import { sss } from 'three/addons/tsl/display/SSSNode.js';
 import { traa } from 'three/addons/tsl/display/TRAANode.js';
+import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 
 export type QualityTier = 'low' | 'medium' | 'high' | 'ultra';
 
@@ -47,6 +48,8 @@ export function protectTransparent(root: THREE.Object3D): void {
 export interface PostConfig {
   quality: QualityTier;
   rayTracing: boolean;
+  /** 按运动向量的动态模糊（只沿画面里物体相对镜头的实际运动方向模糊，座舱随镜头一起动所以不糊） */
+  motionBlur?: boolean;
 }
 
 export interface Post {
@@ -159,11 +162,17 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     aa = t;
   }
   let out: THREE.Node<'vec4'> = aa;
+  if (cfg.motionBlur) {
+    // 强度 0.5，单帧位移限制在画面的 3.5% 以内（急转头时不会拖出很长的条纹）
+    const v = vel.xy.mul(0.5);
+    const vClamped = v.mul(min(float(1), float(0.035).div(max(length(v), 1e-5))));
+    out = motionBlur(convertToTexture(aa), vClamped, int(cfg.quality === 'ultra' ? 12 : 8));
+  }
   if ((cfg.quality === 'high' || cfg.quality === 'ultra') && dbg.bloom !== false) {
     // 阈值较高：只有太阳、强镜面反光、灯光会晕开（阳光下的白色表面本身也有约 3 的亮度）
-    const b = bloom(aa, cfg.quality === 'ultra' ? 0.22 : 0.18, 0.5, 4.0);
+    const b = bloom(out, cfg.quality === 'ultra' ? 0.22 : 0.18, 0.5, 4.0);
     disposers.push(b);
-    out = aa.add(b);
+    out = out.add(b);
   }
   if (dbg.view) {
     pipeline.outputColorTransform = false;

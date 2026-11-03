@@ -59,6 +59,8 @@ MATS = {
     'kawara_flat': ('kawara_flat', 'kawara_flat', 4.8, 1.0, 0.15),
     'granite': ('granite', 'concrete_wall_008', 1.0, 1.0, 0.0),
     'sugi': ('sugi_weathered', 'japanese_cedar_planks', 1.2, 1.0, 0.0),
+    'gravel': ('gravel', 'concrete_wall_008', 1.0, 1.0, 0.0),
+    'ishigaki': ('ishigaki', 'rabdentse_ruins_wall', 2.0, 1.0, 0.0),
 }
 TILE = {}
 
@@ -79,6 +81,10 @@ def mat(name):
     return m
 
 
+# 纯色材质的参数（导出时合并成一个顶点色材质用）：材质名 → (线性颜色, 粗糙度, 金属度)；发光 / 半透明的不合并
+FLAT_PARAMS = {}
+
+
 def flat(name, color, rough=0.6, metal=0.0, emit=None, alpha=None, emit_strength=1.0):
     """纯色材质（窗框、玻璃、金属件等不需要贴图的部件）。"""
     key = 'f_' + name
@@ -86,6 +92,8 @@ def flat(name, color, rough=0.6, metal=0.0, emit=None, alpha=None, emit_strength
         return _mats[key]
     m = K.material(key, color, rough=rough, metal=metal, emit=emit, alpha=alpha, emit_strength=emit_strength)
     _mats[key] = m
+    if emit is None and alpha is None:
+        FLAT_PARAMS[key] = (K.col(color) if isinstance(color, int) else color, rough, metal)
     return m
 
 
@@ -320,8 +328,55 @@ def rotate_all(objs, angle):
     return objs
 
 
-def model(name, objs, coll=None):
-    """把部件按材质合并，挂到名为 name 的空物体下（原点 = 地面中心）。"""
+_VC = {}
+
+
+def vc_material():
+    """合并后的纯色部件材质：颜色取顶点色（Col），粗糙度 / 金属度在第二套 UV（RM）里，游戏里由 modelLib 换成节点材质读出。"""
+    if 'm' in _VC:
+        return _VC['m']
+    m = bpy.data.materials.new('f_vc')
+    m.use_nodes = True
+    nt = m.node_tree
+    bsdf = nt.nodes.get('Principled BSDF')
+    ca = nt.nodes.new('ShaderNodeVertexColor')
+    ca.layer_name = 'Col'
+    nt.links.new(ca.outputs['Color'], bsdf.inputs['Base Color'])
+    bsdf.inputs['Roughness'].default_value = 0.6
+    _VC['m'] = m
+    return m
+
+
+def _bake_flat(o):
+    """纯色材质的部件：颜色写进顶点色，粗糙度 / 金属度写进 UV“RM”，材质换成 f_vc。返回是否处理了。"""
+    if not o.data.materials:
+        return False
+    m = o.data.materials[0]
+    if m is None or m.name not in FLAT_PARAMS:
+        return False
+    col, rough, metal = FLAT_PARAMS[m.name]
+    me = o.data
+    for a in list(me.color_attributes):
+        me.color_attributes.remove(a)
+    attr = me.color_attributes.new('Col', 'FLOAT_COLOR', 'CORNER')
+    c = (col[0], col[1], col[2], 1.0) if len(col) >= 3 else (0.5, 0.5, 0.5, 1.0)
+    for d in attr.data:
+        d.color = c
+    # 两套 UV 的名字和顺序要一致（合并时按名字对齐）：UVMap（占位）+ RM
+    while len(me.uv_layers) > 0:
+        me.uv_layers.remove(me.uv_layers[0])
+    me.uv_layers.new(name='UVMap')
+    rm = me.uv_layers.new(name='RM')
+    for lp in rm.data:
+        lp.uv = (rough, metal)
+    me.materials.clear()
+    me.materials.append(vc_material())
+    return True
+
+
+def model(name, objs, coll=None, merge_flats=True):
+    """把部件按材质合并，挂到名为 name 的空物体下（原点 = 地面中心）。
+    merge_flats：所有纯色材质的部件合成一个顶点色网格（f_vc），大幅减少游戏里的绘制次数。"""
     root = bpy.data.objects.new(name, None)
     (coll or bpy.context.scene.collection).objects.link(root)
     groups = {}
@@ -330,6 +385,8 @@ def model(name, objs, coll=None):
             continue
         K.apply_mods(o)
         K.bake_transform(o)
+        if merge_flats:
+            _bake_flat(o)
         key = o.data.materials[0].name if o.data.materials else 'none'
         groups.setdefault(key, []).append(o)
     out = []

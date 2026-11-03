@@ -8,6 +8,15 @@ import type { MapDef } from './types';
 const SEED = 2101;
 const n = new Perlin2(SEED);
 const n2 = new Perlin2(SEED + 7);
+const n3 = new Perlin2(SEED + 13);
+/** 森林区（0..1）：大尺度噪声划出成片的林地，低处（海边、平地）没有 */
+const forestRaw = (x: number, z: number) => 0.5 + 0.5 * n3.fbm(x / 650, z / 650, 3);
+const forest = (x: number, z: number, h: number) => smoothstep(0.38, 0.52, forestRaw(x, z)) * smoothstep(8, 22, h);
+/** 林缘：森林区边上灌木最多 */
+const forestEdge = (x: number, z: number, h: number) => {
+  const f = smoothstep(0.4, 0.6, forestRaw(x, z)) * smoothstep(5, 15, h);
+  return f * (1 - f) * 4;
+};
 
 /** 海岸线（大陆在西侧）：z → x */
 const COAST: Array<[number, number]> = [
@@ -181,17 +190,14 @@ export const JAPAN: MapDef = {
     { type: 'antenna', pos: [1590, 0, -1005], ground: true, p: { h: 22 } },
     { type: 'boulders', pos: [-150, 0, -540], ground: true, p: { n: 8, spread: 25, r: 3, color: 0x6e665c } },
   ],
+  // 植被参照濑户内海沿岸：山坡上是成片的松林与常绿阔叶林（森林区由大尺度噪声划出），
+  // 海边零星的黑松，村子、海岸与平地保持开阔；林缘与空地上灌木较多。
   vegetation: [
-    {
-      type: 'pine',
-      density: 620,
-      scale: [0.8, 1.35],
-      minH: 3,
-      maxSlope: 0.5,
-      mask: (x, z, h) => (h > 3 ? 0.55 + 0.45 * n.fbm(x / 220, z / 220, 2) : 0),
-    },
-    { type: 'broadleaf', density: 360, scale: [0.85, 1.3], minH: 10, maxSlope: 0.38, mask: (x, z) => 0.4 + 0.6 * n2.fbm(x / 300, z / 300, 2) },
-    { type: 'shrub', density: 260, scale: [0.7, 1.3], minH: 3, maxSlope: 0.5 },
+    { type: 'pine', density: 520, scale: [0.8, 1.35], minH: 3, maxSlope: 0.5, mask: (x, z, h) => (h > 3 ? 0.4 + 0.4 * n.fbm(x / 220, z / 220, 2) : 0) },
+    { type: 'pine', density: 3400, scale: [0.85, 1.4], minH: 8, maxSlope: 0.6, mask: (x, z, h) => forest(x, z, h) * 0.75 },
+    { type: 'broadleaf', density: 3000, scale: [0.9, 1.45], minH: 12, maxSlope: 0.55, mask: (x, z, h) => forest(x, z, h) * (h > 30 ? 1 : 0.55) },
+    { type: 'broadleaf', density: 260, scale: [0.85, 1.3], minH: 10, maxSlope: 0.38, mask: (x, z) => 0.3 + 0.5 * n2.fbm(x / 300, z / 300, 2) },
+    { type: 'shrub', density: 700, scale: [0.7, 1.4], minH: 3, maxSlope: 0.6, mask: (x, z, h) => 0.35 + 0.65 * forestEdge(x, z, h) },
   ],
   clearings: [
     [-1030, 720, 170],

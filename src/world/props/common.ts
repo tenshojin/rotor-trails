@@ -10,6 +10,9 @@ export interface PropCtx {
   waterLevel: number | null;
   /** 地面高度（地形与水面取高者） */
   ground(x: number, z: number): number;
+  /** 往地表掩码里画（只影响地面着色与植被分布，不改地形高度）：通道 1 = 泥土 / 碎石，2 = 不长树 */
+  paintPath?(channel: 0 | 1 | 2 | 3, points: Array<[number, number]>, width: number, feather: number, strength?: number): void;
+  paintCircle?(channel: 0 | 1 | 2 | 3, x: number, z: number, r: number, feather: number, strength?: number): void;
 }
 
 export type PropFn = (B: PropBuilder, d: PropDef, rng: Rng, ctx: PropCtx) => void;

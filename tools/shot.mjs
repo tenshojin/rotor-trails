@@ -106,6 +106,27 @@ for (const s of cfg.steps) {
     console.log('goto', s.goto);
   }
   if (s.wait) await sleep(s.wait);
+  if (s.profile) {
+    // CPU 采样：{ "profile": 毫秒数, "label": "名字" } → 打印自身耗时最多的函数（按脚本位置归并）
+    await send('Profiler.enable');
+    await send('Profiler.setSamplingInterval', { interval: 200 });
+    await send('Profiler.start');
+    await sleep(s.profile);
+    const res = await send('Profiler.stop');
+    const prof = res.result.profile;
+    const dt = new Map();
+    const byId = new Map(prof.nodes.map((n) => [n.id, n]));
+    const deltas = prof.timeDeltas;
+    for (let i = 0; i < prof.samples.length; i++) {
+      const n = byId.get(prof.samples[i]);
+      const f = n.callFrame;
+      const key = `${f.functionName || '(anon)'} ${(f.url || '').split('/').pop()}:${f.lineNumber + 1}`;
+      dt.set(key, (dt.get(key) ?? 0) + (deltas[i] ?? 0));
+    }
+    const total = [...dt.values()].reduce((a, b) => a + b, 0);
+    console.log(`profile ${s.label ?? ''}: ${(total / 1000).toFixed(0)} ms sampled`);
+    for (const [k, v] of [...dt.entries()].sort((a, b) => b[1] - a[1]).slice(0, s.top ?? 25)) console.log(`  ${((100 * v) / total).toFixed(1).padStart(5)}%  ${k}`);
+  }
   if (s.until) {
     const t0 = Date.now();
     let ok = false;

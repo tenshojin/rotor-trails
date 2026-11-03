@@ -329,7 +329,7 @@ export class TreeView {
             return [{ g, mat: this.materialFor(null), tint: true }];
           });
       this.sets.push(
-        geoSets.map((parts) => {
+        geoSets.map((parts, lodIdx) => {
           const set: LodMeshes = { meshes: [], tinted: [] };
           for (const part of parts) {
             const m = new THREE.InstancedMesh(part.g, part.mat, list.length);
@@ -338,6 +338,8 @@ export class TreeView {
             m.count = 0;
             m.frustumCulled = false;
             m.receiveShadow = true;
+            // 中景、远景的树离镜头至少上百米，不会落进最近两层阴影（图层 1，见 sunShadows.ts）
+            if (lodIdx > 0) m.layers.set(1);
             if (part.tint) {
               // 分配逐实例颜色缓冲（每次重排时按树的编号重新写入，保证颜色固定）
               m.setColorAt(0, white);

@@ -138,3 +138,32 @@ G *= (1 + np.clip(pnoise(N, 14, aspect=8.0), -2, 2) * 0.035 + rng.standard_norma
 # 斑点很细，1024 张存成 WebP 体积大；先缩到 512 再放回 1024 尺寸（文件名不变，材质代码不用改）
 G = np.asarray(Image.fromarray((np.clip(G, 0, 1) * 255).astype(np.uint8)).resize((512, 512), Image.LANCZOS).resize((N, N), Image.BICUBIC), dtype=np.float64) / 255
 save(G, 'granite_diffuse_1024.jpg')
+
+# ------------------------------------------------------------------ 碎石院子（1 m 一个平铺单元）：可平铺的 Voronoi 小石子
+from scipy.spatial import cKDTree  # noqa: E402
+
+# 抖动网格取点（比纯随机均匀，避免挤成一团的细碎小格）
+gn = 84
+gy_, gx_ = np.mgrid[0:gn, 0:gn]
+pts = (np.stack([gx_.ravel(), gy_.ravel()], -1) + 0.5 + (rng.random((gn * gn, 2)) - 0.5) * 0.85) * (N / gn)
+# 平铺：把点复制到 3×3 邻格，查询最近点时边界无缝
+tiles = np.concatenate([pts + np.array([dx, dy]) * N for dx in (-1, 0, 1) for dy in (-1, 0, 1)])
+tree = cKDTree(tiles)
+qy, qx = np.mgrid[0:N, 0:N]
+q = np.stack([qx.ravel() + 0.5, qy.ravel() + 0.5], -1)
+dist, idx = tree.query(q, k=2)
+cell = (idx[:, 0] % len(pts)).reshape(N, N)
+d0 = dist[:, 0].reshape(N, N)
+edge = (dist[:, 1] - dist[:, 0]).reshape(N, N)
+# 每颗石子：灰米色明暗不一，极少量偏暖 / 偏冷；圆顶状受光（中心亮、边缘暗），石缝发黑
+tint = 0.62 + 0.42 * rng.random(len(pts))
+warm = rng.standard_normal(len(pts)) * 0.03
+rad = d0 + edge * 0.5  # 近似的石子半径
+dome = np.sqrt(np.clip(1.0 - (d0 / np.maximum(rad, 1.0)) ** 2, 0.0, 1.0))
+gap = smoothstep(0.6, 2.2, edge)
+lum = 1.2 * tint[cell] * (0.6 + 0.4 * dome) * (0.45 + 0.55 * gap)
+Gc = np.stack([lum * (0.60 + warm[cell]), lum * 0.575, lum * (0.54 - warm[cell])], -1)
+Gc *= (1 + pnoise(N, 80) * 0.07 + rng.standard_normal((N, N)) * 0.025)[..., None]
+# 同花岗岩：缩到 512 再放回（去掉最细的高频，WebP 体积小很多，游戏距离下看不出差别）
+Gc = np.asarray(Image.fromarray((np.clip(Gc, 0, 1) * 255).astype(np.uint8)).resize((512, 512), Image.LANCZOS).resize((N, N), Image.BICUBIC), dtype=np.float64) / 255
+save(Gc, 'gravel_diffuse_1024.jpg')

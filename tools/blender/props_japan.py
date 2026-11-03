@@ -47,6 +47,60 @@ def jhouse(name, two_story, wall_style, W=8.5, D=7.0):
         ROOTS.append(root)
 
 
+# ------------------------------------------------------------------ 电线杆（日本乡村的混凝土电杆，参照实拍：灰色锥形混凝土杆、
+# 顶部两层钢腕金 + 白色瓷绝缘子、柱上变压器、防犯灯、脚踏螺栓、编号牌）。
+# 高度 12 m；腕金沿局部 X（游戏里垂直于道路），电线挂点：高压 3 根（10.75 m，x = -0.65 / 0 / 0.65），
+# 低压 / 通信 2 根（7.2 m 与 6.4 m，x = 0.25），与 src/world/props/japan.ts 的 POLE 常量一致。
+def denchu(name, transformer):
+    CON = M('concrete')
+    STEEL = F('pole_steel', 0x6d7176, rough=0.45, metal=0.6)
+    PORC = F('porcelain', 0xe9ecec, rough=0.25)
+    CAN = F('trans_grey', 0x9aa1a6, rough=0.4, metal=0.3)
+    LAMP = F('lamp_led', 0xf4f6f0, rough=0.2, emit=0xfff8e8, emit_strength=0.6)
+    TAG = F('pole_tag', 0xd9d3c0, rough=0.7)
+    for lod in range(3):
+        nm = name if lod == 0 else f'{name}@{lod}'
+        parts = [BK.cyl(nm + '_pole', 0.19, 12.0, (0, 0, 6.0), CON, (16, 10, 6)[lod], r2=0.12)]
+        if lod < 2:
+            for z, ln in ((10.75, 1.8), (9.95, 1.5)):
+                parts.append(BK.bx(nm + f'_arm{z}', (ln, 0.07, 0.07), (0, 0.16, z), STEEL, uv=False))
+                if lod == 0:
+                    # 腕金撑铁（斜撑）
+                    for sx in (-1, 1):
+                        parts.append(K.tube_path(nm + f'_br{z}{sx}', [(sx * ln * 0.35, 0.16, z - 0.02), (0, 0.16, z - 0.55)], 0.015, STEEL, seg=5))
+                    for x in ((-0.65, 0.0, 0.65) if z > 10 else (-0.55, 0.55)):
+                        for k in range(3):
+                            parts.append(BK.cyl(nm + f'_ins{z}{x}{k}', 0.055 - k * 0.008, 0.045, (x, 0.16, z + 0.06 + k * 0.05), PORC, 10, uv=False))
+            # 低压 / 通信线的挂钩
+            for z in (7.2, 6.4):
+                parts.append(BK.bx(nm + f'_hk{z}', (0.5, 0.05, 0.05), (0.2, 0.0, z), STEEL, uv=False))
+            if transformer:
+                # 柱上变压器（两台）+ 托架 + 引下线
+                parts.append(BK.bx(nm + '_tb', (0.12, 0.9, 0.1), (0, 0.45, 8.6), STEEL, uv=False))
+                for i, (x, r, h) in enumerate(((-0.28, 0.24, 0.85), (0.3, 0.2, 0.7))):
+                    parts.append(BK.cyl(nm + f'_tr{i}', r, h, (x, 0.62, 8.2), CAN, (14, 8)[lod], uv=False))
+                    parts.append(BK.cyl(nm + f'_tl{i}', r + 0.02, 0.05, (x, 0.62, 8.2 + h / 2 + 0.02), CAN, (14, 8)[lod], uv=False))
+                    if lod == 0:
+                        parts.append(K.tube_path(nm + f'_ld{i}', [(x, 0.62, 8.2 + h / 2), (x * 0.9, 0.3, 9.9)], 0.012, F('cable_black', 0x1d1f21, rough=0.6), seg=5))
+                # 防犯灯：短臂 + LED 灯头
+                parts.append(K.tube_path(nm + '_la', [(0, 0.12, 5.2), (0, 0.9, 5.45)], 0.025, STEEL, seg=6))
+                parts.append(BK.bx(nm + '_lh', (0.16, 0.36, 0.08), (0, 1.0, 5.42), LAMP, uv=False))
+        if lod == 0:
+            # 脚踏螺栓：从 2.4 m 起左右交替
+            z = 2.4
+            k = 0
+            while z < 11.3:
+                a = (k % 2) * math.pi + math.pi / 2
+                r0 = 0.19 - (z / 12.0) * 0.07
+                parts.append(K.tube_path(nm + f'_st{k}', [(math.cos(a) * r0, math.sin(a) * r0, z), (math.cos(a) * (r0 + 0.2), math.sin(a) * (r0 + 0.2), z)], 0.011, STEEL, seg=5))
+                z += 0.45
+                k += 1
+            # 编号牌
+            parts.append(BK.bx(nm + '_tag', (0.12, 0.012, 0.3), (0, -0.19, 1.8), TAG, uv=False))
+        root, _ = BK.model(nm, parts)
+        ROOTS.append(root)
+
+
 # ------------------------------------------------------------------ 海上大鸟居（两部鸟居，参照严岛神社）
 def torii():
     """游戏里：主柱 x=±4.2，半径约 0.6，笠木顶高约 13.5 m，水面下延伸 3 m。原点 = 水面高度。"""
@@ -236,6 +290,8 @@ jhouse('jhouse_2b', True, 'wood')
 # 大宅（村里约 15% 的“大户”，游戏里宽深约为普通民居的 1.3 × 1.2 倍）：按大尺寸单独建模，避免瓦垄被拉宽
 jhouse('jhouse_2aL', True, 'plaster', 11.0, 8.4)
 jhouse('jhouse_2bL', True, 'wood', 11.0, 8.4)
+denchu('denchu_a', False)
+denchu('denchu_b', True)
 torii()
 pagoda()
 shrine()

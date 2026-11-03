@@ -36,6 +36,10 @@ export class CameraRig {
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(72, aspect, 0.05, 30000);
+    // 图层 1 = 只出现在远处的物体（中景 / 远景模型、远处地形块）：主相机看得到，最近两层阴影不画它们（见 sunShadows.ts）
+    this.camera.layers.enable(1);
+    // 图层 2 = 只进最近两层阴影的物体（座舱内部等）；近处的普通物体同时带图层 0 和 2
+    this.camera.layers.enable(2);
   }
 
   look(dx: number, dy: number): void {

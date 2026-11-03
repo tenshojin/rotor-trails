@@ -92,6 +92,9 @@ export class Cockpit {
       if (m.isMesh) {
         this.geos.add(m.geometry);
         const name = m.name;
+        // 座舱内部只进最近两层阴影（图层 2，见 sunShadows.ts）：远处地面上的机影由直升机外观模型负责，
+        // 上百个座舱零件不必在外面两层阴影里各画一遍
+        m.layers.mask = 1 << 2;
         if (name.startsWith('glass_')) {
           m.material = name.startsWith('glass_roof') ? roofGlass : glass;
           m.renderOrder = 20;

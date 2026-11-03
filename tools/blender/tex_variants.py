@@ -121,3 +121,9 @@ def shingles():
 
 
 shingles()
+
+a = load('rabdentse_ruins_wall')
+# 濑户内的石垣：浅灰米色花岗岩（去掉原图的橙色灰缝）；缩到 512 再放回，减小 WebP 体积
+ish = np.clip(colorize(a, (0.55, 0.52, 0.47), 1.3), 0, 1)
+ish = np.asarray(Image.fromarray((ish * 255).astype(np.uint8)).resize((512, 512), Image.LANCZOS).resize((1024, 1024), Image.BICUBIC), dtype=np.float32) / 255
+save(ish, 'ishigaki')

@@ -2,7 +2,8 @@
 // 根节点名 = 模型名，子网格按材质合并。渲染时按模型实例（来自 PropBuilder.beginModel）做实例化绘制。
 // 文件不存在或加载失败时返回 null，道具退回程序几何体。
 
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { attribute, uv, vec4 } from 'three/tsl';
 import { loadGltf } from './gltf';
 import type { ModelInstance } from '../world/propBuilder';
 
@@ -25,6 +26,21 @@ export async function loadModelLib(file: string): Promise<ModelLib | null> {
     const gltf = await loadGltf(`models/${file}`);
     const templates = new Map<string, THREE.Object3D>();
     gltf.scene.updateMatrixWorld(true);
+    // 合并的纯色部件（f_vc，见 tools/blender/bldkit.py）：颜色在顶点色里，粗糙度 / 金属度在第二套 UV 里
+    let vc: THREE.MeshStandardNodeMaterial | null = null;
+    gltf.scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || (m.material as THREE.Material).name !== 'f_vc') return;
+      if (!vc) {
+        vc = new THREE.MeshStandardNodeMaterial({ roughness: 0.6, metalness: 0 });
+        vc.name = 'f_vc';
+        vc.colorNode = vec4(attribute('color', 'vec3'), 1.0);
+        vc.roughnessNode = uv(1).x;
+        vc.metalnessNode = uv(1).y;
+      }
+      (m.material as THREE.Material).dispose();
+      m.material = vc;
+    });
     for (const child of gltf.scene.children) templates.set(child.name, child);
     const geos = new Set<THREE.BufferGeometry>();
     const mats = new Set<THREE.Material>();
@@ -52,6 +68,14 @@ export async function loadModelLib(file: string): Promise<ModelLib | null> {
     return null;
   }
 }
+
+/**
+ * 近景（LOD0）里会投影的子网格（按材质名）：屋顶、墙、柱梁、台基、杆身等大部件。
+ * 玻璃、窗框、设备、碎石地面这类小部件的影子几乎看不见，却要在每层阴影里各画一遍，CPU 提交开销很大。
+ */
+const LOD0_SHADOW = /(j_kawara|ibushi|plaster|sugi|yakisugi|granite|cedar|concrete|f_vc)/;
+/** 中景（LOD1）里投影的子网格：墙体与屋面体块 */
+const LOD1_SHADOW = /(kawara_flat|plaster|sugi|yakisugi|concrete|f_vc)/;
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -94,7 +118,11 @@ export class LodModel {
         im.computeBoundingSphere();
         im.count = 0;
         im.visible = false;
-        im.castShadow = true;
+        // 近景只让大部件投影；中景全部投影；远景不投影（几个像素大的影子看不出来，却要在每层阴影里各画一遍）
+        const lvl = this.levels.length;
+        im.castShadow = lvl === 0 ? LOD0_SHADOW.test(mesh.name) : lvl === 1 && LOD1_SHADOW.test(mesh.name);
+        // 中景、远景的实例都在 110 m 以外，不可能落进最近两层阴影：放到图层 1（见 sunShadows.ts）
+        if (lvl > 0) im.layers.set(1);
         im.receiveShadow = true;
         im.name = mesh.name;
         level.push({ im, local });

@@ -5,6 +5,16 @@
 import * as THREE from 'three/webgpu';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
 
+/** 能进入最近两层阴影的物体带的图层（默认物体由 markNearShadow 统一加上） */
+export const NEAR_SHADOW_LAYER = 2;
+
+/** 给场景里还是默认图层（只有图层 0）的物体加上图层 2，让它们进入最近两层阴影。 */
+export function markNearShadow(root: THREE.Object3D): void {
+  root.traverse((o) => {
+    if (o.layers.mask === 1) o.layers.enable(NEAR_SHADOW_LAYER);
+  });
+}
+
 /** 各层阴影的远边界（米） */
 const SPLITS = [4, 40, 320, 2600];
 /** 各层的法线偏移（约 1.5 个阴影纹素，避免自阴影条纹） */
@@ -90,6 +100,14 @@ export class SunShadows {
       this.csm.lights.forEach((c, i) => {
         c.shadow!.normalBias = NORMAL_BIAS[i] ?? NORMAL_BIAS[NORMAL_BIAS.length - 1];
         c.castShadow = this.enabled;
+        // 最近两层（4 m、40 m）只画图层 2（NEAR_SHADOW_LAYER，近处物体都带）；外面两层画图层 0 与 1。
+        // 图层 1 上“只在远处”的物体（中景 / 远景模型、远处地形块）因此只进外面两层。
+        // （阴影相机若只开图层 0，three.js 会让它继承主相机的全部图层，所以近处用单独的图层 2）
+        if (i < 2) c.shadow!.camera.layers.set(NEAR_SHADOW_LAYER);
+        else {
+          c.shadow!.camera.layers.set(0);
+          c.shadow!.camera.layers.enable(1);
+        }
       });
     }
   }
