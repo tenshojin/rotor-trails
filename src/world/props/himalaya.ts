@@ -10,10 +10,14 @@ function stoneHouse(B: PropBuilder, rng: Rng): void {
   const w = rng.range(6, 9);
   const l = rng.range(7, 10);
   const h = rng.range(3.5, 5.5);
-  B.box(0, h / 2, 0, w, h, l, rng.pick(STONE), { mat: 'rough', jitter: 0.08 });
+  const stone = rng.pick(STONE);
+  // Blender 模型（夏尔巴石屋，参考尺寸 7.5 × 8.5 m、墙高 4.5 m；四种石色对应四种墙面/屋顶配色）
+  B.beginModel(`stone_house_${'abcd'[STONE.indexOf(stone)]}`, 0, 0, 0, 0, w / 7.5, h / 4.5, l / 8.5);
+  B.box(0, h / 2, 0, w, h, l, stone, { mat: 'rough', jitter: 0.08 });
   B.box(0, h + 0.25, 0, w + 0.6, 0.5, l + 0.6, 0x5a4a3a, { solid: false });
   B.box(0, h * 0.85, l / 2 + 0.03, w * 0.9, 0.5, 0.06, 0x8a2a1a, { solid: false });
   for (let i = -1; i <= 1; i += 2) B.box(i * w * 0.25, h * 0.55, l / 2 + 0.04, 0.9, 1.1, 0.06, 0x1a1a1a, { solid: false });
+  B.endModel();
   B.footprint(Math.hypot(w, l) / 2 + 1.5);
 }
 
@@ -56,13 +60,15 @@ export const himalayaProps: Record<string, PropFn> = {
     }
   },
   chorten(B) {
-    // 白塔（佛塔）
+    // 白塔（佛塔）：Blender 模型参照昆布地区的白塔；经幡仍是程序生成
+    B.beginModel('chorten');
     B.box(0, 1.5, 0, 9, 3, 9, 0xe8e4dc, { mat: 'rough' });
     B.box(0, 4, 0, 7, 2, 7, 0xe8e4dc, { mat: 'rough' });
     B.sphere(0, 7.5, 0, 3.6, 0xf2f0ea, { sy: 0.85, seg: 12 });
     B.box(0, 10.6, 0, 2.2, 1.4, 2.2, 0xe8e4dc, {});
     B.cone(0, 14, 0, 1.2, 5.5, 0xc8a050, 10, { mat: 'metal' });
     B.box(0, 10.6, 1.15, 1.2, 0.8, 0.05, 0x2a4a8a, { solid: false });
+    B.endModel();
     prayerLine(B, [0, 16, 0], [18, 2, 6]);
     prayerLine(B, [0, 16, 0], [-17, 2, -8]);
     B.footprint(8);
@@ -76,7 +82,8 @@ export const himalayaProps: Record<string, PropFn> = {
     prayerLine(B, [0, h, 0], [x2, h, z2]);
   },
   monastery(B, _d, rng) {
-    // 寺院：白墙、红色檐带、金顶
+    // 寺院：白墙、红色檐带、金顶（Blender 模型参照丹波切寺）
+    B.beginModel('monastery');
     B.box(0, 4, 0, 22, 8, 16, 0xe8e4dc, { mat: 'rough' });
     B.box(0, 8.4, 0, 22.4, 0.8, 16.4, 0x8a2a1a, { solid: false });
     B.box(0, 10, 0, 12, 4, 9, 0xe8e4dc, { mat: 'rough' });
@@ -84,6 +91,7 @@ export const himalayaProps: Record<string, PropFn> = {
     B.cone(0, 16, 0, 0.8, 2.5, 0xd8b060, 8, { mat: 'metal', solid: false });
     for (let i = -2; i <= 2; i++) B.box(i * 4, 3.5, 8.04, 1.2, 1.8, 0.06, 0x1a1a1a, { solid: false });
     B.box(-16, 3, 4, 8, 6, 10, rng.pick(STONE), { mat: 'rough' });
+    B.endModel();
     prayerLine(B, [11, 9, -8], [30, 2, -20]);
     prayerLine(B, [-11, 9, 8], [-26, 1, 22]);
     B.footprint(18);
@@ -129,8 +137,10 @@ export const himalayaProps: Record<string, PropFn> = {
   },
   maniWall(B, d) {
     const len = Number(d.p?.len ?? 24);
+    B.beginModel('mani_wall', 0, 0, 0, 0, len / 24, 1, 1);
     B.box(0, 0.8, 0, len, 1.6, 2, 0x7a7268, { mat: 'rough' });
     for (let x = -len / 2 + 1; x < len / 2; x += 2) B.box(x, 1.7, 0, 1.6, 0.3, 1.8, 0x8a8278, { mat: 'rough', solid: false });
+    B.endModel();
     B.footprint(len / 2 + 1);
   },
 };

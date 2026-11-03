@@ -7,8 +7,9 @@ const RED = 0xb4583a;
 
 export const canyonProps: Record<string, PropFn> = {
   researchStation(B) {
-    // 模块化集装箱营地
+    // 模块化集装箱营地（Blender 模型：波纹铁皮模块房、太阳能板、水罐、通信天线杆）
     const cols = [0xe8e4da, 0xd8d0c0, 0x8a9aa8];
+    B.beginModel('research_station');
     for (let i = 0; i < 4; i++) B.box(-10 + i * 7, 1.45, -6, 6, 2.9, 3.0, cols[i % 3], { mat: 'metal' }, 0);
     B.box(4, 1.45, 5, 12, 2.9, 3, 0xf0ece4, { mat: 'metal' });
     B.box(-6, 1.5, 6, 6, 3, 6, 0xd8d0c0, { mat: 'metal' });
@@ -19,6 +20,7 @@ export const canyonProps: Record<string, PropFn> = {
     B.anchor('blink', -15, 14.3, 2, 0, { color: 'red', period: 2 });
     B.anchor('flag', 6, 6.5, -9, 0, { color: 'us' });
     B.cyl(6, 3.3, -9, 0.06, 0.05, 6.6, 0xdddddd, 6, { solid: false });
+    B.endModel();
     B.footprint(18);
   },
   sensorPost(B) {
@@ -125,24 +127,31 @@ export const canyonProps: Record<string, PropFn> = {
     }
   },
   visitorCenter(B) {
+    // Blender 模型：土坯风格游客中心（木柱门廊、大玻璃窗、采光塔楼）
+    B.beginModel('visitor_center');
     B.box(0, 2.2, 0, 26, 4.4, 14, 0xc8a27a, {});
     B.box(0, 4.6, 0, 27, 0.5, 15, 0x8a6a4a, { solid: false });
     for (let i = -3; i <= 3; i++) B.cyl(i * 3.6, 5, 7.6, 0.18, 0.18, 0.4, 0x6a4a2a, 6, { solid: false });
     B.box(0, 1.6, 7.05, 18, 1.8, 0.1, 0x22303c, { mat: 'glass', solid: false });
     B.box(-9, 3.8, -3, 6, 2.5, 6, 0xb8926a, {});
+    B.endModel();
     B.footprint(16);
   },
   adobe(B, d, rng) {
     const w = Number(d.p?.w ?? rng.range(7, 11));
     const l = Number(d.p?.l ?? rng.range(6, 9));
     const c = rng.pick([0xc8a27a, 0xb88e64, 0xd4b48c]);
+    // Blender 模型（陶斯村落样式的土坯房，参考尺寸 9 × 7.5 m；三种颜色对应三种门窗配色）
+    B.beginModel(`adobe_${'abc'[[0xc8a27a, 0xb88e64, 0xd4b48c].indexOf(c)]}`, 0, 0, 0, 0, w / 9, 1, l / 7.5);
     B.box(0, 1.8, 0, w, 3.6, l, c, { jitter: 0.05 });
     B.box(0, 3.75, 0, w + 0.3, 0.3, l + 0.3, 0x9a7a58, { solid: false });
     for (let i = 0; i < 3; i++) B.cyl(-w / 2 + 1 + i * (w / 3), 3.2, l / 2 + 0.15, 0.12, 0.12, 0.3, 0x5a3a20, 5, { solid: false });
     B.box(w * 0.2, 1.2, l / 2 + 0.03, 1.1, 2.2, 0.06, 0x4a3020, { solid: false });
+    B.endModel();
     B.footprint(Math.hypot(w, l) / 2 + 1);
   },
   waterTower(B) {
+    B.beginModel('water_tower');
     for (const [x, z] of [
       [-2, -2],
       [2, -2],
@@ -152,10 +161,12 @@ export const canyonProps: Record<string, PropFn> = {
       B.beam([x * 1.2, 0, z * 1.2], [x * 0.8, 10, z * 0.8], 0.25, 0x6a5040, { mat: 'std', solid: false });
     B.cyl(0, 12.5, 0, 3, 3, 5, 0x8a6a4a, 14, {});
     B.cone(0, 16, 0, 3.3, 2, 0x5a4a3a, 14, { solid: false });
+    B.endModel();
     B.addColliderCyl(0, 6, 0, 6, 2.2);
     B.footprint(5);
   },
   windmill(B) {
+    B.beginModel('windmill');
     B.beam([-1.2, 0, -1.2], [-0.2, 11, -0.2], 0.18, 0x777777, { solid: false });
     B.beam([1.2, 0, -1.2], [0.2, 11, -0.2], 0.18, 0x777777, { solid: false });
     B.beam([1.2, 0, 1.2], [0.2, 11, 0.2], 0.18, 0x777777, { solid: false });
@@ -165,6 +176,7 @@ export const canyonProps: Record<string, PropFn> = {
       B.beam([0, 11.5, 0.4], [Math.cos(a) * 2.4, 11.5 + Math.sin(a) * 2.4, 0.4], 0.12, 0xd8d8d8, { solid: false });
     }
     B.box(0, 11.5, -1.5, 0.1, 1.2, 2.2, 0xd8d8d8, { solid: false });
+    B.endModel();
     B.addColliderCyl(0, 5.5, 0, 5.5, 1.0);
     B.footprint(3);
   },

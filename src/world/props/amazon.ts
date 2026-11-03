@@ -11,6 +11,8 @@ export const amazonProps: Record<string, PropFn> = {
     const l = Number(d.p?.l ?? rng.range(7, 10));
     const stilt = Number(d.p?.stilt ?? 2.2);
     const wood = rng.pick(WOOD);
+    // Blender 模型（参考尺寸 7.5 × 8.5 m、桩高 2.2 m）；深色那种木材用风化灰木板款
+    B.beginModel(wood === WOOD[1] ? 'stilt_hut_b' : 'stilt_hut_a', 0, stilt - 2.2, 0, 0, w / 7.5, 1, l / 8.5);
     for (const [x, z] of [
       [-w / 2 + 0.4, -l / 2 + 0.4],
       [w / 2 - 0.4, -l / 2 + 0.4],
@@ -22,6 +24,7 @@ export const amazonProps: Record<string, PropFn> = {
     B.box(0, stilt + 1.5, 0, w, 2.6, l, wood, { jitter: 0.1 });
     B.gable(0, stilt + 2.8, 0, l, w, 2.4, 0.9, rng.pick(THATCH), { jitter: 0.12 }, Math.PI / 2);
     B.box(0, stilt + 1.2, l / 2 + 0.03, 1.0, 1.8, 0.06, 0x2a1a10, { solid: false });
+    B.endModel();
     B.colliderBox(0, stilt / 2, 0, w / 2, stilt / 2, l / 2);
     B.footprint(Math.hypot(w, l) / 2 + 2);
   },
@@ -61,29 +64,34 @@ export const amazonProps: Record<string, PropFn> = {
     for (let x = 3; x < len; x += 6) B.cyl(x, -1.2, w / 2 - 0.3, 0.2, 0.2, 3.5, 0x4a3420, 6, { solid: false });
   },
   riverBoat(B) {
-    // 科考船：船体 + 上层甲板 + 驾驶室 + 天线
+    // 客运木船（Blender 模型参照马瑙斯港的河船）：船体 + 两层开敞甲板 + 船头一侧的驾驶室与桅杆
     const l = 26;
     const w = 7;
+    B.beginModel('river_boat');
     B.box(0, 0.7, 0, l, 2.4, w, 0xe8e4da, { jitter: 0.03 });
     B.box(-l / 2 - 1, 0.9, 0, 2.4, 1.6, w * 0.7, 0xe8e4da, { solid: false });
     B.box(0, -0.4, 0, l - 0.5, 0.4, w - 0.4, 0x2a6a4a, { solid: false });
-    B.box(4, 3.1, 0, 12, 2.4, w - 1, 0xf2efe8, {});
-    B.box(4, 3.4, 0, 12.1, 0.8, w - 0.9, 0x22303c, { mat: 'glass', solid: false });
-    B.box(7, 5.3, 0, 4, 2, w - 2, 0xf2efe8, {});
-    B.cyl(8, 8, 0, 0.08, 0.06, 5, 0xdddddd, 6, { solid: false });
-    B.anchor('blink', 8, 10.6, 0, 0, { color: 'red', period: 1.5 });
-    B.box(-6, 2.0, 0, 9, 0.12, w - 0.6, 0xc8a050, { solid: false });
+    B.box(-0.5, 3.7, 0, 24, 4.4, w, 0xf2efe8, {});
+    B.box(-0.5, 3.4, 0, 24.1, 0.8, w + 0.1, 0x22303c, { mat: 'glass', solid: false });
+    B.box(-7.5, 7.1, 0, 5, 2.4, w - 2, 0xf2efe8, {});
+    B.cyl(-7.5, 10.6, 0, 0.08, 0.06, 4.5, 0xdddddd, 6, { solid: false });
+    B.endModel();
+    B.anchor('blink', -7.5, 13.0, 0, 0, { color: 'red', period: 1.5 });
     B.footprint(15);
   },
   canoe(B, _d, rng) {
     const c = rng.pick([0x7a5636, 0x5a3e24, 0x2a5a8a]);
+    B.beginModel(c === 0x2a5a8a ? 'canoe_blue' : 'canoe_wood');
     B.box(0, 0.25, 0, 0.9, 0.5, 6, c, { solid: false });
+    B.endModel();
     B.footprint(3);
   },
   canopyTower(B, d) {
     // 林冠观测塔：高于树冠的钢架塔 + 观测平台
     const h = Number(d.p?.h ?? 50);
     const s = 3;
+    // Blender 模型（参考高度 50 m，按 h 竖向缩放）
+    B.beginModel('canopy_tower', 0, 0, 0, 0, 1, h / 50, 1);
     for (const [x, z] of [
       [-s, -s],
       [s, -s],
@@ -103,6 +111,7 @@ export const amazonProps: Record<string, PropFn> = {
     B.box(0, h + 0.2, 0, 7, 0.4, 7, 0x7a5636, {});
     B.box(0, h + 1.4, 3.4, 7, 2, 0.1, 0x6a4a2c, { solid: false });
     B.gable(0, h + 3, 0, 7, 7, 1.6, 0.4, 0x3a5a3a, { mat: 'metal' }, 0);
+    B.endModel();
     B.anchor('blink', 0, h + 5, 0, 0, { color: 'red', period: 2 });
     B.footprint(6);
   },

@@ -6,17 +6,26 @@ import type { PropCtx, PropFn } from './common';
 
 const WALLS = [0x9a2a1e, 0x8c2a20, 0xe8e4dc, 0xd8b040, 0xc88a3a, 0x5a7a8a, 0xe8e4dc];
 const ROOFS = [0x2a2a2e, 0x3a3a3e, 0x5a6a3a, 0x4a3a30];
+const TURF = 0x5a6a3a;
+/** 墙色 → Blender 模型的配色（见 tools/blender/props_fjord.py） */
+const WALL_MODEL: Record<number, string> = { 0x9a2a1e: 'red', 0x8c2a20: 'red', 0xe8e4dc: 'white', 0xd8b040: 'yellow', 0xc88a3a: 'yellow', 0x5a7a8a: 'blue' };
 
-function nhouse(B: PropBuilder, rng: Rng): void {
+/** 木屋；turf = 强制草皮屋顶（草皮农舍）。 */
+function nhouse(B: PropBuilder, rng: Rng, turf = false): void {
   const w = rng.range(6, 9);
   const l = rng.range(8, 12);
   const h = rng.range(4, 6);
   const wall = rng.pick(WALLS);
+  const pick = rng.pick(ROOFS);
+  const roof = turf ? TURF : pick;
+  // Blender 模型（参考尺寸 宽 7.5 × 长 10 m、墙高 5 m，按本栋缩放）
+  B.beginModel(`nhouse_${WALL_MODEL[wall]}_${roof === TURF ? 'turf' : 'tile'}`, 0, 0, 0, 0, w / 7.5, h / 5, l / 10);
   B.box(0, h / 2, 0, w, h, l, wall, { jitter: 0.05 });
   for (let i = -1; i <= 1; i++) B.box(w / 2 + 0.03, h * 0.55, i * l * 0.28, 0.06, 1.2, 1.0, 0xf2f2f2, { solid: false });
   B.box(0, h * 0.35, l / 2 + 0.03, 1.1, 2.1, 0.06, 0xf2f2f2, { solid: false });
-  B.gable(0, h, 0, l, w, w * 0.45, 0.45, rng.pick(ROOFS), {}, Math.PI / 2);
+  B.gable(0, h, 0, l, w, w * 0.45, 0.45, roof, {}, Math.PI / 2);
   B.box(0, h + w * 0.45 + 0.4, l * 0.3, 0.6, 1.2, 0.6, 0x6a6a6a, { solid: false });
+  B.endModel();
   B.footprint(Math.hypot(w, l) / 2 + 1.5);
 }
 
@@ -48,8 +57,9 @@ export const fjordProps: Record<string, PropFn> = {
   },
   nvillage,
   staveChurch(B) {
-    // 木板教堂：多层陡峭坡顶，深色木材
+    // 木板教堂：多层陡峭坡顶，深色木材（Blender 模型参照博尔贡木板教堂；西门朝本地 +z）
     const dark = 0x3a2a1e;
+    B.beginModel('stave_church', 0, 0, 0, Math.PI);
     B.box(0, 3, 0, 10, 6, 14, dark, {});
     B.gable(0, 6, 0, 14, 10, 5, 0.6, 0x2a2018, {}, Math.PI / 2);
     B.box(0, 9, 0, 7, 5, 8, dark, {});
@@ -58,13 +68,16 @@ export const fjordProps: Record<string, PropFn> = {
     B.hip(0, 16, 0, 4, 4, 6, 0.3, 0x2a2018, {}, 0.05);
     B.cone(0, 23, 0, 0.8, 4, 0x2a2018, 6, { solid: false });
     B.box(0, 1.8, 7.3, 2, 3.6, 0.6, 0x4a3a2a, {});
+    B.endModel();
     B.footprint(11);
   },
   boathouse(B, _d, rng) {
     const c = rng.pick([0x9a2a1e, 0x8c2a20, 0xb8a888]);
+    B.beginModel(c === 0xb8a888 ? 'boathouse_grey' : 'boathouse_red');
     B.box(0, 2.5, 0, 6, 5, 10, c, {});
     B.gable(0, 5, 0, 10, 6, 2.6, 0.4, 0x2a2a2e, {}, Math.PI / 2);
     B.box(0, -1, 0, 6.2, 2.4, 10.2, 0x5a4a3a, { solid: false });
+    B.endModel();
     B.footprint(6);
   },
   fishFarm(B, d) {
@@ -98,8 +111,8 @@ export const fjordProps: Record<string, PropFn> = {
     B.sphere(0, 4, 3, w * 1.4, 0xf0f4f6, { sy: 0.5, noise: 0.3, solid: false });
   },
   turfFarm(B, _d, rng) {
-    nhouse(B, rng);
+    nhouse(B, rng, true);
     B.at(B.origin[0] + 14, B.origin[1], B.origin[2] + 6, B.rotation + 0.4, 0.8);
-    nhouse(B, rng);
+    nhouse(B, rng, true);
   },
 };

@@ -1,0 +1,177 @@
+{
+ "url": "about:blank",
+ "width": 1600,
+ "height": 900,
+ "steps": [
+  {
+   "goto": "http://localhost:5174/?map=himalaya&autostart=1&weather=clear"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { window.__mc = (name, dist, h, side, pitch) => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app, W = A.session.world; const list = W.builder.models.filter(m => m.name.startsWith(name)); if (!list.length) return 'none'; const m = list[0]; const [tx, ty, tz] = m.pos; const T = W.trees; const clear = (x, z) => { for (let i = 0; i < T.count; i++) { const dx = T.x[i] - x, dz = T.z[i] - z; if (dx * dx + dz * dz < 24 * 24) return false; } return true; }; let cx = 0, cz = 0; for (let k = 0; k < 24; k++) { const a = (side ?? 0.7) + k * 0.26; cx = tx - Math.sin(a) * dist; cz = tz + Math.cos(a) * dist; if (clear(cx, cz)) break; } const y = Math.max(W.terrain.heightAt(cx, cz) + 10, ty + h); const hd = Math.atan2(tx - cx, -(tz - cz)) * 180 / Math.PI; A.debugTeleport(cx, y, cz, hd, 0); A.debugLook(0, pitch ?? Math.atan2(ty + 4 - y, dist)); return [list.length, Math.round(y - ty)]; }; return 1; })()"
+  },
+  {
+   "eval": "window.__mc('monastery', 60, 16, 0.2)",
+   "label": "h1_monastery"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "h1_monastery fps"
+  },
+  {
+   "shot": "h1_monastery.jpg"
+  },
+  {
+   "eval": "window.__mc('stone_house', 45, 14, 2.4)",
+   "label": "h2_village"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "h2_village fps"
+  },
+  {
+   "shot": "h2_village.jpg"
+  },
+  {
+   "eval": "window.__mc('chorten', 35, 8, 0.9)",
+   "label": "h3_chorten"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "h3_chorten fps"
+  },
+  {
+   "shot": "h3_chorten.jpg"
+  },
+  {
+   "goto": "http://localhost:5174/?map=amazon&autostart=1&weather=clear"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { window.__mc = (name, dist, h, side, pitch) => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app, W = A.session.world; const list = W.builder.models.filter(m => m.name.startsWith(name)); if (!list.length) return 'none'; const m = list[0]; const [tx, ty, tz] = m.pos; const T = W.trees; const clear = (x, z) => { for (let i = 0; i < T.count; i++) { const dx = T.x[i] - x, dz = T.z[i] - z; if (dx * dx + dz * dz < 24 * 24) return false; } return true; }; let cx = 0, cz = 0; for (let k = 0; k < 24; k++) { const a = (side ?? 0.7) + k * 0.26; cx = tx - Math.sin(a) * dist; cz = tz + Math.cos(a) * dist; if (clear(cx, cz)) break; } const y = Math.max(W.terrain.heightAt(cx, cz) + 10, ty + h); const hd = Math.atan2(tx - cx, -(tz - cz)) * 180 / Math.PI; A.debugTeleport(cx, y, cz, hd, 0); A.debugLook(0, pitch ?? Math.atan2(ty + 4 - y, dist)); return [list.length, Math.round(y - ty)]; }; return 1; })()"
+  },
+  {
+   "eval": "window.__mc('river_boat', 50, 14, 1.0)",
+   "label": "a1_boat"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "a1_boat fps"
+  },
+  {
+   "shot": "a1_boat.jpg"
+  },
+  {
+   "eval": "window.__mc('stilt_hut', 40, 12, 2.0)",
+   "label": "a2_camp"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "a2_camp fps"
+  },
+  {
+   "shot": "a2_camp.jpg"
+  },
+  {
+   "eval": "window.__mc('canopy_tower', 120, 45, 0.6)",
+   "label": "a3_tower"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "a3_tower fps"
+  },
+  {
+   "shot": "a3_tower.jpg"
+  },
+  {
+   "goto": "http://localhost:5174/?map=canyon&autostart=1&weather=clear"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { window.__mc = (name, dist, h, side, pitch) => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app, W = A.session.world; const list = W.builder.models.filter(m => m.name.startsWith(name)); if (!list.length) return 'none'; const m = list[0]; const [tx, ty, tz] = m.pos; const T = W.trees; const clear = (x, z) => { for (let i = 0; i < T.count; i++) { const dx = T.x[i] - x, dz = T.z[i] - z; if (dx * dx + dz * dz < 24 * 24) return false; } return true; }; let cx = 0, cz = 0; for (let k = 0; k < 24; k++) { const a = (side ?? 0.7) + k * 0.26; cx = tx - Math.sin(a) * dist; cz = tz + Math.cos(a) * dist; if (clear(cx, cz)) break; } const y = Math.max(W.terrain.heightAt(cx, cz) + 10, ty + h); const hd = Math.atan2(tx - cx, -(tz - cz)) * 180 / Math.PI; A.debugTeleport(cx, y, cz, hd, 0); A.debugLook(0, pitch ?? Math.atan2(ty + 4 - y, dist)); return [list.length, Math.round(y - ty)]; }; return 1; })()"
+  },
+  {
+   "eval": "window.__mc('research_station', 55, 18, 0.7)",
+   "label": "c1_station"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "c1_station fps"
+  },
+  {
+   "shot": "c1_station.jpg"
+  },
+  {
+   "eval": "window.__mc('visitor_center', 60, 14, 0.3)",
+   "label": "c2_visitor"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "c2_visitor fps"
+  },
+  {
+   "shot": "c2_visitor.jpg"
+  },
+  {
+   "eval": "window.__mc('adobe', 35, 9, 2.4)",
+   "label": "c3_adobe"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "c3_adobe fps"
+  },
+  {
+   "shot": "c3_adobe.jpg"
+  },
+  {
+   "eval": "window.__mc('water_tower', 35, 14, 1.2)",
+   "label": "c4_tower"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "c4_tower fps"
+  },
+  {
+   "shot": "c4_tower.jpg"
+  }
+ ]
+}

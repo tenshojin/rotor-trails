@@ -35,7 +35,26 @@ MATS = {
     'padconcrete': ('hangar_concrete_floor', 'hangar_concrete_floor', 2.0, 1.0, 0.0),
     'diamond': ('metal_plate', 'metal_plate', 0.5, 1.0, 0.7),
     'thatch': ('thatch_roof_angled', 'thatch_roof_angled', 1.1, 1.0, 0.0),
+    'thatch_warm': ('thatch_warm', 'thatch_roof_angled', 1.1, 1.0, 0.0),
     'bark': ('pine_bark', 'pine_bark', 2.0, 1.0, 0.0),
+    # 峡湾 / 喜马拉雅 / 亚马孙 / 峡谷（颜色变体见 tex_variants.py）
+    'yellowplank': ('yellow_planks', 'distressed_painted_planks', 1.6, 1.0, 0.0),
+    'blueplank': ('bluegrey_planks', 'distressed_painted_planks', 1.6, 1.0, 0.0),
+    'tarplank': ('tar_planks', 'japanese_cedar_planks', 1.2, 1.0, 0.0),
+    'rawplank': ('raw_planks', 'japanese_cedar_planks', 1.2, 1.0, 0.0),
+    'greyplank': ('grey_planks', 'japanese_cedar_planks', 1.2, 1.0, 0.0),
+    'blacktile': ('black_tiles', 'grey_roof_tiles', 1.6, 0.7, 0.0),
+    'shingle': ('tar_shingles', 'tar_shingles', 1.1, 1.0, 0.0),
+    'turf': ('aerial_grass_rock', 'aerial_grass_rock', 2.5, 1.0, 0.0),
+    'corr_blue': ('corr_blue', 'corrugated_iron', 1.2, 0.8, 0.4),
+    'corr_green': ('corr_green', 'corrugated_iron', 1.2, 0.8, 0.4),
+    'corr_red': ('corr_red', 'corrugated_iron', 1.2, 0.8, 0.4),
+    'corr_white': ('corr_white', 'corrugated_iron', 1.2, 0.8, 0.4),
+    'stone_white': ('stone_whitewash', 'rabdentse_ruins_wall', 2.0, 1.0, 0.0),
+    'adobe': ('adobe_tan', 'clay_plaster', 2.0, 1.0, 0.0),
+    'adobe_light': ('adobe_light', 'clay_plaster', 2.0, 1.0, 0.0),
+    'maroon': ('plaster_maroon', 'clay_plaster', 2.0, 1.0, 0.0),
+    'brick': ('red_sandstone_wall', 'red_sandstone_wall', 2.0, 1.0, 0.0),
 }
 TILE = {}
 
@@ -245,6 +264,56 @@ def window(name, center, w, h, facing, frame_m, glass_m, depth=0.06, lattice=Non
         if o.data.materials and o.data.materials[0].name.startswith('b_'):
             uv_world(o)
     return obs
+
+
+AX = {'+Y': (Vector((1, 0, 0)), Vector((0, 1, 0))), '-Y': (Vector((-1, 0, 0)), Vector((0, -1, 0))),
+      '+X': (Vector((0, -1, 0)), Vector((1, 0, 0))), '-X': (Vector((0, 1, 0)), Vector((-1, 0, 0)))}
+
+
+def wbox(name, center, facing, du, dz, dn, su, sn, sz, m, uv=False):
+    """贴在某个墙面上的小方块（窗套、门板等）：du 沿墙面水平、dz 竖直、dn 朝外；su/sn/sz 为对应方向的尺寸。"""
+    u, n = AX[facing]
+    c = Vector(center) + u * du + n * dn + Vector((0, 0, dz))
+    size = (abs(u.x) * su + abs(n.x) * sn, abs(u.y) * su + abs(n.y) * sn, sz)
+    return bx(name, size, tuple(c), m, uv=uv)
+
+
+def slab(name, quad, thick, m):
+    """斜面板（单坡屋面一块）：quad = [檐口左, 檐口右, 上沿右, 上沿左]，UV 沿檐口 / 顺坡。"""
+    A, B, C, D = [Vector(p) for p in quad]
+    T = Vector((0, 0, thick))
+    verts = [A, B, C, D, A + T, B + T, C + T, D + T]
+    f = [(0, 1, 2, 3), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
+    ob = K.mesh_obj(name, verts, f, m, smooth=0)
+    K.fix_normals(ob)
+    poly_uv(ob, A, B - A, (C + D) / 2 - (A + B) / 2, TILE.get(m.name, 1.6) if m else 1.6)
+    return ob
+
+
+def lean_ring(name, X0, Y0, z_hi, X1, Y1, z_lo, thick, m):
+    """绕墙一圈的单坡屋面（内沿贴墙 ±X0/±Y0 高 z_hi，外沿 ±X1/±Y1 高 z_lo，四角斜接）。"""
+    sides = [((-X1, -Y1, z_lo), (X1, -Y1, z_lo), (X0, -Y0, z_hi), (-X0, -Y0, z_hi)),
+             ((X1, -Y1, z_lo), (X1, Y1, z_lo), (X0, Y0, z_hi), (X0, -Y0, z_hi)),
+             ((X1, Y1, z_lo), (-X1, Y1, z_lo), (-X0, Y0, z_hi), (X0, Y0, z_hi)),
+             ((-X1, Y1, z_lo), (-X1, -Y1, z_lo), (-X0, -Y0, z_hi), (-X0, Y0, z_hi))]
+    return [slab(f'{name}{i}', q, thick, m) for i, q in enumerate(sides)]
+
+
+def stick(name, a, b, r, m, seg=6):
+    """两点之间的细杆（檐板、栏杆、桁架杆件）。"""
+    return K.tube_path(name, [tuple(a), tuple(b)], r, m, seg=seg)
+
+
+def rotate_all(objs, angle):
+    """把一组部件绕 Z 轴旋转（建模时屋脊沿 X，旋转后沿 Y）。UV 不受影响。"""
+    R = Matrix.Rotation(angle, 4, 'Z')
+    for o in objs:
+        if o is None:
+            continue
+        K.apply_mods(o)
+        K.bake_transform(o)
+        o.data.transform(R)
+    return objs
 
 
 def model(name, objs, coll=None):

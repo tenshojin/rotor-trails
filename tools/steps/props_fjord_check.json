@@ -1,0 +1,73 @@
+{
+ "url": "about:blank",
+ "width": 1600,
+ "height": 900,
+ "steps": [
+  {
+   "goto": "http://localhost:5174/?map=fjord&autostart=1&weather=clear"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { window.__mc = (name, dist, h, side, pitch) => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app, W = A.session.world; const list = W.builder.models.filter(m => m.name.startsWith(name)); if (!list.length) return 'none'; const m = list[0]; const [tx, ty, tz] = m.pos; const T = W.trees; const clear = (x, z) => { for (let i = 0; i < T.count; i++) { const dx = T.x[i] - x, dz = T.z[i] - z; if (dx * dx + dz * dz < 24 * 24) return false; } return true; }; let cx = 0, cz = 0; for (let k = 0; k < 24; k++) { const a = (side ?? 0.7) + k * 0.26; cx = tx - Math.sin(a) * dist; cz = tz + Math.cos(a) * dist; if (clear(cx, cz)) break; } const y = Math.max(W.terrain.heightAt(cx, cz) + 10, ty + h); const hd = Math.atan2(tx - cx, -(tz - cz)) * 180 / Math.PI; A.debugTeleport(cx, y, cz, hd, 0); A.debugLook(0, pitch ?? Math.atan2(ty + 4 - y, dist)); return [list.length, Math.round(y - ty)]; }; return 1; })()"
+  },
+  {
+   "eval": "window.__mc('stave_church', 55, 14, 0.5)",
+   "label": "f1_church"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "f1_church fps"
+  },
+  {
+   "shot": "f1_church.jpg"
+  },
+  {
+   "eval": "window.__mc('nhouse', 70, 30, 2.0)",
+   "label": "f2_village"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "f2_village fps"
+  },
+  {
+   "shot": "f2_village.jpg"
+  },
+  {
+   "eval": "window.__mc('boathouse', 40, 8, 1.2)",
+   "label": "f3_boathouse"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "f3_boathouse fps"
+  },
+  {
+   "shot": "f3_boathouse.jpg"
+  },
+  {
+   "eval": "window.__mc('nhouse_', 45, 12, 3.6)",
+   "label": "f4_turf"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "f4_turf fps"
+  },
+  {
+   "shot": "f4_turf.jpg"
+  }
+ ]
+}
