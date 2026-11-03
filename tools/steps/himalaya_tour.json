@@ -1,0 +1,23 @@
+{
+  "url": "http://localhost:5174/?map=himalaya&autostart=1",
+  "width": 1920,
+  "height": 1080,
+  "steps": [
+    { "until": "window.__app && window.__app.state === 'playing'", "timeout": 90000 },
+    { "wait": 1500 },
+    { "shot": "himalaya_01_base.jpg" },
+    { "eval": "(() => { const p = window.__app.session.world.pads.get('H-base').pos; const x = p[0] - 10 + 38, z = p[2] - 60 + 8; window.__app.debugTeleport(x, p[1] + 14, z, 280, 0); window.__app.debugLook(0, -0.05); return [x, z]; })()" },
+    { "wait": 2500 },
+    { "shot": "himalaya_02_prayerflags.jpg" },
+    { "eval": "(() => { const p = window.__app.session.world.pads.get('H-mon').pos; const x = p[0] + 230, z = p[2] + 160; const h = Math.atan2(p[0] - x, -(p[2] - z)) * 180 / Math.PI; window.__app.debugTeleport(x, p[1] + 70, z, h, 0); window.__app.debugLook(0, -0.12); return h; })()" },
+    { "wait": 2500 },
+    { "shot": "himalaya_03_monastery.jpg" },
+    { "eval": "(() => { const p = window.__app.session.world.pads.get('H-col').pos; const x = p[0] + 25, z = p[2] + 330; const h = Math.atan2(p[0] - x, -(p[2] - z)) * 180 / Math.PI; window.__app.debugTeleport(x, p[1] + 150, z, h, 0); window.__app.debugLook(0, -0.3); return h; })()" },
+    { "wait": 2500 },
+    { "shot": "himalaya_04_pass.jpg" },
+    { "eval": "(() => { const p = window.__app.session.world.pads.get('H-summit').pos; const x = p[0] + 300, z = p[2] - 40; const h = Math.atan2(p[0] - x, -(p[2] - z)) * 180 / Math.PI; window.__app.debugTeleport(x, p[1] + 60, z, h, 0); window.__app.debugLook(0, -0.16); return h; })()" },
+    { "wait": 2500 },
+    { "shot": "himalaya_05_summit.jpg" },
+    { "eval": "window.__app.debugState()", "label": "state" }
+  ]
+}

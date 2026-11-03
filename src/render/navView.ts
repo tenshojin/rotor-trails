@@ -6,8 +6,12 @@ import type { MapDef, ObjectiveDef, V3 } from '../maps/types';
 import type { GameSession } from '../sim/session';
 import { getGlowTexture } from './propsView';
 
+/**
+ * 导航标记材质：不受雾影响（雾天/低云中仍能看到当前航点与航线箭头，保证公平），
+ * 但仍做深度测试，会被地形和建筑遮挡；远近的明暗由 update() 按距离控制。
+ */
 function emissive(hex: number, opacity = 0.85): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({ color: hex, transparent: true, opacity, depthWrite: false, toneMapped: false, fog: true });
+  return new THREE.MeshBasicMaterial({ color: hex, transparent: true, opacity, depthWrite: false, toneMapped: false, fog: false });
 }
 
 export class NavView {

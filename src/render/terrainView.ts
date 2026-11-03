@@ -71,6 +71,17 @@ uniform vec3 uStrataA, uStrataB, uStrataC, uStrataD;
 uniform float uStrata, uBeachTop, uSnowLine, uRockSlope, uWet, uWaterLevel;
 float tRough = 0.95;
 float tBump = 0.0;
+// 三平面投影权重（陡坡/峭壁上不会出现纹理拉伸成竖条的“雪花”）
+vec3 triW() {
+  vec3 a = pow(abs(normalize(vWNrm)), vec3(4.0));
+  return a / (a.x + a.y + a.z);
+}
+float triG(vec3 w, float s, float o) {
+  return texture2D(uNoise, vWPos.zy * s + o).g * w.x + texture2D(uNoise, vWPos.xz * s + o).g * w.y + texture2D(uNoise, vWPos.xy * s + o).g * w.z;
+}
+float triR(vec3 w, float s, float o) {
+  return texture2D(uNoise, vWPos.zy * s + o).r * w.x + texture2D(uNoise, vWPos.xz * s + o).r * w.y + texture2D(uNoise, vWPos.xy * s + o).r * w.z;
+}
 vec3 strataColor(float y) {
   float t = fract(y / 46.0);
   float b = fract(y / 11.0);
@@ -87,8 +98,9 @@ vec3 terrainAlbedo() {
   vec4 surf = texture2D(uSurface, muv);
   float forest = texture2D(uForest, muv).r;
   float n1 = texture2D(uNoise, vWPos.xz * 0.0021).r;
-  float n2 = texture2D(uNoise, vWPos.xz * 0.019).g;
-  float n3 = texture2D(uNoise, vWPos.xz * 0.045 + 0.37).g;
+  vec3 tw = triW();
+  float n2 = triG(tw, 0.019, 0.0);
+  float n3 = triG(tw, 0.045, 0.37);
   vec3 c = mix(uGrass, uGrass2, smoothstep(0.35, 0.65, n1));
   c = mix(c, uForestFloor, clamp(forest * 1.3, 0.0, 0.85));
   float sandW = 1.0 - smoothstep(uBeachTop - 0.5, uBeachTop + 2.0, h + (n2 - 0.5) * 2.5);
@@ -96,13 +108,10 @@ vec3 terrainAlbedo() {
   c = mix(c, uSand, sandW);
   c = mix(c, uDirt, surf.g * 0.9);
   // 三平面采样的岩石细节
-  vec3 an = abs(n);
-  an /= (an.x + an.y + an.z);
-  float rx = texture2D(uNoise, vWPos.zy * 0.045).g;
-  float rz = texture2D(uNoise, vWPos.xy * 0.045).g;
-  float ry = texture2D(uNoise, vWPos.xz * 0.045).g;
-  float rk = rx * an.x + rz * an.z + ry * an.y;
-  vec3 rock = mix(uRock, uRock2, smoothstep(0.3, 0.7, rk));
+  vec3 an = tw;
+  // 岩石明暗：大尺度斑块为主、细节为辅（细节频率过高时远处会变成“椒盐”噪点）
+  float rk = triR(tw, 0.006, 0.0) * 0.65 + triG(tw, 0.028, 0.0) * 0.35;
+  vec3 rock = mix(uRock, uRock2, smoothstep(0.32, 0.68, rk));
   if (uStrata > 0.0) rock = mix(rock, strataColor(h + (n1 - 0.5) * 18.0), uStrata * (0.6 + 0.4 * an.x + 0.4 * an.z));
   float rockW = smoothstep(uRockSlope - 0.07, uRockSlope + 0.06, slope + (n1 - 0.5) * 0.14);
   c = mix(c, rock, rockW);
@@ -128,7 +137,10 @@ vec3 terrainAlbedo() {
         '#include <normal_fragment_maps>',
         /* glsl */ `#include <normal_fragment_maps>
 {
-  float hb = texture2D(uNoise, vWPos.xz * 0.05).g * 0.6 + texture2D(uNoise, vWPos.xz * 0.17 + 0.5).g * 0.4;
+  vec3 tw2 = triW();
+  float hb = triG(tw2, 0.035, 0.0) * 0.65 + triG(tw2, 0.1, 0.5) * 0.35;
+  // 远处（每像素对应的世界尺寸变大）逐渐减弱凹凸细节，避免闪烁颗粒
+  tBump *= 1.0 - 0.75 * smoothstep(0.12, 0.7, length(fwidth(vWPos)));
   vec3 dpdx = dFdx(-vViewPosition);
   vec3 dpdy = dFdy(-vViewPosition);
   float dhx = dFdx(hb);
@@ -141,7 +153,7 @@ vec3 terrainAlbedo() {
 }`,
       );
   };
-  mat.customProgramCacheKey = () => 'terrain-v1';
+  mat.customProgramCacheKey = () => 'terrain-v3';
 }
 
 interface Chunk {

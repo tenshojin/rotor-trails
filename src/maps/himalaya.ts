@@ -177,7 +177,7 @@ export const HIMALAYA: MapDef = {
     { type: 'tentCamp', pos: [GLACIER[0] + 20, 0, GLACIER[2] + 30], ground: true, p: { n: 7 } },
     { type: 'prayerFlags', pos: [GLACIER[0] - 30, 0, GLACIER[2] - 25], ground: true, p: { x2: 30, z2: 12, h: 5 } },
     { type: 'colHut', pos: [COL_STATION[0] - 2, 0, COL_STATION[2] - 19], rotY: 0.08, ground: true },
-    { type: 'prayerFlags', pos: [COL_STATION[0] - 14, 0, COL_STATION[2] + 14], ground: true, p: { x2: 28, z2: 4, h: 5 } },
+    { type: 'prayerFlags', pos: [COL_STATION[0] - 21, 0, COL_STATION[2] + 12], ground: true, p: { x2: -2, z2: -30, h: 5 } },
     { type: 'antenna', pos: [SUMMIT[0] - 14, 0, SUMMIT[2] - 18], ground: true, p: { h: 12 } },
     { type: 'prayerFlags', pos: [SUMMIT[0] - 20, 0, SUMMIT[2] + 12], ground: true, p: { x2: 6, z2: -26, h: 4 } },
     { type: 'hvillage', pos: [MID[0] + 60, 0, MID[2] + 60], ground: true, p: { r: 70, n: 8 } },

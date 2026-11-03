@@ -20,7 +20,8 @@ function stoneHouse(B: PropBuilder, rng: Rng): void {
 function prayerLine(B: PropBuilder, a: [number, number, number], b: [number, number, number]): void {
   // 经幡：两点之间下垂的绳子上挂着彩色小旗（随风飘动）
   const cols = ['blue', 'white', 'red', 'green', 'yellow'];
-  const n = 9;
+  // 小旗之间约 0.9 m（真实的经幡排得很密）
+  const n = Math.max(6, Math.round(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) / 0.9));
   for (let i = 1; i < n; i++) {
     const t = i / n;
     const sag = Math.sin(t * Math.PI) * 1.6;
