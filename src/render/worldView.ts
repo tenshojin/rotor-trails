@@ -23,6 +23,7 @@ import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrai
 import { makeForestTexture, makeGroundHeightTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
 import { fogMaps, VFOG } from './volumetricFog';
 import { sunFor, type TimeOfDay } from './timeOfDay';
+import { WET } from './wetness';
 import { updateCloudShadowMap } from './cloudShadowMap';
 import { TreeView, loadTreeLib } from './treeView';
 import { WaterView } from './water';
@@ -419,6 +420,7 @@ export class WorldView {
       this.updateEnv(w, f.t);
       this.terrain?.update(cp);
       if (this.terrainUniforms) this.terrainUniforms.uWet.value = w.wetness;
+      WET.value = w.wetness;
       this.water?.update(f.t, _w.x, _w.z, Math.hypot(_w.x, _w.z), w.rain);
       const windAt = s ? (p: THREE.Vector3, out: THREE.Vector3) => s.wind.sample(p.x, p.y, p.z, s.t, out) : (_p: THREE.Vector3, out: THREE.Vector3) => out.set(3, 0, 1);
       this.props?.update(f.t, cp, windAt);

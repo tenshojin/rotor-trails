@@ -3,7 +3,9 @@
 // 窗玻璃使用带雨滴/水流效果的材质。模型加载失败时座舱内部为空，游戏照常可玩。
 
 import * as THREE from 'three/webgpu';
-import { abs, clamp, float, max, mix, normalGeometry, normalize, positionGeometry, select, smoothstep, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl';
+import { abs, cameraPosition, clamp, dot, float, max, mix, normalGeometry, normalize, positionGeometry, positionWorld, pow, select, smoothstep, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl';
+import { FOG } from './atmosphere';
+import { VFOG } from './volumetricFog';
 import { loadGltf } from './gltf';
 import { drawAnnunciator, drawAttitude, drawGps, drawVemdBottom, drawVemdTop, NEEDLE, type InstrumentData } from './instruments';
 import { getNoiseTexture } from './textures';
@@ -204,7 +206,12 @@ export class Cockpit {
     const w = clamp(drops.mul(0.85).add(streak.mul(0.6)).mul(GU.uRain), 0.0, 1.0);
     const c = mix(mix(vec3(base.r, base.g, base.b), vec3(0.85, 0.9, 0.95), w), vec3(0.3, 0.7, 1.0), GU.uShield.mul(0.6));
     mat.colorNode = vec4(c, 1.0);
-    mat.opacityNode = clamp(w.mul(0.38).add(opacity), 0.0, 1.0).add(GU.uShield.mul(0.08));
+    // 玻璃上的灰尘与擦拭痕：平时几乎看不见，迎着太阳时被照亮成一片眩光（清晨、黄昏最明显）
+    const dust = smoothstep(0.45, 0.85, texture(noise, p.mul(1.7)).r).mul(0.55).add(smoothstep(0.62, 0.95, texture(noise, p.mul(6.0).add(0.3)).g).mul(0.35));
+    const vdir = normalize(positionWorld.sub(cameraPosition));
+    const sunK = pow(max(dot(vdir, FOG.sunDir), 0.0), 10.0);
+    mat.emissiveNode = VFOG.sun.mul(dust.mul(sunK.mul(0.12).add(0.004)));
+    mat.opacityNode = clamp(w.mul(0.38).add(opacity).add(dust.mul(0.03)), 0.0, 1.0).add(GU.uShield.mul(0.08));
     return mat;
   }
 

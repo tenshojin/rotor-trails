@@ -3,7 +3,8 @@
 // 文件不存在或加载失败时返回 null，道具退回程序几何体。
 
 import * as THREE from 'three/webgpu';
-import { attribute, uv, vec4 } from 'three/tsl';
+import { attribute, materialColor, materialRoughness, uv, vec4 } from 'three/tsl';
+import { wetColor, wetRough } from './wetness';
 import { loadGltf } from './gltf';
 import type { ModelInstance } from '../world/propBuilder';
 
@@ -21,6 +22,9 @@ export interface ModelLib {
   dispose(): void;
 }
 
+/** 从 GLTF 的标准材质复制到节点材质的属性 */
+const STD_KEYS = ['name', 'color', 'map', 'normalMap', 'normalScale', 'roughness', 'metalness', 'roughnessMap', 'metalnessMap', 'aoMap', 'aoMapIntensity', 'emissive', 'emissiveMap', 'emissiveIntensity', 'transparent', 'opacity', 'alphaTest', 'alphaMap', 'side', 'vertexColors', 'depthWrite'];
+
 export async function loadModelLib(file: string): Promise<ModelLib | null> {
   try {
     const gltf = await loadGltf(`models/${file}`);
@@ -34,13 +38,32 @@ export async function loadModelLib(file: string): Promise<ModelLib | null> {
       if (!vc) {
         vc = new THREE.MeshStandardNodeMaterial({ roughness: 0.6, metalness: 0 });
         vc.name = 'f_vc';
-        vc.colorNode = vec4(attribute('color', 'vec3'), 1.0);
-        vc.roughnessNode = uv(1).x;
+        vc.colorNode = wetColor(vec4(attribute('color', 'vec3'), 1.0));
+        vc.roughnessNode = wetRough(uv(1).x);
         vc.metalnessNode = uv(1).y;
       }
       (m.material as THREE.Material).dispose();
       m.material = vc;
     });
+    // 贴图材质（瓦、灰泥、木板、石材……）换成节点材质，接上雨天的湿润效果（同名材质共用一份）
+    const conv = new Map<THREE.Material, THREE.Material>();
+    gltf.scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const src = m.material as THREE.MeshStandardMaterial;
+      if (!src.isMeshStandardMaterial || (src as unknown as { isNodeMaterial?: boolean }).isNodeMaterial) return;
+      let dst = conv.get(src);
+      if (!dst) {
+        const nm = new THREE.MeshStandardNodeMaterial();
+        for (const k of STD_KEYS) (nm as unknown as Record<string, unknown>)[k] = (src as unknown as Record<string, unknown>)[k];
+        nm.colorNode = wetColor(materialColor as unknown as THREE.Node<'vec4'>);
+        nm.roughnessNode = wetRough(materialRoughness as unknown as THREE.Node<'float'>);
+        conv.set(src, nm);
+        dst = nm;
+      }
+      m.material = dst;
+    });
+    for (const src of conv.keys()) src.dispose();
     for (const child of gltf.scene.children) templates.set(child.name, child);
     const geos = new Set<THREE.BufferGeometry>();
     const mats = new Set<THREE.Material>();

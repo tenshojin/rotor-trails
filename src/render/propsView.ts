@@ -2,6 +2,7 @@
 
 import * as THREE from 'three/webgpu';
 import { attribute, float, max, positionGeometry, positionLocal, positionWorld, sin, texture, uniform, vec3, vec4 } from 'three/tsl';
+import { wetColor, wetRough } from './wetness';
 import type { MatKey, ModelInstance } from '../world/propBuilder';
 import type { WorldData } from '../world/worldgen';
 import { addDetail, DETAIL } from './detailTextures';
@@ -47,6 +48,11 @@ function makeMaterials(detail: THREE.DataArrayTexture | null): Record<MatKey, TH
     addDetail(rough, detail, DETAIL.concrete, 1.0);
     addDetail(metal, detail, DETAIL.corrugated, 1.0);
     addDetail(stone, detail, DETAIL.stone, 1.0);
+  }
+  // 雨天的湿润效果（颜色变深、变光滑；朝上的面最明显）
+  for (const m of [std, rough, metal, stone, rock]) {
+    m.colorNode = wetColor((m.colorNode as THREE.Node<'vec4'> | null) ?? vec4(1, 1, 1, 1));
+    m.roughnessNode = wetRough(float(m.roughness));
   }
   return {
     std,
