@@ -1,12 +1,14 @@
 // 建筑/道具渲染：把 PropBuilder 合批数据转成网格；锚点生成风向袋、旗帜、信标灯、经幡等动态对象。
 
 import * as THREE from 'three/webgpu';
-import { attribute, float, max, positionGeometry, positionLocal, positionWorld, sin, texture, uniform, vec3, vec4 } from 'three/tsl';
+import { abs, attribute, cameraViewMatrix, float, max, mix, normalize, normalWorld, positionGeometry, positionLocal, positionWorld, pow, sin, smoothstep, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
 import { wetColor, wetRough } from './wetness';
 import type { MatKey, ModelInstance } from '../world/propBuilder';
 import type { WorldData } from '../world/worldgen';
 import { addDetail, DETAIL } from './detailTextures';
 import { instanceModel, LodModel, type ModelLib } from './modelLib';
+import { refineRock } from './rockMesh';
+import { getRockReliefTexture } from './terrainMacro';
 import { getNoiseTexture } from './textures';
 
 /** 三级细节模型的切换距离（米，再乘画质系数）：近景几何细节 → 中景贴图 → 远景体块 */
@@ -32,11 +34,29 @@ export function getGlowTexture(): THREE.CanvasTexture {
 
 function makeMaterials(detail: THREE.DataArrayTexture | null): Record<MatKey, THREE.Material> {
   const noise = getNoiseTexture();
-  // 岩石：顶点色 × 两层世界坐标噪声（明暗斑驳）
+  // 岩石：顶点色 × 世界坐标噪声（明暗斑驳）+ 水平的岩层纹，表面用和地形岩壁相同的脊状浮雕（三平面投影，两个尺度）
   const rock = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
   const P = positionWorld;
   const rn = texture(noise, P.xz.mul(0.06).add(P.y.mul(0.05))).g.mul(0.6).add(texture(noise, P.xy.mul(0.2).add(0.3)).g.mul(0.4));
-  rock.colorNode = vec4(vec3(rn.mul(0.5).add(0.75)), 1.0);
+  const relief = getRockReliefTexture();
+  const nW = normalize(normalWorld);
+  const aw = pow(abs(nW), vec3(4.0));
+  const tw = aw.div(aw.x.add(aw.y).add(aw.z));
+  const relS = (s: number, o: number) => {
+    const fx = texture(relief, P.zy.div(s).add(o));
+    const fy = texture(relief, P.xz.div(s).add(o));
+    const fz = texture(relief, P.xy.div(s).add(o));
+    const hgt = fx.b.mul(tw.x).add(fy.b.mul(tw.y)).add(fz.b.mul(tw.z));
+    const ux = fx.rg.mul(2.0).sub(1.0);
+    const uy = fy.rg.mul(2.0).sub(1.0);
+    const uz = fz.rg.mul(2.0).sub(1.0);
+    return vec4(vec3(0.0, ux.y, ux.x).mul(tw.x).add(vec3(uy.x, 0.0, uy.y).mul(tw.y)).add(vec3(uz.x, uz.y, 0.0).mul(tw.z)), hgt);
+  };
+  const rA = relS(46.0, 0.13);
+  const rB = relS(11.0, 0.57);
+  const band = texture(noise, vec2(P.y.mul(0.021), P.x.mul(0.0007).add(P.z.mul(0.0005)))).r;
+  rock.colorNode = vec4(vec3(rn.mul(0.35).add(0.62).add(rA.w.mul(0.34)).add(rB.w.mul(0.2)).mul(band.mul(0.5).add(0.78))), 1.0);
+  rock.normalNode = normalize(cameraViewMatrix.mul(vec4(normalize(nW.add(rA.xyz.mul(1.1)).add(rB.xyz.mul(0.8))), 0.0)).xyz);
   const std = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
   const rough = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   const metal = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.6 });
@@ -90,6 +110,8 @@ export class PropsView {
   private glows: Glow[] = [];
   private flagMat: THREE.MeshStandardNodeMaterial;
   private prayerMat: THREE.Material | null = null;
+  private fallMats: THREE.Material[] = [];
+  private fallMist: THREE.Sprite[] = [];
   /** 经幡的风采样点（每组取一个），用于驱动摆动幅度 */
   private prayerSamples: THREE.Vector3[] = [];
   private flagUniforms = { uTime: uniform(0), uWindAmt: uniform(0.5) };
@@ -134,9 +156,16 @@ export class PropsView {
       if (tag && byName.has(tag)) continue;
       const mat = matName as MatKey;
       const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
-      g.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3));
-      g.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3));
+      if (mat === 'rock') {
+        const r = refineRock(b.pos, b.col);
+        g.setAttribute('position', new THREE.BufferAttribute(r.pos, 3));
+        g.setAttribute('normal', new THREE.BufferAttribute(r.nor, 3));
+        g.setAttribute('color', new THREE.BufferAttribute(r.col, 3));
+      } else {
+        g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
+        g.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3));
+        g.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3));
+      }
       g.computeBoundingSphere();
       this.geos.push(g);
       const m = new THREE.Mesh(g, this.materials[mat]);
@@ -176,6 +205,8 @@ export class PropsView {
         pivot.add(new THREE.Mesh(this.makeFlagGeometry(String(a.p?.color ?? 'jp'), a.s), this.flagMat));
         this.group.add(pivot);
         this.flags.push({ pivot, pos, phase: Math.random() * 6 });
+      } else if (a.type === 'waterfall') {
+        this.buildWaterfall(world, a);
       } else if (a.type === 'blink' || a.type === 'beacon') {
         const color = String(a.p?.color ?? 'red');
         const hex = color === 'red' ? 0xff3a2a : color === 'green' ? 0x40ff70 : color === 'blue' ? 0x4080ff : 0xfff2c8;
@@ -189,6 +220,102 @@ export class PropsView {
       }
     }
     if (prayers.length > 0) this.buildPrayerFlags(prayers);
+  }
+
+  /**
+   * 瀑布：贴着山壁往下流的水带。从水边沿山坡最陡的方向往上找到水源，沿这条线铺一条随地形起伏的带子，
+   * 一条条白色水流在着色器里向下滚动，底部是水雾。
+   */
+  private buildWaterfall(world: WorldData, a: { pos: [number, number, number]; p?: Record<string, number | string> }): void {
+    const T = world.terrain;
+    const hTop = Number(a.p?.h ?? 120);
+    const w = Number(a.p?.w ?? 8);
+    const line: Array<[number, number]> = [];
+    let x = a.pos[0];
+    let z = a.pos[2];
+    const ground = world.map.waterLevel ?? -Infinity;
+    // 先走到水边，再往上爬
+    for (let i = 0; i < 400 && T.heightAt(x, z) > ground + 0.5; i++) {
+      const n = T.normalAt(x, z);
+      x += n.x * 3;
+      z += n.z * 3;
+    }
+    for (let i = 0; i < 900 && T.heightAt(x, z) < hTop; i++) {
+      line.push([x, z]);
+      const n = T.normalAt(x, z);
+      const l = Math.hypot(n.x, n.z) || 1;
+      // 沿坡向上（法线水平分量的反方向），加一点左右摆动
+      const sway = Math.sin(i * 0.11) * 0.35 + Math.sin(i * 0.037 + 1.7) * 0.25;
+      x += (-n.x / l - (n.z / l) * sway) * 3;
+      z += (-n.z / l + (n.x / l) * sway) * 3;
+    }
+    line.reverse();
+    if (line.length < 4) return;
+    const pos: number[] = [];
+    const uvs: number[] = [];
+    const idx: number[] = [];
+    const COLS = 6;
+    let along = 0;
+    line.forEach(([px, pz], i) => {
+      const [qx, qz] = line[Math.min(line.length - 1, i + 1)];
+      const [rx, rz] = line[Math.max(0, i - 1)];
+      const dx = qx - rx;
+      const dz = qz - rz;
+      const l = Math.hypot(dx, dz) || 1;
+      const sx = -dz / l;
+      const sz = dx / l;
+      const k = i / (line.length - 1);
+      const width = w * (0.45 + 0.75 * k);
+      if (i) along += Math.hypot(px - line[i - 1][0], T.heightAt(px, pz) - T.heightAt(line[i - 1][0], line[i - 1][1]), pz - line[i - 1][1]);
+      for (let c = 0; c <= COLS; c++) {
+        const u = c / COLS;
+        const ox = px + sx * (u - 0.5) * width;
+        const oz = pz + sz * (u - 0.5) * width;
+        const n = T.normalAt(ox, oz);
+        pos.push(ox + n.x * 0.5, T.heightAt(ox, oz) + n.y * 0.5, oz + n.z * 0.5);
+        uvs.push(u, along);
+      }
+      if (i) {
+        for (let c = 0; c < COLS; c++) {
+          const p0 = (i - 1) * (COLS + 1) + c;
+          const p1 = i * (COLS + 1) + c;
+          idx.push(p0, p1, p0 + 1, p0 + 1, p1, p1 + 1);
+        }
+      }
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    this.geos.push(g);
+    const noise = getNoiseTexture();
+    const U = uv();
+    const fall = this.flagUniforms.uTime.mul(0.11);
+    // 水流：横向细、纵向长的噪声，向下滚动；两层速度不同，看上去不是一整块在平移
+    const s1 = texture(noise, vec2(U.x.mul(0.7).add(0.13), U.y.mul(0.0035).sub(fall))).g;
+    const s2 = texture(noise, vec2(U.x.mul(1.6).add(0.41), U.y.mul(0.0085).sub(fall.mul(1.7)))).g;
+    const edge = smoothstep(0.0, 0.32, U.x).mul(smoothstep(1.0, 0.68, U.x));
+    const flow = smoothstep(0.34, 0.66, s1.mul(0.6).add(s2.mul(0.4)));
+    const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.55, metalness: 0, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+    m.colorNode = vec4(mix(vec3(0.62, 0.7, 0.74), vec3(0.97, 0.98, 1.0), flow), 1.0);
+    m.opacityNode = edge.mul(flow.mul(0.62).add(0.26));
+    this.fallMats.push(m);
+    const mesh = new THREE.Mesh(g, m);
+    mesh.renderOrder = 3;
+    mesh.matrixAutoUpdate = false;
+    this.group.add(mesh);
+    // 底部水雾
+    const glow = getGlowTexture();
+    const [bx, bz] = line[line.length - 1];
+    for (let i = 0; i < 6; i++) {
+      const sm = new THREE.SpriteMaterial({ map: glow, color: 0xe8eef2, transparent: true, depthWrite: false, opacity: 0.2 });
+      const sp = new THREE.Sprite(sm);
+      sp.position.set(bx + Math.cos(i * 2.4) * w * 0.5, Math.max(ground, T.heightAt(bx, bz)) + 2 + i * 1.6, bz + Math.sin(i * 2.4) * w * 0.5);
+      sp.scale.setScalar(w * (1.6 + i * 0.5));
+      this.group.add(sp);
+      this.fallMist.push(sp);
+    }
   }
 
   /** 经幡：所有小旗合并成一个网格（一次绘制），沿绳子方向排列、向下悬挂，在着色器里随风摆动。 */
@@ -366,5 +493,7 @@ export class PropsView {
     for (const m of Object.values(this.materials)) m.dispose();
     this.flagMat.dispose();
     this.prayerMat?.dispose();
+    for (const m of this.fallMats) m.dispose();
+    for (const s of this.fallMist) (s.material as THREE.Material).dispose();
   }
 }

@@ -234,15 +234,8 @@ export const fjordProps: Record<string, PropFn> = {
     B.footprint(r * 3);
   },
   waterfall(B, d) {
-    // 瀑布：沿峭壁垂下的白色水帘 + 底部水雾
-    const h = Number(d.p?.h ?? 120);
-    const w = Number(d.p?.w ?? 8);
-    const steps = 8;
-    for (let i = 0; i < steps; i++) {
-      const y0 = h - (h * i) / steps;
-      B.box(Math.sin(i * 1.3) * 0.8, y0 - h / steps / 2, (i * 1.1) % 2.5, w * (1 + i * 0.06), h / steps + 0.5, 1.2, 0xe8f0f4, { solid: false, mat: 'std', jitter: 0.03 });
-    }
-    B.sphere(0, 4, 3, w * 1.4, 0xf0f4f6, { sy: 0.5, noise: 0.3, solid: false });
+    // 瀑布：贴着山壁流下的水带与底部水雾，在 PropsView.buildWaterfall 里按地形生成
+    B.anchor('waterfall', 0, 0, 0, 0, { h: Number(d.p?.h ?? 120), w: Number(d.p?.w ?? 8) });
   },
   turfFarm(B, _d, rng, ctx) {
     // 草皮屋顶农舍：主屋 + 稍小的副屋 + 石墩上的储物仓，石墙围起屋后的草场

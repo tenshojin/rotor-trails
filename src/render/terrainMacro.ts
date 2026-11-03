@@ -1,6 +1,7 @@
 // 地形的“大尺度”信息。高度图一格 4 米，山坡在光照下是光滑的曲面；真实的山看上去粗粝，靠的是几十米尺度的沟壑、
 // 山脊、岩层。这里准备两张图：
-//   · 地形宏观图（每张地图一张，由高度场算出）：R = 小尺度凹凸（约 12 m），G = 大尺度凹凸（约 60 m），B = 天空可见度。
+//   · 地形宏观图（每张地图一张，由高度场算出）：R = 小尺度凹凸（约 12 m），G = 大尺度凹凸（约 60 m），B = 天空可见度，
+//     A = 平滑后的坡度（岩石与草地的分界用它，否则分界线会沿着 4 米网格的三角形走成锯齿）。
 //     凹处（沟、谷）偏暗，凸处（山脊）偏亮，山谷深处环境光更少——明暗跟着地形走，而不是一团团随机噪声。
 //   · 岩石浮雕图（全局一张，可平铺）：脊状分形噪声的法线与高度，三平面投影到岩壁上，给光滑的山体加出棱角。
 
@@ -65,7 +66,13 @@ export function makeTerrainMacroTexture(t: Heightfield): THREE.DataTexture {
       data[o] = Math.round((c1 * 0.5 + 0.5) * 255);
       data[o + 1] = Math.round((c2 * 0.5 + 0.5) * 255);
       data[o + 2] = Math.round(sky * 255);
-      data[o + 3] = 255;
+      const xl = Math.max(0, x - 1);
+      const xr = Math.min(n - 1, x + 1);
+      const yl = Math.max(0, y - 1);
+      const yr = Math.min(n - 1, y + 1);
+      const sx = (small[y * n + xr] - small[y * n + xl]) / ((xr - xl) * t.cell);
+      const sy = (small[yr * n + x] - small[yl * n + x]) / ((yr - yl) * t.cell);
+      data[o + 3] = Math.round((1 - 1 / Math.sqrt(1 + sx * sx + sy * sy)) * 255);
     }
   }
   const tex = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);

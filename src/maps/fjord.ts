@@ -106,8 +106,10 @@ const PASS: Vec2[] = [
   [VILLAGE[0] + 150, VILLAGE[2] + 260],
   [1150, 250],
   [1500, 120],
-  [1750, -150],
-  [HEAD[0] - 80, HEAD[2] + 160],
+  [1640, -20],
+  [1790, -130],
+  [1760, -270],
+  [HEAD[0] - 60, HEAD[2] + 170],
 ];
 const PASSP = new PathSampler(PASS);
 /** 山口谷底高度（t = 0..1）：从村落后方爬升到约 360 m，再下降到峡湾尽头 */
@@ -191,6 +193,7 @@ export const FJORD_MAP: MapDef = {
   seed: SEED,
   altitudeOffset: 0,
   waterLevel: 0,
+  erosion: 260000,
   buildTerrain(b) {
     b.fill(land);
     b.applySpline(FJORD, WALL + 400, (h, d, s) => {
@@ -205,7 +208,7 @@ export const FJORD_MAP: MapDef = {
     // 山口：在高原上切出一条较低的山谷
     b.applySpline(PASS, 260, (h, d, s, x, z, len) => {
       const floor = passFloor(s / len);
-      const w = 90;
+      const w = 90 + 45 * n2.noise(s / 170, 3.3);
       if (d < w) return Math.min(h, floor + 8 * n.noise(x / 80, z / 80));
       const k = smoothstep(w, 260, d);
       return Math.min(h, floor + (h - floor) * k);
@@ -221,8 +224,17 @@ export const FJORD_MAP: MapDef = {
     // 悬崖农场平台、村落与峡湾尽头的冲积平原
     b.flatten(FARM[0] + FARM_N[0] * 10, FARM[2] + FARM_N[1] * 10, 52, FARM[1], 30);
     b.flatten(VILLAGE[0] - V_N[0] * 15, VILLAGE[2] - V_N[1] * 15, 72, VILLAGE[1], 45);
-    b.flatten(HEAD[0], HEAD[2], 140, HEAD[1], 120);
-    b.flatten(HEAD[0] - 160, HEAD[2] + 30, 90, 3, 80, 'min');
+    // 峡湾尽头：河流冲出来的平原把水面挡住，岸线自然弯曲，往里缓缓抬高
+    b.map((h, x, z) => {
+      const t = (x - HEAD[0] + 92) * 0.82 + (z - HEAD[2]) * -0.57;
+      const l = (x - HEAD[0]) * 0.57 + (z - HEAD[2]) * 0.82;
+      const shore = t + 34 * n2.noise(l / 95, 7.1) + 16 * n.noise(l / 31, 2.2);
+      if (shore < -30) return h;
+      const plain = 1.2 + 5.5 * smoothstep(0, 170, shore) + 0.9 * n.noise(x / 60, z / 60) + 16 * smoothstep(200, 520, shore);
+      const k = smoothstep(-30, 16, shore);
+      return Math.max(h, h + (plain - h) * k);
+    });
+    b.flatten(HEAD[0], HEAD[2], 96, HEAD[1], 70);
     b.paint(0, (_x, _z, h) => (h > -1 && h < 3 ? 1 - smoothstep(1.5, 3, h) : 0));
     b.paint(3, (x, z, h) => (h > 680 ? smoothstep(680, 760, h + 40 * n.noise(x / 150, z / 150)) : 0));
   },

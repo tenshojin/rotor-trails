@@ -4,6 +4,7 @@ import { Rng } from '../core/noise';
 import type { MapDef, PadDef, V3 } from '../maps/types';
 import { obstacleTop } from '../sim/routeCheck';
 import { HeightBuilder, type Heightfield } from '../sim/terrain';
+import { erode } from './erosion';
 import { PropBuilder, type ColliderSpec } from './propBuilder';
 import { buildPad, type PropCtx } from './props/common';
 import { PROP_FNS } from './props/index';
@@ -24,6 +25,35 @@ export type ProgressFn = (p: number, label: string) => void;
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
+/** 侵蚀的保护图：停机坪、空地、村落和建筑的平地不动（0），往外渐变到 1 */
+function protectMask(map: MapDef): Float32Array {
+  const r = map.res;
+  const cell = map.size / (r - 1);
+  const half = map.size / 2;
+  const mask = new Float32Array(r * r).fill(1);
+  const spot = (x: number, z: number, rad: number, blend: number): void => {
+    const R = rad + blend;
+    const x0 = Math.max(0, Math.floor((x - R + half) / cell));
+    const x1 = Math.min(r - 1, Math.ceil((x + R + half) / cell));
+    const z0 = Math.max(0, Math.floor((z - R + half) / cell));
+    const z1 = Math.min(r - 1, Math.ceil((z + R + half) / cell));
+    for (let iz = z0; iz <= z1; iz++)
+      for (let ix = x0; ix <= x1; ix++) {
+        const d = Math.hypot(ix * cell - half - x, iz * cell - half - z);
+        const t = Math.min(1, Math.max(0, (d - rad) / blend));
+        const k = iz * r + ix;
+        mask[k] = Math.min(mask[k], t * t * (3 - 2 * t));
+      }
+  };
+  for (const p of map.pads) spot(p.pos[0], p.pos[2], p.size * 1.3 + 12, 40);
+  for (const [x, z, rad] of map.clearings) spot(x, z, rad, 40);
+  for (const p of map.props) {
+    if (!p.ground) continue;
+    spot(p.pos[0], p.pos[2], Number(p.p?.r ?? 22) + 8, 30);
+  }
+  return mask;
+}
+
 export async function generateWorld(map: MapDef, withMesh: boolean, progress?: ProgressFn): Promise<WorldData> {
   progress?.(0.05, '生成地形');
   await tick();
@@ -36,6 +66,11 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
       hb.paintCircle(1, p.pos[0], p.pos[2], p.size * 0.8, 8, 0.8);
       hb.paintCircle(2, p.pos[0], p.pos[2], p.size * 0.8 + 6, 6, 1);
     }
+  }
+  if (map.erosion) {
+    progress?.(0.25, '雨水侵蚀');
+    await tick();
+    erode(hb.data, map.res, map.seed, { droplets: map.erosion, waterLevel: map.waterLevel, mask: protectMask(map) });
   }
   const terrain = hb.build();
   progress?.(0.45, '布置建筑与停机坪');

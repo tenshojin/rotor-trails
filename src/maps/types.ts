@@ -185,6 +185,8 @@ export interface MapDef {
   seed: number;
   altitudeOffset: number;
   waterLevel: number | null;
+  /** 水力侵蚀的雨滴数（见 world/erosion.ts）；缺省不做 */
+  erosion?: number;
   buildTerrain(b: HeightBuilder): void;
   /** 地图外围远景地形（不参与碰撞） */
   farTerrain?(x: number, z: number): number;

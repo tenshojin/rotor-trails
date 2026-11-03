@@ -3,7 +3,9 @@
 // 低画质只缩短远景距离，碰撞相关的近处树木始终可见。
 
 import * as THREE from 'three/webgpu';
-import { dFdx, dFdy, dot, length, log2, max, normalLocal, normalViewGeometry, positionGeometry, positionLocal, sin, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
+import { cameraPosition, dFdx, dFdy, dot, length, log2, max, normalize, normalLocal, normalViewGeometry, positionGeometry, positionLocal, positionWorld, pow, sin, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
+import { FOG } from './atmosphere';
+import { VFOG } from './volumetricFog';
 import { loadGltf } from './gltf';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TREE_SPECS, TREE_TYPES, type TreeSet } from '../world/vegetation';
@@ -388,7 +390,11 @@ export class TreeView {
         const ddy = dFdy(tuv);
         const boost = max(0.0, log2(max(dot(ddx, ddx), dot(ddy, ddy))).mul(0.5)).mul(0.25).add(1.0);
         const c = texture(map, uv());
-        m.colorNode = vec4(c.rgb.mul(vec3(src.color.r, src.color.g, src.color.b)), c.a.mul(boost));
+        const albedo = c.rgb.mul(vec3(src.color.r, src.color.g, src.color.b));
+        m.colorNode = vec4(albedo, c.a.mul(boost));
+        // 叶片是半透明的：迎着太阳看时被照透（发亮的黄绿色）；树冠里的暗处也有叶片之间反射的绿光，不是黑洞
+        const back = pow(max(dot(normalize(positionWorld.sub(cameraPosition)), FOG.sunDir), 0.0), 3.0);
+        m.emissiveNode = albedo.mul(vec3(1.08, 1.16, 0.72)).mul(FOG.color.mul(0.2).add(VFOG.sun.mul(back.mul(0.15).add(0.018))));
         // 双面渲染时背面不翻转法线（叶片法线朝树冠外侧，翻转会让背面发黑）
         m.normalNode = normalViewGeometry;
       }

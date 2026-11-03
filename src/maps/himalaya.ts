@@ -136,6 +136,7 @@ export const HIMALAYA: MapDef = {
   seed: SEED,
   altitudeOffset: ALT0,
   waterLevel: null,
+  erosion: 220000,
   buildTerrain(b) {
     b.fill(mountains);
     // U 形冰川谷

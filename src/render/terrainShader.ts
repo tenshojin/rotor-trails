@@ -103,6 +103,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const muv = P.xz.div(U.mapSize).add(0.5);
     const surf = texture(U.surface, muv);
     const forest = texture(U.forest, muv).r;
+    const mac = texture(U.macro, muv);
     const n1 = texture(noise, P.xz.mul(0.0021)).r;
     // 三平面权重（陡坡上纹理不会被拉成竖条）
     const aw = pow(abs(n), vec3(4.0));
@@ -120,7 +121,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const dirtW = surf.g.mul(0.9).toVar();
     const rk = triR(0.006, 0.0).mul(0.65).add(triG(0.028, 0.0).mul(0.35));
     const r2 = smoothstep(0.32, 0.68, rk).toVar();
-    const rockW = smoothstep(U.rockSlope - 0.07, U.rockSlope + 0.06, slope.add(n1.sub(0.5).mul(0.14))).toVar();
+    const rockW = smoothstep(U.rockSlope - 0.07, U.rockSlope + 0.06, mix(mac.a, slope, 0.25).add(n1.sub(0.5).mul(0.14)).add(n3.sub(0.5).mul(0.1))).toVar();
     const snowAlt = smoothstep(U.snowLine - 50.0, U.snowLine + 30.0, h.add(n1.sub(0.5).mul(90.0)));
     const strataColor = (y: N<'float'>) => {
       const t = fract(y.div(46.0));
@@ -294,7 +295,6 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       nb.assign(normalize(n.mul(abs(det)).sub(grad.mul(bump.mul(1.2)))));
     }
     // 宏观地貌：岩壁加上三平面投影的脊状浮雕（两个尺度），平缓的地面只加一点起伏；明暗再跟着真实的沟谷与山脊走
-    const mac = texture(U.macro, muv);
     const cavS = mac.r.mul(2.0).sub(1.0);
     const cavL = mac.g.mul(2.0).sub(1.0);
     const rockK = rockW.mul(float(1).sub(snowW));
@@ -347,7 +347,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const wet = U.uWet.mul(float(1).sub(snowW));
     col.mulAssign(mix(1.0, 0.68, wet));
     rough.assign(mix(rough, 0.55, wet.mul(0.7)));
-    return TerrainOut(col, rough, nb, pow(mac.b, 1.6));
+    return TerrainOut(col, rough, nb, mix(float(0.42), float(1), mac.b));
   });
   // 颜色、粗糙度、法线引用同一个计算结果（着色器里只算一次）
   const res = result();

@@ -107,6 +107,7 @@ export const JAPAN: MapDef = {
   seed: SEED,
   altitudeOffset: 0,
   waterLevel: 0,
+  erosion: 150000,
   buildTerrain(b) {
     b.fill(terrain);
     // 港口填海区与堤岸

@@ -158,6 +158,7 @@ export const CANYON: MapDef = {
   seed: SEED,
   altitudeOffset: 1500,
   waterLevel: null,
+  erosion: 200000,
   buildTerrain(b) {
     b.fill(plateau);
     const carve = (path: Vec2[], maxD: number, fwF: (s: number, x: number, z: number) => number, floorF: (s: number, len: number) => number, wallW: number) =>
