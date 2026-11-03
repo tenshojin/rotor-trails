@@ -1,0 +1,422 @@
+// 菜单与界面：主菜单、地图选择、任务简介（天气/辅助选择）、加载、开始提示、暂停、失败、结算、设置（含改键）、操作说明、关于。
+
+import { ASSISTS, type AssistId } from '../config/flight';
+import type { MapDef } from '../maps/types';
+import type { MapRecord } from '../game/save';
+import { ACTION_LABEL, DEFAULT_BINDINGS, QUALITY, keyName, type Action, type Settings } from '../game/settings';
+import type { ScoreResult } from '../sim/scoring';
+import type { LandingMetrics } from '../sim/mission';
+import { GRADE_LABEL } from '../sim/mission';
+
+export interface CheckpointItem {
+  index: number;
+  label: string;
+  durability: number;
+  safe: boolean;
+  t: number;
+}
+
+function h(html: string): HTMLDivElement {
+  const d = document.createElement('div');
+  d.innerHTML = html.trim();
+  return d.firstElementChild as HTMLDivElement;
+}
+
+const stars = (n: number) => '★'.repeat(n) + '☆'.repeat(5 - n);
+const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+export class UI {
+  readonly root: HTMLDivElement;
+  private screen: HTMLDivElement | null = null;
+  private modal: HTMLDivElement | null = null;
+  onClick: (() => void) | null = null;
+
+  constructor(parent: HTMLElement) {
+    this.root = document.createElement('div');
+    this.root.className = 'ui';
+    parent.appendChild(this.root);
+    this.root.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('button')) this.onClick?.();
+    });
+  }
+
+  private show(el: HTMLDivElement): HTMLDivElement {
+    this.screen?.remove();
+    this.screen = el;
+    this.root.appendChild(el);
+    return el;
+  }
+
+  clear(): void {
+    this.screen?.remove();
+    this.screen = null;
+    this.closeModal();
+  }
+
+  get hasModal(): boolean {
+    return !!this.modal;
+  }
+
+  closeModal(): void {
+    this.modal?.remove();
+    this.modal = null;
+  }
+
+  private openModal(el: HTMLDivElement): HTMLDivElement {
+    this.closeModal();
+    this.modal = el;
+    this.root.appendChild(el);
+    return el;
+  }
+
+  private bind(el: HTMLElement, handlers: Record<string, (btn: HTMLElement) => void>): void {
+    el.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest('[data-a]') as HTMLElement | null;
+      if (!b || !el.contains(b)) return;
+      const f = handlers[b.dataset.a!];
+      if (f) f(b);
+    });
+  }
+
+  compatError(msg: string): void {
+    this.show(
+      h(`<div class="screen center"><div class="card narrow"><h1>无法启动 Rotor Trails</h1><p>${msg}</p>
+      <p class="muted">需要支持 WebGL2 的桌面浏览器（推荐最新版 Chrome 或 Edge），并开启硬件加速。</p></div></div>`),
+    );
+  }
+
+  main(opts: { warning: string | null; tutorialDone: boolean }, on: { play: () => void; tutorial: () => void; settings: () => void; help: () => void; about: () => void }): void {
+    const el = this.show(
+      h(`<div class="screen main-menu">
+        <div class="title-block">
+          <div class="logo">ROTOR TRAILS</div>
+          <div class="logo-sub">旋翼航迹 · 第一人称拟真直升机</div>
+        </div>
+        <div class="menu-col">
+          <button class="btn primary" data-a="play">开始游戏</button>
+          <button class="btn" data-a="tutorial">飞行训练${opts.tutorialDone ? '' : ' <span class="tag">推荐先玩</span>'}</button>
+          <button class="btn" data-a="settings">设置</button>
+          <button class="btn" data-a="help">操作说明</button>
+          <button class="btn ghost" data-a="about">关于与授权</button>
+        </div>
+        <div class="menu-foot">${opts.warning ? `<div class="warnbox">${opts.warning}</div>` : ''}<span>v1.0 · 没有时间限制，按自己的节奏飞行</span></div>
+      </div>`),
+    );
+    this.bind(el, { play: on.play, tutorial: on.tutorial, settings: on.settings, help: on.help, about: on.about });
+  }
+
+  mapSelect(maps: MapDef[], records: Partial<Record<string, MapRecord>>, on: { pick: (m: MapDef) => void; back: () => void }): void {
+    const cards = maps
+      .map((m, i) => {
+        const r = records[m.id];
+        return `<div class="map-card map-${m.id}" data-a="pick" data-i="${i}">
+          <div class="mc-head"><span class="mc-no">${m.id === 'training' ? '训练' : `第 ${i} 关`}</span><span class="mc-stars" title="推荐难度">${stars(m.difficulty)}</span></div>
+          <div class="mc-name">${m.name}</div><div class="mc-sub">${m.subtitle}</div>
+          <div class="mc-desc">${m.description}</div>
+          <div class="mc-foot"><span>推荐：${ASSISTS[m.recommendedAssist].label}</span>${r?.completed ? `<span class="mc-best">最佳 ${r.bestRating} · ${r.bestScore}</span>` : '<span class="muted">未完成</span>'}</div>
+        </div>`;
+      })
+      .join('');
+    const el = this.show(
+      h(`<div class="screen"><div class="screen-head"><button class="btn ghost" data-a="back">← 返回</button><h2>选择地图</h2><span class="muted">所有地图均可直接选择，无需解锁</span></div>
+      <div class="map-grid">${cards}</div></div>`),
+    );
+    this.bind(el, { pick: (b) => on.pick(maps[Number(b.dataset.i)]), back: on.back });
+  }
+
+  briefing(m: MapDef, rec: MapRecord | undefined, settings: Settings, on: { start: (weather: string, assist: AssistId) => void; back: () => void }): void {
+    let weather = m.defaultWeather;
+    let assist: AssistId = settings.assist;
+    const objs = m.mission.main
+      .map((o, i) => `<li><b>${i + 1}. ${o.title}</b><span>${o.detail}</span></li>`)
+      .join('');
+    const opt = m.mission.optional.map((o) => `<li><b>${rec?.optionalDone.includes(o.id) ? '✔ ' : ''}${o.title}</b><span>${o.detail}</span></li>`).join('');
+    const forks = m.legs
+      .filter((l) => l.paths.length > 1)
+      .map((l) => `<li>${l.paths.map((p) => `<b>${p.label}</b>：${p.detail}`).join('<br>')}</li>`)
+      .join('');
+    const el = this.show(
+      h(`<div class="screen"><div class="screen-head"><button class="btn ghost" data-a="back">← 返回</button><h2>${m.name}</h2><span class="muted">${m.region} · 推荐难度 ${stars(m.difficulty)}</span></div>
+      <div class="brief">
+        <div class="brief-main card">
+          <p class="lead">${m.description}</p>
+          ${m.briefing.map((b) => `<p>${b}</p>`).join('')}
+          <h3>主线任务</h3><ol class="obj-list">${objs}</ol>
+          ${opt ? `<h3>可选任务</h3><ul class="obj-list">${opt}</ul>` : ''}
+          ${forks ? `<h3>路线选择</h3><ul class="obj-list">${forks}</ul>` : ''}
+          <p class="muted">预计主线 ${m.estMinutes[0]}–${m.estMinutes[1]} 分钟（不限时）。${rec?.completed ? `最佳评价 ${rec.bestRating}（${rec.bestScore} 分）${rec.bestTime ? ` · 最快 ${fmtTime(rec.bestTime)}（仅记录）` : ''}` : ''}</p>
+        </div>
+        <div class="brief-side">
+          <div class="card"><h3>天气</h3><div class="opts" data-group="weather">${m.weathers
+            .map((w) => `<div class="opt-card ${w.id === weather ? 'sel' : ''}" data-a="weather" data-v="${w.id}"><b>${w.label}</b><span>${w.desc}</span></div>`)
+            .join('')}</div></div>
+          <div class="card"><h3>飞行辅助</h3><div class="opts" data-group="assist">${(Object.keys(ASSISTS) as AssistId[])
+            .map((k) => `<div class="opt-card ${k === assist ? 'sel' : ''}" data-a="assist" data-v="${k}"><b>${ASSISTS[k].label}${k === m.recommendedAssist ? ' · 推荐' : ''}</b><span>${ASSISTS[k].desc}</span></div>`)
+            .join('')}</div></div>
+          <button class="btn primary big" data-a="start">开始飞行</button>
+        </div>
+      </div></div>`),
+    );
+    const sel = (group: string, v: string) => el.querySelectorAll(`[data-group="${group}"] .opt-card`).forEach((c) => c.classList.toggle('sel', (c as HTMLElement).dataset.v === v));
+    this.bind(el, {
+      weather: (b) => {
+        weather = b.dataset.v!;
+        sel('weather', weather);
+      },
+      assist: (b) => {
+        assist = b.dataset.v as AssistId;
+        sel('assist', assist);
+      },
+      start: () => on.start(weather, assist),
+      back: on.back,
+    });
+  }
+
+  loading(label: string, p: number): void {
+    let el = this.screen?.classList.contains('loading') ? this.screen : null;
+    if (!el) el = this.show(h(`<div class="screen center loading"><div class="card narrow"><h2>正在准备地图</h2><div class="lbar"><i></i></div><div class="llabel"></div></div></div>`));
+    (el.querySelector('.lbar i') as HTMLElement).style.width = `${Math.round(p * 100)}%`;
+    (el.querySelector('.llabel') as HTMLElement).textContent = label;
+  }
+
+  clickToStart(text: string, sub: string, on: () => void): void {
+    const el = this.show(h(`<div class="screen center click-start" data-a="go"><div class="card narrow"><h2>${text}</h2><p>${sub}</p><button class="btn primary" data-a="go">点击开始飞行</button></div></div>`));
+    this.bind(el, { go: on });
+  }
+
+  pause(opts: { tutorial: boolean; checkpoints: CheckpointItem[] }, on: { resume: () => void; checkpoint: (i: number, mode: 'exact' | 'safe') => void; restart: () => void; settings: () => void; help: () => void; quit: () => void; skipStep?: () => void }): void {
+    const last = opts.checkpoints[opts.checkpoints.length - 1];
+    const el = this.show(
+      h(`<div class="screen center dim"><div class="card narrow pause"><h2>已暂停</h2>
+      <button class="btn primary" data-a="resume">继续飞行</button>
+      ${opts.tutorial ? '<button class="btn" data-a="skip">跳过当前教学步骤</button>' : ''}
+      ${last && opts.checkpoints.length > 1 ? `<button class="btn" data-a="cp">从最近检查点继续（${last.label}）</button>` : ''}
+      ${opts.checkpoints.length > 1 ? '<button class="btn" data-a="cplist">选择检查点…</button>' : ''}
+      <button class="btn" data-a="restart">从关卡起点重新开始</button>
+      <button class="btn" data-a="settings">设置</button>
+      <button class="btn" data-a="help">操作说明</button>
+      <button class="btn ghost" data-a="quit">${opts.tutorial ? '退出教学' : '退出到主菜单'}</button></div></div>`),
+    );
+    this.bind(el, {
+      resume: on.resume,
+      skip: () => on.skipStep?.(),
+      cp: () => on.checkpoint(last.index, 'exact'),
+      cplist: () => this.checkpointList(opts.checkpoints, on.checkpoint),
+      restart: on.restart,
+      settings: on.settings,
+      help: on.help,
+      quit: on.quit,
+    });
+  }
+
+  checkpointList(list: CheckpointItem[], pick: (i: number, mode: 'exact' | 'safe') => void): void {
+    const rows = list
+      .map(
+        (c) => `<div class="cp-row"><div><b>${c.label}</b><span class="muted"> · ${fmtTime(c.t)} · 耐久 ${Math.round(c.durability)}${c.safe ? '' : ' · <span class="amber">状态不佳</span>'}</span></div>
+        <div><button class="btn sm" data-a="exact" data-i="${c.index}">从此继续</button><button class="btn sm ghost" data-a="safe" data-i="${c.index}" title="在该位置以稳定悬停状态恢复，耐久至少 40（评分扣分）">安全恢复</button></div></div>`,
+      )
+      .reverse()
+      .join('');
+    const el = this.openModal(h(`<div class="modal"><div class="card wide"><div class="screen-head"><h2>选择检查点</h2><button class="btn ghost" data-a="close">关闭</button></div><div class="cp-list">${rows}</div>
+      <p class="muted">“安全恢复”会在检查点位置以稳定悬停状态继续，耐久至少恢复到 40，用于避免严重受损时无法继续的情况（计入评分扣分）。已消耗的奖励不会因恢复检查点而重复获得。</p></div></div>`));
+    this.bind(el, {
+      exact: (b) => {
+        this.closeModal();
+        pick(Number(b.dataset.i), 'exact');
+      },
+      safe: (b) => {
+        this.closeModal();
+        pick(Number(b.dataset.i), 'safe');
+      },
+      close: () => this.closeModal(),
+    });
+  }
+
+  failed(opts: { cause: string; detail: string; checkpoints: CheckpointItem[] }, on: { checkpoint: (i: number, mode: 'exact' | 'safe') => void; restart: () => void; quit: () => void }): void {
+    const last = opts.checkpoints[opts.checkpoints.length - 1];
+    const safeOnes = opts.checkpoints.filter((c) => c.safe);
+    const earlier = safeOnes.length > 0 ? safeOnes[safeOnes.length - 1] : null;
+    const el = this.show(
+      h(`<div class="screen center dim"><div class="card narrow fail"><div class="fail-badge">任务失败</div><h2>${opts.cause}</h2><p>${opts.detail}</p>
+      ${last ? `<button class="btn primary" data-a="cp">从最近检查点继续（${last.label} · 耐久 ${Math.round(last.durability)}）</button>` : ''}
+      ${earlier && earlier !== last ? `<button class="btn" data-a="earlier">从较早的安全检查点继续（${earlier.label}）</button>` : ''}
+      ${last && last.durability < 30 ? `<button class="btn" data-a="safe">安全恢复（悬停状态，耐久至少 40）</button>` : ''}
+      ${opts.checkpoints.length > 1 ? '<button class="btn" data-a="cplist">选择检查点…</button>' : ''}
+      <button class="btn" data-a="restart">从关卡起点重新开始</button>
+      <button class="btn ghost" data-a="quit">退出到主菜单</button></div></div>`),
+    );
+    this.bind(el, {
+      cp: () => on.checkpoint(last.index, 'exact'),
+      earlier: () => earlier && on.checkpoint(earlier.index, 'exact'),
+      safe: () => on.checkpoint(last.index, 'safe'),
+      cplist: () => this.checkpointList(opts.checkpoints, on.checkpoint),
+      restart: on.restart,
+      quit: on.quit,
+    });
+  }
+
+  result(opts: { map: MapDef; score: ScoreResult; best: boolean; time: number; landing: LandingMetrics | null; optional: Array<{ title: string; done: boolean }>; next: MapDef | null; tutorial: boolean }, on: { again: () => void; maps: () => void; next: () => void; menu: () => void }): void {
+    const s = opts.score;
+    const rows = s.breakdown.map((b) => `<tr><td>${b.label}</td><td class="muted">${b.note ?? ''}</td><td class="num">${b.value > 0 ? '+' : ''}${b.value}</td></tr>`).join('');
+    const el = this.show(
+      h(`<div class="screen center dim"><div class="card wide result">
+        <div class="res-head"><div><div class="hud-label">${opts.tutorial ? '训练完成' : '任务完成'}</div><h2>${opts.map.name}</h2></div><div class="rating r-${s.rating}">${opts.tutorial ? '✔' : s.rating}</div></div>
+        ${opts.tutorial ? '<p>你已经掌握了起飞、加速、减速、转向、高度控制、悬停、侧风修正和安全降落。可以开始正式地图了！</p>' : ''}
+        <table class="score">${rows}<tr class="total"><td>总分</td><td></td><td class="num">${s.total}</td></tr></table>
+        ${opts.best && !opts.tutorial ? '<div class="newbest">新的最佳成绩！</div>' : ''}
+        <div class="res-grid">
+          <div><span class="muted">最终降落</span><b>${opts.landing ? `${GRADE_LABEL[opts.landing.grade]} · 下降 ${opts.landing.descent.toFixed(1)} m/s · 漂移 ${opts.landing.horizontal.toFixed(1)} m/s · 偏移 ${opts.landing.offset.toFixed(1)} m` : '—'}</b></div>
+          <div><span class="muted">用时（仅记录，不计分）</span><b>${fmtTime(opts.time)}</b></div>
+          <div><span class="muted">可选任务</span><b>${opts.optional.map((o) => `${o.done ? '✔' : '○'} ${o.title}`).join('<br>') || '—'}</b></div>
+        </div>
+        <div class="btn-row">${opts.next ? `<button class="btn primary" data-a="next">下一张地图：${opts.next.name}</button>` : ''}<button class="btn" data-a="again">再飞一次</button><button class="btn" data-a="maps">地图选择</button><button class="btn ghost" data-a="menu">主菜单</button></div>
+      </div></div>`),
+    );
+    this.bind(el, { again: on.again, maps: on.maps, next: on.next, menu: on.menu });
+  }
+
+  help(bindings: Settings['bindings']): void {
+    const k = (a: Action) => bindings[a].map(keyName).join(' / ');
+    const el = this.openModal(
+      h(`<div class="modal"><div class="card wide"><div class="screen-head"><h2>操作说明</h2><button class="btn ghost" data-a="close">关闭</button></div>
+      <div class="help-grid">
+        <div><h3>基本操控</h3><table class="keys">
+          <tr><td>${k('forward')}</td><td>机体前倾，逐渐加速</td></tr>
+          <tr><td>${k('back')}</td><td>后倾减速，低速下缓慢后退</td></tr>
+          <tr><td>${k('left')} / ${k('right')}</td><td>左/右转（自动协调机头方向与坡度）</td></tr>
+          <tr><td>${k('up')}</td><td>增加升力（上升）</td></tr>
+          <tr><td>${k('down')}</td><td>减小升力（下降）</td></tr>
+          <tr><td>${k('strafeLeft')} / ${k('strafeRight')}</td><td>向左/右平移（悬停修正、侧风修正）</td></tr>
+          <tr><td>${k('hover')}</td><td>悬停辅助：逐渐减速并保持位置</td></tr>
+          <tr><td>${k('boost')}</td><td>使用已获得的动力增强</td></tr>
+          <tr><td>鼠标</td><td>观察四周（不控制飞机方向）</td></tr>
+          <tr><td>${k('center')}</td><td>视角回正</td></tr>
+          <tr><td>${k('view')}</td><td>切换座舱/追尾视角</td></tr>
+          <tr><td>${k('nav')}</td><td>切换导航目标（主线/可选任务）；分岔处切换推荐路线</td></tr>
+          <tr><td>${k('mapRange')}</td><td>切换座舱地图显示范围</td></tr>
+          <tr><td>${k('pause')}</td><td>暂停</td></tr></table></div>
+        <div><h3>飞行要点</h3><ul class="tips">
+          <li>直升机有真实的重量和惯性：加速、减速、转弯都需要时间和空间，<b>高速时请提前减速</b>。</li>
+          <li>升力来自旋翼，机身倾斜时升力方向也随之倾斜；急转弯需要更多动力，动力不足时会掉高度。</li>
+          <li>风通过相对气流影响飞机：侧风会让飞机漂移，顶风降低地速、顺风增加地速。注意风向袋、旗帜、树木和右侧风速表。</li>
+          <li>降落时看右下角“着陆辅助”：下降速度 ≤ 2.5 m/s、水平漂移 ≤ 2.5 m/s、姿态 ≤ 12° 且落在坪内才算安全着陆。</li>
+          <li>耐久 70 以下性能逐渐下降，30 以下明显下降，但始终保留控制能力；可前往绿色维修坪或拾取绿色维修补给。</li>
+          <li>Buff：黄色闪电 = 动力增强（储存后按 Shift 使用）；蓝色六边形 = 免伤护盾（自动生效）；绿色十字 = 维修 +25。</li>
+          <li>没有时间限制：可以慢慢探索、练习和欣赏风景。</li>
+          <li>在普通（非全屏）窗口里，浏览器不允许网页拦截 Ctrl+W 等快捷键。下降键默认同时绑定了 X；也可在设置中改键。游戏中关闭页面前会弹出确认。</li>
+        </ul></div>
+      </div></div></div>`),
+    );
+    this.bind(el, { close: () => this.closeModal() });
+  }
+
+  about(): void {
+    const el = this.openModal(
+      h(`<div class="modal"><div class="card wide"><div class="screen-head"><h2>关于与授权</h2><button class="btn ghost" data-a="close">关闭</button></div>
+      <p><b>Rotor Trails（旋翼航迹）</b> — 第一人称拟真直升机闯关游戏。全部地形、建筑、植被、纹理、仪表与音效均为程序化生成，没有使用外部美术或音频素材。</p>
+      <h3>第三方开源库</h3>
+      <ul class="tips"><li>three.js — MIT License</li><li>Rapier（@dimforge/rapier3d-compat）— Apache License 2.0</li><li>开发工具：Vite（MIT）、TypeScript（Apache-2.0）、Vitest（MIT）</li></ul>
+      <p class="muted">详细信息见仓库中的 THIRD_PARTY_LICENSES.md。地图为虚构地形，仅体现日本海湾、美国西南峡谷、亚马孙雨林、挪威峡湾、尼泊尔高山的地貌特色，不对应真实地理位置。</p></div></div>`),
+    );
+    this.bind(el, { close: () => this.closeModal() });
+  }
+
+  settings(cur: Settings, on: { change: (s: Settings) => void; capture: (cb: (code: string) => void) => void; close: () => void }): void {
+    const s: Settings = structuredClone(cur);
+    let tab = 'controls';
+    const el = this.openModal(h(`<div class="modal"><div class="card wide settings"><div class="screen-head"><h2>设置</h2><button class="btn ghost" data-a="close">完成</button></div>
+      <div class="tabs"><button class="tab" data-a="tab" data-t="controls">操作</button><button class="tab" data-a="tab" data-t="video">画面</button><button class="tab" data-a="tab" data-t="audio">声音</button><button class="tab" data-a="tab" data-t="assist">辅助与显示</button></div>
+      <div class="tab-body"></div></div></div>`));
+    const body = el.querySelector('.tab-body') as HTMLDivElement;
+    const range = (key: keyof Settings, label: string, min: number, max: number, step: number, fmt: (v: number) => string) =>
+      `<label class="set-row"><span>${label}</span><input type="range" data-k="${key}" min="${min}" max="${max}" step="${step}" value="${s[key] as number}"><em>${fmt(s[key] as number)}</em></label>`;
+    const check = (key: keyof Settings, label: string, note = '') => `<label class="set-row"><span>${label}</span><input type="checkbox" data-k="${key}" ${s[key] ? 'checked' : ''}><em class="muted">${note}</em></label>`;
+    const select = (key: keyof Settings, label: string, opts: Array<[string, string]>) =>
+      `<label class="set-row"><span>${label}</span><select data-k="${key}">${opts.map(([v, l]) => `<option value="${v}" ${s[key] === v ? 'selected' : ''}>${l}</option>`).join('')}</select><em></em></label>`;
+    const pct = (v: number) => `${Math.round(v * 100)}%`;
+    const render = () => {
+      el.querySelectorAll('.tab').forEach((t) => t.classList.toggle('sel', (t as HTMLElement).dataset.t === tab));
+      if (tab === 'controls') {
+        const rows = (Object.keys(ACTION_LABEL) as Action[])
+          .map((a) => `<div class="bind-row"><span>${ACTION_LABEL[a]}</span><div>${s.bindings[a].map((c, i) => `<button class="key" data-a="rebind" data-act="${a}" data-i="${i}">${keyName(c)}</button>`).join('')}<button class="key add" data-a="rebind" data-act="${a}" data-i="${s.bindings[a].length}" title="添加备用按键">＋</button></div></div>`)
+          .join('');
+        body.innerHTML =
+          range('mouseSensitivity', '鼠标灵敏度', 0.1, 4, 0.05, (v) => v.toFixed(2)) +
+          check('invertY', '视角上下反转') +
+          check('invertX', '视角左右反转') +
+          `<h3>按键绑定 <button class="btn sm ghost" data-a="resetKeys">恢复默认</button></h3><div class="bind-list">${rows}</div>`;
+      } else if (tab === 'video') {
+        body.innerHTML =
+          select('quality', '画质', (Object.keys(QUALITY) as Array<keyof typeof QUALITY>).map((q) => [q, QUALITY[q].label])) +
+          range('renderScale', '渲染分辨率', 0.5, 1, 0.05, pct) +
+          range('fov', '视野范围（FOV）', 50, 100, 1, (v) => `${Math.round(v)}°`) +
+          range('shake', '镜头震动强度', 0, 1, 0.05, pct) +
+          check('headMotion', '头部晃动（加速度引起）', '关闭后机体的真实运动仍会反映在画面上') +
+          check('motionBlur', '动态模糊', '默认关闭') +
+          check('lightning', '闪电闪光', '对光敏感可关闭') +
+          '<p class="muted">低画质只减少远景细节、阴影和雨滴数量，不改变碰撞、导航或物理难度。抗锯齿开关在下次启动时生效。</p>';
+      } else if (tab === 'audio') {
+        body.innerHTML = range('volMaster', '总音量', 0, 1, 0.05, pct) + range('volEngine', '发动机与旋翼', 0, 1, 0.05, pct) + range('volAmbience', '环境与天气', 0, 1, 0.05, pct) + range('volAlerts', '告警与提示', 0, 1, 0.05, pct);
+      } else {
+        body.innerHTML =
+          select('assist', '默认飞行辅助', (Object.keys(ASSISTS) as AssistId[]).map((a) => [a, ASSISTS[a].label])) +
+          `<p class="muted">${ASSISTS[s.assist].desc}</p>` +
+          select('speedUnit', '速度单位', [
+            ['kmh', 'km/h'],
+            ['kt', '节（kt）'],
+            ['ms', 'm/s'],
+          ]) +
+          range('hudOpacity', 'HUD 不透明度', 0.3, 1, 0.05, pct) +
+          check('hints', '显示操作提示');
+      }
+    };
+    render();
+    body.addEventListener('input', (e) => {
+      const t = e.target as HTMLInputElement | HTMLSelectElement;
+      const k = t.dataset.k as keyof Settings | undefined;
+      if (!k) return;
+      const rec = s as unknown as Record<string, unknown>;
+      if (t instanceof HTMLInputElement && t.type === 'checkbox') rec[k] = t.checked;
+      else if (t instanceof HTMLInputElement && t.type === 'range') {
+        rec[k] = Number(t.value);
+        const em = t.parentElement?.querySelector('em');
+        if (em) em.textContent = k === 'fov' ? `${Math.round(Number(t.value))}°` : k === 'mouseSensitivity' ? Number(t.value).toFixed(2) : `${Math.round(Number(t.value) * 100)}%`;
+      } else rec[k] = t.value;
+      on.change(structuredClone(s));
+      if (k === 'assist') render();
+    });
+    this.bind(el, {
+      close: () => {
+        this.closeModal();
+        on.close();
+      },
+      tab: (b) => {
+        tab = b.dataset.t!;
+        render();
+      },
+      resetKeys: () => {
+        s.bindings = structuredClone(DEFAULT_BINDINGS);
+        on.change(structuredClone(s));
+        render();
+      },
+      rebind: (b) => {
+        const act = b.dataset.act as Action;
+        const i = Number(b.dataset.i);
+        b.textContent = '按下新按键…';
+        b.classList.add('wait');
+        on.capture((code) => {
+          if (code !== 'Escape' || act === 'pause') {
+            // 冲突处理：从其他动作中移除同一按键
+            for (const a of Object.keys(s.bindings) as Action[]) if (a !== act) s.bindings[a] = s.bindings[a].filter((c) => c !== code);
+            for (const a of Object.keys(s.bindings) as Action[]) if (s.bindings[a].length === 0) s.bindings[a] = [...DEFAULT_BINDINGS[a]].filter((c) => c !== code).slice(0, 1);
+            const list = s.bindings[act].filter((_, j) => j !== i);
+            list.splice(Math.min(i, list.length), 0, code);
+            s.bindings[act] = Array.from(new Set(list)).slice(0, 3);
+            on.change(structuredClone(s));
+          }
+          render();
+        });
+      },
+    });
+  }
+}
