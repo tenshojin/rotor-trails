@@ -8,6 +8,7 @@ import { CAUSE_LABEL } from '../sim/damage';
 import { GRADE_LABEL } from '../sim/mission';
 import { computeScore } from '../sim/scoring';
 import { GameSession, STEP, type GameEvent } from '../sim/session';
+import { FixedStepper } from '../core/stepper';
 import { WorldView } from '../render/worldView';
 import { DEFAULT_PITCH } from '../render/cameraRig';
 import type { InstrumentData } from '../render/instruments';
@@ -29,7 +30,6 @@ interface RunConfig {
   tutorial: boolean;
 }
 
-const MAX_STEPS = 6;
 
 export class App {
   readonly save: SaveStore;
@@ -44,7 +44,8 @@ export class App {
   world: WorldData | null = null;
   run: RunConfig | null = null;
   tutorial: Tutorial | null = null;
-  private acc = 0;
+  /** 固定步长推进（与帧率无关；超长帧截断） */
+  private stepper = new FixedStepper(STEP, 6, 0.1);
   private last = 0;
   private t = 0;
   private idleAngle = 0;
@@ -236,7 +237,7 @@ export class App {
     this.session = await GameSession.create(this.world, cfg.weather, cfg.assist);
     this.tutorial = cfg.tutorial ? new Tutorial(this.settings) : null;
     this.audio.setAmbience(cfg.map.ambience);
-    this.acc = 0;
+    this.stepper.reset();
     this.view.rig.setMode('cockpit');
     this.view.rig.yaw = 0;
     this.view.rig.pitch = DEFAULT_PITCH;
@@ -259,7 +260,7 @@ export class App {
     this.input.clear();
     this.input.requestLock();
     this.last = performance.now();
-    this.acc = 0;
+    this.stepper.reset();
     if (this.tutorial) {
       this.tutorial.start(this.session);
       this.tutBox.classList.remove('hidden');
@@ -299,7 +300,7 @@ export class App {
     this.input.clear();
     this.input.requestLock();
     this.last = performance.now();
-    this.acc = 0;
+    this.stepper.reset();
   }
 
   restoreCheckpoint(i: number, mode: 'exact' | 'safe'): void {
@@ -369,17 +370,13 @@ export class App {
     this.t += renderDt;
     if (s && running) {
       this.readInput(s, dt);
-      this.acc += dt;
-      let steps = 0;
-      while (this.acc >= STEP && steps < MAX_STEPS) {
+      const steps = this.stepper.advance(dt);
+      for (let i = 0; i < steps; i++) {
         s.step();
-        steps++;
-        this.acc -= STEP;
         this.handleEvents(s.drainEvents());
         if (s.state !== 'running') break;
       }
-      if (steps >= MAX_STEPS) this.acc = 0;
-      alpha = Math.min(1, this.acc / STEP);
+      alpha = this.stepper.alpha;
       if (this.tutorial) {
         s.mission.locked = this.tutorial.index < 7;
         this.tutorial.update(s, dt);
