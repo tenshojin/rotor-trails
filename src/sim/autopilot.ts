@@ -3,6 +3,7 @@
 
 import { RAD, clamp, headingDelta, wrap360 } from '../core/math';
 import type { V3 } from '../maps/types';
+import { obstacleTop } from './routeCheck';
 import type { GameSession } from './session';
 
 type Phase = 'cruise' | 'approach' | 'position' | 'descend' | 'dwell' | 'hoverTask' | 'takeoff';
@@ -91,7 +92,7 @@ export class Autopilot {
     }
 
     // ---------- 进入进近 ----------
-    if ((this.phase === 'cruise') && goal && (nav.mode === 'approach' || distGoal < 380) && d.kind !== 'inspect') {
+    if (this.phase === 'cruise' && goal && nav.mode === 'approach' && d.kind !== 'inspect') {
       this.phase = 'approach';
       this.note(`进近 ${d.id} 距离 ${distGoal.toFixed(0)}`);
     }
@@ -113,20 +114,34 @@ export class Autopilot {
       }
       // 转弯前减速
       if (nav.turn && nav.turn.speed && nav.turn.distance < Math.max(150, tel.groundSpeed * 6)) vDes = Math.min(vDes, nav.turn.speed);
-      // 地形前视：保证净空
-      for (const tt of [2, 4, 7, 10]) {
-        const px = b.pos.x + b.vel.x * tt;
-        const pz = b.pos.z + b.vel.z * tt;
-        const g = s.world.ctx.ground(px, pz) + (this.phase === 'approach' && distGoal < 120 ? 12 : 30);
+      // 障碍前视（地形、树冠、建筑）：保证净空；进近末段允许降到障碍物上方 10 m，最后在目标上空垂直下降
+      const sp = Math.max(4, Math.hypot(b.vel.x, b.vel.z));
+      for (const tt of [0, 2, 4, 7, 10]) {
+        const k = Math.min(tt, (distGoal - 6) / sp);
+        if (k < 0 && tt > 0) break;
+        const px = b.pos.x + b.vel.x * Math.max(0, k);
+        const pz = b.pos.z + b.vel.z * Math.max(0, k);
+        const near = this.phase === 'approach' && distGoal < 140;
+        // 悬在当前高度上方的结构（例如岩拱）视为从其下方穿过，不抬高目标高度
+        const g = obstacleTop(s.world, px, pz, 9, b.pos.y + 8, undefined, this.phase === 'approach') + (near ? 10 : 28);
         if (g > alt) alt = g;
       }
       const brg = Math.atan2(target[0] - b.pos.x, -(target[2] - b.pos.z)) * RAD;
       const herr = headingDelta(hdg, brg);
       inp.turn = clamp(herr / 22, -1, 1);
-      // 大角度转弯时先减速
+      // 大角度转弯时先减速；需要大幅爬升时先就地爬升（避免斜着撞上峭壁）
       if (Math.abs(herr) > 50) vDes = Math.min(vDes, 14);
-      inp.pitch = clamp((vDes - vF) / 7, -1, 1);
-      inp.lateral = clamp(-vR / 6, -0.6, 0.6);
+      if (alt - b.pos.y > 30) {
+        vDes = Math.min(vDes, Math.max(3, 30 - (alt - b.pos.y) * 0.25));
+        // 贴近地形时先爬升再转向，避免尾桨扫到峭壁
+        if (s.agl < 25) inp.turn *= 0.15;
+      }
+      // 期望速度朝向目标（机头尚未对准时不会向机头方向乱飞）
+      const hr = (herr * Math.PI) / 180;
+      const vFd = Math.max(-3, vDes * Math.cos(hr));
+      const vRd = vDes < 14 ? vDes * Math.sin(hr) : 0;
+      inp.pitch = clamp((vFd - vF) / 7, -1, 1);
+      inp.lateral = clamp((vRd - vR) / 6, -0.7, 0.7);
       inp.vertical = clamp((alt - b.pos.y) / 10 - b.vel.y * 0.08, -1, 1);
       if (this.phase === 'approach' && goal && distGoal < 14 && tel.groundSpeed < 3.5) {
         this.phase = d.kind === 'hover' ? 'hoverTask' : 'position';

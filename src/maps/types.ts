@@ -113,6 +113,8 @@ export type ObjectiveDef =
       points: Array<{ pos: V3; radius: number; label: string }>;
       maxSpeed: number;
       approach: V3;
+      /** 巡查航线（可选）：导航沿此折线前进，巡查点位于航线附近（用于峡谷/河道等弯曲地形） */
+      route?: V3[];
     };
 
 export interface MissionDef {

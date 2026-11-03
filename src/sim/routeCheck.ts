@@ -16,29 +16,41 @@ export interface ClearanceIssue {
   need: number;
 }
 
-/** 某点附近（半径 r）最高的障碍物顶面：地形、水面、建筑碰撞体、树冠。 */
-export function obstacleTop(world: WorldData, x: number, z: number, r: number): number {
+/**
+ * 某点附近（半径 r）在高度 y 以下的最高障碍物顶面：地形、水面、建筑碰撞体、树冠。
+ * 悬在 y 上方的障碍物（例如从岩拱下方穿过）不计入顶面，而是记录其最低底面 overhead。
+ */
+export function obstacleTop(world: WorldData, x: number, z: number, r: number, y = Infinity, overhead?: { min: number }, structures = true): number {
   let top = world.terrain.maxInRadius(x, z, r, 10);
   if (world.map.waterLevel !== null) top = Math.max(top, world.map.waterLevel);
-  for (const c of world.colliders) {
-    let cx: number, cz: number, rad: number, ctop: number;
+  for (const c of structures ? world.colliders : []) {
+    let cx: number, cz: number, rad: number, ctop: number, cbot: number;
     if (c.kind === 'box' || c.kind === 'boxq') {
       cx = c.c[0];
       cz = c.c[2];
+      const ext = c.kind === 'boxq' ? Math.max(c.h[0], c.h[2]) : 0;
       rad = Math.hypot(c.h[0], c.h[2]);
-      ctop = c.c[1] + c.h[1] + (c.kind === 'boxq' ? Math.max(c.h[0], c.h[2]) : 0);
+      ctop = c.c[1] + c.h[1] + ext;
+      cbot = c.c[1] - c.h[1] - ext;
     } else if (c.kind === 'ball') {
       cx = c.c[0];
       cz = c.c[2];
       rad = c.r;
       ctop = c.c[1] + c.r;
+      cbot = c.c[1] - c.r;
     } else {
       cx = c.c[0];
       cz = c.c[2];
       rad = c.r;
       ctop = c.c[1] + c.hh + (c.kind === 'capsule' ? c.r : 0);
+      cbot = c.c[1] - c.hh - (c.kind === 'capsule' ? c.r : 0);
     }
-    if (Math.hypot(cx - x, cz - z) < rad + r) top = Math.max(top, ctop);
+    if (Math.hypot(cx - x, cz - z) >= rad + r) continue;
+    if (cbot > y) {
+      if (overhead) overhead.min = Math.min(overhead.min, cbot);
+      continue;
+    }
+    top = Math.max(top, ctop);
   }
   forTreesNear(world.trees, x, z, r + 14, (i) => {
     const spec = TREE_SPECS[TREE_TYPES[world.trees.type[i]]];
@@ -62,7 +74,8 @@ export function checkRoutes(world: WorldData, spawn: V3, lateral = 14): Clearanc
       const n = Math.max(1, Math.ceil(len / 10));
       // 首段从停机坪起飞、末段向任务点进近：端点附近允许较低净空（起降过程）
       const firstSeg = i === 1;
-      const lastSeg = i === pts.length - 1;
+      // 末段：指向任务进近点（clearance = 0 标记）的航段
+      const lastSeg = pts[i].clearance === 0;
       const baseNeed = Math.min(a.clearance || 25, b.clearance || 25);
       for (let k = 0; k <= n; k++) {
         const t = k / n;
@@ -76,8 +89,9 @@ export function checkRoutes(world: WorldData, spawn: V3, lateral = 14): Clearanc
         if (firstSeg && dA < 40) continue;
         if (firstSeg && dA < 260) need = Math.min(need, 2 + (dA - 40) * 0.1);
         if (lastSeg && dB < 260) need = Math.min(need, 6 + dB * 0.08);
-        const top = obstacleTop(world, x, z, lateral);
-        if (y - top < need) issues.push({ leg: line.leg, path: line.path.id, x, z, y, obstacle: top, need });
+        const over = { min: Infinity };
+        const top = obstacleTop(world, x, z, lateral, y, over);
+        if (y - top < need || over.min - y < 10) issues.push({ leg: line.leg, path: line.path.id, x, z, y, obstacle: over.min - y < 10 ? over.min : top, need });
       }
     }
   }

@@ -1,0 +1,101 @@
+// 亚马孙雨林地图的道具：高脚屋、帐篷、浮动码头、科考船、独木舟、林冠观测塔、营地生成器。
+
+import type { PropFn } from './common';
+
+const THATCH = [0x8a7444, 0x7a6438, 0x9a8250];
+const WOOD = [0x6a4a2c, 0x5a3e24, 0x7a5636];
+
+export const amazonProps: Record<string, PropFn> = {
+  stiltHut(B, d, rng) {
+    const w = Number(d.p?.w ?? rng.range(6, 9));
+    const l = Number(d.p?.l ?? rng.range(7, 10));
+    const stilt = Number(d.p?.stilt ?? 2.2);
+    const wood = rng.pick(WOOD);
+    for (const [x, z] of [
+      [-w / 2 + 0.4, -l / 2 + 0.4],
+      [w / 2 - 0.4, -l / 2 + 0.4],
+      [-w / 2 + 0.4, l / 2 - 0.4],
+      [w / 2 - 0.4, l / 2 - 0.4],
+    ] as Array<[number, number]>)
+      B.cyl(x, stilt / 2 - 1, z, 0.18, 0.2, stilt + 2, 0x4a3420, 6, { solid: false });
+    B.box(0, stilt + 0.1, 0, w + 1.2, 0.25, l + 1.2, wood, {});
+    B.box(0, stilt + 1.5, 0, w, 2.6, l, wood, { jitter: 0.1 });
+    B.gable(0, stilt + 2.8, 0, l, w, 2.4, 0.9, rng.pick(THATCH), { jitter: 0.12 }, Math.PI / 2);
+    B.box(0, stilt + 1.2, l / 2 + 0.03, 1.0, 1.8, 0.06, 0x2a1a10, { solid: false });
+    B.colliderBox(0, stilt / 2, 0, w / 2, stilt / 2, l / 2);
+    B.footprint(Math.hypot(w, l) / 2 + 2);
+  },
+  tent(B, _d, rng) {
+    const c = rng.pick([0x3a6a8a, 0xc85a2a, 0x4a7a3a, 0xd8c060]);
+    B.gable(0, 0, 0, 4.5, 3.2, 2.2, 0.1, c, { mat: 'cloth' }, 0);
+    B.footprint(3);
+  },
+  camp(B, d, rng, ctx) {
+    // 营地：若干高脚屋 + 帐篷 + 物资箱
+    const [cx, , cz] = B.origin;
+    const r = Number(d.p?.r ?? 40);
+    const n = Number(d.p?.n ?? 4);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + rng.range(-0.3, 0.3);
+      const x = cx + Math.cos(a) * r * rng.range(0.6, 1);
+      const z = cz + Math.sin(a) * r * rng.range(0.6, 1);
+      const h = ctx.terrain.heightAt(x, z);
+      if (ctx.waterLevel !== null && h < ctx.waterLevel + 0.5) continue;
+      B.at(x, h, z, a + Math.PI / 2, 1);
+      if (i % 3 === 2) amazonProps.tent(B, d, rng, ctx);
+      else amazonProps.stiltHut(B, { type: 'stiltHut', pos: [x, h, z] }, rng, ctx);
+    }
+  },
+  dock(B, d) {
+    const len = Number(d.p?.len ?? 30);
+    const w = Number(d.p?.w ?? 4);
+    B.box(len / 2, 0.5, 0, len, 0.4, w, 0x7a5636, { jitter: 0.1 });
+    for (let x = 3; x < len; x += 6) B.cyl(x, -1.2, w / 2 - 0.3, 0.2, 0.2, 3.5, 0x4a3420, 6, { solid: false });
+  },
+  riverBoat(B) {
+    // 科考船：船体 + 上层甲板 + 驾驶室 + 天线
+    const l = 26;
+    const w = 7;
+    B.box(0, 0.7, 0, l, 2.4, w, 0xe8e4da, { jitter: 0.03 });
+    B.box(-l / 2 - 1, 0.9, 0, 2.4, 1.6, w * 0.7, 0xe8e4da, { solid: false });
+    B.box(0, -0.4, 0, l - 0.5, 0.4, w - 0.4, 0x2a6a4a, { solid: false });
+    B.box(4, 3.1, 0, 12, 2.4, w - 1, 0xf2efe8, {});
+    B.box(4, 3.4, 0, 12.1, 0.8, w - 0.9, 0x22303c, { mat: 'glass', solid: false });
+    B.box(7, 5.3, 0, 4, 2, w - 2, 0xf2efe8, {});
+    B.cyl(8, 8, 0, 0.08, 0.06, 5, 0xdddddd, 6, { solid: false });
+    B.anchor('blink', 8, 10.6, 0, 0, { color: 'red', period: 1.5 });
+    B.box(-6, 2.0, 0, 9, 0.12, w - 0.6, 0xc8a050, { solid: false });
+    B.footprint(15);
+  },
+  canoe(B, _d, rng) {
+    const c = rng.pick([0x7a5636, 0x5a3e24, 0x2a5a8a]);
+    B.box(0, 0.25, 0, 0.9, 0.5, 6, c, { solid: false });
+    B.footprint(3);
+  },
+  canopyTower(B, d) {
+    // 林冠观测塔：高于树冠的钢架塔 + 观测平台
+    const h = Number(d.p?.h ?? 50);
+    const s = 3;
+    for (const [x, z] of [
+      [-s, -s],
+      [s, -s],
+      [s, s],
+      [-s, s],
+    ] as Array<[number, number]>)
+      B.beam([x, 0, z], [x * 0.6, h, z * 0.6], 0.3, 0x8a8f96, { solid: false });
+    for (let k = 1; k <= 6; k++) {
+      const y = (h * k) / 6;
+      const r = s * (1 - (0.4 * k) / 6);
+      B.box(0, y, r, r * 2, 0.15, 0.15, 0x8a8f96, { mat: 'metal', solid: false });
+      B.box(0, y, -r, r * 2, 0.15, 0.15, 0x8a8f96, { mat: 'metal', solid: false });
+      B.box(r, y, 0, 0.15, 0.15, r * 2, 0x8a8f96, { mat: 'metal', solid: false });
+      B.box(-r, y, 0, 0.15, 0.15, r * 2, 0x8a8f96, { mat: 'metal', solid: false });
+    }
+    B.addColliderCyl(0, h / 2, 0, h / 2, s * 0.85);
+    B.box(0, h + 0.2, 0, 7, 0.4, 7, 0x7a5636, {});
+    B.box(0, h + 1.4, 3.4, 7, 2, 0.1, 0x6a4a2c, { solid: false });
+    B.gable(0, h + 3, 0, 7, 7, 1.6, 0.4, 0x3a5a3a, { mat: 'metal' }, 0);
+    B.anchor('blink', 0, h + 5, 0, 0, { color: 'red', period: 2 });
+    B.footprint(6);
+  },
+};

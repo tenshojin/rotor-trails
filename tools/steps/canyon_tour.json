@@ -1,0 +1,20 @@
+{
+  "url": "http://localhost:5174/?map=canyon&autostart=1",
+  "width": 1920,
+  "height": 1080,
+  "steps": [
+    { "until": "window.__app && window.__app.state === 'playing'", "timeout": 90000 },
+    { "wait": 1500 },
+    { "shot": "canyon_01_start.jpg" },
+    { "eval": "(() => { const n = window.__app.session.world.map.nodes; const a = n.find(x => x.id === 'c-k3'); const b = n.find(x => x.id === 'c-k4'); const h = Math.atan2(b.pos[0]-a.pos[0], -(b.pos[2]-a.pos[2])) * 180 / Math.PI; window.__app.debugTeleport(a.pos[0], a.pos[1], a.pos[2], h, 20); return h; })()" },
+    { "wait": 2500 },
+    { "shot": "canyon_02_inside.jpg" },
+    { "eval": "(() => { const m = window.__app.session.world.map; const o = m.mission.optional.find(x => x.id === 'co-arch'); const p = o.points[0].pos; const nodes = m.nodes.filter(x => x.id.startsWith('c-a')); const a = nodes[0]; window.__app.debugTeleport(a.pos[0], a.pos[1] + 10, a.pos[2], Math.atan2(p[0]-a.pos[0], -(p[2]-a.pos[2])) * 180 / Math.PI, 5); return p; })()" },
+    { "wait": 2500 },
+    { "shot": "canyon_03_arch.jpg" },
+    { "eval": "window.__app.debugTeleport(1150, 560, -1350, 210, 0)" },
+    { "wait": 2500 },
+    { "shot": "canyon_04_mesa.jpg" },
+    { "eval": "window.__app.debugState()", "label": "state" }
+  ]
+}

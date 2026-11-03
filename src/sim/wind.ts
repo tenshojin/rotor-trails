@@ -51,6 +51,7 @@ export interface WindInfo {
 }
 
 const _w = new Vector3();
+const _info = new Vector3();
 
 /** 方向（来向，度）→ 空气运动方向单位向量 */
 export function windVector(dirFrom: number, speed: number, out: Vector3): Vector3 {
@@ -158,9 +159,10 @@ export class WindField {
   }
 
   info(x: number, y: number, z: number, t: number): WindInfo {
-    this.sample(x, y, z, t, _w);
-    const speed = Math.hypot(_w.x, _w.z);
-    const toDeg = Math.atan2(_w.x, -_w.z) / DEG;
+    // 注意：sample() 内部会使用 _w 作为临时向量，这里必须用独立的输出向量
+    const w = this.sample(x, y, z, t, _info);
+    const speed = Math.hypot(w.x, w.z);
+    const toDeg = Math.atan2(w.x, -w.z) / DEG;
     let dirFrom = toDeg + 180;
     dirFrom = ((dirFrom % 360) + 360) % 360;
     let zone: string | null = null;
@@ -185,6 +187,6 @@ export class WindField {
       }
     }
     gust = Math.max(gust, this.profile.gustAmp * 0.5);
-    return { speed, dirFrom, vertical: _w.y, gust, zone, gustIn, gustDirFrom: gustDir };
+    return { speed, dirFrom, vertical: w.y, gust, zone, gustIn, gustDirFrom: gustDir };
   }
 }

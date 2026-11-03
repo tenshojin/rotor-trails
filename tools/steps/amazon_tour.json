@@ -1,0 +1,21 @@
+{
+  "url": "http://localhost:5174/?map=amazon&autostart=1&weather=clear",
+  "width": 1920,
+  "height": 1080,
+  "steps": [
+    { "until": "window.__app && window.__app.state === 'playing'", "timeout": 90000 },
+    { "wait": 1500 },
+    { "eval": "(() => { const n = window.__app.session.world.map.nodes; const a = n.find(x => x.id === 'a-r3') || n[3]; window.__app.debugTeleport(a.pos[0], 60, a.pos[2], 75, 25); return a.id; })()" },
+    { "wait": 2500 },
+    { "shot": "amazon_01_river.jpg" },
+    { "eval": "(() => { const n = window.__app.session.world.map.nodes; const a = n.find(x => x.id === 'a-t3'); const b = n.find(x => x.id === 'a-t4'); window.__app.debugTeleport(a.pos[0], a.pos[1], a.pos[2], Math.atan2(b.pos[0]-a.pos[0], -(b.pos[2]-a.pos[2])) * 180 / Math.PI, 12); return a.id; })()" },
+    { "wait": 2500 },
+    { "shot": "amazon_02_trib.jpg" },
+    { "eval": "(() => { const p = window.__app.session.pad('A-clear').pos; window.__app.debugTeleport(p[0] - 60, 75, p[2] + 60, 45, 3); window.__app.debugLook(0, -0.45); return p; })()" },
+    { "wait": 2500 },
+    { "shot": "amazon_03_clearing.jpg" },
+    { "eval": "(() => { window.__app.session.weather.transitionTo('storm', 0.1); const p = window.__app.session.pad('A-final').pos; window.__app.debugTeleport(p[0] - 250, 90, p[2] + 150, 60, 15); window.__app.debugLook(0, -0.14); return p; })()" },
+    { "wait": 3500 },
+    { "shot": "amazon_04_storm.jpg" }
+  ]
+}

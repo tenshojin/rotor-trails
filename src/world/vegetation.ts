@@ -20,7 +20,7 @@ export interface TreeSpec {
 export const TREE_SPECS: Record<TreeType, TreeSpec> = {
   pine: { trunkH: 7, trunkR: 0.28, crownY: 7.5, crownR: 3.6, crownRy: 2.2, collide: true },
   broadleaf: { trunkH: 6, trunkR: 0.32, crownY: 8, crownR: 4.2, crownRy: 3.4, collide: true },
-  canopy: { trunkH: 20, trunkR: 0.7, crownY: 24, crownR: 7.5, crownRy: 4.2, collide: true },
+  canopy: { trunkH: 20, trunkR: 0.7, crownY: 24, crownR: 9, crownRy: 5, collide: true },
   emergent: { trunkH: 40, trunkR: 1.3, crownY: 45, crownR: 12, crownRy: 5, collide: true },
   palm: { trunkH: 9, trunkR: 0.25, crownY: 9.5, crownR: 3.2, crownRy: 1.4, collide: true },
   spruce: { trunkH: 2, trunkR: 0.3, crownY: 9, crownR: 2.8, crownRy: 7.5, collide: true },

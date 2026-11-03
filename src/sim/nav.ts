@@ -182,6 +182,26 @@ export class Navigator {
 
     // ---------- 分岔：等待玩家选择 ----------
     if (this.path === null) {
+      // 各路线共用的前缀航点（例如先垂直爬升离开营地）：依次推进，之后才是真正的分岔
+      let prefix = 0;
+      while (prefix < paths[0].nodes.length && paths.every((q) => q.nodes[prefix] === paths[0].nodes[prefix])) prefix++;
+      while (this.node < prefix) {
+        const nd = paths[0].nodes[this.node];
+        const dyN = Math.abs(pos.y - nd.pos[1]);
+        if (Math.hypot(pos.x - nd.pos[0], pos.z - nd.pos[2]) < nd.radius && dyN < Math.max(45, nd.radius * 1.5)) {
+          if (nd.checkpoint) this.passedCheckpoint = nd;
+          this.node++;
+        } else break;
+      }
+      if (this.node < prefix) {
+        const nd = paths[0].nodes[this.node];
+        this.aimAt(pos, nd.pos, nd.label ?? goalLabel);
+        info.mode = 'route';
+        info.pathLabel = '共用航段';
+        info.speed = nd.speed ?? null;
+        info.preview = [{ pos: nd.pos, radius: nd.radius }];
+        return info;
+      }
       const fromStart = Math.hypot(pos.x - this.legStart[0], pos.z - this.legStart[2]);
       const dists = paths.map((p) => this.pathDistance(p, goal, pos));
       // 靠近某条路线独有的航点，或明显更接近某条路线时自动确定选择
@@ -190,25 +210,28 @@ export class Navigator {
         for (const n of p.nodes) {
           const shared = paths.some((q, j) => j !== i && q.nodes.includes(n));
           if (shared) continue;
-          if (Math.hypot(pos.x - n.pos[0], pos.z - n.pos[2]) < n.radius * 1.6) chosen = i;
+          // 三维距离：正上方很高处的爬升航点不算“已选择”
+          if (Math.hypot(pos.x - n.pos[0], (pos.y - n.pos[1]) * 1.5, pos.z - n.pos[2]) < n.radius * 1.6) chosen = i;
         }
       });
-      if (chosen === null && fromStart > 260) {
+      const startRef = prefix > 0 ? paths[0].nodes[prefix - 1].pos : this.legStart;
+      const fromRef = Math.hypot(pos.x - startRef[0], pos.z - startRef[2]);
+      if (chosen === null && Math.min(fromStart, fromRef + 200) > 260) {
         const order = dists.map((d, i) => [d, i]).sort((a, b) => a[0] - b[0]);
         if (order[0][0] < 140 && (order.length < 2 || order[1][0] > order[0][0] * 1.8 + 40)) chosen = order[0][1];
       }
       if (chosen !== null) {
         this.path = chosen;
-        this.node = 0;
+        this.node = prefix;
       } else {
         const pref = paths[this.preferred] ?? paths[0];
-        const first = pref.nodes[0]?.pos ?? goal;
-        this.aimAt(pos, first, pref.nodes[0]?.label ?? goalLabel);
+        const first = pref.nodes[prefix]?.pos ?? goal;
+        this.aimAt(pos, first, pref.nodes[prefix]?.label ?? goalLabel);
         info.mode = 'fork';
         info.pathLabel = '路线选择';
-        info.speed = pref.nodes[0]?.speed ?? null;
+        info.speed = pref.nodes[prefix]?.speed ?? null;
         info.forks = paths.map((p, i) => {
-          const t = p.nodes[0]?.pos ?? goal;
+          const t = p.nodes[prefix]?.pos ?? goal;
           return {
             label: p.def.label,
             detail: p.def.detail,
@@ -219,7 +242,7 @@ export class Navigator {
             preferred: i === this.preferred,
           };
         });
-        info.preview = paths.map((p) => ({ pos: p.nodes[0]?.pos ?? goal, radius: p.nodes[0]?.radius ?? 60 }));
+        info.preview = paths.map((p) => ({ pos: p.nodes[prefix]?.pos ?? goal, radius: p.nodes[prefix]?.radius ?? 60 }));
         return info;
       }
     }
@@ -235,8 +258,10 @@ export class Navigator {
       const dCur = Math.hypot(pos.x - cur.pos[0], pos.z - cur.pos[2]);
       const segNext = segDist2D(pos.x, pos.z, cur.pos[0], cur.pos[2], next[0], next[2]);
       const segCur = segDist2D(pos.x, pos.z, prev[0], prev[2], cur.pos[0], cur.pos[2]);
-      const reached = dCur < cur.radius && Math.abs(pos.y - cur.pos[1]) < Math.max(60, cur.radius * 2);
-      const cut = segNext.t > 0.05 && segNext.d < cur.radius * 2 + 40 && segNext.d < segCur.d;
+      const dy = Math.abs(pos.y - cur.pos[1]);
+      const reached = dCur < cur.radius && dy < Math.max(45, cur.radius * 1.5);
+      // 切弯推进只在高度接近时允许（垂直爬升/下降航点必须真正到达）
+      const cut = segNext.t > 0.05 && segNext.d < cur.radius * 2 + 40 && segNext.d < segCur.d && dy < Math.max(40, cur.radius);
       if (reached || cut) {
         if (cur.node?.checkpoint) this.passedCheckpoint = cur.node;
         this.node++;
@@ -252,9 +277,10 @@ export class Navigator {
     info.mode = isGoal && info.distance < 320 ? 'approach' : 'route';
     info.speed = target.node?.speed ?? null;
 
-    // 目标高度：沿当前航段插值
+    // 目标高度：沿当前航段插值；垂直航段（或已在目标正上/下方）直接取目标点高度
     const seg = segDist2D(pos.x, pos.z, prev[0], prev[2], target.pos[0], target.pos[2]);
-    info.targetAlt = prev[1] + (target.pos[1] - prev[1]) * seg.t;
+    const segLen = Math.hypot(target.pos[0] - prev[0], target.pos[2] - prev[2]);
+    info.targetAlt = segLen < 30 || Math.hypot(pos.x - target.pos[0], pos.z - target.pos[2]) < target.radius ? target.pos[1] : prev[1] + (target.pos[1] - prev[1]) * seg.t;
 
     // 偏航检测：离开航段太远 → 给出安全回归建议（先爬升，不强迫掉头或穿越地形）
     const offDist = Math.max(160, target.radius * 4);
@@ -338,9 +364,11 @@ export function routePolylines(map: MapDef, spawn: V3): Array<{ leg: number; pat
         pts.push({ pos: n.pos, clearance: n.clearance ?? 25 });
       }
       pts.push({ pos: goal, clearance: 0 });
+      // 巡查任务：进近点之后依次经过各巡查点（按列出顺序）
+      if (obj && obj.kind === 'inspect') for (const p of obj.route ?? obj.points.map((q) => q.pos)) pts.push({ pos: p, clearance: 18 });
       out.push({ leg: li, path, points: pts });
     }
-    start = goal;
+    start = obj && obj.kind === 'inspect' ? (obj.route ?? obj.points.map((q) => q.pos)).slice(-1)[0] : goal;
   });
   return out;
 }

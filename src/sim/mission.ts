@@ -54,13 +54,15 @@ export interface ObjectiveRT {
   landing: LandingMetrics | null;
   visited: boolean[];
   hint: string;
+  /** 巡查航线进度 */
+  routeIdx: number;
 }
 
 export interface MissionSnapshot {
   index: number;
   cargo: number;
-  main: Array<{ status: ObjectiveStatus; progress: number; visited: boolean[]; landing: LandingMetrics | null }>;
-  optional: Array<{ status: ObjectiveStatus; progress: number; visited: boolean[]; landing: LandingMetrics | null }>;
+  main: Array<{ status: ObjectiveStatus; progress: number; visited: boolean[]; landing: LandingMetrics | null; routeIdx: number }>;
+  optional: Array<{ status: ObjectiveStatus; progress: number; visited: boolean[]; landing: LandingMetrics | null; routeIdx: number }>;
   finalLanding: LandingMetrics | null;
   landings: LandingMetrics[];
 }
@@ -97,6 +99,7 @@ function mkRT(def: ObjectiveDef): ObjectiveRT {
     landing: null,
     visited: def.kind === 'inspect' ? def.points.map(() => false) : [],
     hint: '',
+    routeIdx: 0,
   };
 }
 
@@ -138,6 +141,11 @@ export class MissionRuntime {
   /** 当前目标点：降落/悬停为进近点；巡查为最近的未完成点。 */
   goalOf(o: ObjectiveRT, pos: { x: number; y: number; z: number }): V3 {
     const d = o.def;
+    if (d.kind === 'inspect' && d.route && d.route.length > 0) {
+      // 沿巡查航线前进（只在到达航线点附近时推进）
+      while (o.routeIdx < d.route.length - 1 && Math.hypot(pos.x - d.route[o.routeIdx][0], pos.z - d.route[o.routeIdx][2]) < 55) o.routeIdx++;
+      return d.route[o.routeIdx];
+    }
     if (d.kind === 'inspect') {
       let best: V3 = d.approach;
       let bd = Infinity;
@@ -279,7 +287,7 @@ export class MissionRuntime {
   }
 
   snapshot(): MissionSnapshot {
-    const s = (o: ObjectiveRT) => ({ status: o.status, progress: o.progress, visited: [...o.visited], landing: o.landing ? { ...o.landing } : null });
+    const s = (o: ObjectiveRT) => ({ status: o.status, progress: o.progress, visited: [...o.visited], landing: o.landing ? { ...o.landing } : null, routeIdx: o.routeIdx });
     return {
       index: this.index,
       cargo: this.cargo,
@@ -298,6 +306,7 @@ export class MissionRuntime {
       o.progress = x.progress;
       o.visited = [...x.visited];
       o.landing = x.landing ? { ...x.landing } : null;
+      o.routeIdx = x.routeIdx ?? 0;
       o.hint = '';
     };
     this.main.forEach((o, i) => r(o, s.main[i]));
