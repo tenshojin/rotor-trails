@@ -28,6 +28,8 @@ export const DAMAGE = {
   safeDescent: 2.0,
   hardLandingScale: 9,
   hardLandingExp: 1.5,
+  /** 接地伤害达到该值才计入碰撞次数 */
+  touchdownCollision: 3,
   /** 侧向接地速度过大 */
   safeHorizontal: 3.0,
   sideLoadScale: 5,
@@ -235,7 +237,8 @@ export class DamageModel {
       amt += a;
     }
     if (amt > 0.5) {
-      this.collisions++;
+      // 轻微的重着陆只扣少量耐久（着陆评分另行扣分），伤害达到一定程度才计为一次碰撞
+      if (amt >= DAMAGE.touchdownCollision) this.collisions++;
       this.apply(cause, amt, shield, descent, out);
     }
   }

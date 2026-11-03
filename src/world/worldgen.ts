@@ -1,7 +1,8 @@
 // 世界生成：地形 → 停机坪 → 道具（渲染几何 + 碰撞体）→ 植被。仿真与渲染共用同一份结果。
 
 import { Rng } from '../core/noise';
-import type { MapDef, PadDef } from '../maps/types';
+import type { MapDef, PadDef, V3 } from '../maps/types';
+import { obstacleTop } from '../sim/routeCheck';
 import { HeightBuilder, type Heightfield } from '../sim/terrain';
 import { PropBuilder, type ColliderSpec } from './propBuilder';
 import { buildPad, type PropCtx } from './props/common';
@@ -63,6 +64,54 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
   progress?.(0.65, '种植植被');
   await tick();
   const trees = scatterTrees(map, terrain, hb.surface, B.footprints);
+  const world: WorldData = { map, terrain, surface: hb.surface, builder: B, colliders: B.colliders, trees, pads, ctx };
+  resolveAutoAltitudes(world);
+  attachPickupsToNodes(world);
   progress?.(0.8, '完成');
-  return { map, terrain, surface: hb.surface, builder: B, colliders: B.colliders, trees, pads, ctx };
+  return world;
+}
+
+/** 计算 autoAlt 航点的高度：取前后航段沿线（含两侧 20 m）的最高障碍 + 余量。 */
+export function resolveAutoAltitudes(world: WorldData): void {
+  const map = world.map;
+  if (!map.nodes.some((n) => n.autoAlt !== undefined)) return;
+  const maxAlong = (a: V3, b: V3) => {
+    const len = Math.hypot(b[0] - a[0], b[2] - a[2]);
+    const n = Math.max(1, Math.ceil(len / 15));
+    let m = -Infinity;
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      m = Math.max(m, obstacleTop(world, a[0] + (b[0] - a[0]) * t, a[2] + (b[2] - a[2]) * t, 20));
+    }
+    return m;
+  };
+  const nodeMap = new Map(map.nodes.map((n) => [n.id, n] as const));
+  const spawn = world.pads.get(map.spawn.padId)!.pos;
+  let start: V3 = spawn;
+  for (const leg of map.legs) {
+    const obj = map.mission.main.find((o) => o.id === leg.to);
+    const goal: V3 = obj ? obj.approach : start;
+    for (const path of leg.paths) {
+      const seq: V3[] = [start, ...path.nodes.map((id) => nodeMap.get(id)!.pos), goal];
+      path.nodes.forEach((id, k) => {
+        const nd = nodeMap.get(id)!;
+        if (nd.autoAlt === undefined) return;
+        const i = k + 1;
+        const m = Math.max(maxAlong(seq[i - 1], seq[i]), maxAlong(seq[i], seq[i + 1]));
+        nd.pos = [nd.pos[0], Math.max(nd.pos[1], Math.round(m + nd.autoAlt)), nd.pos[2]];
+        seq[i] = nd.pos;
+      });
+    }
+    start = obj && obj.kind === 'inspect' ? (obj.route ?? obj.points.map((p) => p.pos)).slice(-1)[0] : goal;
+  }
+}
+
+/** 绑定在航点上的拾取物跟随航点的最终位置（航点可能被 autoAlt 抬高）。 */
+function attachPickupsToNodes(world: WorldData): void {
+  const map = world.map;
+  for (const p of map.pickups) {
+    if (!p.node) continue;
+    const nd = map.nodes.find((n) => n.id === p.node);
+    if (nd) p.pos = [nd.pos[0], nd.pos[1], nd.pos[2]];
+  }
 }

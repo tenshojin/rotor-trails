@@ -223,7 +223,7 @@ export const CANYON: MapDef = {
     { type: 'windmill', pos: [RANGER[0] + 30, 0, RANGER[2] - 25], ground: true },
     { type: 'antenna', pos: [MESA[0] + 85, 0, MESA[2] + 70], ground: true, p: { h: 24 } },
     { type: 'researchStation', pos: [MESA[0] - 40, 0, MESA[2] + 52], rotY: -0.3, ground: true },
-    { type: 'boulders', pos: [-300, 0, 330], ground: true, p: { n: 9, spread: 30, r: 4, color: 0x9a4a32 } },
+    { type: 'boulders', pos: [-245, 0, 405], ground: true, p: { n: 9, spread: 26, r: 4, color: 0x9a4a32 } },
     { type: 'boulders', pos: [700, 0, -700], ground: true, p: { n: 8, spread: 30, r: 4, color: 0x9a4a32 } },
     { type: 'adobe', pos: [-1570, 0, 740], ground: true },
     { type: 'adobe', pos: [-1420, 0, 905], ground: true },

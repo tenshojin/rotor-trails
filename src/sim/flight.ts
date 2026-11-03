@@ -206,7 +206,7 @@ export class FlightModel {
     this.posHold = false;
     const sigma = densityRatio(altitudeMSL);
     const W = mass * G;
-    const Tfull = HELI.thrustFull * HELI.massBase * G * sigma;
+    const Tfull = Math.max(HELI.thrustFull * HELI.massBase * G * sigma, HELI.thrustFloor * W);
     this.collective = grounded ? 0 : clamp(W / Tfull, 0, 1);
     this.enginePower = grounded ? HELI.profilePower : powerRequired(W, 1.225 * sigma, 0, 0, 1);
     this.lastThrust = grounded ? 0 : W;
@@ -277,13 +277,15 @@ export class FlightModel {
       ge = 1 + (ge - 1) * (1 - smoothstep(5, 14, vEdge));
     }
     const etl = H.etlGain * smoothstep(4, 16, vEdge);
-    const Tfull = H.thrustFull * H.massBase * G * sigma * (1 + etl) * ge;
+    const Tfull = Math.max(H.thrustFull * H.massBase * G * sigma, H.thrustFloor * W) * (1 + etl) * ge;
 
     const grounded = env.weightOnSkids > 0.55;
+    // 三个以上滑橇支点触地：视为已经坐在地面上（即使总距还没完全放下）
+    const onSkids = grounded || env.gearContacts >= 3;
     const coordBlend = smoothstep(6, 16, Math.max(0, forwardAir));
 
     // 着陆后自动关闭悬停辅助
-    if (grounded) this.groundTimer += dt;
+    if (onSkids) this.groundTimer += dt;
     else this.groundTimer = 0;
     if (this.hoverOn && this.groundTimer > 1.2 && this.inV <= 0.05) {
       this.setHover(false);
@@ -419,7 +421,11 @@ export class FlightModel {
       const lim = A.descentLimiter ?? (this.hoverOn ? { a: 1.2, b: 0.5 } : null);
       let maxDesc = A.vertical === 'vs' ? A.maxDescent : 5;
       if (this.hoverOn) maxDesc = Math.min(maxDesc, A.hover.climbRate * 1.2);
-      if (lim) maxDesc = Math.min(maxDesc, lim.a + lim.b * Math.max(0, env.agl));
+      // 下降限制随离地高度放宽；高原上动力余量小、拉住下降更慢，限制相应收紧
+      const marginK = 0.65 + 0.35 * clamp((pAvail / pHoverOGE - 1) / 0.4, 0, 1);
+      // 预判：按约 0.7 s 后的离地高度计算，避免下降率来不及减小
+      const aglLead = Math.max(0, env.agl + Math.min(0, b.vel.y) * 0.7);
+      if (lim) maxDesc = Math.min(maxDesc, (lim.a + lim.b * aglLead) * marginK);
       const climbLim = this.hoverOn ? A.hover.climbRate : climbMax;
       if (this.inV > 0.05) {
         vsCmd = this.inV * climbLim;
@@ -446,7 +452,7 @@ export class FlightModel {
       const vsKi = A.vertical === 'vs' ? A.vsKi : 0.035;
       const vsErr = vsCmd - b.vel.y;
       let cmd: number;
-      if (grounded && vsCmd <= 0.3) {
+      if (onSkids && vsCmd <= 0.3) {
         cmd = 0;
         this.vsInt = 0;
         this.altRef = null;

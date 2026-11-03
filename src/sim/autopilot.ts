@@ -1,7 +1,7 @@
 // 自动驾驶（测试用）：只通过与玩家相同的操纵输入（前后/转向/平移/升降 + 悬停开关）飞完任务，
 // 用于自动化验证各地图主线可完成、航线可飞，以及估计通关用时。它不直接改写飞机状态。
 
-import { RAD, clamp, headingDelta, wrap360 } from '../core/math';
+import { RAD, clamp, headingDelta, smoothstep, wrap360 } from '../core/math';
 import type { V3 } from '../maps/types';
 import { obstacleTop } from './routeCheck';
 import type { GameSession } from './session';
@@ -128,11 +128,17 @@ export class Autopilot {
       }
       const brg = Math.atan2(target[0] - b.pos.x, -(target[2] - b.pos.z)) * RAD;
       const herr = headingDelta(hdg, brg);
-      inp.turn = clamp(herr / 22, -1, 1);
+      // 有速度时按地速方向（航迹）修正：侧风中自然形成偏流角，不会被风吹离航线
+      const gsNow = Math.hypot(b.vel.x, b.vel.z);
+      const kc = Math.abs(herr) < 60 ? smoothstep(6, 14, gsNow) : 0;
+      const course = Math.atan2(b.vel.x, -b.vel.z) * RAD;
+      const steer = herr + kc * clamp(headingDelta(course, hdg), -20, 20);
+      inp.turn = clamp(steer / 22, -1, 1);
       // 大角度转弯时先减速；需要大幅爬升时先就地爬升（避免斜着撞上峭壁）
       if (Math.abs(herr) > 50) vDes = Math.min(vDes, 14);
       if (alt - b.pos.y > 15) {
-        vDes = Math.min(vDes, Math.max(3, 30 - (alt - b.pos.y) * 0.35));
+        // 低于所需高度越多越慢，差 48 m 以上（前方有更高的地形）时原地爬升，不继续向前
+        vDes = Math.min(vDes, Math.max(alt - b.pos.y > 40 ? 0 : 3, 24 - (alt - b.pos.y) * 0.5));
         // 贴近地形时先爬升再转向，避免尾桨扫到峭壁
         if (s.agl < 25) inp.turn *= 0.15;
       }
@@ -148,7 +154,7 @@ export class Autopilot {
         this.note(`到达目标上空 ${d.id}`);
       }
       // 卡住保护（长时间低速且远离目标）：重新进入巡航
-      if (tel.groundSpeed < 1 && this.phase === 'approach' && distGoal > 30) {
+      if (tel.groundSpeed < 1 && this.phase === 'approach' && distGoal > 30 && b.vel.y < 0.5) {
         this.stuckT += 1 / 60;
         if (this.stuckT > 8) {
           this.stuckT = 0;
@@ -224,13 +230,21 @@ export interface AutoRunResult {
 }
 
 /** 运行自动驾驶直到完成/坠毁/超时（仿真时间）。 */
-export function runAutopilot(s: GameSession, maxSeconds: number, opts: { pathPref?: Record<number, number>; optional?: boolean; cruise?: number } = {}): AutoRunResult {
+export function runAutopilot(s: GameSession, maxSeconds: number, opts: { pathPref?: Record<number, number>; optional?: boolean; cruise?: number; trace?: number; traceFrom?: number } = {}): AutoRunResult {
   const ap = new Autopilot(s, opts);
   const done: string[] = [];
   const steps = Math.round(maxSeconds * 60);
   for (let i = 0; i < steps && s.state === 'running'; i++) {
     ap.update();
     s.step();
+    if (opts.trace && s.t >= (opts.traceFrom ?? 0) && i % Math.round(opts.trace * 60) === 0) {
+      const tel = s.flight.telemetry;
+      ap.log.push({
+        t: +s.t.toFixed(1),
+        phase: ap.phase,
+        note: `trace @(${s.body.pos.x.toFixed(0)},${s.body.pos.y.toFixed(0)},${s.body.pos.z.toFixed(0)}) agl=${s.agl.toFixed(0)} gs=${s.groundSpeed.toFixed(1)} vs=${s.body.vel.y.toFixed(1)} coll=${tel.collective.toFixed(2)} P=${(tel.powerUsed / 1e3).toFixed(0)}/${(tel.powerAvail / 1e3).toFixed(0)} hover=${tel.hover} nav=${s.nav.info.label}(${s.nav.info.mode}) tgtAlt=${s.nav.info.targetAlt.toFixed(0)}`,
+      });
+    }
     for (const e of s.drainEvents()) {
       if (e.type === 'mission' && e.ev.type === 'objectiveDone') {
         done.push(`${e.ev.obj.def.id}@${s.t.toFixed(0)}s`);

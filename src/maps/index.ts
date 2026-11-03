@@ -6,8 +6,9 @@ import { JAPAN } from './japan';
 import { CANYON } from './canyon';
 import { AMAZON } from './amazon';
 import { FJORD_MAP } from './fjord';
+import { HIMALAYA } from './himalaya';
 
-export const MAPS: MapDef[] = [TRAINING, JAPAN, CANYON, AMAZON, FJORD_MAP];
+export const MAPS: MapDef[] = [TRAINING, JAPAN, CANYON, AMAZON, FJORD_MAP, HIMALAYA];
 
 export function registerMap(m: MapDef): void {
   if (!MAPS.find((x) => x.id === m.id)) MAPS.push(m);

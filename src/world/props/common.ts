@@ -237,13 +237,18 @@ export const commonProps: Record<string, PropFn> = {
     B.sphere(0, r * 0.35, 0, r, Number(d.p?.color ?? 0x7a756c), { mat: 'rock', sy: rng.range(0.55, 0.85), noise: 0.35, seg: 9, tag: { kind: 'rock' } });
     B.footprint(r + 1);
   },
-  boulders(B, d, rng) {
+  boulders(B, d, rng, ctx) {
     const n = Number(d.p?.n ?? 6);
     const spread = Number(d.p?.spread ?? 12);
     const col = Number(d.p?.color ?? 0x7a756c);
     for (let i = 0; i < n; i++) {
       const r = rng.range(1.2, Number(d.p?.r ?? 3.5));
-      B.sphere(rng.range(-spread, spread), r * 0.3, rng.range(-spread, spread), r, col, { mat: 'rock', sy: rng.range(0.5, 0.8), noise: 0.4, seg: 8, tag: { kind: 'rock' } });
+      const lx = rng.range(-spread, spread);
+      const lz = rng.range(-spread, spread);
+      // 每块石头放在自己所在位置的地面上（地形起伏时不会悬空或埋没）
+      const [wx, , wz] = B.w(lx, 0, lz);
+      const gy = (ctx.terrain.heightAt(wx, wz) - B.origin[1]) / B.scale;
+      B.sphere(lx, gy + r * 0.3, lz, r, col, { mat: 'rock', sy: rng.range(0.5, 0.8), noise: 0.4, seg: 8, tag: { kind: 'rock' } });
     }
     B.footprint(spread + 3);
   },

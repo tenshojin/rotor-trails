@@ -61,6 +61,8 @@ export interface RouteNodeDef {
   checkpoint?: boolean;
   /** 最小地形净空（m），用于航线校验 */
   clearance?: number;
+  /** 自动高度：生成世界后，把该航点抬高到“前后航段沿线最高障碍 + 此余量”（不会降低） */
+  autoAlt?: number;
 }
 
 export interface RoutePathDef {
@@ -128,6 +130,8 @@ export interface PickupDef {
   id: string;
   kind: 'boost' | 'shield' | 'repair';
   pos: V3;
+  /** 放在某个航点上（随该航点的 autoAlt 一起抬高；pos 仅作为默认值） */
+  node?: string;
   /** 放置理由（文档/调试显示） */
   note?: string;
 }

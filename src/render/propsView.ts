@@ -71,6 +71,9 @@ export class PropsView {
   private flags: Sock[] = [];
   private glows: Glow[] = [];
   private flagMat: THREE.MeshStandardMaterial;
+  private prayerMat: THREE.Material | null = null;
+  /** 经幡的风采样点（每组取一个），用于驱动摆动幅度 */
+  private prayerSamples: THREE.Vector3[] = [];
   private flagUniforms = { uTime: { value: 0 }, uWindAmt: { value: 0.5 } };
   private geos: THREE.BufferGeometry[] = [];
 
@@ -107,6 +110,7 @@ export class PropsView {
         );
     };
     const glow = getGlowTexture();
+    const prayers: typeof world.builder.anchors = [];
     for (const a of world.builder.anchors) {
       const pos = new THREE.Vector3(...a.pos);
       if (a.type === 'windsock') {
@@ -117,7 +121,9 @@ export class PropsView {
         pivot.add(m);
         this.group.add(pivot);
         this.socks.push({ pivot, pos, phase: Math.random() * 6 });
-      } else if (a.type === 'flag' || a.type === 'prayer') {
+      } else if (a.type === 'prayer') {
+        prayers.push(a);
+      } else if (a.type === 'flag') {
         const pivot = new THREE.Object3D();
         pivot.position.copy(pos);
         pivot.add(new THREE.Mesh(this.makeFlagGeometry(String(a.p?.color ?? 'jp'), a.s), this.flagMat));
@@ -135,6 +141,80 @@ export class PropsView {
         this.glows.push({ sprite: s, period: Number(a.p?.period ?? 1.5), phase: Math.random(), base, fogSafe: a.type === 'beacon' });
       }
     }
+    if (prayers.length > 0) this.buildPrayerFlags(prayers);
+  }
+
+  /** 经幡：所有小旗合并成一个网格（一次绘制），沿绳子方向排列、向下悬挂，在着色器里随风摆动。 */
+  private buildPrayerFlags(list: Array<{ pos: [number, number, number]; rotY: number; s: number; p?: Record<string, number | string> }>): void {
+    const COLORS: Record<string, [number, number, number]> = {
+      blue: [0.12, 0.32, 0.78],
+      white: [0.95, 0.95, 0.92],
+      red: [0.82, 0.12, 0.1],
+      green: [0.1, 0.56, 0.26],
+      yellow: [0.96, 0.8, 0.12],
+    };
+    const pos: number[] = [];
+    const nor: number[] = [];
+    const col: number[] = [];
+    const hang: number[] = [];
+    const phase: number[] = [];
+    const sway: number[] = [];
+    for (const a of list) {
+      const s = a.s;
+      const w = 0.62 * s;
+      const h = 0.48 * s;
+      const dx = Math.cos(a.rotY);
+      const dz = -Math.sin(a.rotY);
+      const nx = -dz;
+      const nz = dx;
+      const [x, y, z] = a.pos;
+      const c = COLORS[String(a.p?.color ?? 'white')] ?? COLORS.white;
+      if (!this.prayerSamples.some((q) => q.distanceToSquared(new THREE.Vector3(x, y, z)) < 60 * 60)) this.prayerSamples.push(new THREE.Vector3(x, y, z));
+      const ph = Math.random() * Math.PI * 2;
+      // 四个角：上沿挂在绳上（hang=0），下沿自由（hang=1）
+      const corners: Array<[number, number, number]> = [
+        [-w / 2, 0, 0],
+        [w / 2, 0, 0],
+        [w / 2, -h, 1],
+        [-w / 2, -h, 1],
+      ];
+      for (const k of [0, 1, 2, 0, 2, 3]) {
+        const [u, v, hg] = corners[k];
+        pos.push(x + dx * u, y + v, z + dz * u);
+        nor.push(nx, 0, nz);
+        col.push(c[0], c[1], c[2]);
+        hang.push(hg);
+        phase.push(ph);
+        sway.push(nx, 0, nz);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setAttribute('aHang', new THREE.Float32BufferAttribute(hang, 1));
+    g.setAttribute('aPhase', new THREE.Float32BufferAttribute(phase, 1));
+    g.setAttribute('aSway', new THREE.Float32BufferAttribute(sway, 3));
+    g.computeBoundingSphere();
+    this.geos.push(g);
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide });
+    const FU = this.flagUniforms;
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = FU.uTime;
+      shader.uniforms.uWindAmt = FU.uWindAmt;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform float uWindAmt;\nattribute float aHang;\nattribute float aPhase;\nattribute vec3 aSway;')
+        .replace(
+          '#include <begin_vertex>',
+          '#include <begin_vertex>\nfloat sw = sin(uTime * (3.0 + 5.0 * uWindAmt) + aPhase) + 0.35 * sin(uTime * 7.3 + aPhase * 2.1);\ntransformed += aSway * sw * aHang * (0.06 + 0.24 * uWindAmt);\ntransformed.y += aHang * uWindAmt * 0.12;',
+        );
+    };
+    mat.customProgramCacheKey = () => 'prayer-v1';
+    this.prayerMat = mat;
+    const m = new THREE.Mesh(g, mat);
+    m.matrixAutoUpdate = false;
+    m.frustumCulled = true;
+    this.group.add(m);
   }
 
   private makeSockGeometry(): THREE.BufferGeometry {
@@ -216,6 +296,12 @@ export class PropsView {
       windAmt += Math.min(1, spd / 10);
       n++;
     }
+    for (const p of this.prayerSamples) {
+      if (p.distanceToSquared(camPos) > 2000 * 2000) continue;
+      windAt(p, w);
+      windAmt += Math.min(1, Math.hypot(w.x, w.z) / 10);
+      n++;
+    }
     this.flagUniforms.uTime.value = t;
     this.flagUniforms.uWindAmt.value = n > 0 ? windAmt / n : 0.4;
     for (const g of this.glows) {
@@ -233,5 +319,6 @@ export class PropsView {
     for (const g of this.geos) g.dispose();
     for (const m of Object.values(this.materials)) m.dispose();
     this.flagMat.dispose();
+    this.prayerMat?.dispose();
   }
 }
