@@ -514,7 +514,8 @@ def uv_disc(ob, center, u_axis, v_axis, radius, slot_rect, name='UVMap'):
 # ------------------------------------------------------------------ 导出与渲染
 
 
-def export_glb(path, objs, extras=True):
+def export_glb(path, objs, extras=True, draco=True):
+    """导出 GLB（贴图转 WebP；默认开启 Draco 几何压缩，游戏里由 public/draco/ 的解码器解压）。"""
     for o in bpy.context.scene.objects:
         o.select_set(False)
     for o in objs:
@@ -536,6 +537,13 @@ def export_glb(path, objs, extras=True):
         export_cameras=False,
         export_lights=False,
         export_animations=False,
+        export_draco_mesh_compression_enable=draco,
+        export_draco_mesh_compression_level=6,
+        export_draco_position_quantization=14,
+        export_draco_normal_quantization=10,
+        export_draco_texcoord_quantization=14,
+        export_draco_color_quantization=10,
+        export_draco_generic_quantization=12,
     )
 
 

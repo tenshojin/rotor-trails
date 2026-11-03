@@ -27,6 +27,7 @@ Rotor Trails 的游戏代码、地形高度、仪表画面与音效由本项目�
 | --- | --- | --- | --- |
 | [three.js](https://github.com/mrdoob/three.js) | 0.187.0 | MIT | WebGL2 三维渲染 |
 | [Rapier](https://github.com/dimforge/rapier.js)（`@dimforge/rapier3d-compat`） | 0.21.0 | Apache-2.0 | 刚体物理与碰撞（WebAssembly） |
+| [Draco](https://github.com/google/draco) 解码器（three.js 自带的 `draco_decoder.wasm` / `draco_wasm_wrapper.js` / `draco_decoder.js`，复制到 `public/draco/`） | 随 three.js 0.187.0 | Apache-2.0 | 解压 Draco 压缩的模型几何 |
 
 仅在开发、测试和构建时使用（不包含在构建产物中）：
 

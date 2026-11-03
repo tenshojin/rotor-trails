@@ -25,7 +25,7 @@ const css = fs.readFileSync(path.join('dist', cssHref), 'utf8');
 const assets = fs.readdirSync('dist/assets').filter((f) => f.endsWith('.js'));
 // public/ 下的模型与贴图（构建时原样复制到 dist/）：游戏按相对路径加载，Artifact 里也发布在同样的路径
 const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
-const media = ['models', 'textures'].filter((d) => fs.existsSync(path.join('dist', d))).flatMap((d) => walk(path.join('dist', d))).map((f) => path.relative('dist', f).split(path.sep).join('/'));
+const media = ['models', 'textures', 'draco'].filter((d) => fs.existsSync(path.join('dist', d))).flatMap((d) => walk(path.join('dist', d))).map((f) => path.relative('dist', f).split(path.sep).join('/'));
 // Artifact 不托管 .glb：转成 base64 文本（<名字>.glb.txt）放在输出页面旁边，游戏里由 src/render/gltf.ts 解码
 const outDir = path.dirname(path.resolve(out));
 const files = [];
