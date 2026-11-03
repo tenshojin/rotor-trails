@@ -1,0 +1,144 @@
+# Rotor Trails · 旋翼航迹
+
+第一人称拟真直升机闯关网页游戏。驾驶一架轻型直升机，在五张风格迥异的地图里执行运输、空投、巡查与精确降落任务：日本海湾群岛、美国西南峡谷、亚马孙雨林、挪威峡湾、喜马拉雅雪域。
+
+- 纯前端静态网站：TypeScript + Vite + three.js（WebGL2）+ Rapier 物理（WebAssembly），无后端、无在线 AI、无付费接口
+- 全部地形、建筑、植被、纹理、仪表画面与音效均为程序化生成，没有外部素材
+
+![濑户湾群岛](docs/screenshots/04_japan.jpg)
+
+| | | |
+| --- | --- | --- |
+| ![赤岩峡谷](docs/screenshots/05_canyon.jpg) | ![雨林河湾](docs/screenshots/06_amazon.jpg) | ![雾湾峡湾](docs/screenshots/07_fjord.jpg) |
+| ![雪域山口](docs/screenshots/08_himalaya.jpg) | ![浓雾](docs/screenshots/09_weather_fog.jpg) | ![暴雨](docs/screenshots/12_weather_storm.jpg) |
+| ![着陆辅助](docs/screenshots/13_landing_assist.jpg) | ![严重受损](docs/screenshots/14_damage_critical.jpg) | ![结算](docs/screenshots/16_results.jpg) |
+
+更多截图见 [docs/screenshots](docs/screenshots)。
+
+## 特色
+
+- **有惯性的飞行**：升力随机身倾斜而倾斜，加速、减速、转弯都需要时间和空间；空气密度随海拔下降，动力余量在 HUD 上实时显示
+- **三档飞行辅助**（新手 / 标准 / 挑战）：辅助只帮你稳住飞机，不会抵消惯性和风；挑战模式下总距直接控制升力
+- **风是真实的力**：持续风、可预测节奏的阵风、峡谷通道风、上升/下沉气流都通过相对气流作用在机身上；风向袋、旗帜、经幡、树木、雨线会显示风向
+- **五种天气**：晴、雨、暴雨、浓雾、低云（另有晴转暴雨的动态天气）；在雾和云中，航点标记与 HUD 引导始终可见
+- **耐久与降落判定**：70 / 30 两档性能下降（连续变化，始终可控）；降落看下降速度、水平漂移、姿态和位置四项
+- **Buff**：动力增强（储存一次，Shift 使用）、免伤护盾（挡耐久损失但不挡碰撞）、维修补给
+- **检查点**：可从最近检查点或更早的安全检查点恢复，也可“安全恢复”（稳定悬停状态继续），不会卡死
+- **不计时的评分**：主线、可选任务、剩余耐久、碰撞次数、最终降落质量
+
+## 快速开始
+
+### 环境要求
+
+- [Node.js](https://nodejs.org/) 20 或更新版本（开发时使用 24.x）
+- 支持 WebGL2 的桌面浏览器（推荐最新版 Chrome / Edge），并开启硬件加速
+
+### 安装与运行
+
+```bash
+npm install
+```
+
+```bash
+npm run dev
+```
+
+然后在浏览器打开终端里显示的地址（默认 http://localhost:5173 ）。第一次进入建议先玩「飞行训练」。
+
+### 常用命令
+
+| 命令 | 作用 |
+| --- | --- |
+| `npm run dev` | 开发服务器（热更新） |
+| `npm run typecheck` | TypeScript 类型检查 |
+| `npm test` | 运行全部自动化测试（Vitest，约 15 秒） |
+| `npm run build` | 类型检查 + 生产构建，输出到 `dist/` |
+| `npm run preview` | 在 http://localhost:4173 预览生产构建 |
+| `npm run mapviz` | 生成地图俯视图并检查所有航线净空（输出到 `tmp/maps/`） |
+| `npm run shots -- tools/steps/docs_shots.json docs/screenshots` | 用无头 Chrome 自动截图（需先 `npm run preview`） |
+
+自动驾驶回归（只通过飞行员输入驾驶，验证每张地图的每条路线、每种天气都能完成；需要 Git Bash 等 bash 环境，约 1–2 分钟）：
+
+```bash
+bash tools/regress.sh all
+```
+
+单独跑一张地图（bash 语法；PowerShell 中先执行 `$env:MAP="himalaya"; $env:PATHS="0,1"`）：
+
+```bash
+MAP=himalaya PATHS=0,1 npx vitest run --config vitest.tools.config.ts tools/autorun.tool.ts --silent=false
+```
+
+## 操作
+
+| 按键 | 操作 |
+| --- | --- |
+| W / S | 机体前倾加速 / 后倾减速（低速时缓慢后退） |
+| A / D | 左 / 右转（自动协调机头与坡度） |
+| 空格 | 增加升力（上升） |
+| 左 Ctrl 或 X | 减小升力（下降）。浏览器不允许网页拦截 Ctrl+W，所以默认同时绑定了 X |
+| Q / E | 向左 / 右平移（悬停修正、侧风修正） |
+| H | 悬停辅助：逐渐减速并保持位置 |
+| Shift | 使用已储存的动力增强 |
+| 鼠标 | 观察四周（不控制飞机方向）；点击画面锁定鼠标，浏览器不允许锁定时按住左键拖动 |
+| C / V | 视角回正 / 座舱与追尾视角切换 |
+| N / M | 切换导航目标或推荐路线 / 座舱地图范围 |
+| Esc 或 P | 暂停 |
+
+所有按键都可以在「设置 → 操作」中改键；设置、通关记录保存在浏览器本地存储里（存档损坏或存储不可用时自动回退为默认值）。
+
+## 地图
+
+| 地图 | 难度 | 主线任务 | 路线选择 | 天气 |
+| --- | --- | --- | --- | --- |
+| 飞行训练场 | ★ | 8 步教学（起飞、加速、减速、转向、高度、悬停、侧风修正、降落），可跳过、可重复 | — | 晴朗、有风 |
+| 濑户湾群岛（日本） | ★ | 鸥岛观测站 → 海上平台空投 → 中岛山脊观测站 → 东岛气象站 | 沿岸安全航线 / 岛间捷径（海蚀柱窄门）；越岭直飞 / 绕岛东岸 | 晴、小雨、海风 |
+| 赤岩峡谷（美国西南） | ★★★ | 谷底研究站 → 巡查传感器 → 峭壁岩架悬停投放 → 天空台地 | 峡谷内低空 / 高处绕行；穿越岩拱峡 / 东缘高空绕行 | 晴、局部阵风、山谷大风 |
+| 雨林河湾（亚马孙） | ★★★ | 河湾营地 → 林间空地 → 科考船悬停投放 → 林冠观测平台 | 沿主河道 / 林冠直飞；狭窄支流 / 林冠绕行 | 晴、小雨、暴雨、晴转暴雨 |
+| 雾湾峡湾（挪威） | ★★★★ | 巡查导航信标 → 悬崖农场 → 村落码头 → 峡湾港口 | 宽阔主航道 / 近岸海峡；沿峡湾水道 / 翻越山口 | 晴、浓雾、侧风 |
+| 雪域山口（尼泊尔） | ★★★★★ | 山脊寺院 → 冰川营地空投 → 山口研究站 → 约 5140 m 的冰斗平台 | 沿冰川谷 / 刀脊直上；冰川谷道 / 高空越脊 | 晴、低云、强风 |
+
+每张正式地图都有 2 个可选任务、维修/备降点、多处检查点和地标。自动驾驶完成主线的仿真时间为 5–12 分钟；真人玩家的用时会更长，但**尚未经过真人试玩测量**（见 [测试报告](docs/test-report.md)）。
+
+## 部署到 GitHub Pages
+
+仓库里的 [.github/workflows/deploy.yml](.github/workflows/deploy.yml) 在每次推送到 `main` 时自动执行类型检查、测试和构建；构建产物使用相对路径（`base: './'`），可以放在任何子路径下（例如 `https://<用户名>.github.io/rotor-trails/`）。
+
+发布步骤：
+
+1. 仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**
+2. 仓库 **Settings → Secrets and variables → Actions → Variables** 新建变量 `DEPLOY_PAGES`，值为 `true`（或在 Actions 页面手动运行一次 “CI / Pages” 工作流）
+3. 等待工作流完成，在 Pages 设置页查看网址
+
+> 注意：**私有仓库**使用 GitHub Pages 需要付费方案（GitHub Pro / Team / Enterprise）。免费账号需要把仓库改为公开才能启用 Pages——是否公开由仓库所有者决定。
+
+也可以把 `npm run build` 生成的 `dist/` 目录上传到任意静态网站托管服务；不能直接双击打开 `dist/index.html`（浏览器不允许从本地文件加载模块）。
+
+## 目录结构
+
+```
+src/
+  core/        数学、噪声、固定步长推进器
+  config/      飞行参数与三档辅助（集中配置）
+  sim/         仿真：飞行模型、物理（Rapier）、起落架、风、天气、损伤、Buff、任务、导航、评分、自动驾驶
+  maps/        五张地图 + 训练场（数据驱动：地形函数、站点、航点、航段、任务、天气、风区）
+  world/       世界生成：高度场、建筑与道具、植被
+  render/      渲染：地形、水、天空、树、建筑、座舱、仪表、导航标记、天气特效
+  game/        应用状态机、输入、设置、存档、教学
+  ui/          HUD、菜单与样式
+  audio/       程序化音效（旋翼、发动机、风、雨、告警）
+tests/         自动化测试（Vitest）
+tools/         地图俯视图、航线净空、自动驾驶回归、截图等开发工具
+docs/          设计文档、进度、测试报告、截图
+```
+
+## 文档
+
+- [docs/design.md](docs/design.md)：设计与技术方案
+- [docs/progress.md](docs/progress.md)：开发进度与已知问题
+- [docs/test-report.md](docs/test-report.md)：测试报告（区分自动化测试、自动驾驶验证与尚未进行的真人试玩）
+- [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)：第三方开源库许可
+
+## 许可
+
+本项目代码尚未指定开源许可证（默认保留所有权利）。所用第三方库的许可见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。

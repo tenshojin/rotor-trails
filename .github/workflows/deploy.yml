@@ -1,0 +1,51 @@
+# 每次推送：类型检查 + 测试 + 构建。
+# 发布到 GitHub Pages 需要先在仓库设置里把 Pages 的 Source 设为 “GitHub Actions”，
+# 并新建仓库变量 DEPLOY_PAGES=true（或在 Actions 页面手动运行本工作流）。
+name: CI / Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: 把第三方许可一起发布
+        run: cp THIRD_PARTY_LICENSES.md dist/
+      - uses: actions/upload-pages-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || vars.DEPLOY_PAGES == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

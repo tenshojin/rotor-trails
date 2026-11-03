@@ -1,6 +1,6 @@
 // 自动化截图/测试：用无头 Chrome（GPU 加速）打开游戏，按步骤执行脚本并截图，同时收集控制台错误。
 // 用法：node tools/shot.mjs <steps.json> <输出目录>
-// steps.json：{ "url": "...", "width": 1920, "height": 1080, "steps": [ { "wait": 1000 }, { "eval": "js 表达式（可 await）" }, { "shot": "name" }, { "until": "js 条件", "timeout": 60000 } ] }
+// steps.json：{ "url": "...", "width": 1920, "height": 1080, "steps": [ { "goto": "新地址" }, { "wait": 1000 }, { "eval": "js 表达式（可 await）" }, { "shot": "name" }, { "until": "js 条件", "timeout": 60000 } ] }
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -99,6 +99,10 @@ const evaluate = async (expr) => {
 };
 let failed = false;
 for (const s of cfg.steps) {
+  if (s.goto) {
+    await send('Page.navigate', { url: s.goto });
+    console.log('goto', s.goto);
+  }
   if (s.wait) await sleep(s.wait);
   if (s.until) {
     const t0 = Date.now();
@@ -112,6 +116,22 @@ for (const s of cfg.steps) {
     }
     console.log(`until ${ok ? 'ok' : 'TIMEOUT'}: ${s.until.slice(0, 80)} (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
     if (!ok) failed = true;
+  }
+  if (s.click) {
+    // 真实的鼠标点击（经浏览器输入管线，算作用户手势，可触发指针锁定）
+    const [x, y] = s.click;
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+    console.log('click', x, y);
+  }
+  if (s.key) {
+    // 真实的按键（keyDown → 等待 → keyUp）
+    const [code, ms] = s.key;
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', code, key: code === 'Space' ? ' ' : code.replace(/^Key/, '').toLowerCase(), windowsVirtualKeyCode: code === 'Space' ? 32 : code === 'Escape' ? 27 : code.startsWith('Key') ? code.charCodeAt(3) : 0 });
+    await sleep(ms ?? 100);
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', code, key: code === 'Space' ? ' ' : code.replace(/^Key/, '').toLowerCase(), windowsVirtualKeyCode: code === 'Space' ? 32 : code === 'Escape' ? 27 : code.startsWith('Key') ? code.charCodeAt(3) : 0 });
+    console.log('key', code, ms ?? 100);
   }
   if (s.eval) {
     const v = await evaluate(s.eval);

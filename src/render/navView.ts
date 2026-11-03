@@ -214,6 +214,7 @@ export class NavView {
         this.optBeam.position.set(g[0], g[1] - 30, g[2]);
         const d = camPos.distanceTo(this.optBeam.position);
         this.optBeam.scale.set(Math.max(2, d / 300), 600, Math.max(2, d / 300));
+        this.setBeamOpacity(this.optBeam, d);
         break;
       }
     }
@@ -226,6 +227,12 @@ export class NavView {
     }
   }
 
+  /** 光柱用于远距离指示：靠近目标后逐渐淡出（此时由停机坪框、悬停区和着陆辅助接管），避免遮挡视线 */
+  private setBeamOpacity(beam: THREE.Mesh, d: number): void {
+    const k = 0.15 + 0.85 * Math.min(1, Math.max(0, (d - 40) / 160));
+    (beam.material as THREE.ShaderMaterial).uniforms.uOpacity.value = 0.5 * k;
+  }
+
   private placeObjective(def: ObjectiveDef, visited: boolean[], s: GameSession, t: number, camPos: THREE.Vector3, main: boolean): void {
     void main;
     if (def.kind === 'land') {
@@ -235,6 +242,7 @@ export class NavView {
       this.beam.position.set(pad.pos[0], pad.pos[1], pad.pos[2]);
       const d = camPos.distanceTo(this.beam.position);
       this.beam.scale.set(Math.max(2.5, d / 260), 500, Math.max(2.5, d / 260));
+      this.setBeamOpacity(this.beam, d);
       if (d < 600) {
         this.padFrame.visible = true;
         this.padFrame.position.set(pad.pos[0], pad.pos[1] + 0.15, pad.pos[2]);
@@ -247,6 +255,7 @@ export class NavView {
       this.beam.position.set(def.center[0], def.center[1], def.center[2]);
       const d = camPos.distanceTo(this.beam.position);
       this.beam.scale.set(Math.max(2.5, d / 260), 500, Math.max(2.5, d / 260));
+      this.setBeamOpacity(this.beam, d);
       if (d < 800) {
         this.hoverZone.visible = true;
         this.hoverZone.position.set(def.center[0], def.center[1] + def.minH, def.center[2]);
