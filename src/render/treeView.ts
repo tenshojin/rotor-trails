@@ -3,7 +3,7 @@
 // 低画质只缩短远景距离，碰撞相关的近处树木始终可见。
 
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { loadGltf } from './gltf';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TREE_SPECS, TREE_TYPES, type TreeSet } from '../world/vegetation';
 import type { TreeType } from '../maps/types';
@@ -215,7 +215,7 @@ let libPromise: Promise<TreeLib | null> | null = null;
 export function loadTreeLib(): Promise<TreeLib | null> {
   libPromise ??= (async () => {
     try {
-      const gltf = await new GLTFLoader().loadAsync(new URL('models/trees.glb', document.baseURI).href);
+      const gltf = await loadGltf('models/trees.glb');
       gltf.scene.updateMatrixWorld(true);
       const nodes = new Map<string, THREE.Object3D>();
       for (const c of gltf.scene.children) nodes.set((c.userData.name as string | undefined) ?? c.name, c);

@@ -3,7 +3,7 @@
 // 窗玻璃使用带雨滴/水流效果的材质。模型加载失败时座舱内部为空，游戏照常可玩。
 
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { loadGltf } from './gltf';
 import { drawAnnunciator, drawAttitude, drawGps, drawVemdBottom, drawVemdTop, NEEDLE, type InstrumentData } from './instruments';
 import { getNoiseTexture } from './textures';
 
@@ -67,9 +67,8 @@ export class Cockpit {
   }
 
   private async load(): Promise<void> {
-    const url = new URL(MODEL_URL, document.baseURI).href;
     const [gltf, ao] = await Promise.all([
-      new GLTFLoader().loadAsync(url),
+      loadGltf(MODEL_URL),
       new THREE.TextureLoader().loadAsync(new URL(AO_URL, document.baseURI).href).catch(() => null),
     ]);
     if (ao) {

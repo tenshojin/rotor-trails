@@ -3,7 +3,7 @@
 // 文件不存在或加载失败时返回 null，道具退回程序几何体。
 
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { loadGltf } from './gltf';
 import type { ModelInstance } from '../world/propBuilder';
 
 /** 已有建筑模型库的地图（其余地图仍用程序几何体） */
@@ -22,7 +22,7 @@ export interface ModelLib {
 
 export async function loadModelLib(file: string): Promise<ModelLib | null> {
   try {
-    const gltf = await new GLTFLoader().loadAsync(new URL(`models/${file}`, document.baseURI).href);
+    const gltf = await loadGltf(`models/${file}`);
     const templates = new Map<string, THREE.Object3D>();
     gltf.scene.updateMatrixWorld(true);
     for (const child of gltf.scene.children) templates.set(child.name, child);

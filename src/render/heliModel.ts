@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { HELI } from '../config/flight';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { loadGltf } from './gltf';
 import { getGlowTexture } from './propsView';
 
 const EXT_URL = 'models/heli_ext.glb';
@@ -238,7 +238,7 @@ export class HeliModel {
 
   /** 加载 Blender 外观模型；成功后隐藏程序生成的外观（失败时保留，游戏照常可玩）。 */
   private async loadExt(): Promise<void> {
-    const gltf = await new GLTFLoader().loadAsync(new URL(EXT_URL, document.baseURI).href);
+    const gltf = await loadGltf(EXT_URL);
     const scene = gltf.scene;
     scene.updateMatrixWorld(true);
     const body = scene.getObjectByName('ext_body');
