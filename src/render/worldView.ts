@@ -15,6 +15,7 @@ import { QUALITY, type Settings } from '../game/settings';
 import { CameraRig } from './cameraRig';
 import { Cockpit } from './cockpit';
 import { HeliModel } from './heliModel';
+import { loadModelLib, MODEL_FILES, type ModelLib } from './modelLib';
 import { NavView } from './navView';
 import { PropsView } from './propsView';
 import { SkyDome } from './sky';
@@ -66,6 +67,7 @@ export class WorldView {
   terrainUniforms: TerrainUniforms | null = null;
   water: WaterView | null = null;
   props: PropsView | null = null;
+  private modelLib: ModelLib | null = null;
   trees: TreeView | null = null;
   nav: NavView | null = null;
   rain: RainFx;
@@ -208,7 +210,9 @@ export class WorldView {
     }
     progress?.(0.88, '构建建筑与植被');
     await tick();
-    this.props = new PropsView(world);
+    const modelFile = MODEL_FILES[map.id];
+    this.modelLib = modelFile ? await loadModelLib(modelFile) : null;
+    this.props = new PropsView(world, this.modelLib);
     this.scene.add(this.props.group);
     this.trees = new TreeView(world.trees);
     this.scene.add(this.trees.group);
@@ -242,6 +246,8 @@ export class WorldView {
     this.sky?.mesh.geometry.dispose();
     this.water?.dispose();
     this.props?.dispose();
+    this.modelLib?.dispose();
+    this.modelLib = null;
     this.trees?.dispose();
     this.nav?.dispose();
     this.clouds?.dispose();

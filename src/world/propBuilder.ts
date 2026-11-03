@@ -33,6 +33,14 @@ export interface Footprint {
   r: number;
 }
 
+/** Blender 建模的模型实例（世界坐标）。渲染层有该模型时用它代替同名标签下的程序几何体。 */
+export interface ModelInstance {
+  name: string;
+  pos: V3;
+  rotY: number;
+  scale: V3;
+}
+
 const TILE = 1024;
 
 function hexToRgb(hex: number): [number, number, number] {
@@ -46,6 +54,9 @@ export class PropBuilder {
   readonly footprints: Footprint[] = [];
   /** 动画/特殊对象的锚点（风向袋、旗帜、信标灯等），渲染层据此生成 */
   readonly anchors: Array<{ type: string; pos: V3; rotY: number; s: number; p?: Record<string, number | string> }> = [];
+  readonly models: ModelInstance[] = [];
+  /** 当前模型标签：beginModel 与 endModel 之间生成的几何体归入“模型名|材质|分块”批次，作为模型缺失时的后备 */
+  private modelTag = '';
   private tx = 0;
   private ty = 0;
   private tz = 0;
@@ -87,6 +98,22 @@ export class PropBuilder {
     return this;
   }
 
+  /**
+   * 放置一个 Blender 模型（局部坐标与缩放）；之后到 endModel 之间的程序几何体只作为后备（碰撞体照常生成）。
+   * 模型的局部坐标约定与道具相同：原点在地面中心，门/正面朝 -z。
+   */
+  beginModel(name: string, lx = 0, ly = 0, lz = 0, ry = 0, sx = 1, sy = 1, sz = 1): this {
+    const s = this.sc;
+    this.models.push({ name, pos: this.w(lx, ly, lz), rotY: this.rot + ry, scale: [sx * s, sy * s, sz * s] });
+    this.modelTag = name;
+    return this;
+  }
+
+  endModel(): this {
+    this.modelTag = '';
+    return this;
+  }
+
   /** 局部坐标 → 世界坐标 */
   w(x: number, y: number, z: number): V3 {
     const s = this.sc;
@@ -101,7 +128,8 @@ export class PropBuilder {
   }
 
   private batch(mat: MatKey): Batch {
-    const key = `${mat}|${this.tile}`;
+    // 批次键：模型标签|材质|分块（没有模型标签时标签为空）
+    const key = `${this.modelTag}|${mat}|${this.tile}`;
     let b = this.batches.get(key);
     if (!b) {
       b = { pos: [], nor: [], col: [] };

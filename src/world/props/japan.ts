@@ -15,12 +15,16 @@ export function jhouse(B: PropBuilder, rng: Rng, big = false): void {
   const h = 3;
   const wall = rng.pick(WALL);
   const roof = rng.pick(ROOF);
+  const twoStory = rng.chance(big ? 0.9 : 0.45);
+  // Blender 模型（参考尺寸 8.5 × 7 m，按本栋的宽/深缩放）；褐色墙 → 杉板外墙款
+  const wood = wall === 0x6b5440 || wall === 0x8a6a4c;
+  B.beginModel(`jhouse_${twoStory ? 2 : 1}${wood ? 'b' : 'a'}`, 0, 0, 0, 0, w / 8.5, 1, d / 7);
   B.box(0, h / 2, 0, w, h, d, wall, { jitter: 0.06 });
   B.box(0, 0.25, 0, w + 0.2, 0.5, d + 0.2, 0x6f6a62, { solid: false });
   // 窗与门
   for (let i = -1; i <= 1; i++) B.box(i * w * 0.3, h * 0.55, d / 2 + 0.03, 1.2, 0.9, 0.06, 0x2a2f36, { solid: false, mat: 'glass' });
   B.box(w * 0.35, h * 0.4, -d / 2 - 0.03, 1.1, 2.0, 0.06, 0x4a3828, { solid: false });
-  if (rng.chance(big ? 0.9 : 0.45)) {
+  if (twoStory) {
     const w2 = w * 0.75;
     const d2 = d * 0.8;
     B.box(0, h + 1.5, 0, w2, 3, d2, wall, { jitter: 0.05 });
@@ -29,6 +33,7 @@ export function jhouse(B: PropBuilder, rng: Rng, big = false): void {
   } else {
     B.hip(0, h, 0, w, d, 2.2, 0.75, roof, {}, 0.45);
   }
+  B.endModel();
   B.footprint(Math.hypot(w, d) / 2 + 1.5);
 }
 
@@ -104,12 +109,15 @@ export const japanProps: Record<string, PropFn> = {
   boat(B, d, rng) {
     const l = Number(d.p?.l ?? rng.range(10, 16));
     const w = l * 0.32;
-    const hull = rng.pick([0xe8e8e8, 0x2f62b0, 0xb8322a, 0x3c8a4a]);
+    const hulls = [0xe8e8e8, 0x2f62b0, 0xb8322a, 0x3c8a4a];
+    const hull = rng.pick(hulls);
+    B.beginModel(`boat_${hulls.indexOf(hull)}`, 0, 0, 0, 0, l / 13, l / 13, l / 13);
     B.box(0, 0.6, 0, l, 2.2, w, hull, { jitter: 0.05 });
     B.box(-l / 2 - 1.2, 0.9, 0, 2.6, 1.6, w * 0.7, hull, { solid: false }, 0);
     B.box(l * 0.15, 2.6, 0, l * 0.3, 1.8, w * 0.75, 0xf2f2f2, {});
     B.box(l * 0.15, 3.0, 0, l * 0.3 + 0.1, 0.6, w * 0.76, 0x2a3440, { mat: 'glass', solid: false });
     B.cyl(l * 0.15, 5.0, 0, 0.1, 0.08, 3, 0xdddddd, 6, { solid: false });
+    B.endModel();
     B.footprint(l / 2);
   },
   ferry(B) {
@@ -125,12 +133,14 @@ export const japanProps: Record<string, PropFn> = {
   },
   lighthouse(B) {
     const h = 20;
+    B.beginModel('lighthouse');
     B.cyl(0, 1, 0, 4, 4.2, 2, 0x9a958c, 14, { mat: 'rough' });
     B.cyl(0, 2 + h / 2, 0, 2.6, 1.8, h, 0xf2f2ee, 16, {});
     for (let k = 0; k < 3; k++) B.cyl(0, 5 + k * 6, 0, 2.35 - k * 0.22, 2.25 - k * 0.22, 1.0, 0xc0392b, 16, { solid: false });
     B.cyl(0, h + 2.4, 0, 2.6, 2.6, 0.4, 0x333333, 16, { solid: false });
     B.cyl(0, h + 3.8, 0, 1.4, 1.4, 2.6, 0xfff6d0, 12, { mat: 'emit', solid: false });
     B.cone(0, h + 6.0, 0, 1.8, 1.8, 0xc0392b, 12, { solid: false });
+    B.endModel();
     B.colliderBox(0, h + 3.5, 0, 1.8, 2.5, 1.8);
     B.anchor('beacon', 0, h + 3.8, 0, 0, { color: 'white', period: 4 });
     B.footprint(6);
@@ -139,6 +149,7 @@ export const japanProps: Record<string, PropFn> = {
     // 海上鸟居（朱红）
     const red = 0xc8361f;
     const h = 13;
+    B.beginModel('torii');
     for (const sx of [-4.2, 4.2]) B.cyl(sx, h / 2 - 1.5, 0, 0.55, 0.6, h + 3, red, 12, {});
     B.box(0, h - 2.2, 0, 11, 0.7, 0.8, red, { solid: false });
     B.box(0, h + 0.1, 0, 14.5, 0.9, 1.4, 0x222222, {});
@@ -146,17 +157,21 @@ export const japanProps: Record<string, PropFn> = {
     B.box(7.1, h + 0.5, 0, 1.4, 0.5, 1.4, 0x222222, { solid: false }, 0);
     B.box(0, h - 0.6, 0, 13.4, 0.6, 1.0, red, { solid: false });
     B.box(0, h - 1.4, 0, 1.0, 1.3, 0.3, 0x333333, { solid: false });
+    B.endModel();
     B.footprint(9);
   },
   shrine(B) {
+    B.beginModel('shrine');
     B.box(0, 0.6, 0, 12, 1.2, 9, 0x8a857c, { mat: 'rough' });
     B.box(0, 2.8, 0, 9, 3.2, 6.5, 0x7a2a1a, {});
     B.gable(0, 4.4, 0, 9, 6.5, 3.2, 1.4, 0x3b4350, {}, 0);
     B.box(0, 2.2, 4.4, 2.2, 1.6, 0.2, 0xd8c070, { solid: false });
+    B.endModel();
     B.footprint(9);
   },
   pagoda(B) {
     // 五重塔（地标）
+    B.beginModel('pagoda');
     B.box(0, 0.8, 0, 13, 1.6, 13, 0x8a857c, { mat: 'rough' });
     let y = 1.6;
     for (let k = 0; k < 5; k++) {
@@ -167,6 +182,7 @@ export const japanProps: Record<string, PropFn> = {
       y += fh + 1.3;
     }
     B.cyl(0, y + 4, 0, 0.25, 0.15, 8, 0xb8a050, 6, { mat: 'metal', solid: false });
+    B.endModel();
     B.colliderBox(0, y / 2, 0, 5, y / 2, 5);
     B.footprint(9);
   },

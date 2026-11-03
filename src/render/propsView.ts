@@ -1,8 +1,9 @@
 // 建筑/道具渲染：把 PropBuilder 合批数据转成网格；锚点生成风向袋、旗帜、信标灯、经幡等动态对象。
 
 import * as THREE from 'three';
-import type { MatKey } from '../world/propBuilder';
+import type { MatKey, ModelInstance } from '../world/propBuilder';
 import type { WorldData } from '../world/worldgen';
+import { instanceModel, type ModelLib } from './modelLib';
 import { getNoiseTexture } from './textures';
 
 let glowTex: THREE.CanvasTexture | null = null;
@@ -76,12 +77,31 @@ export class PropsView {
   private prayerSamples: THREE.Vector3[] = [];
   private flagUniforms = { uTime: { value: 0 }, uWindAmt: { value: 0.5 } };
   private geos: THREE.BufferGeometry[] = [];
+  /** 模型实例（几何体与材质属于模型库，由模型库释放） */
+  private instanced: THREE.InstancedMesh[] = [];
 
-  constructor(world: WorldData) {
+  constructor(world: WorldData, lib: ModelLib | null = null) {
     this.materials = makeMaterials();
+    // Blender 模型：同名实例合在一起做实例化绘制
+    const byName = new Map<string, ModelInstance[]>();
+    for (const inst of world.builder.models) {
+      if (!lib?.templates.has(inst.name)) continue;
+      const arr = byName.get(inst.name) ?? [];
+      arr.push(inst);
+      byName.set(inst.name, arr);
+    }
+    for (const [name, list] of byName) {
+      for (const im of instanceModel(lib!.templates.get(name)!, list)) {
+        this.instanced.push(im);
+        this.group.add(im);
+      }
+    }
     for (const [key, b] of world.builder.batches) {
       if (b.pos.length === 0) continue;
-      const mat = key.split('|')[0] as MatKey;
+      const [tag, matName] = key.split('|');
+      // 有对应 Blender 模型的部分不再画程序几何体（它们只作为模型缺失时的后备）
+      if (tag && byName.has(tag)) continue;
+      const mat = matName as MatKey;
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
       g.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3));
@@ -316,6 +336,7 @@ export class PropsView {
   }
 
   dispose(): void {
+    for (const im of this.instanced) im.dispose();
     for (const g of this.geos) g.dispose();
     for (const m of Object.values(this.materials)) m.dispose();
     this.flagMat.dispose();
