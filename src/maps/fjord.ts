@@ -371,6 +371,7 @@ export const FJORD_MAP: MapDef = {
     waterShallow: 0x2a5e62,
     fogTint: 0xc6ced4,
     forestFloor: 0x26361e,
+    mist: 1.15,
   },
   sun: [200, 26],
   ambience: { sea: 0.6, gulls: 0.4, wind: 0.6, river: 0.3 },

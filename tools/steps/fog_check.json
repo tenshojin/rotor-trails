@@ -1,0 +1,93 @@
+{
+ "url": "about:blank",
+ "width": 1600,
+ "height": 900,
+ "steps": [
+  {
+   "goto": "http://localhost:5174/?map=japan&autostart=1&weather=clear"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app; A.settings.quality = 'ultra'; A.settings.rayTracing = false; A.view.applySettings(A.settings); window.__q = (q, rt) => { A.settings.quality = q; A.settings.rayTracing = !!rt; A.view.applySettings(A.settings); return q; }; window.__dbg = (o) => { window.__postDebug = o; A.view.postKey = ''; A.view.applySettings(A.settings); return JSON.stringify(o); }; window.__sun = () => { const s = A.view.sky.sunDir; return Math.atan2(s.x, -s.z) * 180 / Math.PI; }; window.__forest = (r, near) => { const W = A.session.world, T = W.trees; let best = -1, bn = 0; for (let i = 0; i < T.count; i += 5) { if (Math.hypot(T.x[i], T.z[i]) > (near ?? 1e9)) continue; let n = 0; for (let j = 0; j < T.count; j += 2) { const dx = T.x[j] - T.x[i], dz = T.z[j] - T.z[i]; if (dx * dx + dz * dz < r * r) n++; } if (n > bn) { bn = n; best = i; } } return [T.x[best], T.z[best], bn]; }; window.__fc = (x, z, agl, back, pitch, dh, clr) => { const CL = clr ?? 10; const W = A.session.world, T = W.trees; const hd = __sun() + (dh ?? 0); const a = hd * Math.PI / 180; const ux = Math.sin(a), uz = -Math.cos(a); let cx = x - ux * back, cz = z - uz * back; for (let k = 0; k < 40; k++) { let ok = true; for (let i = 0; i < T.count; i++) { const dx = T.x[i] - cx, dz = T.z[i] - cz; if (dx * dx + dz * dz < CL * CL) { ok = false; break; } } if (ok) break; cx -= ux * 6; cz -= uz * 6; } const y = W.terrain.heightAt(cx, cz) + agl; A.debugTeleport(cx, y, cz, hd, 0); A.debugLook(0, pitch); return [Math.round(cx), Math.round(y), Math.round(cz), Math.round(hd)]; }; return __sun(); })()",
+   "label": "sun heading"
+  },
+  {
+   "eval": "(() => { const f = window.__forest(40); window.__F = f; return window.__fc(f[0], f[1], 4, 12, 0.22, 0, 3.5); })()",
+   "label": "A in-forest pose"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "A_inforest.jpg"
+  },
+  {
+   "eval": "window.__dbg({ fog: false })"
+  },
+  {
+   "wait": 3000
+  },
+  {
+   "shot": "A_inforest_nofog.jpg"
+  },
+  {
+   "eval": "window.__dbg({})"
+  },
+  {
+   "eval": "window.__fc(window.__F[0], window.__F[1], 9, 70, 0.3)",
+   "label": "B edge pose"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "B_edge.jpg"
+  },
+  {
+   "goto": "http://localhost:5174/?map=japan&autostart=1&weather=breeze"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app; A.settings.quality = 'ultra'; A.settings.rayTracing = false; A.view.applySettings(A.settings); window.__q = (q, rt) => { A.settings.quality = q; A.settings.rayTracing = !!rt; A.view.applySettings(A.settings); return q; }; window.__dbg = (o) => { window.__postDebug = o; A.view.postKey = ''; A.view.applySettings(A.settings); return JSON.stringify(o); }; window.__sun = () => { const s = A.view.sky.sunDir; return Math.atan2(s.x, -s.z) * 180 / Math.PI; }; window.__forest = (r, near) => { const W = A.session.world, T = W.trees; let best = -1, bn = 0; for (let i = 0; i < T.count; i += 5) { if (Math.hypot(T.x[i], T.z[i]) > (near ?? 1e9)) continue; let n = 0; for (let j = 0; j < T.count; j += 2) { const dx = T.x[j] - T.x[i], dz = T.z[j] - T.z[i]; if (dx * dx + dz * dz < r * r) n++; } if (n > bn) { bn = n; best = i; } } return [T.x[best], T.z[best], bn]; }; window.__fc = (x, z, agl, back, pitch, dh, clr) => { const CL = clr ?? 10; const W = A.session.world, T = W.trees; const hd = __sun() + (dh ?? 0); const a = hd * Math.PI / 180; const ux = Math.sin(a), uz = -Math.cos(a); let cx = x - ux * back, cz = z - uz * back; for (let k = 0; k < 40; k++) { let ok = true; for (let i = 0; i < T.count; i++) { const dx = T.x[i] - cx, dz = T.z[i] - cz; if (dx * dx + dz * dz < CL * CL) { ok = false; break; } } if (ok) break; cx -= ux * 6; cz -= uz * 6; } const y = W.terrain.heightAt(cx, cz) + agl; A.debugTeleport(cx, y, cz, hd, 0); A.debugLook(0, pitch); return [Math.round(cx), Math.round(y), Math.round(cz), Math.round(hd)]; }; return __sun(); })()",
+   "label": "sun heading"
+  },
+  {
+   "eval": "(() => { const W = window.__app.session.world; const y = W.terrain.heightAt(-800, 300) + 450; window.__app.debugTeleport(-800, y, 300, window.__sun() + 90, 0); window.__app.debugLook(0, -0.45); return y; })()",
+   "label": "C side-high pose"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "C_cloudshadow_side.jpg"
+  },
+  {
+   "eval": "(() => { const W = window.__app.session.world; const y = W.terrain.heightAt(-800, 300) + 250; window.__app.debugTeleport(-800, y, 300, window.__sun(), 0); window.__app.debugLook(0, 0.05); return y; })()",
+   "label": "D toward-sun pose"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "D_towardsun.jpg"
+  },
+  {
+   "eval": "window.__dbg({ view: 'fog' })"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "shot": "D_fogbuf.jpg"
+  },
+  {
+   "eval": "window.__dbg({})"
+  }
+ ]
+}

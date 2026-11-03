@@ -3,7 +3,9 @@
 // 所有节点材质自动接收，不再需要逐个改写材质。
 
 import * as THREE from 'three/webgpu';
+import { positionWorld, uniform } from 'three/tsl';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
+import { cloudShadow } from './cloudShadowMap';
 
 /** 能进入最近两层阴影的物体带的图层（默认物体由 markNearShadow 统一加上） */
 export const NEAR_SHADOW_LAYER = 2;
@@ -16,13 +18,15 @@ export function markNearShadow(root: THREE.Object3D): void {
 }
 
 /** 各层阴影的远边界（米） */
-const SPLITS = [4, 40, 320, 2600];
+export const SHADOW_SPLITS = [4, 40, 320, 2600];
 /** 各层的法线偏移（约 1.5 个阴影纹素，避免自阴影条纹） */
 const NORMAL_BIAS = [0.006, 0.05, 0.3, 2.2];
 
 export class SunShadows {
   readonly light: THREE.DirectionalLight;
   readonly csm: CSMShadowNode;
+  /** 阳光颜色 × 强度（光源的颜色节点用它再乘上云影） */
+  readonly radiance = uniform(new THREE.Color(1, 1, 1));
   private dir = new THREE.Vector3(0.4, 0.8, 0.4).normalize();
   private mapSize: number;
   private configured = 0;
@@ -40,23 +44,26 @@ export class SunShadows {
     scene.add(l, l.target);
     this.light = l;
     this.csm = new CSMShadowNode(l, {
-      cascades: SPLITS.length,
-      maxFar: SPLITS[SPLITS.length - 1],
+      cascades: SHADOW_SPLITS.length,
+      maxFar: SHADOW_SPLITS[SHADOW_SPLITS.length - 1],
       mode: 'custom',
       customSplitsCallback: (n: number, _near: number, far: number, breaks: number[]) => {
-        for (let i = 0; i < n; i++) breaks.push(Math.min(1, SPLITS[i] / far));
+        for (let i = 0; i < n; i++) breaks.push(Math.min(1, SHADOW_SPLITS[i] / far));
       },
       lightMargin: 400,
     });
     this.csm.fade = true;
     void camera; // CSM 在第一次渲染时自动取当前相机并创建各层阴影
     l.shadow.shadowNode = this.csm;
+    // 云影：直射阳光再乘上头顶云层的透过率（与天空里看到的体积云是同一份密度，云影跟着云一起飘）
+    (l as THREE.DirectionalLight & { colorNode?: THREE.Node }).colorNode = this.radiance.mul(cloudShadow(positionWorld));
   }
 
   /** 光的颜色与强度（每帧由天空/天气给出） */
   setLight(color: THREE.Color, intensity: number): void {
     this.light.color.copy(color);
     this.light.intensity = intensity;
+    this.radiance.value.copy(color).multiplyScalar(intensity);
   }
 
   /** sunDir：指向太阳的单位向量 */
@@ -71,12 +78,9 @@ export class SunShadows {
     if (mapSize !== this.mapSize) {
       this.mapSize = mapSize;
       this.light.shadow.mapSize.set(mapSize, mapSize);
-      for (const c of this.csm.lights) {
-        const sh = c.shadow!;
-        sh.mapSize.set(mapSize, mapSize);
-        sh.map?.dispose();
-        sh.map = null;
-      }
+      // 节点版的阴影每帧按 mapSize 自己调整阴影贴图大小；不能把 shadow.map 置空（那是阴影节点创建的渲染目标，
+      // 置空后体积雾等需要读阴影贴图的效果就找不到它了）
+      for (const c of this.csm.lights) c.shadow!.mapSize.set(mapSize, mapSize);
     }
   }
 

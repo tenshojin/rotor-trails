@@ -114,6 +114,8 @@ export interface Settings {
   quality: QualityId;
   /** 光线追踪（屏幕空间：全局光照 + 反射 + 接触阴影），任意画质都可以单独开关 */
   rayTracing: boolean;
+  /** 体积雾与光束（丁达尔效应），中及以上画质生效 */
+  volumetric: boolean;
   renderScale: number;
   volMaster: number;
   volEngine: number;
@@ -139,6 +141,7 @@ export function defaultSettings(): Settings {
     lightning: true,
     quality: 'medium',
     rayTracing: false,
+    volumetric: true,
     renderScale: 1,
     volMaster: 0.8,
     volEngine: 0.8,
@@ -200,6 +203,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     lightning: bool(r.lightning, d.lightning),
     quality: pick(r.quality, ['low', 'medium', 'high', 'ultra'] as const, d.quality),
     rayTracing: bool(r.rayTracing, d.rayTracing),
+    volumetric: bool(r.volumetric, d.volumetric),
     renderScale: num(r.renderScale, 0.5, 1, d.renderScale),
     volMaster: num(r.volMaster, 0, 1, d.volMaster),
     volEngine: num(r.volEngine, 0, 1, d.volEngine),

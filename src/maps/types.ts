@@ -159,6 +159,8 @@ export interface BiomeDef {
   fogTint: number;
   /** 森林底色：地面被树冠覆盖区域 */
   forestFloor: number;
+  /** 贴地薄雾的浓淡（湿润的海边、雨林 > 1，干燥的高原、荒漠 < 1；默认 1） */
+  mist?: number;
 }
 
 export interface AmbienceDef {

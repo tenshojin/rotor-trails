@@ -112,6 +112,7 @@ export const TRAINING: MapDef = {
     waterShallow: 0x3c7a86,
     fogTint: 0xb8c8d8,
     forestFloor: 0x3e5a2c,
+    mist: 0.9,
   },
   sun: [215, 42],
   ambience: { birds: 0.5, wind: 0.4 },

@@ -338,6 +338,7 @@ export const CANYON: MapDef = {
     waterShallow: 0x5a8a8a,
     fogTint: 0xe6cfb4,
     forestFloor: 0x7a6a48,
+    mist: 0.5,
   },
   sun: [220, 34],
   ambience: { wind: 0.9, birds: 0.15 },

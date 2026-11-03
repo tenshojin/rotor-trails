@@ -320,6 +320,7 @@ export const HIMALAYA: MapDef = {
     waterShallow: 0x5a8aa0,
     fogTint: 0xd0dae6,
     forestFloor: 0x3a4430,
+    mist: 0.75,
   },
   sun: [160, 40],
   ambience: { wind: 1.2, birds: 0.1 },

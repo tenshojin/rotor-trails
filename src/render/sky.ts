@@ -18,6 +18,54 @@ const CUTOFF = 1.6110731556870734;
 const STEEP = 1.5;
 const EE = 1000;
 
+/**
+ * 体积云的共享参数：天空里看到的云、地面上的云影、体积雾里的云影（光束）用同一份，三者始终对得上。
+ * 同一时间只有一个天空穹顶，由它每帧更新。
+ */
+export const CLOUD = {
+  /** 云层底 / 顶高度（米，世界坐标） */
+  base: uniform(1500),
+  top: uniform(2800),
+  /** 云量 0..1 */
+  cover: uniform(0.3),
+  /** 风吹过的距离（米） */
+  windM: uniform(new THREE.Vector2()),
+  /** 指向太阳的单位向量 */
+  sunDir: uniform(new THREE.Vector3(0, 1, 0)),
+  /** 1 = 开启体积云（高、极高画质）：地面与体积雾里才有云影 */
+  on: uniform(0),
+};
+
+/** 云核心的消光系数（1/米） */
+const CLOUD_SIGMA = 0.045;
+
+/**
+ * 体积云密度（0..~1.6）。p：世界坐标。
+ * 大尺度覆盖图（随天气的云量）× 高度轮廓（底平、顶圆）× 三维 Perlin-Worley 形状，再用高频 Worley 侵蚀边缘。
+ */
+export function cloudDensity(p: THREE.Node<'vec3'>): THREE.Node<'float'> {
+  const noise3 = getCloudNoise3D();
+  const noise2 = getNoiseTexture();
+  const span = CLOUD.top.sub(CLOUD.base);
+  const hn = clamp(p.y.sub(CLOUD.base).div(span), 0.0, 1.0);
+  const q = p.xz.add(CLOUD.windM);
+  // 大尺度：让天空里有的地方云多、有的地方晴（几公里尺度）
+  const wm = texture(noise2, q.div(16000.0)).level(float(0)).r;
+  const cm = mix(0.75, 1.25, wm);
+  // 积云的高度轮廓：底部平整（很快变浓），往上逐渐收窄成圆顶
+  const prof = smoothstep(0.0, 0.1, hn).mul(float(1).sub(smoothstep(0.3, 1.0, hn)));
+  // 三维 Perlin-Worley 团块（菜花状），乘上高度轮廓后按云量取阈值
+  const uvw = vec3(q.x, p.y.mul(1.4), q.y).div(3400.0);
+  const shape = texture3D(noise3, uvw).level(float(0));
+  const d0 = shape.r.mul(shape.a.mul(0.35).add(0.65)).mul(prof).mul(cm);
+  const th = float(1).sub(CLOUD.cover.mul(0.85));
+  const base = clamp(d0.sub(th.mul(0.7)).div(float(1).sub(th.mul(0.7))), 0.0, 1.0);
+  // 高频 Worley 侵蚀边缘（越靠云边侵蚀越多），底部的侵蚀更强，显出絮状
+  const det = texture3D(noise3, uvw.mul(5.1).add(0.21)).level(float(0));
+  const ero = mix(det.g, det.b, hn).mul(0.38).mul(float(1).sub(base));
+  return clamp(base.sub(ero), 0.0, 1.0).mul(1.6);
+}
+
 /** 天空着色用的 uniform 节点（CPU 端每帧更新 .value） */
 function makeSkyUniforms(sunDir: THREE.Vector3, wind: THREE.Vector2) {
   return {
@@ -37,17 +85,17 @@ function makeSkyUniforms(sunDir: THREE.Vector3, wind: THREE.Vector2) {
     sunVis: uniform(1),
     cloudLit: uniform(new THREE.Color()),
     cloudDark: uniform(new THREE.Color()),
-    cover: uniform(0.3),
+    cover: CLOUD.cover,
     flash: uniform(0),
     /** 1 = 画太阳圆盘；烘焙环境贴图时设为 0（阳光高光由方向光负责） */
     disc: uniform(1),
     wind: uniform(wind),
     /** 体积云：相机世界坐标、云层底 / 顶高度（米）、步进次数（0 = 用二维云层）、风吹过的距离（米） */
     camPos: uniform(new THREE.Vector3()),
-    cloudBase: uniform(1500),
-    cloudTop: uniform(2800),
+    cloudBase: CLOUD.base,
+    cloudTop: CLOUD.top,
     steps: uniform(0),
-    windM: uniform(new THREE.Vector2()),
+    windM: CLOUD.windM,
     /** 云的环境光（天顶 / 地平线）与帧序号（抖动起点，配合时间抗锯齿收敛） */
     ambTop: uniform(new THREE.Color(0.5, 0.6, 0.75)),
     ambBottom: uniform(new THREE.Color(0.45, 0.5, 0.55)),
@@ -103,8 +151,9 @@ function skyColorNode(U: SkyU, noise: THREE.Texture) {
     // 云层（平面投影，地平线处变薄）
     const hh = max(h, 0.0);
     const cuv = d.xz.div(hh.add(0.1)).mul(0.06).add(U.wind);
-    const n = fbm(cuv.mul(0.5));
-    const cov = smoothstep(float(1).sub(U.cover).sub(0.08), float(1).sub(U.cover).add(0.32), n);
+    // 一个噪声周期约对应天空里一朵积云的大小（原来的 0.5 太大：整片天空只有一两个起伏，只剩一道弧线状的云）
+    const n = fbm(cuv.mul(3.0));
+    const cov = smoothstep(float(1).sub(U.cover).sub(0.2), float(1).sub(U.cover).add(0.22), n);
     const fade = smoothstep(-0.02, 0.14, h);
     const thick = smoothstep(float(1).sub(U.cover), 1.0, n);
     // 厚处暗、薄处亮，朝太阳一侧有逆光银边
@@ -132,30 +181,9 @@ function skyColorNode(U: SkyU, noise: THREE.Texture) {
  * “粉末”效应让朝阳面的薄边略暗、显出体积感。返回 vec4(散射光, 透过率)。
  */
 function volumetricClouds(U: SkyU) {
-  const noise3 = getCloudNoise3D();
-  const noise2 = getNoiseTexture();
-  const SIGMA = 0.045; // 云核心的消光系数（1/米）
+  const SIGMA = CLOUD_SIGMA;
   const hg = (c: THREE.Node<'float'>, g: number) => float(1 - g * g).div(pow(float(1 + g * g).sub(c.mul(2 * g)), 1.5));
-  const density = (p: THREE.Node<'vec3'>) => {
-    const span = U.cloudTop.sub(U.cloudBase);
-    const hn = clamp(p.y.sub(U.cloudBase).div(span), 0.0, 1.0);
-    const q = p.xz.add(U.windM);
-    // 大尺度：让天空里有的地方云多、有的地方晴（几公里尺度）
-    const wm = texture(noise2, q.div(16000.0)).level(float(0)).r;
-    const cm = mix(0.75, 1.25, wm);
-    // 积云的高度轮廓：底部平整（很快变浓），往上逐渐收窄成圆顶
-    const prof = smoothstep(0.0, 0.1, hn).mul(float(1).sub(smoothstep(0.3, 1.0, hn)));
-    // 三维 Perlin-Worley 团块（菜花状），乘上高度轮廓后按云量取阈值
-    const uvw = vec3(q.x, p.y.mul(1.4), q.y).div(3400.0);
-    const shape = texture3D(noise3, uvw).level(float(0));
-    const d0 = shape.r.mul(shape.a.mul(0.35).add(0.65)).mul(prof).mul(cm);
-    const th = float(1).sub(U.cover.mul(0.85));
-    const base = clamp(d0.sub(th.mul(0.7)).div(float(1).sub(th.mul(0.7))), 0.0, 1.0);
-    // 高频 Worley 侵蚀边缘（越靠云边侵蚀越多），底部的侵蚀更强，显出絮状
-    const det = texture3D(noise3, uvw.mul(5.1).add(0.21)).level(float(0));
-    const ero = mix(det.g, det.b, hn).mul(0.38).mul(float(1).sub(base));
-    return clamp(base.sub(ero), 0.0, 1.0).mul(1.6);
-  };
+  const density = cloudDensity;
   return Fn(([dIn]: [THREE.Node<'vec3'>]) => {
     const d = vec3(dIn);
     const acc = vec3(0.0).toVar();
@@ -368,6 +396,7 @@ export class SkyDome {
     u.windM.value.x -= windX * dt;
     u.windM.value.y -= windZ * dt;
     u.frame.value = (u.frame.value + 1) % 64;
+    CLOUD.sunDir.value.copy(this.sunDir);
     this.windOffset.x += windX * dt * 0.00004;
     this.windOffset.y += windZ * dt * 0.00004;
   }
@@ -375,6 +404,7 @@ export class SkyDome {
   /** 体积云的步进次数（0 = 用二维云层）与云层高度（米） */
   setVolumetric(steps: number, base?: number, top?: number): void {
     this.u.steps.value = steps;
+    CLOUD.on.value = steps > 0 ? 1 : 0;
     if (base !== undefined) this.u.cloudBase.value = base;
     if (top !== undefined) this.u.cloudTop.value = top;
   }

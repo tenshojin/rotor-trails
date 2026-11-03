@@ -20,7 +20,9 @@ import { buildPost, protectTransparent, type Post } from './post';
 import { markNearShadow, SunShadows } from './sunShadows';
 import { loadTerrainLayers } from './terrainLayers';
 import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrainView';
-import { makeForestTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
+import { makeForestTexture, makeGroundHeightTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
+import { fogMaps, VFOG } from './volumetricFog';
+import { updateCloudShadowMap } from './cloudShadowMap';
 import { TreeView, loadTreeLib } from './treeView';
 import { WaterView } from './water';
 import { CloudLayer, Lightning, RainFx } from './weatherFx';
@@ -173,11 +175,11 @@ export class WorldView {
   private buildPost(): void {
     if (!this.ready) return;
     const s = this.settings;
-    const key = `${s.quality}_${s.rayTracing}_${s.motionBlur}`;
+    const key = `${s.quality}_${s.rayTracing}_${s.motionBlur}_${s.volumetric}`;
     if (key === this.postKey && this.post) return;
     this.postKey = key;
     this.post?.dispose();
-    this.post = buildPost(this.renderer, this.scene, this.rig.camera, this.sun.light, { quality: s.quality, rayTracing: s.rayTracing, motionBlur: s.motionBlur });
+    this.post = buildPost(this.renderer, this.scene, this.rig.camera, this.sun, { quality: s.quality, rayTracing: s.rayTracing, motionBlur: s.motionBlur, volumetric: s.volumetric });
   }
 
   resize(): void {
@@ -200,7 +202,12 @@ export class WorldView {
     await tick();
     const surfaceTex = makeSurfaceTexture(world.surface, world.terrain.res);
     const forestTex = makeForestTexture(world.trees, map.size);
-    this.mapTextures.push(surfaceTex, forestTex);
+    // 体积雾：贴地薄雾按离地高度变淡、林区更浓
+    const groundTex = makeGroundHeightTexture(world.terrain, map.waterLevel);
+    this.mapTextures.push(surfaceTex, forestTex, groundTex);
+    fogMaps.height = groundTex;
+    fogMaps.forest = forestTex;
+    VFOG.mapSize.value = map.size;
     progress?.(0.84, '加载地形材质');
     const texSize = QUALITY[this.settings.quality].terrainTex;
     const layers = texSize > 0 ? await loadTerrainLayers(map.id, map.biome, texSize) : null;
@@ -274,6 +281,7 @@ export class WorldView {
     this.clouds?.dispose();
     for (const t of this.mapTextures) t.dispose();
     this.mapTextures = [];
+    fogMaps.height = fogMaps.forest = null;
     this.terrain = this.water = this.props = this.trees = this.nav = this.clouds = this.sky = null;
     this.world = null;
     this.envRT?.dispose();
@@ -365,6 +373,14 @@ export class WorldView {
       FOG.cloud.value = (1.65 / 90) * this.inCloud;
       FOG.heightK.value = 1 / 1100;
       FOG.baseY.value = this.fogBaseY;
+      // 体积雾（光束）：贴地薄雾的浓度随能见度与降雨变化，湿润的地图更浓；雾团随风飘动
+      VFOG.sun.value.copy(C.sun).multiplyScalar(C.sunIntensity);
+      VFOG.amb.value.copy(FOG.color.value).multiplyScalar(0.9);
+      VFOG.mist.value = Math.min(0.01, Math.max(0.0005, 8 / Math.max(300, w.visibility))) * (world.map.biome.mist ?? 1) * (1 + 0.6 * w.rain);
+      VFOG.mistH.value = 40 + 30 * w.rain;
+      VFOG.haze.value = Math.min(1e-4, 0.25 / Math.max(300, w.visibility)) * (0.6 + 0.4 * (world.map.biome.mist ?? 1));
+      VFOG.wind.value.x -= _w.x * f.dt;
+      VFOG.wind.value.z -= _w.z * f.dt;
       this.renderer.toneMappingExposure = 1.0 - w.overcast * 0.12 + this.flash * 0.6;
       const q = QUALITY[set.quality];
       // 分层阴影：视野或宽高比变了要重新划分；每帧把各层阴影框跟随相机（内部按纹素对齐，避免闪烁）
@@ -394,6 +410,8 @@ export class WorldView {
     }
     if (!this.ready) return;
     this.renderer.info.reset();
+    // 云影贴图（地面、建筑与体积雾里的云影都从这里查）
+    updateCloudShadowMap(this.renderer, cp);
     if (this.post) this.post.pipeline.render();
     else this.renderer.render(this.scene, cam);
     this.frameStats.calls = this.renderer.info.render.drawCalls;

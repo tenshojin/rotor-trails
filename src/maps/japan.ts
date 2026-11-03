@@ -335,6 +335,7 @@ export const JAPAN: MapDef = {
     waterShallow: 0x2a8a96,
     fogTint: 0xbdd2de,
     forestFloor: 0x2f4a26,
+    mist: 1.3,
   },
   sun: [235, 38],
   ambience: { sea: 1, gulls: 0.6, wind: 0.25 },

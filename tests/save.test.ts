@@ -78,6 +78,10 @@ describe('本地存档', () => {
     expect(d.settings.rayTracing).toBe(false);
     expect(sanitizeSettings({ rayTracing: true }).rayTracing).toBe(true);
     expect(sanitizeSettings({ rayTracing: 'yes' }).rayTracing).toBe(false);
+    // 体积雾开关：旧存档没有这个字段时默认开启
+    expect(d.settings.volumetric).toBe(true);
+    expect(sanitizeSettings({ volumetric: false }).volumetric).toBe(false);
+    expect(sanitizeSettings({ volumetric: 0 }).volumetric).toBe(true);
   });
 
   it('v1 存档的旧默认键位升级为新键位（下降 C、视角回正 Z），自定义键位保持不变', () => {

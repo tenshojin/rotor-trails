@@ -153,6 +153,29 @@ export function makeWaterDepthTexture(terrain: Heightfield, level: number): THRE
   return t;
 }
 
+/**
+ * 地表高度图（体积雾用：贴地的薄雾按“离地高度”变淡）。水面处取水面高度；
+ * 半浮点 RGBA（WebGPU 下可线性过滤），R = 高度（米）。
+ */
+export function makeGroundHeightTexture(terrain: Heightfield, waterLevel: number | null, N = 256): THREE.DataTexture {
+  const data = new Uint16Array(N * N * 4);
+  const one = THREE.DataUtils.toHalfFloat(1);
+  for (let z = 0; z < N; z++)
+    for (let x = 0; x < N; x++) {
+      const wx = -terrain.half + ((x + 0.5) / N) * terrain.size;
+      const wz = -terrain.half + ((z + 0.5) / N) * terrain.size;
+      const h = Math.max(terrain.heightAt(wx, wz), waterLevel ?? -Infinity);
+      const i = (z * N + x) * 4;
+      data[i] = THREE.DataUtils.toHalfFloat(h);
+      data[i + 3] = one;
+    }
+  const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat, THREE.HalfFloatType);
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  return t;
+}
+
 function hexRgb(hex: number): [number, number, number] {
   return [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255];
 }

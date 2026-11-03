@@ -298,6 +298,7 @@ export const AMAZON: MapDef = {
     waterShallow: 0x7a6a40,
     fogTint: 0xb8c4b0,
     forestFloor: 0x24401c,
+    mist: 1.6,
   },
   sun: [250, 52],
   ambience: { insects: 1, birds: 0.6, river: 0.6 },

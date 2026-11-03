@@ -349,6 +349,7 @@ export class UI {
         body.innerHTML =
           select('quality', '画质', (Object.keys(QUALITY) as Array<keyof typeof QUALITY>).map((q) => [q, QUALITY[q].label])) +
           check('rayTracing', '光线追踪', '全局光照 + 反射 + 接触阴影（屏幕空间光线步进），显卡负担较大') +
+          check('volumetric', '体积雾与光束', '贴地薄雾、穿过树林与云缝的光束（丁达尔效应）；中画质及以上生效') +
           range('renderScale', '渲染分辨率', 0.5, 1, 0.05, pct) +
           range('fov', '视野范围（FOV）', 50, 100, 1, (v) => `${Math.round(v)}°`) +
           range('viewCenter', '座舱视点居中（0% = 右侧机长座位）', 0, 1, 0.05, pct) +
