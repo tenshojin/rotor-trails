@@ -121,3 +121,17 @@ def screw_positions():
 
 # 遮光罩：后沿（朝向驾驶员）的平面轮廓 (X, Y) 与高度
 GLARE = dict(z_top=0.175, lip_y_center=1.555, lip_y_side=1.66, half_w=0.60, front_y=2.02)
+
+
+# 舱内标牌图集（placards.png，4 列 × 4 行，每格宽高比 2:1）：名字 → (列, 行)
+PLACARDS = {
+    'roof_warn': (0, 0), 'pilot': (1, 0), 'copilot': (2, 0), 'no_smoking': (3, 0),
+    'exit': (0, 1), 'fire_ext': (1, 1), 'door_open': (2, 1), 'compass_card': (3, 1),
+    'floor_load': (0, 2), 'belts': (1, 2), 'headset': (2, 2), 'caution_rotor': (3, 2),
+}
+
+
+def placard_uv(name):
+    """标牌在图集里的 UV 矩形 (u0, v0, u1, v1)（Blender UV 原点在左下）。"""
+    c, r = PLACARDS[name]
+    return (c / 4, 1 - (r + 1) / 4, (c + 1) / 4, 1 - r / 4)

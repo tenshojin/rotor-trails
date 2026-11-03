@@ -353,7 +353,59 @@ def build_decal():
     img.save(os.path.join(OUT, 'panel_decal.png'))
 
 
+def build_placards():
+    """舱内标牌图集（4 × 4 格，每格 2:1）：红底白字警示、黑底白字插孔牌、白底黑字说明牌、罗盘校正卡。"""
+    CW, CH = 1024, 512  # 每格绘制尺寸（输出时缩小一半）
+    img = Image.new('RGB', (CW * 4, CH * 4), (40, 40, 40))
+    d = ImageDraw.Draw(img)
+
+    def cell(name):
+        c, r = L.PLACARDS[name]
+        return c * CW, r * CH
+
+    def plate(name, bg, fg, lines, border=None, size=110):
+        x, y = cell(name)
+        d.rounded_rectangle([x + 8, y + 8, x + CW - 8, y + CH - 8], radius=36, fill=bg)
+        if border:
+            d.rounded_rectangle([x + 30, y + 30, x + CW - 30, y + CH - 30], radius=24, outline=border, width=10)
+        n = len(lines)
+        for i, (t, sz) in enumerate(lines):
+            f = font(sz or size, 'Bold')
+            d.text((x + CW / 2, y + CH / 2 + (i - (n - 1) / 2) * (sz or size) * 1.25), t, font=f, fill=fg, anchor='mm')
+
+    plate('roof_warn', (196, 30, 26), (250, 250, 245), [('CAUTION', 120), ('DO NOT LEAN', 90), ('ON ROOF WINDOW', 90)], border=(250, 250, 245))
+    plate('pilot', (16, 16, 18), (236, 236, 230), [('PILOT', 170)], border=(236, 236, 230))
+    plate('copilot', (16, 16, 18), (236, 236, 230), [('COPILOT', 150)], border=(236, 236, 230))
+    plate('no_smoking', (236, 236, 232), (20, 20, 20), [('NO SMOKING', 120), ('FASTEN SEAT BELTS', 90)])
+    plate('exit', (196, 30, 26), (250, 250, 245), [('EMERGENCY EXIT', 110), ('PULL HANDLE', 90)])
+    plate('fire_ext', (196, 30, 26), (250, 250, 245), [('FIRE', 150), ('EXTINGUISHER', 110)])
+    plate('door_open', (20, 20, 22), (242, 196, 40), [('OPEN       ', 170)])
+    x, y = cell('door_open')
+    d.polygon([(x + 860, y + 196), (x + 960, y + 256), (x + 860, y + 316)], fill=(242, 196, 40))  # 箭头（字体里没有箭头符号）
+    d.rectangle([x + 790, y + 236, x + 870, y + 276], fill=(242, 196, 40))
+    plate('floor_load', (236, 236, 232), (20, 20, 20), [('MAX FLOOR LOAD', 100), ('600 kg/m²', 110)])
+    plate('belts', (236, 236, 232), (20, 20, 20), [('SEAT BELT', 110), ('MUST BE FASTENED', 90)])
+    plate('headset', (16, 16, 18), (236, 236, 230), [('HEADSET', 150)])
+    plate('caution_rotor', (242, 196, 40), (20, 20, 20), [('WATCH', 120), ('ROTOR BLADES', 110)], border=(20, 20, 20))
+    # 罗盘校正卡：两行表格
+    x, y = cell('compass_card')
+    d.rectangle([x + 8, y + 8, x + CW - 8, y + CH - 8], fill=(238, 236, 228))
+    f = font(58, 'SemiBold')
+    heads = ['FOR', 'N', '30', '60', 'E', '120', '150']
+    vals = ['STEER', '358', '28', '57', '88', '121', '152']
+    heads2 = ['FOR', 'S', '210', '240', 'W', '300', '330']
+    vals2 = ['STEER', '182', '213', '242', '271', '298', '331']
+    for row, items in enumerate((heads, vals, heads2, vals2)):
+        for i, t in enumerate(items):
+            d.text((x + 95 + i * 128 + (40 if i else 0), y + 70 + row * 110), t, font=f, fill=(20, 20, 20), anchor="mm")
+    for row in range(1, 4):
+        d.line([x + 20, y + 15 + row * 110, x + CW - 20, y + 15 + row * 110], fill=(20, 20, 20), width=4)
+    img = img.resize((CW * 2, CH * 2), Image.LANCZOS)
+    img.save(os.path.join(OUT, 'placards.png'))
+
+
 if __name__ == '__main__':
     build_atlas()
     build_decal()
+    build_placards()
     print('ok', OUT)

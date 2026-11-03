@@ -14,6 +14,12 @@
       "wait": 3000
     },
     {
+      "eval": "(() => { window.__app.debugLook(0, -0.14); return 1; })()"
+    },
+    {
+      "wait": 1500
+    },
+    {
       "shot": "c1_forward.jpg"
     },
     {
@@ -32,25 +38,34 @@
       "wait": 1500
     },
     {
-      "shot": "c3_left.jpg"
+      "shot": "c3_right.jpg"
     },
     {
-      "eval": "(() => { window.__app.debugLook(-1.3, -0.3); return 1; })()"
+      "eval": "(() => { window.__app.debugLook(-1.2, -0.2); return 1; })()"
     },
     {
       "wait": 1500
     },
     {
-      "shot": "c4_right.jpg"
+      "shot": "c4_left.jpg"
     },
     {
-      "eval": "(() => { window.__app.debugTeleport(-640, 70, 700, 150, 30); window.__app.debugLook(-0.12, -0.45); return 1; })()"
+      "eval": "(() => { window.__app.debugLook(0.0, 0.9); return 1; })()"
     },
     {
-      "wait": 2500
+      "wait": 1500
     },
     {
-      "shot": "c5_sun_behind.jpg"
+      "shot": "c5_up.jpg"
+    },
+    {
+      "eval": "(() => { window.__app.debugLook(-0.6, -0.8); return 1; })()"
+    },
+    {
+      "wait": 1500
+    },
+    {
+      "shot": "c6_down_left.jpg"
     }
   ]
 }

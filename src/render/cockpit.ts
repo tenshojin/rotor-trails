@@ -50,6 +50,9 @@ export class Cockpit {
   private needles = new Map<string, Needle>();
   private screens: Screen[] = [];
   private ctl: Partial<Record<'cyclic' | 'collective' | 'pedalL' | 'pedalR', { obj: THREE.Object3D; base: THREE.Quaternion }>> = {};
+  /** 机长座椅与这一侧的操纵杆、脚蹬：随“座舱视点居中”左右移动（视点在哪，座椅和操纵杆就在哪） */
+  private pilotParts: Array<{ obj: THREE.Object3D; x: number }> = [];
+  private pilotDx = 0;
   private mats = new Set<THREE.Material>();
   private geos = new Set<THREE.BufferGeometry>();
   private textures: THREE.Texture[] = [];
@@ -139,7 +142,9 @@ export class Cockpit {
       else if (o.name === 'ctl_collective') this.ctl.collective = { obj: o, base: o.quaternion.clone() };
       else if (o.name === 'ctl_pedal_l') this.ctl.pedalL = { obj: o, base: o.quaternion.clone() };
       else if (o.name === 'ctl_pedal_r') this.ctl.pedalR = { obj: o, base: o.quaternion.clone() };
+      if (['seat_pilot', 'ctl_cyclic', 'ctl_collective', 'ctl_pedal_l', 'ctl_pedal_r'].includes(o.name)) this.pilotParts.push({ obj: o, x: o.position.x });
     });
+    this.setPilotOffset(this.pilotDx);
     this.root.add(scene);
     this.loaded = true;
   }
@@ -216,6 +221,12 @@ export class Cockpit {
     if (!n) return;
     _q.setFromAxisAngle(n.axis, -deg * DEG);
     n.obj.quaternion.copy(n.base).premultiply(_q);
+  }
+
+  /** 机长座椅、操纵杆、脚蹬相对真实位置的左右偏移（米，负 = 向机身中线） */
+  setPilotOffset(dx: number): void {
+    this.pilotDx = dx;
+    for (const p of this.pilotParts) p.obj.position.x = p.x + dx;
   }
 
   /** stick：周期变距（俯仰、滚转 -1..1），collective 0..1，pedal -1..1 */
