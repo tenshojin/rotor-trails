@@ -39,6 +39,11 @@
 - 更细致的直升机外观与旋翼下洗效果（扬尘、水面涟漪）。
 - 低配置设备的进一步优化（更激进的远景简化）。
 
-## 发布状态
+## 发布状态（2026-11-03）
 
-（推送到 GitHub 后在此记录真实结果。）
+- **代码**：已推送到私有仓库 https://github.com/tenshojin/rotor-trails ，分支 `main`。
+- **持续集成**：推送后 GitHub Actions “CI / Pages” 自动运行，`build` 任务通过（Ubuntu + Node 24：`npm ci`、类型检查、80 个测试全部通过、生产构建），用时约 40 秒。
+- **网页上线：尚未上线。** `deploy` 任务按设计跳过，GitHub Pages 没有开启，原因：
+  1. 私有仓库使用 GitHub Pages 需要付费方案（GitHub Pro / Team / Enterprise）；免费账号需要把仓库改为公开。
+  2. 开启 Pages 会让游戏网站对所有人公开可访问，属于仓库所有者的发布决定，没有得到授权前不擅自开启、也不改变仓库可见性。
+- 需要上线时：在 Settings → Pages 把 Source 设为 “GitHub Actions”，再新建仓库变量 `DEPLOY_PAGES=true`（或手动运行一次工作流）；部署完成后访问 Pages 网址验证。在本地也可以随时用 `npm run build` + `npm run preview` 运行生产版本。
