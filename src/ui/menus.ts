@@ -316,7 +316,7 @@ export class UI {
       <p><b>Rotor Trails（旋翼航迹）</b> — 第一人称拟真直升机闯关游戏。全部地形、建筑、植被、纹理、仪表与音效均为程序化生成，没有使用外部美术或音频素材。</p>
       <h3>第三方开源库</h3>
       <ul class="tips"><li>three.js — MIT License</li><li>Rapier（@dimforge/rapier3d-compat）— Apache License 2.0</li><li>开发工具：Vite（MIT）、TypeScript（Apache-2.0）、Vitest（MIT）</li></ul>
-      <p class="muted">详细信息见仓库中的 THIRD_PARTY_LICENSES.md。地图为虚构地形，仅体现日本海湾、美国西南峡谷、亚马孙雨林、挪威峡湾、尼泊尔高山的地貌特色，不对应真实地理位置。</p></div></div>`),
+      <p class="muted">许可证全文随游戏一起发布（网站根目录的 licenses.md），也可在仓库的 THIRD_PARTY_LICENSES.md 中查看。地图为虚构地形，仅体现日本海湾、美国西南峡谷、亚马孙雨林、挪威峡湾、尼泊尔高山的地貌特色，不对应真实地理位置。</p></div></div>`),
     );
     this.bind(el, { close: () => this.closeModal() });
   }

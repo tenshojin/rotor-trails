@@ -31,6 +31,18 @@ interface RunConfig {
 }
 
 
+/** 只有触屏、没有精确指针（手机/平板）时提示：本游戏需要键盘和鼠标 */
+function touchOnlyWarning(): string | null {
+  try {
+    if (window.matchMedia('(hover: none) and (pointer: coarse)').matches && !window.matchMedia('(any-pointer: fine)').matches) {
+      return '检测到触屏设备：本游戏需要键盘和鼠标操作，请在电脑浏览器中打开同一个链接。';
+    }
+  } catch {
+    /* 旧浏览器不支持 matchMedia：不提示 */
+  }
+  return null;
+}
+
 export class App {
   readonly save: SaveStore;
   settings: Settings;
@@ -173,7 +185,7 @@ export class App {
     this.input.active = false;
     this.input.exitLock();
     this.ui.main(
-      { warning: this.save.warning, tutorialDone: this.save.data.tutorialDone },
+      { warning: [touchOnlyWarning(), this.save.warning].filter(Boolean).join('<br>') || null, tutorialDone: this.save.data.tutorialDone },
       {
         play: () => this.mapSelect(),
         tutorial: () => void this.startRun({ map: getMap('training'), weather: 'clear', assist: 'novice', tutorial: true }),
