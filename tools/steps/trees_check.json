@@ -1,0 +1,184 @@
+{
+ "url": "http://localhost:5174/?map=japan&autostart=1&weather=clear",
+ "width": 1600,
+ "height": 900,
+ "steps": [
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { window.__tc = (type, dist, h, side, pitch) => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app, W = A.session.world, T = W.trees, n = W.map.nodes[0].pos; let best = -1, bd = 1e18; for (let i = 0; i < T.count; i++) { if (T.type[i] !== type) continue; const d = (T.x[i] - n[0]) ** 2 + (T.z[i] - n[2]) ** 2; if (d < bd) { bd = d; best = i; } } if (best < 0) return -1; const tx = T.x[best], ty = T.y[best], tz = T.z[best]; const clear = (x, z) => { for (let i = 0; i < T.count; i++) { const dx = T.x[i] - x, dz = T.z[i] - z; if (dx * dx + dz * dz < 26 * 26) return false; } return true; }; let cx = 0, cz = 0; for (let k = 0; k < 24; k++) { const a = (side ?? 0.7) + k * 0.26; cx = tx - Math.sin(a) * dist; cz = tz + Math.cos(a) * dist; if (clear(cx, cz)) break; } const y = Math.max(W.terrain.heightAt(cx, cz) + 8, ty + h); const hd = Math.atan2(tx - cx, -(tz - cz)) * 180 / Math.PI; A.debugTeleport(cx, y, cz, hd, 0); A.debugLook(0, pitch ?? Math.atan2(ty + 6 - y, dist)); return [best, Math.round(Math.sqrt(bd)), Math.round(y - ty)]; }; return 1; })()"
+  },
+  {
+   "eval": "window.__tc(0, 40, 9)",
+   "label": "t1_japan_pine"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "t1_japan_pine fps"
+  },
+  {
+   "shot": "t1_japan_pine.jpg"
+  },
+  {
+   "eval": "window.__tc(1, 45, 10, 2.2)",
+   "label": "t2_japan_broadleaf"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "t2_japan_broadleaf fps"
+  },
+  {
+   "shot": "t2_japan_broadleaf.jpg"
+  },
+  {
+   "eval": "window.__tc(0, 300, 110, 3.9, -0.32)",
+   "label": "t3_japan_overview"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "t3_japan_overview fps"
+  },
+  {
+   "shot": "t3_japan_overview.jpg"
+  },
+  {
+   "goto": "http://localhost:5174/?map=fjord&autostart=1&weather=clear"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { window.__tc = (type, dist, h, side, pitch) => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app, W = A.session.world, T = W.trees, n = W.map.nodes[0].pos; let best = -1, bd = 1e18; for (let i = 0; i < T.count; i++) { if (T.type[i] !== type) continue; const d = (T.x[i] - n[0]) ** 2 + (T.z[i] - n[2]) ** 2; if (d < bd) { bd = d; best = i; } } if (best < 0) return -1; const tx = T.x[best], ty = T.y[best], tz = T.z[best]; const clear = (x, z) => { for (let i = 0; i < T.count; i++) { const dx = T.x[i] - x, dz = T.z[i] - z; if (dx * dx + dz * dz < 26 * 26) return false; } return true; }; let cx = 0, cz = 0; for (let k = 0; k < 24; k++) { const a = (side ?? 0.7) + k * 0.26; cx = tx - Math.sin(a) * dist; cz = tz + Math.cos(a) * dist; if (clear(cx, cz)) break; } const y = Math.max(W.terrain.heightAt(cx, cz) + 8, ty + h); const hd = Math.atan2(tx - cx, -(tz - cz)) * 180 / Math.PI; A.debugTeleport(cx, y, cz, hd, 0); A.debugLook(0, pitch ?? Math.atan2(ty + 6 - y, dist)); return [best, Math.round(Math.sqrt(bd)), Math.round(y - ty)]; }; return 1; })()"
+  },
+  {
+   "eval": "window.__tc(5, 45, 10)",
+   "label": "t4_fjord_spruce"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "t4_fjord_spruce fps"
+  },
+  {
+   "shot": "t4_fjord_spruce.jpg"
+  },
+  {
+   "eval": "window.__tc(6, 40, 9, 1.6)",
+   "label": "t5_fjord_birch"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "t5_fjord_birch fps"
+  },
+  {
+   "shot": "t5_fjord_birch.jpg"
+  },
+  {
+   "goto": "http://localhost:5174/?map=amazon&autostart=1&weather=clear"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { window.__tc = (type, dist, h, side, pitch) => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app, W = A.session.world, T = W.trees, n = W.map.nodes[0].pos; let best = -1, bd = 1e18; for (let i = 0; i < T.count; i++) { if (T.type[i] !== type) continue; const d = (T.x[i] - n[0]) ** 2 + (T.z[i] - n[2]) ** 2; if (d < bd) { bd = d; best = i; } } if (best < 0) return -1; const tx = T.x[best], ty = T.y[best], tz = T.z[best]; const clear = (x, z) => { for (let i = 0; i < T.count; i++) { const dx = T.x[i] - x, dz = T.z[i] - z; if (dx * dx + dz * dz < 26 * 26) return false; } return true; }; let cx = 0, cz = 0; for (let k = 0; k < 24; k++) { const a = (side ?? 0.7) + k * 0.26; cx = tx - Math.sin(a) * dist; cz = tz + Math.cos(a) * dist; if (clear(cx, cz)) break; } const y = Math.max(W.terrain.heightAt(cx, cz) + 8, ty + h); const hd = Math.atan2(tx - cx, -(tz - cz)) * 180 / Math.PI; A.debugTeleport(cx, y, cz, hd, 0); A.debugLook(0, pitch ?? Math.atan2(ty + 6 - y, dist)); return [best, Math.round(Math.sqrt(bd)), Math.round(y - ty)]; }; return 1; })()"
+  },
+  {
+   "eval": "window.__tc(2, 170, 60, 0.7, -0.2)",
+   "label": "t6_amazon_canopy"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "t6_amazon_canopy fps"
+  },
+  {
+   "shot": "t6_amazon_canopy.jpg"
+  },
+  {
+   "eval": "window.__tc(4, 40, 9)",
+   "label": "t7_amazon_palm"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "t7_amazon_palm fps"
+  },
+  {
+   "shot": "t7_amazon_palm.jpg"
+  },
+  {
+   "eval": "window.__tc(2, 90, 34, 2.6, -0.06)",
+   "label": "t6b_amazon_low"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "t6b_amazon_low fps"
+  },
+  {
+   "shot": "t6b_amazon_low.jpg"
+  },
+  {
+   "goto": "http://localhost:5174/?map=canyon&autostart=1&weather=clear"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { window.__tc = (type, dist, h, side, pitch) => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app, W = A.session.world, T = W.trees, n = W.map.nodes[0].pos; let best = -1, bd = 1e18; for (let i = 0; i < T.count; i++) { if (T.type[i] !== type) continue; const d = (T.x[i] - n[0]) ** 2 + (T.z[i] - n[2]) ** 2; if (d < bd) { bd = d; best = i; } } if (best < 0) return -1; const tx = T.x[best], ty = T.y[best], tz = T.z[best]; const clear = (x, z) => { for (let i = 0; i < T.count; i++) { const dx = T.x[i] - x, dz = T.z[i] - z; if (dx * dx + dz * dz < 26 * 26) return false; } return true; }; let cx = 0, cz = 0; for (let k = 0; k < 24; k++) { const a = (side ?? 0.7) + k * 0.26; cx = tx - Math.sin(a) * dist; cz = tz + Math.cos(a) * dist; if (clear(cx, cz)) break; } const y = Math.max(W.terrain.heightAt(cx, cz) + 8, ty + h); const hd = Math.atan2(tx - cx, -(tz - cz)) * 180 / Math.PI; A.debugTeleport(cx, y, cz, hd, 0); A.debugLook(0, pitch ?? Math.atan2(ty + 6 - y, dist)); return [best, Math.round(Math.sqrt(bd)), Math.round(y - ty)]; }; return 1; })()"
+  },
+  {
+   "eval": "window.__tc(7, 30, 6)",
+   "label": "t8_canyon_juniper"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "t8_canyon_juniper fps"
+  },
+  {
+   "shot": "t8_canyon_juniper.jpg"
+  },
+  {
+   "eval": "window.__tc(9, 26, 5, 2.0)",
+   "label": "t9_canyon_cactus"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "t9_canyon_cactus fps"
+  },
+  {
+   "shot": "t9_canyon_cactus.jpg"
+  }
+ ]
+}

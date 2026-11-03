@@ -1,7 +1,9 @@
-// 植被渲染：每种树两级 LOD 的实例化网格；顶点着色器按真实风场摆动（风越大摆动越明显）。
+// 植被渲染：Blender 生成的树木模型（models/trees.glb，见 tools/blender/trees.py），每种树三级细节的实例化网格；
+// 顶点着色器按真实风场摆动（风越大摆动越明显），叶片另有细碎抖动。模型加载失败时退回程序几何体（两级细节）。
 // 低画质只缩短远景距离，碰撞相关的近处树木始终可见。
 
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TREE_SPECS, TREE_TYPES, type TreeSet } from '../world/vegetation';
 import type { TreeType } from '../maps/types';
@@ -197,35 +199,62 @@ function buildTree(type: TreeType): [THREE.BufferGeometry, THREE.BufferGeometry]
   }
 }
 
-export interface TreeQuality {
-  near: number;
-  far: number;
-  shadows: boolean;
+/** 模型库里的一个部件（同一材质的网格） */
+interface TreePart {
+  geometry: THREE.BufferGeometry;
+  /** GLB 里的原材质（只取贴图和颜色，渲染用 TreeView 自己的材质） */
+  source: THREE.MeshStandardMaterial;
+}
+/** 每种树三级细节，每级若干部件 */
+export type TreeLib = Map<TreeType, TreePart[][]>;
+
+const IDENTITY = new THREE.Matrix4();
+let libPromise: Promise<TreeLib | null> | null = null;
+
+/** 加载树木模型库（所有地图共用，只加载一次）；失败返回 null。 */
+export function loadTreeLib(): Promise<TreeLib | null> {
+  libPromise ??= (async () => {
+    try {
+      const gltf = await new GLTFLoader().loadAsync(new URL('models/trees.glb', document.baseURI).href);
+      gltf.scene.updateMatrixWorld(true);
+      const nodes = new Map<string, THREE.Object3D>();
+      for (const c of gltf.scene.children) nodes.set((c.userData.name as string | undefined) ?? c.name, c);
+      const lib: TreeLib = new Map();
+      for (const type of TREE_TYPES) {
+        const lods: TreePart[][] = [];
+        for (let l = 0; l < 3; l++) {
+          const node = nodes.get(`${type}_${l}`);
+          if (!node) break;
+          const parts: TreePart[] = [];
+          node.traverse((o) => {
+            const m = o as THREE.Mesh;
+            if (!m.isMesh) return;
+            const g = m.matrixWorld.equals(IDENTITY) ? m.geometry : m.geometry.clone().applyMatrix4(m.matrixWorld);
+            parts.push({ geometry: g, source: m.material as THREE.MeshStandardMaterial });
+          });
+          lods.push(parts);
+        }
+        if (lods.length === 3) lib.set(type, lods);
+      }
+      return lib.size ? lib : null;
+    } catch (e) {
+      console.warn('树木模型加载失败，使用程序几何体：', e);
+      return null;
+    }
+  })();
+  return libPromise;
 }
 
-export class TreeView {
-  readonly group = new THREE.Group();
-  private trees: TreeSet;
-  private meshes: Array<[THREE.InstancedMesh, THREE.InstancedMesh] | null> = [];
-  private byType: number[][] = [];
-  private lastPos = new THREE.Vector3(1e9, 0, 0);
-  private lastDir = new THREE.Vector3();
-  private lastT = -10;
-  private uniforms = { uTime: { value: 0 }, uWind: { value: new THREE.Vector2() }, uGust: { value: 0 } };
-  readonly material: THREE.MeshStandardMaterial;
-  quality: TreeQuality = { near: 420, far: 2200, shadows: true };
+type WindUniforms = { uTime: { value: number }; uWind: { value: THREE.Vector2 }; uGust: { value: number } };
 
-  constructor(trees: TreeSet) {
-    this.trees = trees;
-    this.material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
-    const U = this.uniforms;
-    this.material.onBeforeCompile = (shader) => {
-      Object.assign(shader.uniforms, U);
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform vec2 uWind;\nuniform float uGust;')
-        .replace(
-          '#include <begin_vertex>',
-          /* glsl */ `#include <begin_vertex>
+/** 风：树越高处弯得越多；叶片（TREE_LEAF）再加细碎抖动。 */
+function patchWind(shader: THREE.WebGLProgramParametersWithUniforms, U: WindUniforms, leaf: boolean): void {
+  Object.assign(shader.uniforms, U);
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', `#include <common>\nuniform float uTime;\nuniform vec2 uWind;\nuniform float uGust;${leaf ? '\n#define TREE_LEAF' : ''}`)
+    .replace(
+      '#include <begin_vertex>',
+      /* glsl */ `#include <begin_vertex>
 #ifdef USE_INSTANCING
 {
   vec3 ip = instanceMatrix[3].xyz;
@@ -238,41 +267,162 @@ export class TreeView {
   float sc = length(im[0]);
   vec3 lw = transpose(im) * vec3(wv.x, 0.0, wv.y) / (sc * sc);
   transformed += lw * bend;
+#ifdef TREE_LEAF
+  transformed += objectNormal * sin(uTime * 5.3 + dot(position, vec3(2.1, 1.7, 2.9)) + ph) * 0.035 * (0.3 + length(uWind) * 2.0) / sc;
+#endif
 }
 #endif`,
-        );
-    };
-    this.material.customProgramCacheKey = () => 'tree-v1';
+    );
+}
+
+/**
+ * 叶片片元：① 远处（较小的 mip 级别）按级别放大不透明度，避免叶片越远越稀；
+ * ② 双面渲染时背面不翻转法线（叶片法线朝树冠外侧，翻转会让背面发黑）。
+ */
+function patchLeafFragment(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      '#include <alphatest_fragment>',
+      /* glsl */ `#ifdef USE_MAP
+{
+  vec2 tsz = vec2(textureSize(map, 0));
+  vec2 ddx = dFdx(vMapUv * tsz), ddy = dFdy(vMapUv * tsz);
+  diffuseColor.a *= 1.0 + max(0.0, 0.5 * log2(max(dot(ddx, ddx), dot(ddy, ddy)))) * 0.25;
+}
+#endif
+#include <alphatest_fragment>`,
+    )
+    .replace('#include <normal_fragment_begin>', THREE.ShaderChunk.normal_fragment_begin.replace('normal *= faceDirection;', ''));
+}
+
+export interface TreeQuality {
+  near: number;
+  far: number;
+  shadows: boolean;
+  /** 多重采样抗锯齿开着时，叶片边缘用 alpha-to-coverage 柔化 */
+  aa?: boolean;
+}
+
+/** 一级细节的网格：各部件共用一份实例矩阵；tinted 是接收逐棵颜色变化的网格（叶片） */
+interface LodMeshes {
+  meshes: THREE.InstancedMesh[];
+  tinted: THREE.InstancedMesh[];
+}
+
+export class TreeView {
+  readonly group = new THREE.Group();
+  private trees: TreeSet;
+  private sets: Array<LodMeshes[] | null> = [];
+  private byType: number[][] = [];
+  private lastPos = new THREE.Vector3(1e9, 0, 0);
+  private lastDir = new THREE.Vector3();
+  private lastT = -10;
+  private uniforms: WindUniforms = { uTime: { value: 0 }, uWind: { value: new THREE.Vector2() }, uGust: { value: 0 } };
+  private materials = new Map<string, THREE.MeshStandardMaterial>();
+  private leafMats: THREE.MeshStandardMaterial[] = [];
+  private ownGeometry: THREE.BufferGeometry[] = [];
+  /** 是否用 Blender 模型（三级细节）；否则为程序几何体（两级） */
+  readonly modeled: boolean;
+  private q: TreeQuality = { near: 420, far: 2200, shadows: true, aa: false };
+
+  get quality(): TreeQuality {
+    return this.q;
+  }
+
+  set quality(q: TreeQuality) {
+    this.q = q;
+    const aa = !!q.aa;
+    for (const m of this.leafMats) {
+      if (m.alphaToCoverage === aa) continue;
+      m.alphaToCoverage = aa;
+      m.needsUpdate = true;
+    }
+    this.lastT = -10;
+  }
+
+  constructor(trees: TreeSet, lib: TreeLib | null = null) {
+    this.trees = trees;
+    this.modeled = lib !== null;
     for (let t = 0; t < TREE_TYPES.length; t++) this.byType.push([]);
     for (let i = 0; i < trees.count; i++) this.byType[trees.type[i]].push(i);
+    const white = new THREE.Color(1, 1, 1);
     TREE_TYPES.forEach((type, ti) => {
       const list = this.byType[ti];
       if (list.length === 0) {
-        this.meshes.push(null);
+        this.sets.push(null);
         return;
       }
-      const [g0, g1] = buildTree(type);
-      const m0 = new THREE.InstancedMesh(g0, this.material, list.length);
-      const m1 = new THREE.InstancedMesh(g1, this.material, list.length);
-      for (const m of [m0, m1]) {
-        m.count = 0;
-        m.frustumCulled = false;
-        m.receiveShadow = true;
-        m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-        this.group.add(m);
-      }
-      m0.castShadow = true;
-      // 分配逐实例颜色缓冲（每次重排时按树的编号重新写入，保证颜色固定）
-      m0.setColorAt(0, new THREE.Color(1, 1, 1));
-      m1.setColorAt(0, new THREE.Color(1, 1, 1));
-      this.meshes.push([m0, m1]);
+      const lods = lib?.get(type);
+      const geoSets = lods
+        ? lods.map((parts) => parts.map((p) => ({ g: p.geometry, mat: this.materialFor(p.source), tint: p.source.name.includes('leaves') })))
+        : buildTree(type).map((g) => {
+            this.ownGeometry.push(g);
+            return [{ g, mat: this.materialFor(null), tint: true }];
+          });
+      this.sets.push(
+        geoSets.map((parts) => {
+          const set: LodMeshes = { meshes: [], tinted: [] };
+          for (const part of parts) {
+            const m = new THREE.InstancedMesh(part.g, part.mat, list.length);
+            if (set.meshes.length) m.instanceMatrix = set.meshes[0].instanceMatrix;
+            else m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            m.count = 0;
+            m.frustumCulled = false;
+            m.receiveShadow = true;
+            if (part.tint) {
+              // 分配逐实例颜色缓冲（每次重排时按树的编号重新写入，保证颜色固定）
+              m.setColorAt(0, white);
+              set.tinted.push(m);
+            }
+            set.meshes.push(m);
+            this.group.add(m);
+          }
+          return set;
+        }),
+      );
     });
+  }
+
+  /** GLB 材质 → 带风摆的渲染材质（同名共用）；null = 程序几何体用的顶点色材质。 */
+  private materialFor(src: THREE.MeshStandardMaterial | null): THREE.MeshStandardMaterial {
+    const key = src ? src.name : '__procedural';
+    const hit = this.materials.get(key);
+    if (hit) return hit;
+    const U = this.uniforms;
+    const leaf = !!src && src.name.includes('leaves');
+    const still = !!src && src.name.includes('cactus');
+    let m: THREE.MeshStandardMaterial;
+    if (!src) {
+      m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
+    } else {
+      m = new THREE.MeshStandardMaterial({
+        map: src.map,
+        normalMap: src.normalMap,
+        normalScale: src.normalScale.clone(),
+        roughnessMap: src.roughnessMap,
+        color: src.color.clone(),
+        roughness: src.roughnessMap ? 1 : Math.max(0.6, src.roughness),
+        metalness: 0,
+        side: leaf ? THREE.DoubleSide : THREE.FrontSide,
+        alphaTest: leaf ? 0.5 : 0,
+      });
+      for (const t of [src.map, src.normalMap, src.roughnessMap]) if (t) t.anisotropy = 8;
+      if (leaf) this.leafMats.push(m);
+    }
+    m.onBeforeCompile = (shader) => {
+      if (!still) patchWind(shader, U, leaf);
+      if (leaf) patchLeafFragment(shader);
+    };
+    m.customProgramCacheKey = () => `tree-v2-${leaf ? 'leaf' : still ? 'still' : src ? 'bark' : 'proc'}`;
+    m.name = key;
+    this.materials.set(key, m);
+    return m;
   }
 
   /** windX/windZ：相机附近的风（m/s）；gust 0..1 */
   update(t: number, cam: THREE.Camera, windX: number, windZ: number, gust: number, force = false): void {
     this.uniforms.uTime.value = t;
-    (this.uniforms.uWind.value as THREE.Vector2).set(windX * 0.09, windZ * 0.09);
+    this.uniforms.uWind.value.set(windX * 0.09, windZ * 0.09);
     this.uniforms.uGust.value = gust;
     const pos = cam.position;
     const dir = new THREE.Vector3();
@@ -285,8 +435,10 @@ export class TreeView {
     this.lastDir.copy(dir);
     this.lastT = t;
     const T = this.trees;
-    const near2 = this.quality.near * this.quality.near;
-    const far2 = this.quality.far * this.quality.far;
+    const Q = this.q;
+    // 细节分级距离：模型树三级（近景全细节 / 中景简化 / 远景体块），程序树两级
+    const lim2 = (this.modeled ? [Math.min(Q.near * 0.42, 260), Q.near * 1.25] : [Q.near]).map((d) => d * d);
+    const far2 = Q.far * Q.far;
     const always2 = 300 * 300;
     const m4 = new THREE.Matrix4();
     const q = new THREE.Quaternion();
@@ -294,13 +446,12 @@ export class TreeView {
     const p = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0);
     const cosHalf = Math.cos(1.15);
+    const shadowLods = this.modeled ? 2 : 1;
     TREE_TYPES.forEach((_type, ti) => {
-      const pair = this.meshes[ti];
-      if (!pair) return;
-      const [m0, m1] = pair;
+      const sets = this.sets[ti];
+      if (!sets) return;
+      const counts = sets.map(() => 0);
       const list = this.byType[ti];
-      let n0 = 0;
-      let n1 = 0;
       for (let k = 0; k < list.length; k++) {
         const i = list[k];
         const dx = T.x[i] - pos.x;
@@ -311,40 +462,39 @@ export class TreeView {
           const d = Math.sqrt(d2);
           if ((dx * dir.x + dz * dir.z) / d < cosHalf) continue;
         }
+        let l = 0;
+        while (l < lim2.length && d2 >= lim2[l]) l++;
+        l = Math.min(l, sets.length - 1);
+        const set = sets[l];
+        const n = counts[l]++;
         q.setFromAxisAngle(up, T.rot[i]);
         s.setScalar(T.s[i]);
         p.set(T.x[i], T.y[i], T.z[i]);
         m4.compose(p, q, s);
-        const col = treeColor(T.x[i], T.z[i], ti);
-        if (d2 < near2) {
-          m0.setMatrixAt(n0, m4);
-          m0.setColorAt(n0, col);
-          n0++;
-        } else {
-          m1.setMatrixAt(n1, m4);
-          m1.setColorAt(n1, col);
-          n1++;
+        set.meshes[0].setMatrixAt(n, m4);
+        if (set.tinted.length) {
+          const col = treeColor(T.x[i], T.z[i], ti);
+          for (const m of set.tinted) m.setColorAt(n, col);
         }
       }
-      m0.count = n0;
-      m1.count = n1;
-      m0.instanceMatrix.needsUpdate = true;
-      m1.instanceMatrix.needsUpdate = true;
-      if (m0.instanceColor) m0.instanceColor.needsUpdate = true;
-      if (m1.instanceColor) m1.instanceColor.needsUpdate = true;
-      m0.castShadow = this.quality.shadows;
+      sets.forEach((set, l) => {
+        for (const m of set.meshes) {
+          m.count = counts[l];
+          m.castShadow = Q.shadows && l < shadowLods;
+        }
+        set.meshes[0].instanceMatrix.needsUpdate = true;
+        for (const m of set.tinted) if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      });
     });
   }
 
   dispose(): void {
-    for (const pair of this.meshes) {
-      if (!pair) continue;
-      for (const m of pair) {
-        m.geometry.dispose();
-        m.dispose();
-      }
+    for (const sets of this.sets) {
+      if (!sets) continue;
+      for (const set of sets) for (const m of set.meshes) m.dispose();
     }
-    this.material.dispose();
+    for (const g of this.ownGeometry) g.dispose();
+    for (const m of this.materials.values()) m.dispose();
   }
 }
 

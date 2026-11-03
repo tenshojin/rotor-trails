@@ -25,7 +25,7 @@ import { SunShadows } from './sunShadows';
 import { loadTerrainLayers } from './terrainLayers';
 import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrainView';
 import { makeForestTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
-import { TreeView } from './treeView';
+import { TreeView, loadTreeLib } from './treeView';
 import { WaterView } from './water';
 import { CloudLayer, Lightning, RainFx } from './weatherFx';
 import type { InstrumentData } from './instruments';
@@ -123,7 +123,7 @@ export class WorldView {
       this.terrain.lodScale = q.terrainLod;
       this.terrain.shadowRange = q.shadowRange;
     }
-    if (this.trees) this.trees.quality = { near: q.treeNear, far: q.treeFar, shadows: q.shadows };
+    if (this.trees) this.trees.quality = { near: q.treeNear, far: q.treeFar, shadows: q.shadows, aa: q.msaa > 0 };
     this.lightning.enabled = s.lightning;
     this.envKey = '';
     this.buildPost(dpr);
@@ -212,11 +212,11 @@ export class WorldView {
     progress?.(0.88, '构建建筑与植被');
     await tick();
     const modelFile = MODEL_FILES[map.id];
-    const [lib, detail] = await Promise.all([modelFile ? loadModelLib(modelFile) : Promise.resolve(null), loadDetailTextures()]);
+    const [lib, detail, treeLib] = await Promise.all([modelFile ? loadModelLib(modelFile) : Promise.resolve(null), loadDetailTextures(), loadTreeLib()]);
     this.modelLib = lib;
     this.props = new PropsView(world, this.modelLib, detail);
     this.scene.add(this.props.group);
-    this.trees = new TreeView(world.trees);
+    this.trees = new TreeView(world.trees, treeLib);
     this.scene.add(this.trees.group);
     this.nav = new NavView(map);
     this.scene.add(this.nav.group);
