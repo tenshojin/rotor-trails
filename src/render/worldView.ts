@@ -224,9 +224,9 @@ export class WorldView {
     this.scene.add(this.clouds.group);
     this.minimap = makeMinimapCanvas(map, world.terrain, world.trees);
     this.cockpit.minimap = this.minimap;
-    if (!this.cockpit.loaded) {
-      progress?.(0.92, '加载驾驶舱模型');
-      await this.cockpit.ready;
+    if (!this.cockpit.loaded || !this.heli.extLoaded) {
+      progress?.(0.92, '加载直升机模型');
+      await Promise.all([this.cockpit.ready, this.heli.ready]);
     }
     this.sun.setupObject(this.scene);
     this.applySettings(this.settings);
@@ -302,7 +302,8 @@ export class WorldView {
       this.rig.update(f.dt, f.t, _pos, _quat, _vel, load, { fov: set.fov, shake: set.shake, headMotion: set.headMotion });
       const cockpitView = this.rig.mode === 'cockpit';
       this.heli.setCockpitView(cockpitView);
-      this.cockpit.root.visible = cockpitView;
+      // 有 Blender 外观时座舱模型（含机身外壳）在追尾视角也显示：从外面能透过玻璃看到舱内
+      this.cockpit.root.visible = cockpitView || this.heli.extLoaded;
       this.cockpit.updateControls(tel.stickPitch, tel.stickRoll, tel.collective, tel.pedal);
       this.cockpit.updateGlass(f.t, weather.rain, tel.airspeed, s.buffs.shieldActive ? 0.25 + 0.15 * Math.sin(f.t * 6) : 0);
     } else if (idle) {
@@ -310,7 +311,7 @@ export class WorldView {
       cam.lookAt(idle.target);
       this.heli.root.visible = true;
       this.heli.setCockpitView(false);
-      this.cockpit.root.visible = false;
+      this.cockpit.root.visible = this.heli.extLoaded && this.cockpit.loaded;
       this.heli.update(f.t, f.dt, 1);
     }
     cam.updateMatrixWorld();

@@ -4,7 +4,10 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { HELI } from '../config/flight';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { getGlowTexture } from './propsView';
+
+const EXT_URL = 'models/heli_ext.glb';
 
 function painted(g: THREE.BufferGeometry, fn: (x: number, y: number, z: number) => number): THREE.BufferGeometry {
   const pos = g.getAttribute('position');
@@ -46,6 +49,15 @@ export class HeliModel {
   private tailAngle = 0;
   readonly skids = new THREE.Group();
   private mats: THREE.Material[] = [];
+  /** 程序生成的外观部件（Blender 外观模型加载成功后隐藏） */
+  private proc: THREE.Object3D[] = [];
+  /** Blender 外观模型（models/heli_ext.glb）已加载 */
+  extLoaded = false;
+  private glbBladeMats: THREE.MeshStandardMaterial[] = [];
+  private glbGeos: THREE.BufferGeometry[] = [];
+  private rotorSpin = new THREE.Group();
+  /** 外观模型加载完成（失败也会 resolve，extLoaded 为 false） */
+  readonly ready: Promise<void>;
 
   constructor() {
     const body = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.38, metalness: 0.25 });
@@ -102,6 +114,7 @@ export class HeliModel {
     const boomMesh = new THREE.Mesh(painted(boom, (x, y) => (y > 0.68 ? 0xe6e8ea : 0xd2542a)), body);
     boomMesh.castShadow = true;
     this.root.add(boomMesh); // 驾驶舱里向后看也能看到尾梁
+    this.proc.push(boomMesh);
 
     // 垂尾与平尾
     const fin = new THREE.Shape();
@@ -113,16 +126,22 @@ export class HeliModel {
     const finG = new THREE.ExtrudeGeometry(fin, { depth: 0.08, bevelEnabled: false });
     finG.rotateY(-Math.PI / 2);
     finG.translate(0.04, 0.55, 6.4);
-    this.root.add(new THREE.Mesh(painted(finG, () => 0xd2542a), body));
+    const finMesh = new THREE.Mesh(painted(finG, () => 0xd2542a), body);
+    this.root.add(finMesh);
+    this.proc.push(finMesh);
     const stab = new THREE.BoxGeometry(2.2, 0.06, 0.55);
     stab.translate(0, 0.62, 5.6);
-    this.root.add(new THREE.Mesh(painted(stab, () => 0xe6e8ea), body));
+    const stabMesh = new THREE.Mesh(painted(stab, () => 0xe6e8ea), body);
+    this.root.add(stabMesh);
+    this.proc.push(stabMesh);
 
     // 尾桨
     this.tailRotor.position.set(-0.32, HELI.colliders.tailRotorY + 0.15, HELI.colliders.tailRotorZ);
     const tb = new THREE.BoxGeometry(0.04, 1.5, 0.14);
     const tb2 = tb.clone().rotateX(Math.PI / 2);
-    this.tailRotor.add(new THREE.Mesh(mergeGeometries([tb, tb2]), dark));
+    const trMesh = new THREE.Mesh(mergeGeometries([tb, tb2]), dark);
+    this.tailRotor.add(trMesh);
+    this.proc.push(trMesh);
     const tdm = new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false });
     this.mats.push(tdm);
     this.tailDisc = new THREE.Mesh(new THREE.CircleGeometry(0.75, 20).rotateY(Math.PI / 2), tdm);
@@ -133,9 +152,13 @@ export class HeliModel {
     this.rotor.position.set(0, HELI.hubHeight, 0);
     const mast = new THREE.CylinderGeometry(0.09, 0.12, 0.55, 10);
     mast.translate(0, -0.25, 0);
-    this.rotor.add(new THREE.Mesh(mast, dark));
+    const mastMesh = new THREE.Mesh(mast, dark);
+    this.rotor.add(mastMesh);
+    this.proc.push(mastMesh);
     const hub = new THREE.CylinderGeometry(0.28, 0.28, 0.18, 12);
-    this.rotor.add(new THREE.Mesh(hub, dark));
+    const hubMesh = new THREE.Mesh(hub, dark);
+    this.rotor.add(hubMesh);
+    this.proc.push(hubMesh);
     this.bladeMat = new THREE.MeshStandardMaterial({ color: 0x2a2d32, roughness: 0.5, metalness: 0.3, transparent: true, opacity: 1 });
     this.mats.push(this.bladeMat);
     const bladeParts: THREE.BufferGeometry[] = [];
@@ -148,6 +171,7 @@ export class HeliModel {
     this.blades = new THREE.Mesh(mergeGeometries(bladeParts), this.bladeMat);
     this.blades.castShadow = true;
     this.rotor.add(this.blades);
+    this.proc.push(this.blades);
     // 模糊桨盘：径向条纹贴图
     const cv = document.createElement('canvas');
     cv.width = cv.height = 256;
@@ -194,6 +218,7 @@ export class HeliModel {
     this.skids.traverse((o) => (o.castShadow = true));
     this.root.add(this.skids);
     this.root.add(this.exterior);
+    this.proc.push(this.skids, this.exterior);
 
     // 灯光
     const glow = getGlowTexture();
@@ -208,10 +233,50 @@ export class HeliModel {
     };
     this.navLights.push(mk(0xff2a1a, -1.05, 0.1, -0.2, 0.5), mk(0x30ff60, 1.05, 0.1, -0.2, 0.5), mk(0xffffff, 0, 0.8, 7.1, 0.45));
     this.beacon = mk(0xff3010, 0, 1.45, 1.2, 1.2);
+    this.ready = this.loadExt().catch((e) => console.warn('外观模型加载失败，使用程序外观：', e));
+  }
+
+  /** 加载 Blender 外观模型；成功后隐藏程序生成的外观（失败时保留，游戏照常可玩）。 */
+  private async loadExt(): Promise<void> {
+    const gltf = await new GLTFLoader().loadAsync(new URL(EXT_URL, document.baseURI).href);
+    const scene = gltf.scene;
+    scene.updateMatrixWorld(true);
+    const body = scene.getObjectByName('ext_body');
+    const main = scene.getObjectByName('main_rotor');
+    const tail = scene.getObjectByName('tail_rotor');
+    if (!body || !main || !tail) throw new Error('heli_ext.glb 缺少节点');
+    for (const o of this.proc) o.visible = false;
+    scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.castShadow = true;
+      m.receiveShadow = true;
+      this.glbGeos.push(m.geometry);
+      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) this.mats.push(mat);
+    });
+    this.root.add(body);
+    // 主旋翼：桨毂与桨叶放进一个随转速旋转的子组（桨毂位置与程序旋翼相同）
+    this.rotor.position.copy(main.position);
+    this.rotor.add(this.rotorSpin);
+    for (const c of [...main.children]) this.rotorSpin.add(c);
+    this.rotorSpin.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && m.name.startsWith('blades')) {
+        for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+          const sm = mat as THREE.MeshStandardMaterial;
+          sm.transparent = true;
+          this.glbBladeMats.push(sm);
+        }
+      }
+    });
+    this.tailRotor.position.copy(tail.position);
+    for (const c of [...tail.children]) this.tailRotor.add(c);
+    this.extLoaded = true;
   }
 
   setCockpitView(cockpit: boolean): void {
-    this.exterior.visible = !cockpit;
+    // Blender 外观模型从座舱里只能透过顶窗看到整流罩与旋翼，始终显示；程序外观在座舱视角时隐藏
+    if (!this.extLoaded) this.exterior.visible = !cockpit;
   }
 
   /** rpm：旋翼转速比例（0..1），t：时间，dt：帧间隔 */
@@ -220,10 +285,15 @@ export class HeliModel {
     this.rotorAngle = (this.rotorAngle + omega * dt) % (Math.PI * 2);
     this.tailAngle = (this.tailAngle + omega * 5.2 * dt) % (Math.PI * 2);
     this.blades.rotation.y = this.rotorAngle;
+    this.rotorSpin.rotation.y = this.rotorAngle;
     // 高转速时桨叶变透明、显示模糊桨盘（避免频闪）
     const blur = Math.min(1, Math.max(0, (rpm - 0.3) / 0.5));
     this.bladeMat.opacity = 1 - blur * 0.82;
     this.bladeMat.depthWrite = blur < 0.5;
+    for (const m of this.glbBladeMats) {
+      m.opacity = 1 - blur * 0.82;
+      m.depthWrite = blur < 0.5;
+    }
     this.discMat.opacity = blur * 0.55;
     this.disc.rotation.y = -this.rotorAngle * 0.13;
     this.tailRotor.rotation.x = this.tailAngle;
@@ -237,6 +307,7 @@ export class HeliModel {
     this.root.traverse((o) => {
       if ((o as THREE.Mesh).geometry) (o as THREE.Mesh).geometry.dispose();
     });
+    for (const g of this.glbGeos) g.dispose();
     for (const m of this.mats) m.dispose();
   }
 }

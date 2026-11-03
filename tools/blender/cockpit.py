@@ -18,6 +18,7 @@ from mathutils import Matrix, Vector
 sys.path.insert(0, os.path.dirname(__file__))
 import bkit as K  # noqa: E402
 import cockpit_layout as L  # noqa: E402
+import heli_shape as HS  # noqa: E402
 
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 OUT_GLB = argv[0] if argv else 'public/models/cockpit.glb'
@@ -48,6 +49,8 @@ def mats():
     M['lining'] = K.material('cp_lining', 0x878b8f, rough=0.82)
     M['lining_d'] = K.material('cp_lining_dark', 0x55595e, rough=0.8)
     M['paint'] = K.material('cp_paint', 0xe9eaeb, rough=0.32, coat=0.3)
+    M['paint_dark'] = K.material('cp_paint_dark', 0x1f2a3a, rough=0.36, coat=0.3)
+    M['paint_stripe'] = K.material('cp_paint_stripe', 0xc0281e, rough=0.34, coat=0.3)
     M['floor'] = K.material('cp_floor', 0x34363a, rough=0.88)
     M['fabric'] = K.material('cp_fabric', 0x9a9a9c, rough=1.0,
                              tex='art/out/tex/poly_wool_herringbone_diffuse_1024.jpg',
@@ -172,55 +175,9 @@ def D(ob, **extras):
 
 
 # ------------------------------------------------------------------ 机身外壳（截面放样）
-# (Y, 半宽 W, 顶 Zt, 底 Zb, 超椭圆指数 e)
-STATIONS = [
-    (-1.32, 0.84, 0.80, -0.80, 3.0),
-    (-1.00, 0.92, 0.92, -0.92, 3.3),
-    (0.00, 0.94, 0.95, -0.95, 3.5),
-    (0.80, 0.94, 0.95, -0.95, 3.4),
-    (1.20, 0.925, 0.91, -0.95, 3.1),
-    (1.60, 0.875, 0.74, -0.93, 2.8),
-    (1.95, 0.76, 0.50, -0.88, 2.5),
-    (2.20, 0.585, 0.26, -0.76, 2.25),
-    (2.36, 0.36, 0.04, -0.57, 2.1),
-    (2.445, 0.12, -0.12, -0.39, 2.0),
-]
-Y_TIP = 2.47
-Z_TIP = -0.255
-
-
-def section(y):
-    st = STATIONS
-    if y <= st[0][0]:
-        return st[0][1:]
-    if y >= st[-1][0]:
-        return st[-1][1:]
-    for i in range(len(st) - 1):
-        if st[i][0] <= y <= st[i + 1][0]:
-            break
-    p0 = st[max(0, i - 1)]
-    p1, p2 = st[i], st[i + 1]
-    p3 = st[min(len(st) - 1, i + 2)]
-    t = (y - p1[0]) / (p2[0] - p1[0])
-    out = []
-    for k in range(1, 5):
-        # 非均匀 Catmull-Rom（按 Y 间距缩放切线）
-        h = p2[0] - p1[0]
-        m1 = (p2[k] - p0[k]) / (p2[0] - p0[0]) * h if p2[0] != p0[0] else 0
-        m2 = (p3[k] - p1[k]) / (p3[0] - p1[0]) * h if p3[0] != p1[0] else 0
-        t2, t3 = t * t, t * t * t
-        out.append((2 * t3 - 3 * t2 + 1) * p1[k] + (t3 - 2 * t2 + t) * m1 + (-2 * t3 + 3 * t2) * p2[k] + (t3 - t2) * m2)
-    return out
-
-
-def spow(x, p):
-    return math.copysign(abs(x) ** p, x)
-
-
-def ring_point(y, t):
-    W, Zt, Zb, e = section(y)
-    zc, H = (Zt + Zb) / 2, (Zt - Zb) / 2
-    return Vector((W * spow(math.cos(t), 2 / e), y, zc + H * spow(math.sin(t), 2 / e)))
+# 截面数据与插值见 heli_shape.py（与外观模型共用）
+STATIONS, Y_TIP, Z_TIP = HS.STATIONS, HS.Y_TIP, HS.Z_TIP
+section, spow, ring_point = HS.section, HS.spow, HS.ring_point
 
 
 def shell_surface(name, mat_list, inset=0.0):
@@ -233,9 +190,9 @@ def shell_surface(name, mat_list, inset=0.0):
     NT = 160
     verts, faces = [], []
     for y in ys:
-        for i in range(NT):
-            p = ring_point(y, 2 * math.pi * i / NT)
-            verts.append(p)
+        # 涂装分色线处吸附一圈顶点（边界平滑，不出现锯齿）
+        for t in HS.ring_ts(*section(y), NT):
+            verts.append(ring_point(y, t))
     nr = len(ys)
     for r in range(nr - 1):
         for i in range(NT):
@@ -375,6 +332,14 @@ def build_shell():
     for _, c, _kind in cutters:
         K.boolean(shell, c, 'DIFFERENCE', 'MANIFOLD')
     K.apply_mods(shell)
+    # 涂装：外表面（材质 0）按位置分成白色、腹部深灰蓝、红色腰线
+    me = shell.data
+    me.materials.append(M['paint_dark'])
+    me.materials.append(M['paint_stripe'])
+    slots = {0: 0, 1: len(me.materials) - 2, 2: len(me.materials) - 1}
+    for poly in me.polygons:
+        if poly.material_index == 0:
+            poly.material_index = slots[HS.livery_slot(poly.center)]
     # 玻璃：外表面向内 6 mm，取窗口范围（略大）内的面
     glass = {}
     surf = shell_surface('glass_src', [M['glass']], inset=0.006)
@@ -957,7 +922,7 @@ if DO_BAKE:
     t0 = time.time()
     whole = K.join(static, 'cockpit_static')
     static = [whole]
-    AO_WEIGHT = {'cp_paint': 0.02, 'cp_lining': 0.35, 'cp_floor': 0.5, 'cp_lining_dark': 0.7, 'cp_fabric': 0.8,
+    AO_WEIGHT = {'cp_paint': 0.02, 'cp_paint_dark': 0.02, 'cp_paint_stripe': 0.02, 'cp_lining': 0.35, 'cp_floor': 0.5, 'cp_lining_dark': 0.7, 'cp_fabric': 0.8,
                  'cp_panelfront': 3.0, 'cp_gauges': 2.0, 'cp_black': 1.6, 'cp_knob': 1.6, 'cp_glare': 1.0}
     K.smart_uv(whole, 'AO', angle=60.0, margin=0.0015, weight=lambda n: AO_WEIGHT.get(n, 1.0))
     lay = whole.data.uv_layers['AO']
