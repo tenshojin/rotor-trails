@@ -55,6 +55,10 @@ MATS = {
     'adobe_light': ('adobe_light', 'clay_plaster', 2.0, 1.0, 0.0),
     'maroon': ('plaster_maroon', 'clay_plaster', 2.0, 1.0, 0.0),
     'brick': ('red_sandstone_wall', 'red_sandstone_wall', 2.0, 1.0, 0.0),
+    # 日本民居（jtex.py / tex_variants.py 生成）
+    'kawara_flat': ('kawara_flat', 'kawara_flat', 4.8, 1.0, 0.15),
+    'granite': ('granite', 'concrete_wall_008', 1.0, 1.0, 0.0),
+    'sugi': ('sugi_weathered', 'japanese_cedar_planks', 1.2, 1.0, 0.0),
 }
 TILE = {}
 
@@ -338,8 +342,9 @@ def model(name, objs, coll=None):
 
 
 def export(path, roots):
+    """建筑模型导出：位置 12 位（十几米的模型约 3 mm）、法线 9 位、UV 12 位（压缩级别 6：对这类模型比更高级别还小）。"""
     objs = []
     for r in roots:
         objs.append(r)
         objs.extend(r.children)
-    K.export_glb(path, objs)
+    K.export_glb(path, objs, qpos=12, qnorm=9, qtex=12, level=6)

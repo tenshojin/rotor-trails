@@ -33,6 +33,7 @@ def colorize(src, rgb, contrast=1.0, mix=1.0):
 a = load('japanese_cedar_planks')
 save(colorize(a, (0.23, 0.15, 0.10), 1.3), 'yakisugi')  # 炭化杉板（深褐）
 save(colorize(a, (0.52, 0.38, 0.24), 1.1), 'cedar_brown')  # 普通杉板（中褐）
+save(colorize(a, (0.34, 0.19, 0.12), 1.35), 'sugi_weathered')  # 风化杉板（鞆之浦町家的红褐色竖板）
 a = load('grey_roof_tiles')
 save(colorize(a, (0.25, 0.27, 0.30), 1.25), 'kawara')  # 蓝灰瓦（去掉黄色苔藓）
 a = load('distressed_painted_planks')

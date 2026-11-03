@@ -4,8 +4,11 @@ import * as THREE from 'three';
 import type { MatKey, ModelInstance } from '../world/propBuilder';
 import type { WorldData } from '../world/worldgen';
 import { addDetail, DETAIL } from './detailTextures';
-import { instanceModel, type ModelLib } from './modelLib';
+import { instanceModel, LodModel, type ModelLib } from './modelLib';
 import { getNoiseTexture } from './textures';
+
+/** 三级细节模型的切换距离（米，再乘画质系数）：近景几何细节 → 中景贴图 → 远景体块 */
+const LOD_DIST: [number, number] = [110, 420];
 
 let glowTex: THREE.CanvasTexture | null = null;
 export function getGlowTexture(): THREE.CanvasTexture {
@@ -89,6 +92,9 @@ export class PropsView {
   private geos: THREE.BufferGeometry[] = [];
   /** 模型实例（几何体与材质属于模型库，由模型库释放） */
   private instanced: THREE.InstancedMesh[] = [];
+  private lods: LodModel[] = [];
+  /** 细节分级距离系数（随画质：低 0.7 … 极高 1.7） */
+  lodScale = 1;
 
   constructor(world: WorldData, lib: ModelLib | null = null, detail: THREE.DataArrayTexture | null = null) {
     this.materials = makeMaterials(detail);
@@ -101,7 +107,18 @@ export class PropsView {
       byName.set(inst.name, arr);
     }
     for (const [name, list] of byName) {
-      for (const im of instanceModel(lib!.templates.get(name)!, list)) {
+      const t = lib!.templates;
+      if (t.has(`${name}@1`) && t.has(`${name}@2`)) {
+        // 三级细节：近景几何瓦与全部细节 → 中景贴图屋面 → 远景体块
+        const lod = new LodModel([t.get(name)!, t.get(`${name}@1`)!, t.get(`${name}@2`)!], list, LOD_DIST);
+        this.lods.push(lod);
+        for (const im of lod.meshes) {
+          this.instanced.push(im);
+          this.group.add(im);
+        }
+        continue;
+      }
+      for (const im of instanceModel(t.get(name)!, list)) {
         this.instanced.push(im);
         this.group.add(im);
       }
@@ -306,6 +323,7 @@ export class PropsView {
 
   /** windAt(x,y,z) 返回该处的空气速度（来自仿真风场）。 */
   update(t: number, camPos: THREE.Vector3, windAt: (p: THREE.Vector3, out: THREE.Vector3) => THREE.Vector3): void {
+    for (const l of this.lods) l.update(camPos, this.lodScale);
     const w = new THREE.Vector3();
     for (const s of this.socks) {
       if (s.pos.distanceToSquared(camPos) > 2500 * 2500) continue;

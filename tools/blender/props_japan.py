@@ -12,6 +12,7 @@ from mathutils import Vector
 sys.path.insert(0, os.path.dirname(__file__))
 import bkit as K  # noqa: E402
 import bldkit as BK  # noqa: E402
+import jhouse as JH  # noqa: E402
 
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 OUT = argv[0] if argv else 'public/models/props_japan.glb'
@@ -36,70 +37,14 @@ HULL_COLORS = [0xeeeeea, 0x2f62b0, 0xb8322a, 0x3c8a4a]
 ROOTS = []
 
 
-# ------------------------------------------------------------------ 民居
-def jhouse(name, two_story, wall_style):
-    """参考尺寸 w=8.5 m（X）、d=7 m（Y），墙高 3 m（台基 0.5 m 上）。门在 +Y 面（游戏局部 -z）。"""
-    w, d, h = 8.5, 7.0, 3.0
-    parts = []
-    # 花岗岩台基
-    parts.append(BK.bx('base', (w + 0.2, d + 0.2, 0.5), (0, 0, 0.25), M('concrete')))
-    z0 = 0.5
-    lower = M('yakisugi') if wall_style == 'wood' else M('plaster')
-    upper = M('plaster')
-    split = 1.2 if wall_style == 'wood' else 0.9
-    # 下段：杉板（或灰泥墙裙），上段：白灰泥；两段之间一道深色腰线
-    parts.append(BK.bx('wall_lo', (w, d, split), (0, 0, z0 + split / 2), lower if wall_style == 'wood' else M('yakisugi')))
-    parts.append(BK.bx('wall_hi', (w - 0.04, d - 0.04, h - 0.5 - split), (0, 0, z0 + split + (h - 0.5 - split) / 2), upper))
-    parts.append(BK.bx('band', (w + 0.04, d + 0.04, 0.12), (0, 0, z0 + split), DARKWOOD, uv=False))
-    parts.append(BK.bx('beam', (w + 0.06, d + 0.06, 0.18), (0, 0, h - 0.09), DARKWOOD, uv=False))
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            parts.append(BK.bx('post', (0.16, 0.16, h - 0.5), (sx * (w / 2 - 0.02), sy * (d / 2 - 0.02), z0 + (h - 0.5) / 2), DARKWOOD, uv=False))
-    # 正面（+Y）：推拉门（木格 + 玻璃）+ 一扇格子窗
-    door_x = -w * 0.18
-    parts += BK.window('door', (door_x, d / 2 + 0.01, z0 + 0.95), 1.6, 1.9, '+Y', DARKWOOD, F('door_glass', 0x3a3a32, rough=0.3), lattice=(DARKWOOD, 0.11, 0.035), mullion=True)
-    parts.append(BK.bx('door_hood', (2.4, 0.9, 0.12), (door_x, d / 2 + 0.45, z0 + 2.15), M('kawara')))
-    parts += BK.window('fwin', (w * 0.22, d / 2 + 0.01, z0 + 1.35), 2.0, 1.0, '+Y', DARKWOOD, GLASS, lattice=(DARKWOOD, 0.09, 0.03))
-    # 背面与两侧：铝合金推拉窗
-    for i, x in enumerate((-w * 0.28, w * 0.24)):
-        parts += BK.window(f'bwin{i}', (x, -d / 2 - 0.01, z0 + 1.45), 1.7, 1.0, '-Y', FRAME, GLASS)
-    parts += BK.window('swin', (w / 2 + 0.01, 0.6, z0 + 1.45), 1.2, 0.9, '+X', FRAME, GLASS)
-    parts += BK.window('swin2', (-w / 2 - 0.01, -0.8, z0 + 1.6), 0.6, 0.6, '-X', FRAME, GLASS, mullion=False)
-    # 室外空调机 + 管线（日本民居常见）
-    parts.append(BK.bx('ac', (0.8, 0.3, 0.6), (w / 2 + 0.2, -d * 0.25, z0 + 0.3), WHITE, uv=False))
-    parts.append(BK.cyl('ac_fan', 0.22, 0.02, (w / 2 + 0.36, -d * 0.25 + 0.0, z0 + 0.32), F('grille', 0x55585c, rough=0.6), 20, rot=(0, math.pi / 2, 0), uv=False))
-    parts.append(K.tube_path('ac_pipe', [(w / 2 + 0.12, -d * 0.25 + 0.2, z0 + 0.5), (w / 2 + 0.06, -d * 0.25 + 0.2, z0 + 1.9), (w / 2 + 0.02, -d * 0.25 + 0.2, z0 + 2.0)], 0.035, F('pipe', 0xd8d4c8, rough=0.6), seg=8))
-    if not two_story:
-        objs, lines, eaves = BK.roof_hip('roof', w, d, 2.2, 0.75, 0.45, 0.16, M('kawara'), h)
-        parts += objs
-    else:
-        # 一层四周的下檐（被二层墙体挡住的部分看不到）
-        objs, lines0, eaves0 = BK.roof_hip('skirt', w + 0.4, d + 0.4, 0.9, 0.6, 0.9, 0.14, M('kawara'), h)
-        parts += objs
-        parts += BK.eave_caps('cap0_', eaves0, 0.26, 0.085, RIDGE)
-        w2, d2 = w * 0.75, d * 0.8
-        parts.append(BK.bx('wall2', (w2, d2, 3.0), (0, 0, h + 1.5), upper))
-        parts.append(BK.bx('beam2', (w2 + 0.06, d2 + 0.06, 0.16), (0, 0, h + 3.0 - 0.08), DARKWOOD, uv=False))
-        for sx in (-1, 1):
-            for sy in (-1, 1):
-                parts.append(BK.bx('post2', (0.14, 0.14, 3.0), (sx * (w2 / 2 - 0.02), sy * (d2 / 2 - 0.02), h + 1.5), DARKWOOD, uv=False))
-        # 二层：正面虫笼窗（灰泥上的细竖格）、背面推拉窗
-        parts += BK.window('mush', (0, d2 / 2 + 0.01, h + 1.7), 2.6, 0.8, '+Y', DARKWOOD, F('mush_dark', 0x1a1612, rough=0.9), lattice=(upper, 0.12, 0.05), mullion=False)
-        parts += BK.window('w2b', (0, -d2 / 2 - 0.01, h + 1.75), 2.2, 1.0, '-Y', FRAME, GLASS)
-        parts += BK.window('w2s', (w2 / 2 + 0.01, 0, h + 1.75), 1.2, 0.9, '+X', FRAME, GLASS)
-        objs, lines, eaves = BK.roof_hip('roof', w2, d2, 2.0, 0.7, 0.4, 0.16, M('kawara'), h + 3.0)
-        parts += objs
-    # 屋脊、斜脊（成排的筒瓦）与檐口瓦当、屋脊两端鬼瓦
-    for i, (a, b) in enumerate(lines):
-        parts.append(BK.ridge_tube(f'ridge{i}', a + Vector((0, 0, 0.2)), b + Vector((0, 0, 0.2)), 0.14 if i == 0 else 0.1, RIDGE))
-    R1, R2 = lines[0]
-    for p in (R1, R2):
-        parts.append(BK.bx('oni', (0.18, 0.42, 0.5), (p.x, p.y, p.z + 0.38), RIDGE, uv=False))
-    parts += BK.eave_caps('cap_', eaves, 0.26, 0.09, RIDGE)
-    # 雨水管（背面一角）
-    parts.append(K.tube_path('down', [(-w / 2 + 0.15, -d / 2 - 0.12, h - 0.1), (-w / 2 + 0.15, -d / 2 - 0.12, 0.55)], 0.045, F('gutter', 0x6c6a64, rough=0.5, metal=0.3), seg=8))
-    root, _ = BK.model(name, parts)
-    ROOTS.append(root)
+# ------------------------------------------------------------------ 民居（jhouse.py，参照鞆之浦町家照片）
+def jhouse(name, two_story, wall_style, W=8.5, D=7.0):
+    """每种民居导出三级：name（近景几何瓦与全部细节）、name@1（中景贴图屋面）、name@2（远景体块）。
+    参考尺寸 W×D（X×Y），门在 +Y 面（游戏局部 -z）；游戏里按每栋的宽/深缩放。"""
+    for lod, fn in enumerate((JH.lod0, JH.lod1, JH.lod2)):
+        nm = name if lod == 0 else f'{name}@{lod}'
+        root, _ = BK.model(nm, fn(nm, two_story, wall_style, W, D))
+        ROOTS.append(root)
 
 
 # ------------------------------------------------------------------ 海上大鸟居（两部鸟居，参照严岛神社）
@@ -288,6 +233,9 @@ jhouse('jhouse_1a', False, 'plaster')
 jhouse('jhouse_1b', False, 'wood')
 jhouse('jhouse_2a', True, 'plaster')
 jhouse('jhouse_2b', True, 'wood')
+# 大宅（村里约 15% 的“大户”，游戏里宽深约为普通民居的 1.3 × 1.2 倍）：按大尺寸单独建模，避免瓦垄被拉宽
+jhouse('jhouse_2aL', True, 'plaster', 11.0, 8.4)
+jhouse('jhouse_2bL', True, 'wood', 11.0, 8.4)
 torii()
 pagoda()
 shrine()

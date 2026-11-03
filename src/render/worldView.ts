@@ -124,6 +124,7 @@ export class WorldView {
       this.terrain.shadowRange = q.shadowRange;
     }
     if (this.trees) this.trees.quality = { near: q.treeNear, far: q.treeFar, shadows: q.shadows, aa: q.msaa > 0 };
+    if (this.props) this.props.lodScale = q.terrainLod;
     this.lightning.enabled = s.lightning;
     this.envKey = '';
     this.buildPost(dpr);
@@ -215,6 +216,7 @@ export class WorldView {
     const [lib, detail, treeLib] = await Promise.all([modelFile ? loadModelLib(modelFile) : Promise.resolve(null), loadDetailTextures(), loadTreeLib()]);
     this.modelLib = lib;
     this.props = new PropsView(world, this.modelLib, detail);
+    this.props.lodScale = QUALITY[this.settings.quality].terrainLod;
     this.scene.add(this.props.group);
     this.trees = new TreeView(world.trees, treeLib);
     this.scene.add(this.trees.group);

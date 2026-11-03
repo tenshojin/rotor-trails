@@ -16,9 +16,12 @@ export function jhouse(B: PropBuilder, rng: Rng, big = false): void {
   const wall = rng.pick(WALL);
   const roof = rng.pick(ROOF);
   const twoStory = rng.chance(big ? 0.9 : 0.45);
-  // Blender 模型（参考尺寸 8.5 × 7 m，按本栋的宽/深缩放）；褐色墙 → 杉板外墙款
+  // Blender 模型（参考尺寸 8.5 × 7 m，按本栋的宽/深缩放）；褐色墙 → 杉板外墙款。
+  // 大宅的二层款单独建模（参考 11 × 8.4 m），瓦垄与门窗不会被拉宽。
   const wood = wall === 0x6b5440 || wall === 0x8a6a4c;
-  B.beginModel(`jhouse_${twoStory ? 2 : 1}${wood ? 'b' : 'a'}`, 0, 0, 0, 0, w / 8.5, 1, d / 7);
+  const large = big && twoStory;
+  const [rw, rd] = large ? [11, 8.4] : [8.5, 7];
+  B.beginModel(`jhouse_${twoStory ? 2 : 1}${wood ? 'b' : 'a'}${large ? 'L' : ''}`, 0, 0, 0, 0, w / rw, 1, d / rd);
   B.box(0, h / 2, 0, w, h, d, wall, { jitter: 0.06 });
   B.box(0, 0.25, 0, w + 0.2, 0.5, d + 0.2, 0x6f6a62, { solid: false });
   // 窗与门

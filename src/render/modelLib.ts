@@ -59,6 +59,86 @@ const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 
+/**
+ * 三级细节模型（模型库里同时有 name、name@1、name@2，例如日本民居）：按到相机的距离把每个实例分到一级，
+ * 每级每个子网格一个实例化网格。距离跨过阈值（带 10% 滞后）时才重写实例矩阵。
+ * 包围球按全部实例一次算好（是各级实际可见集合的超集），视锥剔除仍然有效。
+ */
+export class LodModel {
+  readonly meshes: THREE.InstancedMesh[] = [];
+  private levels: Array<Array<{ im: THREE.InstancedMesh; local: THREE.Matrix4 }>> = [];
+  private bases: THREE.Matrix4[] = [];
+  private centers: THREE.Vector3[] = [];
+  private cur: Int8Array;
+  private readonly tmp = new THREE.Matrix4();
+
+  /** dist：[近景→中景, 中景→远景] 的切换距离（米），乘以画质系数 */
+  constructor(templates: THREE.Object3D[], list: ModelInstance[], private dist: [number, number]) {
+    this.cur = new Int8Array(list.length).fill(-1);
+    for (const inst of list) {
+      _p.set(inst.pos[0], inst.pos[1], inst.pos[2]);
+      _q.setFromAxisAngle(_up, inst.rotY);
+      _s.set(inst.scale[0], inst.scale[1], inst.scale[2]);
+      this.bases.push(new THREE.Matrix4().compose(_p, _q, _s));
+      this.centers.push(new THREE.Vector3(inst.pos[0], inst.pos[1] + 3 * inst.scale[1], inst.pos[2]));
+    }
+    for (const template of templates) {
+      const level: Array<{ im: THREE.InstancedMesh; local: THREE.Matrix4 }> = [];
+      const rootInv = template.matrixWorld.clone().invert();
+      template.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const local = rootInv.clone().multiply(mesh.matrixWorld);
+        const im = new THREE.InstancedMesh(mesh.geometry, mesh.material, list.length);
+        this.bases.forEach((b, i) => im.setMatrixAt(i, this.tmp.multiplyMatrices(b, local)));
+        im.computeBoundingSphere();
+        im.count = 0;
+        im.visible = false;
+        im.castShadow = true;
+        im.receiveShadow = true;
+        im.name = mesh.name;
+        level.push({ im, local });
+        this.meshes.push(im);
+      });
+      this.levels.push(level);
+    }
+  }
+
+  /** 每帧调用：k = 画质系数（越高越晚切到低一级）。 */
+  update(cam: THREE.Vector3, k = 1): void {
+    const d0 = this.dist[0] * k;
+    const d1 = this.dist[1] * k;
+    let changed = false;
+    for (let i = 0; i < this.centers.length; i++) {
+      const d = this.centers[i].distanceTo(cam);
+      let want = d < d0 ? 0 : d < d1 ? 1 : 2;
+      const c = this.cur[i];
+      // 滞后：离阈值 10% 以内保持原级，避免在边界来回切换
+      if (c >= 0 && want !== c) {
+        const edge = want > c ? (c === 0 ? d0 : d1) : want === 0 ? d0 : d1;
+        if (Math.abs(d - edge) < edge * 0.1) want = c;
+      }
+      if (want !== c) {
+        this.cur[i] = want;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    this.levels.forEach((level, li) => {
+      for (const { im, local } of level) {
+        let n = 0;
+        for (let i = 0; i < this.cur.length; i++) {
+          if (this.cur[i] !== li) continue;
+          im.setMatrixAt(n++, this.tmp.multiplyMatrices(this.bases[i], local));
+        }
+        im.count = n;
+        im.visible = n > 0;
+        im.instanceMatrix.needsUpdate = true;
+      }
+    });
+  }
+}
+
 /** 为一组同名模型实例生成实例化网格（每个子网格一份）。 */
 export function instanceModel(template: THREE.Object3D, list: ModelInstance[]): THREE.InstancedMesh[] {
   const out: THREE.InstancedMesh[] = [];

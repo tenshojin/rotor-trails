@@ -1,0 +1,73 @@
+{
+ "url": "about:blank",
+ "width": 1600,
+ "height": 900,
+ "steps": [
+  {
+   "goto": "http://localhost:5174/?map=japan&autostart=1&weather=clear"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { window.__mc = (name, dist, h, side, pitch) => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app, W = A.session.world; const list = W.builder.models.filter(m => m.name.startsWith(name)); if (!list.length) return 'none'; const m = list[0]; const [tx, ty, tz] = m.pos; const T = W.trees; const clear = (x, z) => { for (let i = 0; i < T.count; i++) { const dx = T.x[i] - x, dz = T.z[i] - z; if (dx * dx + dz * dz < 24 * 24) return false; } return true; }; let cx = 0, cz = 0; for (let k = 0; k < 24; k++) { const a = (side ?? 0.7) + k * 0.26; cx = tx - Math.sin(a) * dist; cz = tz + Math.cos(a) * dist; if (clear(cx, cz)) break; } const y = Math.max(W.terrain.heightAt(cx, cz) + 10, ty + h); const hd = Math.atan2(tx - cx, -(tz - cz)) * 180 / Math.PI; A.debugTeleport(cx, y, cz, hd, 0); A.debugLook(0, pitch ?? Math.atan2(ty + 4 - y, dist)); return [list.length, Math.round(y - ty)]; }; return 1; })()"
+  },
+  {
+   "eval": "window.__mc('jhouse_2', 22, 7, 0.5)",
+   "label": "j1_near"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "j1_near fps"
+  },
+  {
+   "shot": "j1_near.jpg"
+  },
+  {
+   "eval": "window.__mc('jhouse_1', 20, 5, 2.2)",
+   "label": "j2_near1"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "j2_near1 fps"
+  },
+  {
+   "shot": "j2_near1.jpg"
+  },
+  {
+   "eval": "window.__mc('jhouse_2', 180, 60, 0.9)",
+   "label": "j3_mid"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "j3_mid fps"
+  },
+  {
+   "shot": "j3_mid.jpg"
+  },
+  {
+   "eval": "window.__mc('jhouse_1', 650, 160, 1.3)",
+   "label": "j4_far"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "[window.__app.debugState().fps, window.__app.state]",
+   "label": "j4_far fps"
+  },
+  {
+   "shot": "j4_far.jpg"
+  }
+ ]
+}
