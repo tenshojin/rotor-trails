@@ -30,6 +30,9 @@ interface RunConfig {
   tutorial: boolean;
 }
 
+const _wB = new THREE.Vector3();
+const _qInv = new THREE.Quaternion();
+
 
 /** 只有触屏、没有精确指针（手机/平板）时提示：本游戏需要键盘和鼠标 */
 function touchOnlyWarning(): string | null {
@@ -479,6 +482,9 @@ export class App {
       altitudeMSL: s.altitudeMSL(),
       agl: s.agl,
       vs: s.body.vel.y,
+      // 机体系偏航角速度（与飞行模型一致：-ωy 为向右）
+      yawRate: (-_wB.copy(s.body.angVel).applyQuaternion(_qInv.copy(s.body.quat).invert()).y * 180) / Math.PI,
+      slip: tel.sideslip,
       targetAlt: nav.mode === 'complete' ? null : nav.targetAlt + s.world.map.altitudeOffset,
       targetSpeed: nav.speed,
       navBearing: nav.mode === 'complete' ? null : nav.bearing,

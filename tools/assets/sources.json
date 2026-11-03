@@ -1,0 +1,68 @@
+{
+  "note": "美术素材来源清单。原始文件不进仓库：运行 node tools/fetch_assets.mjs 下载到 art/src/（已在 .gitignore 中）。游戏里使用的是压缩后的版本（public/textures、public/models）。",
+  "polyhaven": {
+    "license": "CC0 1.0（公共领域，可商用、可再分发，无需署名）",
+    "site": "https://polyhaven.com",
+    "resolution": "2k",
+    "maps": ["Diffuse", "nor_gl", "Rough"],
+    "textures": {
+      "aerial_grass_rock": "地形：草地夹碎石（日本、挪威草坡）",
+      "aerial_rocks_02": "地形：碎石坡",
+      "rocky_terrain_02": "地形：岩石山地",
+      "snow_field_aerial": "地形：雪原（远看）",
+      "snow_02": "地形：雪（近看）",
+      "cliff_side": "地形：峭壁岩石",
+      "rock_face": "地形：岩面",
+      "red_sandstone_wall": "地形：红砂岩崖壁（峡谷）",
+      "cracked_red_ground": "地形：干裂红土（峡谷）",
+      "dry_ground_01": "地形：干燥地面（峡谷）",
+      "forest_ground_04": "地形：林下地面",
+      "forest_leaves_02": "地形：落叶层（雨林）",
+      "coast_sand_01": "地形：海滩沙",
+      "brown_mud_02": "地形：河岸泥地",
+      "gravelly_sand": "地形：砂砾",
+      "mossy_rock": "地形：苔藓岩石（挪威）",
+      "red_laterite_soil_stones": "地形：红土碎石（亚马孙）",
+      "grey_roof_tiles": "建筑：灰瓦（日本民居）",
+      "clay_roof_tiles": "建筑：陶瓦",
+      "corrugated_iron": "建筑：波纹铁皮",
+      "hinoki_planks": "建筑：桧木板",
+      "japanese_cedar_planks": "建筑：杉木板",
+      "white_plaster_02": "建筑：白灰泥墙",
+      "clay_plaster": "建筑：泥灰墙（土坯、尼泊尔民居）",
+      "rabdentse_ruins_wall": "建筑：喜马拉雅片石墙",
+      "distressed_painted_planks": "建筑：旧漆木板（挪威木屋）",
+      "concrete_wall_008": "建筑：混凝土墙",
+      "hangar_concrete_floor": "建筑：机坪混凝土地面",
+      "metal_plate": "建筑：金属板",
+      "rusty_metal_02": "建筑：锈蚀金属",
+      "thatch_roof_angled": "建筑：茅草屋顶（亚马孙）",
+      "pine_bark": "植被：松树皮",
+      "palm_bark": "植被：棕榈树皮",
+      "poly_wool_herringbone": "驾驶舱：座椅织物"
+    }
+  },
+  "reference": {
+    "note": "仅作建模参照，不随游戏或仓库分发。",
+    "photos": {
+      "h125_cockpit_F-HGRU.jpg": {
+        "commons": "F-HGRU_Airbus_H125_helicopter_cockpit_Ardèche_Fev_2024.jpg",
+        "author": "Kakoula10",
+        "license": "CC BY-SA 4.0",
+        "use": "驾驶舱仪表板布局（主参照）"
+      },
+      "as350b3_cabin_left.jpg": {
+        "commons": "AS350_B3_Écureuil_-_Hélicoptère_bombardier_d'eau_du_SDIS_04_à_Digne-les-Bains_07.jpg",
+        "author": "X-Javier",
+        "license": "CC BY-SA 4.0",
+        "use": "座椅、风挡、舱门结构"
+      },
+      "as350b3_cabin_door.jpg": {
+        "commons": "AS350_B3_Écureuil_-_Hélicoptère_bombardier_d'eau_du_SDIS_04_à_Digne-les-Bains_08.jpg",
+        "author": "X-Javier",
+        "license": "CC BY-SA 4.0",
+        "use": "顶窗、座椅、地板"
+      }
+    }
+  }
+}

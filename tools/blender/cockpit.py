@@ -1,0 +1,987 @@
+# RT-7 驾驶舱建模（参照 H125 / AS350 实机照片）。
+# 运行：blender -b --factory-startup --python tools/blender/cockpit.py -- <输出 glb> <贴图目录> [--preview 预览目录] [--bake] [--blend 保存路径]
+#
+# 输出的 glTF 节点约定（游戏 src/render/cockpit.ts 依赖这些名字）：
+#   ndl_<仪表>_<角色>  指针/刻度盘（原点 = 转轴，绕仪表板法线转动），extras.axis = 游戏坐标里的转轴
+#   scr_<名字>         动态屏幕（UV 0..1，游戏里换成 Canvas 贴图）
+#   ctl_cyclic / ctl_collective / ctl_pedal_l / ctl_pedal_r  操纵机构（原点 = 转轴/滑动基点）
+#   glass_*            窗玻璃（游戏里换成带雨滴效果的玻璃材质）
+
+import math
+import os
+import sys
+
+import bmesh
+import bpy
+from mathutils import Matrix, Vector
+
+sys.path.insert(0, os.path.dirname(__file__))
+import bkit as K  # noqa: E402
+import cockpit_layout as L  # noqa: E402
+
+argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
+OUT_GLB = argv[0] if argv else 'public/models/cockpit.glb'
+TEX = argv[1] if len(argv) > 1 else 'art/out/cockpit_tex'
+PREVIEW = argv[argv.index('--preview') + 1] if '--preview' in argv else None
+BLEND = argv[argv.index('--blend') + 1] if '--blend' in argv else None
+DO_BAKE = '--bake' in argv
+PH = 'art/src/polyhaven'
+
+K.reset()
+
+# ------------------------------------------------------------------ 材质
+M = {}
+
+
+def mats():
+    M['panel'] = K.material('cp_panelfront', 0x808080, rough=0.62, tex=os.path.join(TEX, 'panel_decal.png'))
+    M['gauge'] = K.material('cp_gauges', 0x808080, rough=0.38, tex=os.path.join(TEX, 'gauges.png'))
+    M['overlay'] = K.material('cp_gauge_overlay', 0x808080, rough=0.4, tex=os.path.join(TEX, 'gauges.png'), alpha='tex')
+    M['black'] = K.material('cp_black', 0x141416, rough=0.42)
+    M['knob'] = K.material('cp_knob', 0x0e0e0f, rough=0.5)
+    M['metal'] = K.material('cp_metal', 0x9a9ea3, rough=0.32, metal=1.0)
+    M['dmetal'] = K.material('cp_darkmetal', 0x3a3c40, rough=0.4, metal=0.8)
+    M['needle'] = K.material('cp_needle', 0xf3f3ec, rough=0.45)
+    M['orange'] = K.material('cp_needle_orange', 0xf08a24, rough=0.45)
+    M['gglass'] = K.material('cp_gauge_glass', 0xffffff, rough=0.03, alpha=0.08)
+    M['glare'] = K.material('cp_glare', 0x17181a, rough=0.58)
+    M['lining'] = K.material('cp_lining', 0x878b8f, rough=0.82)
+    M['lining_d'] = K.material('cp_lining_dark', 0x55595e, rough=0.8)
+    M['paint'] = K.material('cp_paint', 0xe9eaeb, rough=0.32, coat=0.3)
+    M['floor'] = K.material('cp_floor', 0x34363a, rough=0.88)
+    M['fabric'] = K.material('cp_fabric', 0x9a9a9c, rough=1.0,
+                             tex='art/out/tex/poly_wool_herringbone_diffuse_1024.jpg',
+                             normal='art/out/tex/poly_wool_herringbone_nor_gl_1024.jpg',
+                             rough_tex='art/out/tex/poly_wool_herringbone_rough_1024.jpg', tex_scale=1.0)
+    M['frame'] = K.material('cp_seatframe', 0xb4b8bc, rough=0.38, metal=0.6)
+    M['rubber'] = K.material('cp_rubber', 0x1a1a1b, rough=0.92)
+    M['strap'] = K.material('cp_strap', 0x3d4046, rough=0.85)
+    M['red'] = K.material('cp_red', 0xc21d16, rough=0.35)
+    M['yellow'] = K.material('cp_yellow', 0xe6b416, rough=0.4)
+    M['lamp_y'] = K.material('cp_lamp_amber', 0xffb020, rough=0.2, emit=0xffa018, emit_strength=0.6)
+    M['glass'] = K.material('glass_clear', 0xffffff, rough=0.02, alpha=0.06)
+    M['glass_roof'] = K.material('glass_roof', 0x3f8fbe, rough=0.02, alpha=0.4)
+    for s in ('vemd1', 'vemd2', 'ai', 'gps', 'ann'):
+        M['scr_' + s] = K.material('scr_' + s, 0x05070a, rough=0.15, emit=0x0b1420, emit_strength=1.0)
+
+
+mats()
+
+# ------------------------------------------------------------------ 仪表板坐标系
+T = math.radians(L.PANEL_TILT)
+PU = Vector((1, 0, 0))
+PV = Vector((0, math.sin(T), math.cos(T)))
+PN = Vector((0, -math.cos(T), math.sin(T)))  # 朝向驾驶员
+PO = Vector(L.PANEL_ORIGIN)
+
+
+def PW(u, v, w=0.0):
+    return PO + PU * u + PV * v + PN * w
+
+
+def to_panel(co):
+    d = Vector(co) - PO
+    return d.dot(PU), d.dot(PV), d.dot(PN)
+
+
+U0, U1, V0, V1 = -L.PANEL_HALF_W, L.PANEL_HALF_W, -0.52, 0.0
+PAINT_UV = ((0.5 - U0) / (U1 - U0) * 0 + 0.47, 0.03)  # 仪表板漆面（印刷图左下空白处）
+BLACK_UV = ((L.ANNUNCIATOR['u'] - U0) / (U1 - U0), (L.ANNUNCIATOR['v'] - V0) / (V1 - V0))
+
+
+def decal_uv(ob, side=PAINT_UV, min_dot=0.6):
+    def f(co, n):
+        if n.dot(PN) > min_dot:
+            u, v, _ = to_panel(co)
+            return ((u - U0) / (U1 - U0), (v - V0) / (V1 - V0))
+        return side
+
+    return K.uv_from_fn(ob, f)
+
+
+def panel_obj(name, verts_uvw, faces, mat, smooth=0):
+    """用仪表板局部坐标 (u, v, w) 建网格。"""
+    return K.mesh_obj(name, [PW(*p) for p in verts_uvw], faces, mat, smooth=smooth)
+
+
+def panel_box(name, u, v, w, h, w0, w1, mat, bevel=0.0, side=BLACK_UV):
+    ob = K.box(name, (w, h, w1 - w0), (0, 0, 0), mat)
+    K.map_verts(ob, lambda c: PW(u + c[0], v + c[1], (w0 + w1) / 2 + c[2]))
+    if bevel:
+        K.add_bevel(ob, bevel, 2)
+        K.apply_mods(ob)
+    if mat is M['panel']:
+        decal_uv(ob, side)
+    return ob
+
+
+def lathe(name, profile, center_uv, w_base, mat, seg=48, smooth=40):
+    """绕仪表板法线旋转的回转体。profile：[(r, w)]，w 为相对 w_base 的高度。"""
+    u, v = center_uv
+    verts, faces = [], []
+    n = len(profile)
+    for i in range(seg):
+        a = 2 * math.pi * i / seg
+        for r, w in profile:
+            verts.append(PW(u + r * math.cos(a), v + r * math.sin(a), w_base + w))
+    for i in range(seg):
+        i2 = (i + 1) % seg
+        for j in range(n - 1):
+            faces.append((i * n + j, i2 * n + j, i2 * n + j + 1, i * n + j + 1))
+    ob = K.mesh_obj(name, verts, faces, mat, smooth=None)
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-6)  # 轴心处的重合点
+    bmesh.ops.dissolve_degenerate(bm, dist=1e-7, edges=bm.edges)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.to_mesh(ob.data)
+    bm.free()
+    K.shade(ob, smooth)
+    return ob
+
+
+def panel_disc(name, u, v, r, w, mat, seg=48):
+    verts = [PW(u, v, w)] + [PW(u + r * math.cos(2 * math.pi * i / seg), v + r * math.sin(2 * math.pi * i / seg), w) for i in range(seg)]
+    faces = [(0, 1 + i, 1 + (i + 1) % seg) for i in range(seg)]
+    return K.mesh_obj(name, verts, faces, mat, smooth=0)
+
+
+def panel_quad(name, u, v, w_, h, w, mat):
+    verts = [PW(u - w_ / 2, v - h / 2, w), PW(u + w_ / 2, v - h / 2, w), PW(u + w_ / 2, v + h / 2, w), PW(u - w_ / 2, v + h / 2, w)]
+    ob = K.mesh_obj(name, verts, [(0, 1, 2, 3)], mat, smooth=0)
+    uv = K.uv_layer(ob)
+    for li, t in zip(range(4), [(0, 0), (1, 0), (1, 1), (0, 1)]):
+        uv.data[li].uv = t
+    return ob
+
+
+STATIC = []  # 静态部件（最后按材质合并、烘焙 AO）
+DYNAMIC = []  # 指针、屏幕、操纵杆、玻璃等需要单独控制的部件
+
+
+def S(ob):
+    STATIC.append(ob)
+    return ob
+
+
+def D(ob, **extras):
+    for k, v in extras.items():
+        ob[k] = v
+    DYNAMIC.append(ob)
+    return ob
+
+
+# ------------------------------------------------------------------ 机身外壳（截面放样）
+# (Y, 半宽 W, 顶 Zt, 底 Zb, 超椭圆指数 e)
+STATIONS = [
+    (-1.32, 0.84, 0.80, -0.80, 3.0),
+    (-1.00, 0.92, 0.92, -0.92, 3.3),
+    (0.00, 0.94, 0.95, -0.95, 3.5),
+    (0.80, 0.94, 0.95, -0.95, 3.4),
+    (1.20, 0.925, 0.91, -0.95, 3.1),
+    (1.60, 0.875, 0.74, -0.93, 2.8),
+    (1.95, 0.76, 0.50, -0.88, 2.5),
+    (2.20, 0.585, 0.26, -0.76, 2.25),
+    (2.36, 0.36, 0.04, -0.57, 2.1),
+    (2.445, 0.12, -0.12, -0.39, 2.0),
+]
+Y_TIP = 2.47
+Z_TIP = -0.255
+
+
+def section(y):
+    st = STATIONS
+    if y <= st[0][0]:
+        return st[0][1:]
+    if y >= st[-1][0]:
+        return st[-1][1:]
+    for i in range(len(st) - 1):
+        if st[i][0] <= y <= st[i + 1][0]:
+            break
+    p0 = st[max(0, i - 1)]
+    p1, p2 = st[i], st[i + 1]
+    p3 = st[min(len(st) - 1, i + 2)]
+    t = (y - p1[0]) / (p2[0] - p1[0])
+    out = []
+    for k in range(1, 5):
+        # 非均匀 Catmull-Rom（按 Y 间距缩放切线）
+        h = p2[0] - p1[0]
+        m1 = (p2[k] - p0[k]) / (p2[0] - p0[0]) * h if p2[0] != p0[0] else 0
+        m2 = (p3[k] - p1[k]) / (p3[0] - p1[0]) * h if p3[0] != p1[0] else 0
+        t2, t3 = t * t, t * t * t
+        out.append((2 * t3 - 3 * t2 + 1) * p1[k] + (t3 - 2 * t2 + t) * m1 + (-2 * t3 + 3 * t2) * p2[k] + (t3 - t2) * m2)
+    return out
+
+
+def spow(x, p):
+    return math.copysign(abs(x) ** p, x)
+
+
+def ring_point(y, t):
+    W, Zt, Zb, e = section(y)
+    zc, H = (Zt + Zb) / 2, (Zt - Zb) / 2
+    return Vector((W * spow(math.cos(t), 2 / e), y, zc + H * spow(math.sin(t), 2 / e)))
+
+
+def shell_surface(name, mat_list, inset=0.0):
+    ys = []
+    y = STATIONS[0][0]
+    while y < 2.44:
+        ys.append(y)
+        y += 0.03 if y < 1.0 else 0.015
+    ys.append(2.445)
+    NT = 160
+    verts, faces = [], []
+    for y in ys:
+        for i in range(NT):
+            p = ring_point(y, 2 * math.pi * i / NT)
+            verts.append(p)
+    nr = len(ys)
+    for r in range(nr - 1):
+        for i in range(NT):
+            i2 = (i + 1) % NT
+            faces.append((r * NT + i, r * NT + i2, (r + 1) * NT + i2, (r + 1) * NT + i))
+    tip = len(verts)
+    verts.append(Vector((0, Y_TIP, Z_TIP)))
+    last = (nr - 1) * NT
+    for i in range(NT):
+        faces.append((last + i, last + (i + 1) % NT, tip))
+    # 后端封口（客舱后壁）
+    rc = len(verts)
+    W, Zt, Zb, e = section(ys[0])
+    verts.append(Vector((0, ys[0], (Zt + Zb) / 2)))
+    for i in range(NT):
+        faces.append(((i + 1) % NT, i, rc))
+    ob = K.mesh_obj(name, verts, faces, None, smooth=None)
+    for m in mat_list:
+        ob.data.materials.append(m)
+    K.fix_normals(ob)
+    if inset:
+        bm = bmesh.new()
+        bm.from_mesh(ob.data)
+        bm.normal_update()
+        for v in bm.verts:
+            v.co -= v.normal * inset
+        bm.to_mesh(ob.data)
+        bm.free()
+    K.shade(ob, 50)
+    return ob
+
+
+C_REF = Vector((0.0, 1.05, 0.15))
+
+
+def azel_dir(az, el):
+    a, e = math.radians(az), math.radians(el)
+    return Vector((math.sin(a) * math.cos(e), math.cos(a) * math.cos(e), math.sin(e)))
+
+
+def cone_cutter(name, poly, r0=0.35, r1=2.2):
+    dirs = [azel_dir(a, e) for a, e in poly]
+    dc = sum(dirs, Vector()).normalized()
+    n = len(dirs)
+    verts = [C_REF + d * r0 for d in dirs] + [C_REF + d * r1 for d in dirs] + [C_REF + dc * r0, C_REF + dc * r1]
+    faces = []
+    for i in range(n):
+        j = (i + 1) % n
+        faces.append((i, j, n + j, n + i))
+        faces.append((2 * n, j, i))
+        faces.append((2 * n + 1, n + i, n + j))
+    ob = K.mesh_obj(name, verts, faces, None)
+    K.fix_normals(ob)
+    return ob
+
+
+def round_poly(pts, r, steps=5):
+    """二维多边形倒圆角。"""
+    out = []
+    n = len(pts)
+    for i in range(n):
+        a, b, c = Vector(pts[i - 1]), Vector(pts[i]), Vector(pts[(i + 1) % n])
+        d1, d2 = (a - b), (c - b)
+        rr = min(r, d1.length * 0.45, d2.length * 0.45)
+        p1, p2 = b + d1.normalized() * rr, b + d2.normalized() * rr
+        for k in range(steps + 1):
+            t = k / steps
+            q = p1 * (1 - t) ** 2 + b * 2 * t * (1 - t) + p2 * t * t
+            out.append((q.x, q.y))
+    return out
+
+
+def poly_area(p):
+    return sum(p[i][0] * p[(i + 1) % len(p)][1] - p[(i + 1) % len(p)][0] * p[i][1] for i in range(len(p))) / 2
+
+
+def prism_cutter(name, poly2d, axis, a0, a1):
+    if poly_area(poly2d) < 0:
+        poly2d = poly2d[::-1]
+    return K.prism(name, poly2d, a0, a1, None, axis=axis)
+
+
+def mirror_az(poly):
+    return [(-a, e) for a, e in poly][::-1]
+
+
+def mirror_x(poly):
+    return [(-x, y) for x, y in poly][::-1]
+
+
+WINDSCREEN = [(1.2, -6), (16, -7), (30, -12), (42, -24), (50, -40), (61, -42), (67, -24), (69, 0), (68.5, 22), (61, 40), (40, 52), (20, 57.5), (1.2, 59)]
+DOOR = [(0.34, -0.26), (1.42, -0.26), (1.38, 0.18), (1.22, 0.78), (0.34, 0.82)]
+REAR = [(-0.98, -0.16), (0.16, -0.16), (0.16, 0.73), (-0.98, 0.70)]
+ROOF = [(0.11, 0.78), (0.74, 0.78), (0.76, 1.36), (0.11, 1.46)]
+CHIN = [(0.10, 1.93), (0.56, 1.93), (0.50, 2.30), (0.10, 2.33)]
+
+
+def window_cutters():
+    cs = []
+    for side in (1, -1):
+        sfx = 'R' if side > 0 else 'L'
+        ws = WINDSCREEN if side > 0 else mirror_az(WINDSCREEN)
+        cs.append(('ws_' + sfx, cone_cutter('cut_ws_' + sfx, round_poly_az(ws)), 'clear'))
+        door = round_poly(DOOR, 0.07)
+        rear = round_poly(REAR, 0.07)
+        cs.append(('door_' + sfx, prism_cutter('cut_door_' + sfx, door, 'X', 0.4 * side, 1.6 * side), 'clear'))
+        cs.append(('rear_' + sfx, prism_cutter('cut_rear_' + sfx, rear, 'X', 0.4 * side, 1.6 * side), 'clear'))
+        roof = round_poly(ROOF if side > 0 else mirror_x(ROOF), 0.09)
+        cs.append(('roof_' + sfx, prism_cutter('cut_roof_' + sfx, roof, 'Z', 0.55, 1.5), 'roof'))
+        chin = round_poly(CHIN if side > 0 else mirror_x(CHIN), 0.08)
+        cs.append(('chin_' + sfx, prism_cutter('cut_chin_' + sfx, chin, 'Z', -1.3, -0.42), 'clear'))
+    return cs
+
+
+def round_poly_az(poly):
+    return round_poly(poly, 6.0, 4)
+
+
+def point_in_poly(x, y, poly):
+    inside = False
+    n = len(poly)
+    j = n - 1
+    for i in range(n):
+        xi, yi = poly[i]
+        xj, yj = poly[j]
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def build_shell():
+    shell = shell_surface('shell', [M['paint'], M['lining']])
+    K.add_solidify(shell, 0.032, -1.0, mat_offset=1, rim_offset=1)
+    K.apply_mods(shell)
+    cutters = window_cutters()
+    for _, c, _kind in cutters:
+        K.boolean(shell, c, 'DIFFERENCE', 'MANIFOLD')
+    K.apply_mods(shell)
+    # 玻璃：外表面向内 6 mm，取窗口范围（略大）内的面
+    glass = {}
+    surf = shell_surface('glass_src', [M['glass']], inset=0.006)
+    me = surf.data
+    for name, c, kind in cutters:
+        sel = []
+        if name.startswith('ws_'):
+            poly = round_poly_az(WINDSCREEN if name.endswith('R') else mirror_az(WINDSCREEN))
+            for p in me.polygons:
+                d = (p.center - C_REF).normalized()
+                az = math.degrees(math.atan2(d.x, d.y))
+                el = math.degrees(math.asin(max(-1, min(1, d.z))))
+                hit = point_in_poly(az, el, poly)
+                if not hit:
+                    for vi in p.vertices:
+                        dv = (me.vertices[vi].co - C_REF).normalized()
+                        if point_in_poly(math.degrees(math.atan2(dv.x, dv.y)), math.degrees(math.asin(max(-1, min(1, dv.z)))), poly):
+                            hit = True
+                            break
+                if hit and p.normal.dot(d) > 0.2:
+                    sel.append(p.index)
+        else:
+            side = 1 if name.endswith('R') else -1
+            if name.startswith('door'):
+                poly, ax = round_poly(DOOR, 0.07), 'X'
+            elif name.startswith('rear'):
+                poly, ax = round_poly(REAR, 0.07), 'X'
+            elif name.startswith('roof'):
+                poly, ax = round_poly(ROOF if side > 0 else mirror_x(ROOF), 0.09), 'Z'
+            else:
+                poly, ax = round_poly(CHIN if side > 0 else mirror_x(CHIN), 0.08), 'Z'
+
+            def pick(co):
+                if ax == 'X':
+                    return co.x * side > 0.4 and point_in_poly(co.y, co.z, poly)
+                if name.startswith('roof'):
+                    return co.z > 0.55 and point_in_poly(co.x, co.y, poly)
+                return -1.3 < co.z < -0.42 and point_in_poly(co.x, co.y, poly)
+
+            for p in me.polygons:
+                if pick(p.center) or any(pick(me.vertices[vi].co) for vi in p.vertices):
+                    if ax == 'X' and abs(p.normal.x) < 0.3:
+                        continue
+                    sel.append(p.index)
+        if not sel:
+            continue
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        keep = set(sel)
+        bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.index not in keep], context='FACES')
+        g = K.bm_to_obj('glass_' + name, bm, M['glass_roof'] if kind == 'roof' else M['glass'], smooth=50)
+        glass[name] = g
+    K.delete(surf)
+    for _, c, _ in cutters:
+        K.delete(c)
+    return shell, glass
+
+
+# ------------------------------------------------------------------ 仪表板
+def panel_outline():
+    W, B = L.PANEL_HALF_W, L.PANEL_BOTTOM
+    r = 0.03
+    pts = []
+    for k in range(5):  # 左下圆角
+        a = math.radians(180 + 90 * k / 4)
+        pts.append((-W + r + r * math.cos(a), B + r + r * math.sin(a)))
+    for k in range(5):  # 右下圆角
+        a = math.radians(270 + 90 * k / 4)
+        pts.append((W - r + r * math.cos(a), B + r + r * math.sin(a)))
+    n = 48
+    for k in range(n + 1):  # 顶边弧（右 → 左）
+        u = W - 2 * W * k / n
+        pts.append((u, L.panel_top(u)))
+    return pts
+
+
+def build_panel():
+    holes = []
+    for g in L.GAUGES:
+        holes.append(K.circle(g['d'] / 2 + 0.0015, 48, g['u'], g['v'])[::-1])
+    A = L.AI
+    holes.append([(x + A['u'], y + A['v']) for x, y in K.rounded_rect(A['w'] + 0.004, A['h'] + 0.004, 0.004)][::-1])
+    face = K.cdt_face('panel_face', panel_outline(), holes, M['panel'])
+    K.extrude_flat(face, 0.004)
+    K.map_verts(face, lambda c: PW(c[0], c[1], c[2]))
+    decal_uv(face, PAINT_UV)
+    S(face)
+    # 仪表板背板（防止从缝隙看穿）
+    back = K.cdt_face('panel_back', panel_outline(), [], M['black'])
+    K.map_verts(back, lambda c: PW(c[0], c[1], -0.03))
+    K.fix_normals(back)
+    S(back)
+    # 螺丝
+    for i, (u, v) in enumerate(L.screw_positions()):
+        S(lathe(f'screw{i}', [(0.0, 0.0018), (0.0018, 0.0016), (0.0026, 0.0008), (0.0027, 0.0)], (u, v), 0.004, M['metal'], seg=12, smooth=60))
+    # 圆形仪表
+    slots = {k: i for i, k in enumerate(['asi', 'alt', 'vsi', 'turn', 'card', 'overlay', 'nr', 'clock'])}
+
+    def slot_rect(k):
+        i = slots[k]
+        return ((i % 4) / 4, 1 - (i // 4 + 1) / 2, (i % 4 + 1) / 4, 1 - (i // 4) / 2)
+
+    for g in L.GAUGES:
+        gid, u, v, d = g['id'], g['u'], g['v'], g['d']
+        R = d / 2
+        ri, ro = R + 0.0012, R + 0.0075
+        # 照片里的表框很厚：凸出仪表板约 1.5 cm，内圈带倒角
+        S(lathe(f'bezel_{gid}', [(ri, -0.009), (ri, 0.011), (ri + 0.0025, 0.0145), (ro - 0.003, 0.0152), (ro, 0.0128), (ro, 0.004)], (u, v), 0.0, M['black'], seg=64))
+        if gid in ('alt', 'hsi', 'hdg2'):
+            # 左下角的调节旋钮（气压 / 航向游标）
+            S(lathe(f'adj_{gid}', [(0.0, 0.024), (0.0062, 0.0235), (0.0072, 0.020), (0.0072, 0.008), (0.0052, 0.006), (0.0052, 0.0)],
+                    (u - R * 0.92, v - R * 0.92), 0.004, M['knob'], seg=20))
+        if gid == 'nr':
+            S(lathe('nr_test', [(0.0, 0.016), (0.004, 0.0155), (0.0045, 0.0)], (u, v - R - 0.012), 0.004, M['knob'], seg=14))
+        for cu, cv in ((1, 1), (-1, 1), (1, -1), (-1, -1)):
+            k = (d + 0.008) / 2 - 0.0045
+            S(lathe(f'gscrew_{gid}_{cu}{cv}', [(0.0, 0.0014), (0.0015, 0.0012), (0.002, 0.0)], (u + cu * k, v + cv * k), 0.004, M['dmetal'], seg=10, smooth=60))
+        kind = {'asi': 'asi', 'alt': 'alt', 'vsi': 'vsi', 'turn': 'turn', 'nr': 'nr', 'clock': 'clock', 'hsi': 'card', 'hdg2': 'card'}[gid]
+        face = panel_disc(f'face_{gid}', u, v, R + 0.0016, -0.009, M['gauge'], 64)
+        K.uv_disc(face, PW(u, v, -0.009), PU, PV, R / 0.98, slot_rect(kind))
+        if kind == 'card':
+            # 刻度盘随航向转动
+            D(face, axis=list(game_vec(PN)), gauge=gid, role='card')
+            face.name = f'ndl_{gid}_card'
+            K.set_origin(face, PW(u, v, -0.009))
+            ov = panel_disc(f'overlay_{gid}', u, v, R, -0.0065, M['overlay'], 64)
+            K.uv_disc(ov, PW(u, v, -0.0065), PU, PV, R / 0.98, slot_rect('overlay'))
+            S(ov)
+        else:
+            S(face)
+        # 表盘玻璃（嵌在表框里）
+        D(panel_disc(f'gglass_{gid}', u, v, ri, 0.0105, M['gglass'], 48), role='gauge_glass')
+        # 指针
+        for nd in needles_for(gid, R):
+            D(nd, axis=list(game_vec(PN)), gauge=gid)
+    # 电子姿态仪：方形屏幕 + 外框
+    A = L.AI
+    frame = K.cdt_face('ai_frame', K.rounded_rect(A['frame_w'], A['frame_h'], 0.005),
+                       [K.rounded_rect(A['w'] + 0.002, A['h'] + 0.002, 0.003)[::-1]], M['black'])
+    K.extrude_flat(frame, 0.009)
+    K.map_verts(frame, lambda c: PW(A['u'] + c[0], A['v'] + c[1], c[2]))
+    S(frame)
+    D(panel_quad('scr_ai', A['u'], A['v'], A['w'] + 0.003, A['h'] + 0.003, -0.002, M['scr_ai']), role='screen')
+    # 顶部 PITCH SYNC 拨片 + 右下角旋钮
+    S(panel_box('ai_sync', A['u'], A['v'] + A['frame_h'] / 2 + 0.004, 0.030, 0.008, 0.004, 0.012, M['black'], bevel=0.002))
+    S(lathe('ai_knob', [(0.0, 0.016), (0.0050, 0.0155), (0.006, 0.006), (0.006, 0.0)], (A['u'] + 0.030, A['v'] - 0.045), 0.004, M['knob'], seg=20))
+
+
+def game_vec(v):
+    """Blender 方向 → 游戏坐标方向"""
+    return (v.x, v.z, -v.y)
+
+
+def needle_mesh(name, length, tail, w0, w1, mat, w_level, u, v, tip_w=None, angle=0.0):
+    """以仪表中心为原点、指向 12 点的扁平指针（厚 0.7 mm）。"""
+    tip_w = tip_w if tip_w is not None else w1 * 0.4
+    pts2 = [(-w0 / 2, -tail), (w0 / 2, -tail), (w1 / 2, length * 0.75), (tip_w / 2, length), (-tip_w / 2, length), (-w1 / 2, length * 0.75)]
+    ca, sa = math.cos(angle), math.sin(angle)
+    th = 0.0007
+    verts = []
+    for z in (0.0, th):
+        for x, y in pts2:
+            xr, yr = x * ca + y * sa, -x * sa + y * ca
+            verts.append(PW(u + xr, v + yr, w_level + z))
+    n = len(pts2)
+    faces = [tuple(range(n - 1, -1, -1)), tuple(range(n, 2 * n))]
+    for i in range(n):
+        j = (i + 1) % n
+        faces.append((i, j, n + j, n + i))
+    ob = K.mesh_obj(name, verts, faces, mat, smooth=0)
+    K.fix_normals(ob)
+    return ob
+
+
+def needles_for(gid, R):
+    g = next(x for x in L.GAUGES if x['id'] == gid)
+    u, v = g['u'], g['v']
+    w = -0.0045
+    out = []
+
+    def cap(name, r):
+        return lathe(name, [(0.0, 0.0025), (r * 0.8, 0.0024), (r, 0.0012), (r, 0.0)], (u, v), w, M['black'], seg=20)
+
+    if gid in ('asi', 'vsi', 'nr'):
+        nd = needle_mesh(f'ndl_{gid}_main', R * 0.86, R * 0.22, R * 0.07, R * 0.055, M['needle'], w, u, v)
+        out.append(nd)
+    elif gid == 'alt':
+        out.append(needle_mesh('ndl_alt_100', R * 0.88, R * 0.2, R * 0.05, R * 0.04, M['needle'], w + 0.0008, u, v))
+        out.append(needle_mesh('ndl_alt_1000', R * 0.55, R * 0.12, R * 0.10, R * 0.09, M['needle'], w, u, v, tip_w=R * 0.02))
+    elif gid == 'clock':
+        out.append(needle_mesh('ndl_clock_hour', R * 0.5, R * 0.1, R * 0.08, R * 0.07, M['needle'], w, u, v))
+        out.append(needle_mesh('ndl_clock_min', R * 0.8, R * 0.12, R * 0.06, R * 0.05, M['needle'], w + 0.0008, u, v))
+        out.append(needle_mesh('ndl_clock_sec', R * 0.88, R * 0.25, R * 0.025, R * 0.02, M['orange'], w + 0.0016, u, v))
+    elif gid == 'turn':
+        out.append(needle_mesh('ndl_turn_needle', R * 0.62, R * 0.05, R * 0.10, R * 0.08, M['needle'], w, u, v))
+        # 侧滑小球：原点在仪表中心，绕轴转动即沿弧形管移动
+        ball = K.sphere('ndl_turn_ball', R * 0.065, (0, 0, 0), M['black'], 16, 8)
+        K.map_verts(ball, lambda c: tuple(PW(u, v - R * 0.42, w + 0.002) + PU * c[0] + PV * c[1] + PN * c[2]))
+        out.append(ball)
+    for nd in out:
+        K.set_origin(nd, PW(u, v, w))
+        nd.name = nd.name  # 保留名字
+    if gid not in ('turn',):
+        S(cap(f'cap_{gid}', R * 0.08))
+    return out
+
+
+def build_units():
+    # VEMD
+    V = L.VEMD
+    S(panel_box('vemd_body', V['u'], V['v'], V['w'], V['h'], 0.004, 0.022, M['panel'], bevel=0.003))
+    for i, scr in enumerate(V['screens']):
+        D(panel_quad(f'scr_vemd{i + 1}', scr['u'], scr['v'], scr['w'], scr['h'], 0.0223, M[f'scr_vemd{i + 1}']), role='screen')
+    n = len(V['keys'])
+    for i in range(n):
+        kv = V['v'] + V['h'] / 2 - 0.030 - i * (V['h'] - 0.05) / (n - 1)
+        S(panel_box(f'vemd_key{i}', V['keys_u'], kv, 0.028, 0.0145, 0.022, 0.0265, M['panel'], bevel=0.0012))
+    # GPS
+    G = L.GPS
+    S(panel_box('gps_body', G['u'], G['v'], G['w'], G['h'], 0.004, 0.026, M['panel'], bevel=0.003))
+    sc = G['screen']
+    D(panel_quad('scr_gps', sc['u'], sc['v'], sc['w'], sc['h'], 0.0263, M['scr_gps']), role='screen')
+    for cu in (-0.066, 0.066):
+        S(lathe(f'gps_knob_o{cu}', [(0.0, 0.010), (0.0095, 0.0098), (0.0105, 0.004), (0.0105, 0.0)], (G['u'] + cu, G['v'] - 0.016), 0.026, M['knob'], seg=28))
+        S(lathe(f'gps_knob_i{cu}', [(0.0, 0.019), (0.0062, 0.0185), (0.0068, 0.010), (0.0068, 0.0)], (G['u'] + cu, G['v'] - 0.016), 0.026, M['knob'], seg=24))
+    for i in range(6):
+        S(panel_box(f'gps_btn{i}', G['u'] - 0.045 + i * 0.018, G['v'] - 0.031, 0.013, 0.007, 0.026, 0.029, M['black'], bevel=0.001))
+    for i in range(4):
+        S(panel_box(f'gps_sbtn{i}', G['u'] + 0.054 + (i % 2) * 0.022, G['v'] + 0.006 - (i // 2) * 0.013, 0.016, 0.008, 0.026, 0.029, M['black'], bevel=0.001))
+    # 电台（较厚的挂装电台）
+    R2 = L.RADIO
+    S(panel_box('radio_body', R2['u'], R2['v'], R2['w'], R2['h'], 0.004, 0.042, M['panel'], bevel=0.005))
+    S(panel_box('radio_mount', R2['u'] - R2['w'] / 2 - 0.012, R2['v'], 0.03, 0.05, 0.004, 0.030, M['black'], bevel=0.003))
+    S(lathe('radio_knob', [(0.0, 0.012), (0.007, 0.0115), (0.0075, 0.0), ], (R2['u'] - 0.098, R2['v'] + 0.012), 0.042, M['knob'], seg=20))
+    for i in range(7):
+        S(panel_box(f'radio_btn{i}', R2['u'] - 0.065 + i * 0.019, R2['v'] - 0.019, 0.012, 0.007, 0.042, 0.0445, M['black'], bevel=0.001))
+    # 话筒线：从电台右下绕到地板
+    p0 = PW(R2['u'] - 0.12, R2['v'] - 0.02, 0.03)
+    S(K.tube_path('radio_cord', K.round_path([p0, p0 + Vector((-0.05, -0.03, -0.12)), p0 + Vector((-0.08, -0.12, -0.25)), p0 + Vector((-0.10, -0.25, -0.45))], 0.06), 0.0035, M['rubber'], seg=8))
+    H = L.HELISAFE
+    S(panel_box('helisafe', H['u'], H['v'], H['w'], H['h'], 0.004, 0.020, M['panel'], bevel=0.002))
+    S(panel_box('helisafe_btn', H['u'] + 0.058, H['v'] + 0.004, 0.012, 0.012, 0.020, 0.026, M['black'], bevel=0.002))
+    E = L.ELT
+    S(panel_box('elt', E['u'], E['v'], E['w'], E['h'], 0.004, 0.018, M['panel'], bevel=0.002))
+    S(panel_box('elt_sw', E['u'] - 0.004, E['v'] - 0.002, 0.008, 0.016, 0.018, 0.030, M['red'], bevel=0.001))
+    # 照明旋钮
+    for i, k in enumerate(L.KNOBS):
+        S(lathe(f'knob{i}', [(0.0, 0.016), (0.0072, 0.0155), (0.0082, 0.012), (0.0085, 0.003), (0.0095, 0.0025), (0.0095, 0.0)], (k['u'], k['v']), 0.004, M['knob'], seg=24))
+        S(panel_box(f'knob_mark{i}', k['u'], k['v'] + 0.0045, 0.0012, 0.004, 0.0195, 0.0201, M['needle']))
+    # 告警灯板（动态屏）
+    A = L.ANNUNCIATOR
+    S(panel_box('ann_frame', A['u'], A['v'], A['w'] + 0.008, A['h'] + 0.008, 0.004, 0.009, M['black'], bevel=0.0015))
+    D(panel_quad('scr_ann', A['u'], A['v'], A['w'], A['h'], 0.0092, M['scr_ann']), role='screen')
+    RP = L.REG_PLATE
+    S(panel_box('reg_plate', RP['u'], RP['v'], RP['w'], RP['h'], 0.004, 0.0055, M['panel']))
+    # 应急开关：黑色底座 + 红色拨杆 + 护盖
+    E = L.EMER_SW
+    S(panel_box('emer_base', E['u'], E['v'], 0.030, 0.044, 0.004, 0.010, M['black'], bevel=0.004))
+    S(panel_box('emer_lever', E['u'], E['v'] + 0.004, 0.009, 0.018, 0.010, 0.030, M['red'], bevel=0.002))
+    for su in (-0.011, 0.011):
+        S(panel_box(f'emer_guard{su}', E['u'] + su, E['v'], 0.003, 0.034, 0.010, 0.034, M['black'], bevel=0.001))
+    # 右缘开关条
+    SW = L.SWITCH_STRIP
+    S(panel_box('sw_strip', SW['u'], SW['v'], SW['w'], SW['h'], 0.004, 0.007, M['panel'], bevel=0.0015))
+    for i, tv in enumerate(SW['toggles']):
+        S(lathe(f'sw_nut{i}', [(0.0, 0.004), (0.0052, 0.004), (0.0052, 0.0)], (SW['u'], tv), 0.007, M['metal'], seg=6, smooth=0))
+        bat = K.cylinder(f'sw_bat{i}', 0.0016, 0.020, (0, 0, 0), M['metal'], 10, r2=0.0024)
+        K.bake_transform(bat)
+        K.map_verts(bat, lambda c, tv=tv: tuple(PW(SW['u'], tv, 0.011) + Matrix.Rotation(math.radians(-70), 3, PU) @ (PU * c[0] + PN * c[1] + PV * (c[2] + 0.009) * 1.0) - PV * 0.0))
+        S(bat)
+    S(lathe('sw_lamp', [(0.0, 0.007), (0.003, 0.0065), (0.0042, 0.004), (0.0045, 0.0)], (SW['u'], SW['lamp']), 0.007, M['lamp_y'], seg=16))
+
+
+# ------------------------------------------------------------------ 遮光罩
+# 参照照片：罩檐沿仪表板顶边与两侧包住仪表板，向驾驶员方向伸出约 20 cm；
+# 右侧一直包到仪表板底部，左侧只包到时钟高度；后沿是包皮革的卷边。
+HOOD_LEFT_END = -0.21
+HOOD_RIGHT_END = -0.47
+
+
+def hood_outline(n=72):
+    """罩檐根部沿仪表板外缘的曲线（仪表板局部 u, v），从左翼底端 → 顶边 → 右翼底端。"""
+    W = L.PANEL_HALF_W + 0.012
+    top_l = L.panel_top(-L.PANEL_HALF_W) + 0.006
+    pts = []
+    k = 10
+    for i in range(k):  # 左翼（竖直向上）
+        pts.append((-W, HOOD_LEFT_END + (top_l - HOOD_LEFT_END) * i / k))
+    m = n - 2 * k
+    for i in range(m + 1):  # 顶边
+        u = -W + 2 * W * i / m
+        pts.append((u, L.panel_top(max(-L.PANEL_HALF_W, min(L.PANEL_HALF_W, u))) + 0.006))
+    top_r = pts[-1][1]
+    for i in range(1, k + 1):  # 右翼（竖直向下）
+        pts.append((W, top_r + (HOOD_RIGHT_END - top_r) * i / k))
+    return pts
+
+
+def build_glare():
+    pts = hood_outline()
+    n = len(pts)
+    # 每个点：外法线（仪表板平面内）、伸出深度、外翻量
+    rows = []
+    for i, (u, v) in enumerate(pts):
+        a = Vector(pts[max(0, i - 1)])
+        b = Vector(pts[min(n - 1, i + 1)])
+        t = (b - a).normalized()
+        mo = Vector((-t.y, t.x))  # 行进方向左侧 = 外侧
+        top = v > -0.17
+        # 顶部伸出最深，翼部向下逐渐变浅
+        depth = 0.205 - 0.04 * abs(u) / 0.53 if top else 0.205 - 0.04 - 0.16 * min(1.0, (-0.17 - v) / 0.30)
+        flare = 0.04 if top else 0.025
+        rows.append((u, v, mo, depth, flare))
+    M_ = 14
+    verts, faces = [], []
+    lip = []
+    for (u, v, mo, depth, flare) in rows:
+        base = PW(u, v, 0.0)
+        m3 = PU * mo.x + PV * mo.y
+        for j in range(M_ + 1):
+            t = -0.6 + 1.6 * j / M_  # t<0：向前（风挡方向）延伸的顶板/侧板；t>0：伸向驾驶员的罩檐
+            if t < 0:
+                p = base + m3 * (0.006 + flare) - PN * (0.32 * -t) - Vector((0, 0, 0.03 * -t))
+            else:
+                bulge = math.sin(math.pi * t) * 0.012
+                p = base + m3 * (0.006 + flare * math.sin(math.pi / 2 * t) ** 0.7 + bulge) + PN * (depth * t)
+            verts.append(p)
+        lip.append(verts[-1])
+    for i in range(n - 1):
+        for j in range(M_):
+            a = i * (M_ + 1) + j
+            faces.append((a, a + 1, a + M_ + 2, a + M_ + 1))
+    hood = K.mesh_obj('glare_hood', verts, faces, M['glare'], smooth=70)
+    K.fix_normals(hood)
+    K.add_solidify(hood, 0.010, 1.0)
+    K.apply_mods(hood)
+    K.shade(hood, 70)
+    S(hood)
+    # 后沿软包卷边（沿罩檐边缘的细管）+ 两翼底端封头
+    S(K.tube_path('glare_roll', lip, 0.0085, M['glare'], seg=12))
+    # 罩檐内侧的几个黑色卡扣（照片中可见）
+    for k_, (u, v) in enumerate([(-0.30, -0.105), (-0.05, -0.012), (0.20, -0.04), (0.42, -0.098)]):
+        p = PW(u, v, 0.09) + (PV * 0.045)
+        S(K.box(f'hood_clip{k_}', (0.03, 0.012, 0.008), tuple(p), M['knob'], bevel=0.002))
+
+
+# ------------------------------------------------------------------ 中央操纵台（基座）
+def build_pedestal():
+    prof = [(1.70, -0.405), (1.665, -0.53), (1.42, -0.645), (1.30, -0.70), (1.30, -0.78), (1.84, -0.78), (1.84, -0.405)]
+    ped = K.prism('pedestal', prof, -0.13, 0.13, M['lining_d'], axis='X')
+    K.add_bevel(ped, 0.006, 2)
+    S(ped)
+    # 音频控制面板（竖直面）
+    n = Vector((0, -1, 0.29)).normalized()
+    up = n.cross(Vector((1, 0, 0))).normalized() * -1
+    c0 = Vector((0.0, 1.675, -0.468))
+
+    def at(x, y, z):
+        return tuple(c0 + Vector((1, 0, 0)) * x + up * y + n * z)
+
+    ap = K.box('audio_panel', (0.17, 0.052, 0.012), (0, 0, 0), M['black'])
+    K.map_verts(ap, lambda c: at(c[0], c[1], c[2] + 0.006))
+    S(ap)
+    for r in range(2):
+        for i in range(7):
+            b = K.box(f'audio_btn{r}{i}', (0.016, 0.009, 0.004), (0, 0, 0), M['dmetal'] if r == 0 else M['knob'])
+            K.map_verts(b, lambda c, r=r, i=i: at(-0.066 + i * 0.019 + c[0], 0.012 - r * 0.020 + c[1], 0.013 + c[2]))
+            S(b)
+    kn = K.cylinder('audio_knob', 0.007, 0.012, (0, 0, 0), M['knob'], 20)
+    K.map_verts(kn, lambda c: at(0.075 + c[0], 0.0 + c[1], 0.018 + c[2]))
+    S(kn)
+    # 斜面：应答机、开关组
+    n2 = Vector((0, -0.115, 0.245)).normalized()
+    n2 = Vector((0, -(0.645 - 0.53), (1.665 - 1.42))).normalized()
+    n2 = Vector((0, -n2.z, n2.y)) if n2.y > 0 else n2
+    along = Vector((0, 1.42 - 1.665, -0.645 + 0.53)).normalized()  # 沿斜面向下
+    base = Vector((0, 1.60, -0.565))
+    nrm = Vector((1, 0, 0)).cross(along).normalized()
+    if nrm.z < 0:
+        nrm = -nrm
+
+    def at2(x, s, z):
+        return tuple(base + Vector((1, 0, 0)) * x + along * s + nrm * z)
+
+    units = [(0.0, 0.03, 0.20, 0.05), (0.0, 0.095, 0.20, 0.06), (0.0, 0.17, 0.22, 0.07)]
+    for k, (x, s, w, h) in enumerate(units):
+        b = K.box(f'ped_unit{k}', (w, h, 0.012), (0, 0, 0), M['black'])
+        K.map_verts(b, lambda c, x=x, s=s: at2(x + c[0], s + c[1], 0.006 + c[2]))
+        K.add_bevel(b, 0.002, 1)
+        S(b)
+    for k in range(5):
+        kn = K.cylinder(f'ped_knob{k}', 0.0085 if k % 2 else 0.006, 0.02, (0, 0, 0), M['knob'], 18)
+        K.map_verts(kn, lambda c, k=k: at2(-0.08 + k * 0.04 + c[0], 0.095 + c[1], 0.022 + c[2]))
+        S(kn)
+    for k in range(8):
+        t = K.cylinder(f'ped_toggle{k}', 0.0018, 0.018, (0, 0, 0), M['metal'], 8)
+        K.map_verts(t, lambda c, k=k: at2(-0.084 + k * 0.024 + c[0], 0.03 + c[1] * 0.3 + c[2] * 0.25, 0.020 + c[2] * 0.9))
+        S(t)
+
+
+# ------------------------------------------------------------------ 地板、脚蹬、操纵杆
+def build_floor_controls():
+    fl = K.box('floor', (1.66, 3.05, 0.03), (0, 0.32, -0.795), M['floor'])
+    S(fl)
+    # 前舱地台（脚蹬区域，留出下视窗）
+    S(K.prism('pedal_deck', [(1.80, -0.80), (1.95, -0.80), (1.95, -0.74), (1.80, -0.76)], -0.70, 0.70, M['lining_d'], axis='X'))
+    # 脚蹬（驾驶员）
+    for nm, dx in (('ctl_pedal_l', -0.12), ('ctl_pedal_r', 0.12)):
+        x = 0.45 + dx
+        pivot = Vector((x, 1.80, -0.76))
+        arm = K.box(nm + '_arm', (0.025, 0.025, 0.20), (x, 1.80, -0.66), M['dmetal'], bevel=0.004)
+        plate = K.box(nm + '_plate', (0.085, 0.018, 0.15), (x, 1.775, -0.60), M['rubber'], bevel=0.005, rot=(math.radians(-18), 0, 0))
+        ped = K.join([arm, plate], nm)
+        K.set_origin(ped, pivot)
+        D(ped, role='pedal')
+    # 周期变距杆
+    base = Vector((0.45, 1.30, -0.78))
+    boot = K.cylinder('cyc_boot', 0.06, 0.12, (0, 0, 0), M['rubber'], 24, r2=0.025)
+    K.map_verts(boot, lambda c: (base.x + c[0], base.y + c[1], base.z + 0.06 + c[2]))
+    stick_pts = K.round_path([base + Vector((0, 0, 0.05)), base + Vector((0, 0.02, 0.35)), base + Vector((0, 0.06, 0.56)), base + Vector((0, 0.05, 0.63))], 0.08)
+    stick = K.tube_path('cyc_stick', stick_pts, 0.0135, M['dmetal'], seg=14)
+    gc = base + Vector((0, 0.05, 0.69))
+    grip = K.cylinder('cyc_grip', 0.019, 0.13, (gc.x, gc.y, gc.z), M['knob'], 20, r2=0.022, rot=(math.radians(-8), 0, 0))
+    hat = K.cylinder('cyc_hat', 0.006, 0.012, (gc.x, gc.y - 0.012, gc.z + 0.066), M['dmetal'], 12)
+    trig = K.box('cyc_trig', (0.012, 0.012, 0.03), (gc.x, gc.y + 0.024, gc.z + 0.01), M['knob'], bevel=0.003)
+    btn = K.cylinder('cyc_btn', 0.005, 0.01, (gc.x - 0.016, gc.y - 0.006, gc.z + 0.04), M['red'], 10, rot=(0, math.radians(90), 0))
+    cyc = K.join([boot, stick, grip, hat, trig, btn], 'ctl_cyclic')
+    K.set_origin(cyc, base + Vector((0, 0, 0.06)))
+    D(cyc, role='cyclic')
+    # 总距杆（驾驶员左手，后端铰接）
+    piv = Vector((0.20, 0.72, -0.50))
+    lever = K.tube_path('col_lever', [piv, piv + Vector((0, 0.42, 0.075))], 0.016, M['dmetal'], seg=14)
+    hc = piv + Vector((0, 0.50, 0.089))
+    handle = K.cylinder('col_grip', 0.022, 0.13, (hc.x, hc.y, hc.z), M['rubber'], 20, rot=(math.radians(-80), 0, 0))
+    head = K.box('col_head', (0.05, 0.05, 0.045), (hc.x, hc.y + 0.085, hc.z + 0.012), M['knob'], bevel=0.008)
+    sw1 = K.cylinder('col_sw1', 0.004, 0.012, (hc.x - 0.012, hc.y + 0.09, hc.z + 0.039), M['metal'], 8)
+    sw2 = K.cylinder('col_sw2', 0.004, 0.012, (hc.x + 0.012, hc.y + 0.09, hc.z + 0.039), M['metal'], 8)
+    hinge = K.cylinder('col_hinge', 0.03, 0.06, (piv.x, piv.y, piv.z), M['dmetal'], 18, rot=(0, math.radians(90), 0))
+    col = K.join([lever, handle, head, sw1, sw2], 'ctl_collective')
+    K.set_origin(col, piv)
+    D(col, role='collective')
+    S(hinge)
+    S(K.box('col_box', (0.08, 0.30, 0.20), (0.20, 0.70, -0.65), M['lining_d'], bevel=0.01))
+
+
+# ------------------------------------------------------------------ 座椅
+def seat(prefix, x, harness=True):
+    parts = []
+    pan = K.box(prefix + '_pan', (0.46, 0.44, 0.075), (x, 1.07, -0.36), M['fabric'], bevel=0.025, segs=3)
+    parts.append(pan)
+    back = K.box(prefix + '_back', (0.46, 0.08, 0.66), (0, 0, 0), M['fabric'], bevel=0.028, segs=3)
+    back.rotation_euler = (math.radians(-12), 0, 0)
+    back.location = (x, 0.80, 0.0)
+    parts.append(back)
+    for sx in (-1, 1):
+        bol = K.box(prefix + f'_bol{sx}', (0.06, 0.12, 0.50), (0, 0, 0), M['fabric'], bevel=0.025, segs=3)
+        bol.rotation_euler = (math.radians(-12), 0, 0)
+        bol.location = (x + sx * 0.235, 0.83, -0.05)
+        parts.append(bol)
+    head = K.box(prefix + '_head', (0.30, 0.09, 0.17), (0, 0, 0), M['fabric'], bevel=0.03, segs=3)
+    head.rotation_euler = (math.radians(-12), 0, 0)
+    head.location = (x, 0.73, 0.44)
+    parts.append(head)
+    for p in parts:
+        K.apply_mods(p)
+        K.bake_transform(p)
+        K.uv_box(p, 2.5)
+    # 管状框架
+    for sx in (-1, 1):
+        fx = x + sx * 0.255
+        pts = K.round_path([(fx, 1.28, -0.78), (fx, 1.22, -0.42), (fx, 0.92, -0.40), (fx, 0.86, -0.05), (fx, 0.76, 0.50), (fx - sx * 0.03, 0.74, 0.56)], 0.06)
+        parts.append(K.tube_path(prefix + f'_tube{sx}', pts, 0.014, M['frame'], seg=10))
+        parts.append(K.tube_path(prefix + f'_leg{sx}', [(fx, 0.88, -0.78), (fx, 0.90, -0.42)], 0.013, M['frame'], seg=10))
+    parts.append(K.tube_path(prefix + '_xbar', [(x - 0.255, 1.22, -0.43), (x + 0.255, 1.22, -0.43)], 0.012, M['frame'], seg=10))
+    for sx in (-1, 1):
+        parts.append(K.box(prefix + f'_rail{sx}', (0.03, 0.55, 0.02), (x + sx * 0.255, 1.05, -0.775), M['dmetal']))
+    if harness:
+        # 肩带（从靠背顶端搭下）+ 腰带 + 中央锁扣
+        for sx in (-1, 1):
+            pts = [(x + sx * 0.09, 0.70, 0.50), (x + sx * 0.10, 0.80, 0.30), (x + sx * 0.08, 0.86, 0.02), (x + sx * 0.04, 0.95, -0.22)]
+            parts.append(strap(prefix + f'_sh{sx}', pts, 0.045))
+            lp = [(x + sx * 0.22, 0.90, -0.33), (x + sx * 0.15, 1.00, -0.31), (x + sx * 0.04, 1.02, -0.27)]
+            parts.append(strap(prefix + f'_lap{sx}', lp, 0.045))
+        parts.append(K.box(prefix + '_buckle', (0.07, 0.02, 0.07), (x, 1.03, -0.26), M['metal'], bevel=0.006))
+        parts.append(strap(prefix + '_crotch', [(x, 1.15, -0.32), (x, 1.07, -0.28)], 0.04))
+    return parts
+
+
+def strap(name, pts, width, thick=0.004):
+    pts = [Vector(p) for p in pts]
+    verts, faces = [], []
+    for i, p in enumerate(pts):
+        t = (pts[min(i + 1, len(pts) - 1)] - pts[max(i - 1, 0)]).normalized()
+        side = t.cross(Vector((0, -1, 0.3))).normalized() * (width / 2)
+        nrm = t.cross(side).normalized() * thick
+        for s in (side, -side):
+            verts.append(p + s)
+            verts.append(p + s + nrm)
+    n = len(pts)
+    for i in range(n - 1):
+        a, b = i * 4, (i + 1) * 4
+        faces += [(a, b, b + 2, a + 2), (a + 1, a + 3, b + 3, b + 1), (a, a + 1, b + 1, b), (a + 2, b + 2, b + 3, a + 3)]
+    ob = K.mesh_obj(name, verts, faces, M['strap'], smooth=30)
+    K.fix_normals(ob)
+    return ob
+
+
+def build_seats():
+    for p in seat('seat_r', 0.45):
+        S(p)
+    for p in seat('seat_l', -0.45):
+        S(p)
+    # 灭火瓶（左座前侧，参照照片）
+    ex = K.cylinder('ext_body', 0.045, 0.28, (-0.69, 1.20, -0.52), M['red'], 24, bevel=0.015)
+    S(ex)
+    S(K.cylinder('ext_head', 0.02, 0.06, (-0.69, 1.20, -0.35), M['dmetal'], 14))
+    S(K.box('ext_handle', (0.02, 0.09, 0.012), (-0.69, 1.22, -0.315), M['knob'], bevel=0.004))
+    for z in (-0.60, -0.44):
+        S(K.torus(f'ext_strap{z}', 0.048, 0.006, (-0.69, 1.20, z), M['dmetal'], 24, 6))
+    # 后排长椅
+    S(K.box('bench_pan', (1.55, 0.48, 0.10), (0, -0.70, -0.42), M['fabric'], bevel=0.03, segs=3))
+    S(K.box('bench_back', (1.55, 0.10, 0.62), (0, -0.98, 0.0), M['fabric'], bevel=0.03, segs=3, rot=(math.radians(8), 0, 0)))
+    S(K.box('bench_base', (1.55, 0.40, 0.33), (0, -0.78, -0.62), M['lining_d'], bevel=0.01))
+    for p in STATIC[-3:]:
+        K.apply_mods(p)
+        K.bake_transform(p)
+        K.uv_box(p, 2.5)
+
+
+# ------------------------------------------------------------------ 顶部操纵台、罗盘、耳机
+def build_overhead():
+    S(K.box('ovh_console', (0.22, 0.58, 0.07), (0, 1.05, 0.90), M['lining_d'], bevel=0.012))
+    S(K.box('ovh_panel', (0.18, 0.50, 0.01), (0, 1.05, 0.862), M['black']))
+    for i in range(4):
+        for j in range(3):
+            S(K.cylinder(f'cb{i}{j}', 0.0045, 0.012, (-0.05 + j * 0.05, 0.86 + i * 0.05, 0.852), M['knob'], 10))
+    # 燃油切断手柄（红）与旋翼刹车手柄（黄黑）
+    S(K.box('fuel_lever', (0.018, 0.13, 0.02), (0.05, 1.22, 0.845), M['red'], bevel=0.005, rot=(math.radians(10), 0, 0)))
+    S(K.box('rotor_brake', (0.018, 0.12, 0.02), (-0.05, 1.20, 0.845), M['yellow'], bevel=0.005, rot=(math.radians(10), 0, 0)))
+    # 风挡中柱顶端的磁罗盘
+    S(K.box('compass_body', (0.07, 0.06, 0.05), (0, 1.78, 0.62), M['black'], bevel=0.01))
+    S(K.sphere('compass_dome', 0.028, (0, 1.755, 0.625), M['gglass'], 16, 8, (1, 0.6, 1)))
+    S(K.box('compass_card', (0.04, 0.004, 0.016), (0, 1.748, 0.625), M['needle']))
+    # 挂着的耳机
+    hx, hy, hz = -0.74, 0.60, 0.64  # 挂在左侧舱壁的挂钩上
+    S(K.torus('hs_band', 0.085, 0.008, (hx, hy, hz), M['knob'], 24, 8, arc=(math.radians(10), math.radians(170)), rot=(math.radians(90), 0, 0)))
+    for sx in (-1, 1):
+        S(K.cylinder(f'hs_cup{sx}', 0.045, 0.04, (hx + sx * 0.085, hy, hz - 0.03), M['knob'], 20, rot=(0, math.radians(90), 0), bevel=0.01))
+    S(K.tube_path('hs_boom', K.round_path([(hx + 0.10, hy, hz - 0.04), (hx + 0.11, hy - 0.06, hz - 0.08), (hx + 0.06, hy - 0.12, hz - 0.10)], 0.04), 0.004, M['knob'], seg=8))
+    S(K.tube_path('hs_cord', K.round_path([(hx - 0.10, hy, hz - 0.05), (hx - 0.05, hy + 0.04, hz - 0.30), (hx - 0.02, hy + 0.08, hz - 0.70), (hx + 0.02, hy + 0.10, -0.74)], 0.1), 0.003, M['knob'], seg=6))
+
+
+# ------------------------------------------------------------------ 主流程
+build_panel()
+build_units()
+build_glare()
+build_pedestal()
+build_floor_controls()
+build_seats()
+build_overhead()
+shell, glass = build_shell()
+for g in glass.values():
+    D(g, role='window')
+S(shell)
+
+# 合并静态部件：按材质分组
+bpy.context.view_layer.update()
+by_mat = {}
+for ob in STATIC:
+    K.apply_mods(ob)
+    by_mat.setdefault(ob.data.materials[0].name if len(ob.data.materials) == 1 else '__multi__' + ob.name, []).append(ob)
+static = []
+for k, obs in by_mat.items():
+    static.append(K.join(obs, 'st_' + k.replace('__multi__', '')))
+
+if DO_BAKE:
+    # 全部静态部件合成一个物体（多材质），生成第二套 UV，烘焙环境光遮蔽（游戏里作为 aoMap，uv 通道 1）
+    import time
+
+    t0 = time.time()
+    whole = K.join(static, 'cockpit_static')
+    static = [whole]
+    AO_WEIGHT = {'cp_paint': 0.02, 'cp_lining': 0.35, 'cp_floor': 0.5, 'cp_lining_dark': 0.7, 'cp_fabric': 0.8,
+                 'cp_panelfront': 3.0, 'cp_gauges': 2.0, 'cp_black': 1.6, 'cp_knob': 1.6, 'cp_glare': 1.0}
+    K.smart_uv(whole, 'AO', angle=60.0, margin=0.0015, weight=lambda n: AO_WEIGHT.get(n, 1.0))
+    lay = whole.data.uv_layers['AO']
+    us = [d.uv[0] for d in lay.data]
+    vs = [d.uv[1] for d in lay.data]
+    print('UV', round(time.time() - t0, 1), 's', 'range', round(min(us), 3), round(max(us), 3), round(min(vs), 3), round(max(vs), 3),
+          'mats', [m.name if m else None for m in whole.data.materials])
+    ao_png = os.path.abspath('art/out/cockpit_ao.png')
+    K.bake_ao(whole, ao_png, size=4096, samples=96, distance=0.35)
+    print('BAKED', ao_png, round(time.time() - t0, 1), 's')
+
+if PREVIEW:
+    os.makedirs(PREVIEW, exist_ok=True)
+    K.world_sky(1.0, sun_dir=(0.55, -0.35, 0.75), sun_strength=4.5)
+    eye = Vector(L.EYE)
+    cam = K.camera('cam_pilot', eye, eye + Vector((-0.12, 1.0, -0.42)), fov_deg=75)
+    K.render(os.path.join(PREVIEW, 'pilot.png'), cam, (1280, 720), samples=64)
+    cam2 = K.camera('cam_photo', (-0.42, 1.02, 0.10), (0.10, 1.72, -0.12), fov_deg=60)
+    K.render(os.path.join(PREVIEW, 'photo_match.png'), cam2, (1200, 900), samples=64, exposure=0.8)
+    cam3 = K.camera('cam_cabin', (0.0, -0.55, 0.45), (0.15, 1.6, -0.15), fov_deg=80)
+    K.render(os.path.join(PREVIEW, 'cabin.png'), cam3, (1280, 720), samples=64, exposure=0.5)
+
+if BLEND:
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(BLEND))
+
+K.export_glb(OUT_GLB, static + DYNAMIC)
+print('EXPORTED', OUT_GLB, 'static', len(static), 'dynamic', len(DYNAMIC))

@@ -16,6 +16,7 @@ import { HeliModel } from './heliModel';
 import { NavView } from './navView';
 import { PropsView } from './propsView';
 import { SkyDome } from './sky';
+import { SunShadows } from './sunShadows';
 import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrainView';
 import { makeForestTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
 import { TreeView } from './treeView';
@@ -38,8 +39,12 @@ export class WorldView {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly rig: CameraRig;
-  readonly sun: THREE.DirectionalLight;
+  /** 太阳光（分层阴影） */
+  readonly sun: SunShadows;
   readonly hemi: THREE.HemisphereLight;
+  private csmT = 0;
+  private csmFov = 0;
+  private csmAspect = 0;
   private pmrem: THREE.PMREMGenerator;
   private envRT: THREE.WebGLRenderTarget | null = null;
   private envKey = '';
@@ -82,11 +87,7 @@ export class WorldView {
     this.rig = new CameraRig(canvas.clientWidth / Math.max(1, canvas.clientHeight));
     this.scene.add(this.rig.camera);
     this.scene.fog = this.fog;
-    this.sun = new THREE.DirectionalLight(0xffffff, 3);
-    this.sun.castShadow = true;
-    this.sun.shadow.bias = -0.0004;
-    this.sun.shadow.normalBias = 0.5;
-    this.scene.add(this.sun, this.sun.target);
+    this.sun = new SunShadows(this.scene, this.rig.camera, QUALITY[settings.quality].shadowSize);
     this.hemi = new THREE.HemisphereLight(0xbfd4ff, 0x4a4030, 0.6);
     this.scene.add(this.hemi);
     this.rain = new RainFx(9000);
@@ -104,21 +105,7 @@ export class WorldView {
     const dpr = Math.min(window.devicePixelRatio || 1, q.pixelRatio) * s.renderScale;
     this.renderer.setPixelRatio(dpr);
     this.renderer.shadowMap.enabled = q.shadows;
-    this.sun.castShadow = q.shadows;
-    if (this.sun.shadow.mapSize.x !== q.shadowSize) {
-      this.sun.shadow.mapSize.set(q.shadowSize, q.shadowSize);
-      this.sun.shadow.map?.dispose();
-      this.sun.shadow.map = null;
-    }
-    const sc = this.sun.shadow.camera as THREE.OrthographicCamera;
-    const R = Math.max(60, q.shadowRange);
-    sc.left = -R;
-    sc.right = R;
-    sc.top = R;
-    sc.bottom = -R;
-    sc.near = 10;
-    sc.far = 4000;
-    sc.updateProjectionMatrix();
+    this.sun.setShadows(q.shadows, q.shadowSize);
     if (this.terrain) {
       this.terrain.lodScale = q.terrainLod;
       this.terrain.shadowRange = q.shadowRange;
@@ -147,6 +134,7 @@ export class WorldView {
     this.renderer.setSize(w, h, false);
     this.rig.camera.aspect = w / Math.max(1, h);
     this.rig.camera.updateProjectionMatrix();
+    this.sun.updateFrustums();
     this.composer?.setSize(w, h);
   }
 
@@ -184,6 +172,11 @@ export class WorldView {
     this.scene.add(this.clouds.group);
     this.minimap = makeMinimapCanvas(map, world.terrain, world.trees);
     this.cockpit.minimap = this.minimap;
+    if (!this.cockpit.loaded) {
+      progress?.(0.92, '加载驾驶舱模型');
+      await this.cockpit.ready;
+    }
+    this.sun.setupObject(this.scene);
     this.applySettings(this.settings);
     progress?.(0.96, '编译着色器');
     await tick();
@@ -274,8 +267,8 @@ export class WorldView {
       this.sky.update(w, _w.x, _w.z, f.dt, this.flash);
       this.sky.follow(cp);
       const C = this.sky.colors;
-      this.sun.color.copy(C.sun);
-      this.sun.intensity = C.sunIntensity;
+      this.sun.setLight(C.sun, C.sunIntensity);
+      this.sun.setSunDirection(this.sky.sunDir);
       this.hemi.color.copy(C.hemiSky);
       this.hemi.groundColor.copy(C.hemiGround);
       this.hemi.intensity = C.hemiIntensity * 0.65;
@@ -290,15 +283,19 @@ export class WorldView {
       this.fog.density = 1.65 / Math.max(60, vis);
       this.fog.color.copy(C.fog).lerp(new THREE.Color(0.86, 0.88, 0.9), this.inCloud);
       this.renderer.toneMappingExposure = 1.0 - w.overcast * 0.12 + this.flash * 0.6;
-      // 阴影相机跟随（贴齐纹素避免闪烁）
       const q = QUALITY[set.quality];
-      const R = Math.max(60, q.shadowRange);
-      const texel = (2 * R) / q.shadowSize;
-      const tx = Math.round(cp.x / texel) * texel;
-      const tz = Math.round(cp.z / texel) * texel;
-      this.sun.target.position.set(tx, cp.y - 20, tz);
-      this.sun.position.set(tx, cp.y - 20, tz).addScaledVector(this.sky.sunDir, 1500);
-      this.sun.target.updateMatrixWorld();
+      // 分层阴影：视野或宽高比变了要重新划分；每帧把各层阴影框跟随相机（内部按纹素对齐，避免闪烁）
+      if (cam.fov !== this.csmFov || cam.aspect !== this.csmAspect) {
+        this.csmFov = cam.fov;
+        this.csmAspect = cam.aspect;
+        this.sun.updateFrustums();
+      }
+      this.sun.update();
+      // 兜底：定期检查新出现的受光材质是否已接入分层阴影（未接入会叠加多份阳光）
+      if (f.t - this.csmT > 1.5 || f.t < this.csmT) {
+        this.csmT = f.t;
+        this.sun.setupObject(this.scene);
+      }
       this.updateEnv(w, f.t);
       this.terrain?.update(cp);
       if (this.terrainUniforms) this.terrainUniforms.uWet.value = w.wetness;
@@ -350,6 +347,7 @@ export class WorldView {
     this.cockpit.dispose();
     this.rain.dispose();
     this.composer?.dispose();
+    this.sun.dispose();
     this.pmrem.dispose();
     this.renderer.dispose();
   }

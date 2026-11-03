@@ -1,149 +1,204 @@
-// 三维驾驶舱：内壁（遮罩挖出挡风玻璃、侧窗、顶窗、下视窗）、窗框、仪表台、遮光罩、座椅、中央操纵台、
-// 顶部开关板、周期变距杆/总距杆/脚蹬（随实际操纵动画）、三块仪表屏幕、带雨滴效果的玻璃。
+// 三维驾驶舱：加载 Blender 建模导出的 models/cockpit.glb（参照 H125 实机照片，见 tools/blender/cockpit.py）。
+// 指针、刻度盘按真实飞行数据转动；五块电子屏用 Canvas 实时绘制；周期变距杆/总距杆/脚蹬随操纵动画；
+// 窗玻璃使用带雨滴/水流效果的材质。模型加载失败时座舱内部为空，游戏照常可玩。
 
 import * as THREE from 'three';
-import { drawEICAS, drawMFD, drawPFD, type InstrumentData } from './instruments';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { drawAnnunciator, drawAttitude, drawGps, drawVemdBottom, drawVemdTop, NEEDLE, type InstrumentData } from './instruments';
 import { getNoiseTexture } from './textures';
 
-/** 驾驶员眼点（机体坐标） */
-export const EYE = new THREE.Vector3(0.46, 0.5, -0.58);
+/** 驾驶员眼点（机体坐标，右座），与 tools/blender/cockpit_layout.py 的 EYE 一致 */
+export const EYE = new THREE.Vector3(0.45, 0.42, -1.0);
 
-// 机舱内壁采用与外部机身一致的椭球（略缩小）
-function shellGeometry(scale: number): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(1, 64, 32);
-  const p = g.getAttribute('position');
-  for (let i = 0; i < p.count; i++) {
-    let x = p.getX(i);
-    let y = p.getY(i);
-    let z = p.getZ(i);
-    const front = z < 0;
-    z *= front ? 1.95 : 1.55;
-    x *= 1.02 * (front ? 1 - Math.max(0, -z - 1.2) * 0.12 : 1 - z * 0.08);
-    y *= 1.05;
-    if (y < -0.55) y = -0.55 - (y + 0.55) * 0.35;
-    p.setXYZ(i, x * scale, (y + 0.1) * scale + 0.1 * (1 - scale), z * scale - 0.35);
-  }
-  g.computeVertexNormals();
-  return g;
+const MODEL_URL = 'models/cockpit.glb';
+/** Blender 烘焙的环境光遮蔽（使用模型的第二套 UV） */
+const AO_URL = 'models/cockpit_ao.jpg';
+const DEG = Math.PI / 180;
+
+interface Needle {
+  obj: THREE.Object3D;
+  base: THREE.Quaternion;
+  axis: THREE.Vector3;
 }
 
-/** 窗户区域（球面 UV 空间：u = 方位，0.75 = 正前，0.5 = 右侧；v = 0 顶部，0.5 赤道） */
-const WINDOWS: Array<[number, number, number, number]> = [
-  [0.608, 0.746, 0.14, 0.53], // 风挡左半
-  [0.754, 0.892, 0.14, 0.53], // 风挡右半
-  [0.64, 0.86, 0.035, 0.12], // 顶窗
-  [0.66, 0.738, 0.58, 0.77], // 下视窗左
-  [0.762, 0.84, 0.58, 0.77], // 下视窗右
-  [0.508, 0.6, 0.2, 0.6], // 右前门
-  [0.4, 0.497, 0.26, 0.56], // 右后门
-  [0.9, 0.992, 0.2, 0.6], // 左前门
-  [0.003, 0.1, 0.26, 0.56], // 左后门
-];
-
-function windowMask(): { solid: THREE.CanvasTexture; glass: THREE.CanvasTexture; color: THREE.CanvasTexture } {
-  const W = 1024;
-  const H = 512;
-  const mk = () => {
-    const c = document.createElement('canvas');
-    c.width = W;
-    c.height = H;
-    return c;
-  };
-  const solid = mk();
-  const glass = mk();
-  const color = mk();
-  const gs = solid.getContext('2d')!;
-  const gg = glass.getContext('2d')!;
-  const gc = color.getContext('2d')!;
-  gs.fillStyle = '#fff';
-  gs.fillRect(0, 0, W, H);
-  gg.fillStyle = '#000';
-  gg.fillRect(0, 0, W, H);
-  gc.fillStyle = '#9aa1a9';
-  gc.fillRect(0, 0, W, H);
-  // 内饰细节：缝线与面板
-  gc.strokeStyle = 'rgba(0,0,0,0.25)';
-  gc.lineWidth = 2;
-  for (let y = 0; y < H; y += 32) {
-    gc.beginPath();
-    gc.moveTo(0, y);
-    gc.lineTo(W, y);
-    gc.stroke();
-  }
-  gc.fillStyle = '#6c737c';
-  gc.fillRect(0, H * 0.62, W, H * 0.38);
-  const rr = (g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
-    g.beginPath();
-    g.moveTo(x + r, y);
-    g.arcTo(x + w, y, x + w, y + h, r);
-    g.arcTo(x + w, y + h, x, y + h, r);
-    g.arcTo(x, y + h, x, y, r);
-    g.arcTo(x, y, x + w, y, r);
-    g.closePath();
-  };
-  for (const [u0, u1, v0, v1] of WINDOWS) {
-    const x = u0 * W;
-    const y = v0 * H;
-    const w = (u1 - u0) * W;
-    const h = (v1 - v0) * H;
-    gs.fillStyle = '#000';
-    rr(gs, x, y, w, h, 14);
-    gs.fill();
-    gg.fillStyle = '#fff';
-    rr(gg, x - 2, y - 2, w + 4, h + 4, 15);
-    gg.fill();
-    gc.strokeStyle = '#3a3f46';
-    gc.lineWidth = 5;
-    rr(gc, x - 3, y - 3, w + 6, h + 6, 16);
-    gc.stroke();
-  }
-  const t = (c: HTMLCanvasElement, srgb: boolean) => {
-    const tx = new THREE.CanvasTexture(c);
-    if (srgb) tx.colorSpace = THREE.SRGBColorSpace;
-    tx.anisotropy = 4;
-    return tx;
-  };
-  return { solid: t(solid, false), glass: t(glass, false), color: t(color, true) };
+interface Screen {
+  tex: THREE.CanvasTexture;
+  ctx: CanvasRenderingContext2D;
+  w: number;
+  h: number;
+  kind: 'vemd1' | 'vemd2' | 'ai' | 'gps' | 'ann';
 }
+
+const SCREEN_SIZE: Record<Screen['kind'], [number, number]> = {
+  vemd1: [512, 430],
+  vemd2: [512, 430],
+  ai: [400, 484],
+  gps: [512, 342],
+  ann: [768, 302],
+};
+
+const _q = new THREE.Quaternion();
 
 export class Cockpit {
   readonly root = new THREE.Group();
-  private screens: Array<{ tex: THREE.CanvasTexture; ctx: CanvasRenderingContext2D; kind: 'pfd' | 'mfd' | 'eicas' }> = [];
-  private cyclic = new THREE.Group();
-  private collective = new THREE.Group();
-  private pedalL = new THREE.Mesh();
-  private pedalR = new THREE.Mesh();
   readonly glassUniforms = { uRain: { value: 0 }, uTime: { value: 0 }, uFlow: { value: 0 }, uNoise: { value: getNoiseTexture() }, uShield: { value: 0 } };
-  private mats: THREE.Material[] = [];
-  private geos: THREE.BufferGeometry[] = [];
-  private lastDraw = -1;
+  /** 模型加载完成（失败也会 resolve，loaded 为 false） */
+  readonly ready: Promise<void>;
+  loaded = false;
   mapRange = 2000;
   minimap: HTMLCanvasElement | null = null;
+  private needles = new Map<string, Needle>();
+  private screens: Screen[] = [];
+  private ctl: Partial<Record<'cyclic' | 'collective' | 'pedalL' | 'pedalR', { obj: THREE.Object3D; base: THREE.Quaternion }>> = {};
+  private mats = new Set<THREE.Material>();
+  private geos = new Set<THREE.BufferGeometry>();
+  private textures: THREE.Texture[] = [];
+  private lastDraw = -1;
+  private lastSlow = -1;
 
   constructor() {
-    const masks = windowMask();
-    const shellMat = new THREE.MeshStandardMaterial({ map: masks.color, alphaMap: masks.solid, alphaTest: 0.5, side: THREE.BackSide, roughness: 0.9, metalness: 0, emissive: 0x15181c });
-    const shell = new THREE.Mesh(shellGeometry(0.975), shellMat);
-    this.root.add(shell);
-    this.mats.push(shellMat);
-    this.geos.push(shell.geometry);
+    // 舱内补光（模拟窗口进来的漫反射光照亮仪表板下方）
+    const fill = new THREE.PointLight(0xf2efe8, 0.9, 3.2, 2);
+    fill.position.set(0.0, 0.35, -0.9);
+    this.root.add(fill);
+    this.ready = this.load().catch((e) => {
+      console.warn('驾驶舱模型加载失败：', e);
+    });
+  }
 
-    // 玻璃：雨滴（静止水珠 + 随气流上爬的水流）+ 护盾时的淡蓝色边缘
-    const glassMat = new THREE.MeshStandardMaterial({ color: 0xb8c8d0, alphaMap: masks.glass, transparent: true, opacity: 0.1, roughness: 0.05, metalness: 0.1, side: THREE.DoubleSide, depthWrite: false, envMapIntensity: 0.6 });
+  private async load(): Promise<void> {
+    const url = new URL(MODEL_URL, document.baseURI).href;
+    const [gltf, ao] = await Promise.all([
+      new GLTFLoader().loadAsync(url),
+      new THREE.TextureLoader().loadAsync(new URL(AO_URL, document.baseURI).href).catch(() => null),
+    ]);
+    if (ao) {
+      ao.flipY = false; // 与 glTF 的 UV 方向一致
+      ao.channel = 1;
+      ao.colorSpace = THREE.NoColorSpace;
+      ao.anisotropy = 8;
+      this.textures.push(ao);
+    }
+    const scene = gltf.scene;
+    const glass = this.makeGlassMaterial(false);
+    const roofGlass = this.makeGlassMaterial(true);
+    const gaugeGlass = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.1, roughness: 0.04, metalness: 0, depthWrite: false, envMapIntensity: 1.4 });
+    this.mats.add(glass).add(roofGlass).add(gaugeGlass);
+    scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) {
+        this.geos.add(m.geometry);
+        const name = m.name;
+        if (name.startsWith('glass_')) {
+          m.material = name.startsWith('glass_roof') ? roofGlass : glass;
+          m.renderOrder = 20;
+          m.castShadow = false;
+          m.receiveShadow = false;
+          return;
+        }
+        if (name.startsWith('gglass_')) {
+          m.material = gaugeGlass;
+          m.renderOrder = 10;
+          m.castShadow = false;
+          return;
+        }
+        if (name.startsWith('scr_')) {
+          this.setupScreen(m, name.slice(4) as Screen['kind']);
+          return;
+        }
+        m.castShadow = !name.startsWith('ndl_');
+        m.receiveShadow = true;
+        const mats = Array.isArray(m.material) ? m.material : [m.material];
+        const hasAoUv = !!m.geometry.getAttribute('uv1');
+        for (const mat of mats) {
+          this.mats.add(mat);
+          const sm = mat as THREE.MeshStandardMaterial;
+          if (ao && hasAoUv && 'aoMap' in sm) {
+            sm.aoMap = ao;
+            sm.aoMapIntensity = 1.0;
+          }
+          if (mat.name === 'cp_gauge_overlay') {
+            // 透明背景的航向仪固定层：用 alpha 测试代替混合，避免排序问题
+            sm.transparent = false;
+            sm.alphaTest = 0.5;
+          }
+          for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap'] as const) {
+            const t = sm[k];
+            if (t) {
+              t.anisotropy = 8;
+              this.textures.push(t);
+            }
+          }
+        }
+      }
+    });
+    scene.traverse((o) => {
+      if (o.name.startsWith('ndl_')) {
+        const axis = new THREE.Vector3().fromArray((o.userData.axis as number[] | undefined) ?? [0, 0.242, 0.97]).normalize();
+        this.needles.set(o.name, { obj: o, base: o.quaternion.clone(), axis });
+      } else if (o.name === 'ctl_cyclic') this.ctl.cyclic = { obj: o, base: o.quaternion.clone() };
+      else if (o.name === 'ctl_collective') this.ctl.collective = { obj: o, base: o.quaternion.clone() };
+      else if (o.name === 'ctl_pedal_l') this.ctl.pedalL = { obj: o, base: o.quaternion.clone() };
+      else if (o.name === 'ctl_pedal_r') this.ctl.pedalR = { obj: o, base: o.quaternion.clone() };
+    });
+    this.root.add(scene);
+    this.loaded = true;
+  }
+
+  private setupScreen(m: THREE.Mesh, kind: Screen['kind']): void {
+    const [w, h] = SCREEN_SIZE[kind] ?? [512, 512];
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    const ctx = cv.getContext('2d')!;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, w, h);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 8;
+    tex.flipY = false; // glTF 模型的 UV 原点在左上角
+    // 屏幕自发光但不受色调映射压暗；乘 0.9 让白天看起来不过曝
+    const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false, color: new THREE.Color(0.9, 0.9, 0.9) });
+    const old = m.material as THREE.Material;
+    old.dispose();
+    m.material = mat;
+    m.castShadow = false;
+    m.receiveShadow = false;
+    this.mats.add(mat);
+    this.textures.push(tex);
+    this.screens.push({ tex, ctx, w, h, kind });
+  }
+
+  private makeGlassMaterial(roof: boolean): THREE.MeshStandardMaterial {
+    const mat = new THREE.MeshStandardMaterial({
+      color: roof ? 0x3f8fbe : 0xb8c8d0,
+      transparent: true,
+      opacity: roof ? 0.42 : 0.07,
+      roughness: 0.04,
+      metalness: 0.1,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      envMapIntensity: 0.8,
+    });
     const GU = this.glassUniforms;
-    glassMat.onBeforeCompile = (shader) => {
+    mat.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, GU);
-      shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vUv2;').replace('#include <uv_vertex>', '#include <uv_vertex>\nvUv2 = uv;');
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vLPos;\nvarying vec3 vLNrm;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLPos = position;\nvLNrm = normal;');
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying vec2 vUv2;\nuniform float uRain, uTime, uFlow, uShield;\nuniform sampler2D uNoise;')
+        .replace('#include <common>', '#include <common>\nvarying vec3 vLPos;\nvarying vec3 vLNrm;\nuniform float uRain, uTime, uFlow, uShield;\nuniform sampler2D uNoise;')
         .replace(
           '#include <alphamap_fragment>',
           /* glsl */ `#include <alphamap_fragment>
 {
-  vec2 uv = vUv2 * vec2(14.0, 7.0);
+  // 雨滴坐标：按玻璃朝向取机体坐标平面（风挡用 x/y，侧窗用 z/y，顶窗用 x/z）
+  vec3 an = abs(normalize(vLNrm));
+  vec2 p = an.z > max(an.x, an.y) ? vLPos.xy : (an.x > an.y ? vLPos.zy : vLPos.xz);
+  vec2 uv = p * vec2(9.0, 9.0);
   float cells = texture2D(uNoise, uv * 0.25).b;
   float drops = smoothstep(0.16, 0.05, cells) * step(0.45, texture2D(uNoise, uv * 0.031).r);
-  vec2 fuv = vec2(vUv2.x * 22.0, vUv2.y * 6.0 + uTime * (0.15 + uFlow * 1.6));
+  vec2 fuv = vec2(p.x * 14.0, p.y * 4.0 + uTime * (0.15 + uFlow * 1.6));
   float streak = smoothstep(0.82, 0.95, texture2D(uNoise, fuv * vec2(0.08, 0.02)).g) * smoothstep(0.2, 1.0, uFlow + 0.3);
   float w = clamp((drops * 0.85 + streak * 0.6) * uRain, 0.0, 1.0);
   diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.85, 0.9, 0.95), w);
@@ -153,112 +208,35 @@ export class Cockpit {
 }`,
         );
     };
-    glassMat.customProgramCacheKey = () => 'cockpit-glass-v1';
-    const glass = new THREE.Mesh(shellGeometry(0.985), glassMat);
-    glass.renderOrder = 20;
-    this.root.add(glass);
-    this.mats.push(glassMat);
-    this.geos.push(glass.geometry);
+    mat.customProgramCacheKey = () => (roof ? 'cockpit-glass-roof-v2' : 'cockpit-glass-v2');
+    return mat;
+  }
 
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x555b63, roughness: 0.7, metalness: 0.2 });
-    const panelMat = new THREE.MeshStandardMaterial({ color: 0x40454c, roughness: 0.85, metalness: 0.05 });
-    const glareMat = new THREE.MeshStandardMaterial({ color: 0x2e3238, roughness: 0.98, metalness: 0 });
-    const seatMat = new THREE.MeshStandardMaterial({ color: 0x4d5868, roughness: 0.95, metalness: 0 });
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x4a4f56, roughness: 0.95, metalness: 0 });
-    const gripMat = new THREE.MeshStandardMaterial({ color: 0x1c1e22, roughness: 0.6, metalness: 0.2 });
-    this.mats.push(frameMat, panelMat, glareMat, seatMat, floorMat, gripMat);
-    // 舱内补光（模拟窗口进来的漫反射光）
-    const fill = new THREE.PointLight(0xf4f0e8, 1.4, 4, 2);
-    fill.position.set(0.0, 0.25, -0.25);
-    this.root.add(fill);
-    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, parent: THREE.Object3D = this.root) => {
-      const m = new THREE.Mesh(geo, mat);
-      m.position.set(x, y, z);
-      m.rotation.set(rx, ry, rz);
-      m.castShadow = true;
-      m.receiveShadow = true;
-      parent.add(m);
-      this.geos.push(geo);
-      return m;
-    };
-    // 地板与座椅
-    add(new THREE.BoxGeometry(1.85, 0.06, 1.8), floorMat, 0, -0.78, -0.25);
-    for (const sx of [-0.46, 0.46]) {
-      add(new THREE.BoxGeometry(0.5, 0.14, 0.52), seatMat, sx, -0.38, -0.32);
-      add(new THREE.BoxGeometry(0.5, 0.78, 0.12), seatMat, sx, 0.02, -0.02, -0.12);
-      add(new THREE.BoxGeometry(0.42, 0.18, 0.1), seatMat, sx, 0.52, 0.03, -0.12);
-      add(new THREE.BoxGeometry(0.06, 0.44, 0.06), frameMat, sx, -0.6, -0.32);
-    }
-    // 仪表台（向后倾斜）与遮光罩
-    // 仪表板（面向驾驶员、顶部略向后倾）+ 窄遮光檐 + 下部机鼻舱
-    add(new THREE.BoxGeometry(1.62, 0.42, 0.1), panelMat, 0, -0.19, -1.45, -0.21);
-    add(new THREE.BoxGeometry(1.66, 0.035, 0.2), glareMat, 0, 0.03, -1.52, -0.04);
-    add(new THREE.BoxGeometry(0.62, 0.3, 0.42), panelMat, 0, -0.56, -1.58);
-    // 中央操纵台
-    add(new THREE.BoxGeometry(0.3, 0.42, 0.85), panelMat, 0, -0.56, -1.0, 0.25);
-    // 顶部开关板
-    add(new THREE.BoxGeometry(0.34, 0.06, 0.62), panelMat, 0, 0.96, -0.52);
-    for (let i = 0; i < 12; i++) {
-      add(new THREE.BoxGeometry(0.03, 0.03, 0.03), gripMat, -0.12 + (i % 4) * 0.08, 0.92, -0.72 + Math.floor(i / 4) * 0.13);
-    }
-    // 窗框：A 柱、中柱、门框
-    const beam = (a: THREE.Vector3, b: THREE.Vector3, t: number) => {
-      const len = a.distanceTo(b);
-      const g = new THREE.BoxGeometry(t, t, len);
-      const m = new THREE.Mesh(g, frameMat);
-      m.position.copy(a).add(b).multiplyScalar(0.5);
-      m.lookAt(b.clone().applyMatrix4(this.root.matrixWorld));
-      m.castShadow = true;
-      this.root.add(m);
-      this.geos.push(g);
-    };
-    beam(new THREE.Vector3(0, 0.1, -1.62), new THREE.Vector3(0, 1.0, -0.86), 0.045);
-    beam(new THREE.Vector3(0.86, 0.06, -1.38), new THREE.Vector3(0.78, 0.96, -0.62), 0.055);
-    beam(new THREE.Vector3(-0.86, 0.06, -1.38), new THREE.Vector3(-0.78, 0.96, -0.62), 0.055);
-    beam(new THREE.Vector3(0.99, -0.3, -0.12), new THREE.Vector3(0.93, 0.9, -0.12), 0.06);
-    beam(new THREE.Vector3(-0.99, -0.3, -0.12), new THREE.Vector3(-0.93, 0.9, -0.12), 0.06);
-    beam(new THREE.Vector3(0.8, 0.98, -0.6), new THREE.Vector3(-0.8, 0.98, -0.6), 0.05);
-
-    // 仪表屏幕
-    const screen = (kind: 'pfd' | 'mfd' | 'eicas', x: number, y: number, z: number, w: number, h: number) => {
-      const cv = document.createElement('canvas');
-      cv.width = cv.height = 512;
-      const ctx = cv.getContext('2d')!;
-      const tex = new THREE.CanvasTexture(cv);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = 4;
-      const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
-      this.mats.push(mat);
-      const g = new THREE.PlaneGeometry(w, h);
-      const m = add(g, mat, x, y, z, -0.21);
-      m.castShadow = false;
-      this.screens.push({ tex, ctx, kind });
-    };
-    screen('pfd', 0.42, -0.165, -1.392, 0.26, 0.26);
-    screen('mfd', 0.12, -0.165, -1.392, 0.26, 0.26);
-    screen('eicas', -0.2, -0.165, -1.392, 0.26, 0.26);
-
-    // 周期变距杆
-    this.cyclic.position.set(0.46, -0.76, -0.78);
-    add(new THREE.CylinderGeometry(0.018, 0.025, 0.56, 8), frameMat, 0, 0.28, 0, 0, 0, 0, this.cyclic);
-    add(new THREE.CylinderGeometry(0.03, 0.028, 0.13, 10), gripMat, 0, 0.6, 0, 0, 0, 0, this.cyclic);
-    this.root.add(this.cyclic);
-    // 总距杆（座椅左侧，向前伸出）
-    this.collective.position.set(0.16, -0.5, -0.08);
-    add(new THREE.CylinderGeometry(0.02, 0.022, 0.56, 8), frameMat, 0, 0, -0.28, Math.PI / 2, 0, 0, this.collective);
-    add(new THREE.CylinderGeometry(0.032, 0.032, 0.12, 10), gripMat, 0, 0, -0.58, Math.PI / 2, 0, 0, this.collective);
-    this.root.add(this.collective);
-    // 脚蹬
-    this.pedalL = add(new THREE.BoxGeometry(0.1, 0.18, 0.04), gripMat, 0.32, -0.66, -1.22, -0.5);
-    this.pedalR = add(new THREE.BoxGeometry(0.1, 0.18, 0.04), gripMat, 0.6, -0.66, -1.22, -0.5);
+  private setNeedle(name: string, deg: number): void {
+    const n = this.needles.get(name);
+    if (!n) return;
+    _q.setFromAxisAngle(n.axis, -deg * DEG);
+    n.obj.quaternion.copy(n.base).premultiply(_q);
   }
 
   /** stick：周期变距（俯仰、滚转 -1..1），collective 0..1，pedal -1..1 */
   updateControls(stickPitch: number, stickRoll: number, collective: number, pedal: number): void {
-    this.cyclic.rotation.set(-stickPitch * 0.22, 0, -stickRoll * 0.22);
-    this.collective.rotation.x = collective * 0.32;
-    this.pedalL.position.z = -1.22 - pedal * 0.05;
-    this.pedalR.position.z = -1.22 + pedal * 0.05;
+    const c = this.ctl;
+    if (c.cyclic) {
+      _q.setFromEuler(new THREE.Euler(-stickPitch * 0.2, 0, -stickRoll * 0.2, 'XZY'));
+      c.cyclic.obj.quaternion.copy(c.cyclic.base).premultiply(_q);
+    }
+    if (c.collective) {
+      _q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), collective * 0.3);
+      c.collective.obj.quaternion.copy(c.collective.base).premultiply(_q);
+    }
+    if (c.pedalL && c.pedalR) {
+      // 踩右舵：右脚蹬向前、左脚蹬向后
+      _q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), pedal * 0.18);
+      c.pedalL.obj.quaternion.copy(c.pedalL.base).premultiply(_q);
+      _q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -pedal * 0.18);
+      c.pedalR.obj.quaternion.copy(c.pedalR.base).premultiply(_q);
+    }
   }
 
   updateGlass(t: number, rain: number, airspeed: number, shield: number): void {
@@ -268,14 +246,39 @@ export class Cockpit {
     this.glassUniforms.uShield.value = shield;
   }
 
-  /** 以约 20 Hz 重绘仪表。 */
+  /** 机械指针每帧更新；电子屏约 20 Hz 重绘（告警灯板 8 Hz）。 */
   drawInstruments(t: number, d: InstrumentData): void {
+    if (!this.loaded) return;
+    this.setNeedle('ndl_asi_main', NEEDLE.asi(d.airspeed));
+    this.setNeedle('ndl_alt_100', NEEDLE.alt100(d.altitudeMSL));
+    this.setNeedle('ndl_alt_1000', NEEDLE.alt1000(d.altitudeMSL));
+    this.setNeedle('ndl_vsi_main', NEEDLE.vsi(d.vs));
+    this.setNeedle('ndl_nr_main', NEEDLE.nr(d.rpm));
+    this.setNeedle('ndl_turn_needle', NEEDLE.turn(d.yawRate));
+    this.setNeedle('ndl_turn_ball', NEEDLE.ball(d.slip));
+    // 航向刻度盘：当前航向转到正上方
+    this.setNeedle('ndl_hsi_card', -d.heading);
+    this.setNeedle('ndl_hdg2_card', -d.heading);
+    const now = new Date();
+    const sec = now.getSeconds() + now.getMilliseconds() / 1000;
+    this.setNeedle('ndl_clock_sec', sec * 6);
+    this.setNeedle('ndl_clock_min', (now.getMinutes() + sec / 60) * 6);
+    this.setNeedle('ndl_clock_hour', ((now.getHours() % 12) + now.getMinutes() / 60) * 30);
     if (t - this.lastDraw < 0.05) return;
     this.lastDraw = t;
+    const slow = t - this.lastSlow >= 0.12;
+    if (slow) this.lastSlow = t;
     for (const s of this.screens) {
-      if (s.kind === 'pfd') drawPFD(s.ctx, d);
-      else if (s.kind === 'mfd') drawMFD(s.ctx, d, this.minimap, this.mapRange);
-      else drawEICAS(s.ctx, d);
+      if (s.kind === 'vemd1') drawVemdTop(s.ctx, d, s.w, s.h);
+      else if (s.kind === 'vemd2') {
+        if (!slow) continue;
+        drawVemdBottom(s.ctx, d, s.w, s.h);
+      } else if (s.kind === 'ai') drawAttitude(s.ctx, d, s.w, s.h);
+      else if (s.kind === 'gps') drawGps(s.ctx, d, this.minimap, this.mapRange, s.w, s.h);
+      else if (s.kind === 'ann') {
+        if (!slow) continue;
+        drawAnnunciator(s.ctx, d, s.w, s.h, t);
+      }
       s.tex.needsUpdate = true;
     }
   }
@@ -283,6 +286,6 @@ export class Cockpit {
   dispose(): void {
     for (const g of this.geos) g.dispose();
     for (const m of this.mats) m.dispose();
-    for (const s of this.screens) s.tex.dispose();
+    for (const t of this.textures) t.dispose();
   }
 }

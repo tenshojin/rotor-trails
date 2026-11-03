@@ -10,3 +10,8 @@ tmp/
 .env.*
 docs/screenshots/_raw/
 .claude/
+
+# 美术原始素材与中间文件（下载/生成，不进仓库）
+art/src/
+art/blend/
+art/out/

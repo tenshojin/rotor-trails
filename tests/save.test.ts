@@ -71,4 +71,23 @@ describe('本地存档', () => {
     expect(migrate(null).settings).toEqual(defaultSettings());
     expect(sanitizeSettings('garbage')).toEqual(defaultSettings());
   });
+
+  it('v1 存档的旧默认键位升级为新键位（下降 C、视角回正 Z），自定义键位保持不变', () => {
+    const oldDefaults = { ...structuredClone(defaultSettings().bindings), down: ['ControlLeft', 'KeyX'], center: ['KeyC'] };
+    const a = migrate({ version: 1, settings: { bindings: oldDefaults } });
+    expect(a.settings.bindings.up).toEqual(['Space']);
+    expect(a.settings.bindings.down).toEqual(['KeyC']);
+    expect(a.settings.bindings.center).toEqual(['KeyZ']);
+    // 玩家自己改过下降键：不动
+    const b = migrate({ version: 1, settings: { bindings: { ...oldDefaults, down: ['KeyF'] } } });
+    expect(b.settings.bindings.down).toEqual(['KeyF']);
+    expect(b.settings.bindings.center).toEqual(['KeyC']);
+    // v2 存档不再迁移
+    const c = migrate({ version: 2, settings: { bindings: { ...oldDefaults } } });
+    expect(c.settings.bindings.down).toEqual(['ControlLeft', 'KeyX']);
+    // 默认键位里没有冲突（同一个键不绑定两个操作）
+    const all = Object.values(defaultSettings().bindings).flat();
+    expect(new Set(all).size).toBe(all.length);
+    expect(all.some((k) => k.startsWith('Control'))).toBe(false);
+  });
 });

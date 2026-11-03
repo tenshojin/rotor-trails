@@ -20,7 +20,7 @@ export interface PilotInput {
   turn: number;
   /** +1 = E（向右平移），-1 = Q */
   lateral: number;
-  /** +1 = Space（上升），-1 = Ctrl（下降） */
+  /** +1 = 爬升键（默认空格），-1 = 下降键（默认 C） */
   vertical: number;
 }
 

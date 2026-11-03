@@ -28,8 +28,8 @@ export const ACTION_LABEL: Record<Action, string> = {
   back: '后倾减速 / 后退',
   left: '左转',
   right: '右转',
-  up: '增加升力（上升）',
-  down: '减小升力（下降）',
+  up: '爬升（增加升力）',
+  down: '下降（减小升力）',
   strafeLeft: '向左平移',
   strafeRight: '向右平移',
   hover: '悬停辅助 开/关',
@@ -50,13 +50,14 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   back: ['KeyS'],
   left: ['KeyA'],
   right: ['KeyD'],
+  // 爬升/下降各用一个普通键：不用 Ctrl（按住 W 时再按 Ctrl 就是 Ctrl+W，浏览器会直接关闭页面）
   up: ['Space'],
-  down: ['ControlLeft', 'KeyX'],
+  down: ['KeyC'],
   strafeLeft: ['KeyQ'],
   strafeRight: ['KeyE'],
   hover: ['KeyH'],
   boost: ['ShiftLeft', 'ShiftRight'],
-  center: ['KeyC'],
+  center: ['KeyZ'],
   pause: ['Escape', 'KeyP'],
   view: ['KeyV'],
   nav: ['KeyN'],
@@ -84,8 +85,8 @@ export interface QualityPreset {
 
 export const QUALITY: Record<QualityId, QualityPreset> = {
   low: { label: '低', pixelRatio: 0.8, shadows: false, shadowSize: 512, shadowRange: 0, treeNear: 260, treeFar: 1300, terrainLod: 0.7, rainDensity: 0.35, envSize: 64 },
-  medium: { label: '中', pixelRatio: 1, shadows: true, shadowSize: 1024, shadowRange: 230, treeNear: 380, treeFar: 2000, terrainLod: 1, rainDensity: 0.65, envSize: 128 },
-  high: { label: '高', pixelRatio: 1.5, shadows: true, shadowSize: 2048, shadowRange: 360, treeNear: 520, treeFar: 2900, terrainLod: 1.35, rainDensity: 1, envSize: 256 },
+  medium: { label: '中', pixelRatio: 1, shadows: true, shadowSize: 1024, shadowRange: 600, treeNear: 380, treeFar: 2000, terrainLod: 1, rainDensity: 0.65, envSize: 128 },
+  high: { label: '高', pixelRatio: 1.5, shadows: true, shadowSize: 2048, shadowRange: 1200, treeNear: 520, treeFar: 2900, terrainLod: 1.35, rainDensity: 1, envSize: 256 },
 };
 
 export interface Settings {
@@ -137,6 +138,26 @@ export function defaultSettings(): Settings {
 const num = (v: unknown, lo: number, hi: number, d: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
 const bool = (v: unknown, d: boolean) => (typeof v === 'boolean' ? v : d);
 const pick = <T extends string>(v: unknown, opts: readonly T[], d: T): T => (typeof v === 'string' && (opts as readonly string[]).includes(v) ? (v as T) : d);
+
+/**
+ * v1 存档 → v2：旧默认键位“下降 = 左 Ctrl / X、视角回正 = C”改为“下降 = C、视角回正 = Z”。
+ * 只改动仍是旧默认值的条目；玩家自己改过的键位保持不变，新键已被其他操作占用时也不改。
+ */
+export function upgradeLegacyBindings(rawSettings: unknown): unknown {
+  if (!rawSettings || typeof rawSettings !== 'object') return rawSettings;
+  const b = (rawSettings as Record<string, unknown>).bindings;
+  if (!b || typeof b !== 'object') return rawSettings;
+  const bind = { ...(b as Record<string, unknown>) };
+  const same = (v: unknown, codes: string[]) => Array.isArray(v) && v.length === codes.length && codes.every((c, i) => v[i] === c);
+  const usedElsewhere = (code: string, except: string[]) =>
+    Object.entries(bind).some(([k, v]) => !except.includes(k) && Array.isArray(v) && v.includes(code));
+  if (same(bind.down, ['ControlLeft', 'KeyX']) && !usedElsewhere('KeyC', ['down', 'center'])) {
+    bind.down = ['KeyC'];
+    if (same(bind.center, ['KeyC']) && !usedElsewhere('KeyZ', ['center'])) bind.center = ['KeyZ'];
+    else if (same(bind.center, ['KeyC'])) delete bind.center; // 回到默认（Z），避免与下降键冲突
+  }
+  return { ...(rawSettings as Record<string, unknown>), bindings: bind };
+}
 
 /** 校验并补全（存档损坏或版本变化时保证得到合法设置）。 */
 export function sanitizeSettings(raw: unknown): Settings {

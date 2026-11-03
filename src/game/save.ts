@@ -2,10 +2,11 @@
 // 存储不可用或数据损坏时安全回退为默认值（并备份损坏数据），绝不阻止游戏启动。
 
 import type { MapId } from '../maps/types';
-import { defaultSettings, sanitizeSettings, type Settings } from './settings';
+import { defaultSettings, sanitizeSettings, upgradeLegacyBindings, type Settings } from './settings';
 
 export const SAVE_KEY = 'rotorTrails.save';
-export const SAVE_VERSION = 1;
+/** v2：默认键位调整（下降键由 Ctrl/X 改为 C，视角回正由 C 改为 Z） */
+export const SAVE_VERSION = 2;
 
 export interface MapRecord {
   completed: boolean;
@@ -41,7 +42,7 @@ function sanitizeRecord(r: unknown): MapRecord | null {
   };
 }
 
-/** 迁移旧版本（目前只有 v1；预留结构）并校验。 */
+/** 迁移旧版本存档并校验。 */
 export function migrate(raw: unknown): SaveData {
   const d = defaults();
   if (!raw || typeof raw !== 'object') return d;
@@ -50,7 +51,7 @@ export function migrate(raw: unknown): SaveData {
   if (version > SAVE_VERSION) {
     // 来自更新版本的存档：尽量读取兼容字段
   }
-  d.settings = sanitizeSettings(o.settings);
+  d.settings = sanitizeSettings(version < 2 ? upgradeLegacyBindings(o.settings) : o.settings);
   d.tutorialDone = o.tutorialDone === true;
   if (o.maps && typeof o.maps === 'object') {
     for (const [k, v] of Object.entries(o.maps as Record<string, unknown>)) {
