@@ -365,6 +365,7 @@ export class UI {
           range('shake', '镜头震动强度', 0, 1, 0.05, pct) +
           check('headMotion', '头部晃动（加速度引起）', '关闭后机体的真实运动仍会反映在画面上') +
           check('motionBlur', '动态模糊', '默认关闭') +
+          check('navGuides', '三维航线标记', '在场景里显示光环和箭头，默认关闭（方向看 HUD 的菱形标记）') +
           check('lightning', '闪电闪光', '对光敏感可关闭') +
           '<p class="muted">低画质只减少远景细节、阴影和雨滴数量，不改变碰撞、导航或物理难度。抗锯齿开关在下次启动时生效。</p>';
       } else if (tab === 'audio') {

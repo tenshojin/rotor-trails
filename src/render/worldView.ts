@@ -25,6 +25,7 @@ import { fogMaps, VFOG } from './volumetricFog';
 import { sunFor, type TimeOfDay } from './timeOfDay';
 import { WET } from './wetness';
 import { updateCloudShadowMap } from './cloudShadowMap';
+import { makeTerrainMacroTexture } from './terrainMacro';
 import { TreeView, loadTreeLib } from './treeView';
 import { WaterView } from './water';
 import { CloudLayer, Lightning, RainFx } from './weatherFx';
@@ -157,6 +158,7 @@ export class WorldView {
 
   applySettings(s: Settings): void {
     this.settings = s;
+    if (this.nav) this.nav.guides = s.navGuides;
     const q = QUALITY[s.quality];
     const dpr = Math.min(window.devicePixelRatio || 1, q.pixelRatio) * s.renderScale;
     this.renderer.setPixelRatio(dpr);
@@ -169,7 +171,7 @@ export class WorldView {
     if (this.trees) this.trees.quality = { near: q.treeNear, far: q.treeFar, shadows: q.shadows, aa: q.msaa > 0 };
     if (this.props) this.props.lodScale = q.terrainLod;
     // 高画质起用光线步进的体积积云（低、中用二维云层）
-    this.sky?.setVolumetric(s.quality === 'ultra' ? 44 : s.quality === 'high' ? 28 : 0);
+    this.sky?.setVolumetric(s.quality === 'ultra' ? 72 : s.quality === 'high' ? 44 : 0);
     this.lightning.enabled = s.lightning;
     this.envKey = '';
     this.buildPost();
@@ -221,7 +223,8 @@ export class WorldView {
     const forestTex = makeForestTexture(world.trees, map.size);
     // 体积雾：贴地薄雾按离地高度变淡、林区更浓
     const groundTex = makeGroundHeightTexture(world.terrain, map.waterLevel);
-    this.mapTextures.push(surfaceTex, forestTex, groundTex);
+    const macroTex = makeTerrainMacroTexture(world.terrain);
+    this.mapTextures.push(surfaceTex, forestTex, groundTex, macroTex);
     fogMaps.height = groundTex;
     fogMaps.forest = forestTex;
     VFOG.mapSize.value = map.size;
@@ -229,7 +232,7 @@ export class WorldView {
     const texSize = QUALITY[this.settings.quality].terrainTex;
     const layers = texSize > 0 ? await loadTerrainLayers(map.id, map.biome, texSize) : null;
     if (layers) this.mapTextures.push(layers.color, layers.normal);
-    this.terrainUniforms = makeTerrainUniforms(map, surfaceTex, forestTex, layers);
+    this.terrainUniforms = makeTerrainUniforms(map, surfaceTex, forestTex, macroTex, layers);
     this.terrain = new TerrainView(map, world.terrain, this.terrainUniforms);
     this.scene.add(this.terrain.group);
     const [sunAz, sunEl] = sunFor(map, this.tod);
@@ -263,6 +266,7 @@ export class WorldView {
     this.trees = new TreeView(world.trees, treeLib);
     this.scene.add(this.trees.group);
     this.nav = new NavView(map);
+    this.nav.guides = this.settings.navGuides;
     this.scene.add(this.nav.group);
     this.clouds = new CloudLayer(map.size);
     this.scene.add(this.clouds.group);
@@ -289,6 +293,7 @@ export class WorldView {
     rm(this.nav?.group);
     rm(this.clouds?.group);
     this.terrain?.dispose();
+    this.sky?.clouds.dispose();
     this.sky?.material.dispose();
     this.sky?.mesh.geometry.dispose();
     this.water?.dispose();
@@ -321,9 +326,9 @@ export class WorldView {
     const old = this.envRT;
     if (!this.pmrem) return;
     // 环境贴图里不画太阳圆盘（阳光的高光由方向光负责，否则光滑表面上会出现两个太阳）
-    this.sky.u.disc.value = 0;
+    const endBake = this.sky.beginEnvBake();
     this.envRT = this.pmrem.fromScene(envScene, 0, 1, 10000, { size: QUALITY[this.settings.quality].envSize });
-    this.sky.u.disc.value = 1;
+    endBake();
     this.scene.environment = this.envRT.texture;
     this.scene.environmentIntensity = 0.55;
     old?.dispose();
@@ -424,7 +429,7 @@ export class WorldView {
       this.terrain?.update(cp);
       if (this.terrainUniforms) this.terrainUniforms.uWet.value = w.wetness;
       WET.value = w.wetness;
-      this.water?.update(f.t, _w.x, _w.z, Math.hypot(_w.x, _w.z), w.rain);
+      this.water?.update(f.t, _w.x, _w.z, Math.hypot(_w.x, _w.z), w.rain, cp);
       const windAt = s ? (p: THREE.Vector3, out: THREE.Vector3) => s.wind.sample(p.x, p.y, p.z, s.t, out) : (_p: THREE.Vector3, out: THREE.Vector3) => out.set(3, 0, 1);
       this.props?.update(f.t, cp, windAt);
       const gust = s ? Math.min(1, s.windInfo.gust / 8) : 0.2;
@@ -437,6 +442,7 @@ export class WorldView {
     this.renderer.info.reset();
     // 云影贴图（地面、建筑与体积雾里的云影都从这里查）
     updateCloudShadowMap(this.renderer, cp);
+    if (this.sky && this.sky.u.steps.value > 0) this.sky.clouds.render(this.renderer, cam);
     if (this.post) this.post.pipeline.render();
     else this.renderer.render(this.scene, cam);
     this.frameStats.calls = this.renderer.info.render.drawCalls;

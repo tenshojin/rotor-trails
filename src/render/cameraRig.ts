@@ -17,8 +17,8 @@ export interface CameraSettings {
 const NECK_F = 0.09;
 const NECK_U = 0.06;
 
-/** 默认视线略向下（约 8°），能同时看到前方与仪表板上缘 */
-export const DEFAULT_PITCH = -0.14;
+/** 默认视线略向下（约 5°）：外面的景色占画面大半，仪表板上半部分留在视野下缘 */
+export const DEFAULT_PITCH = -0.09;
 
 const _e = new THREE.Vector3();
 const _q = new THREE.Quaternion();

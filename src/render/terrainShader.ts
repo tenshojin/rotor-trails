@@ -50,6 +50,9 @@ export interface TerrainUniforms {
   noise: THREE.Texture;
   surface: THREE.Texture;
   forest: THREE.Texture;
+  /** 地形宏观图与岩石浮雕图（见 terrainMacro.ts） */
+  macro: THREE.Texture;
+  relief: THREE.Texture;
   layers: TerrainLayers | null;
   mapSize: number;
   sand: THREE.Color;
@@ -80,7 +83,7 @@ const unpackN = (v: N<'vec4'>) => {
   const xy = v.rg.mul(2).sub(1);
   return vec3(xy.x, xy.y.negate(), sqrt(max(0, float(1).sub(dot(xy, xy)))));
 };
-const TerrainOut = struct({ col: 'vec3', rough: 'float', nb: 'vec3' });
+const TerrainOut = struct({ col: 'vec3', rough: 'float', nb: 'vec3', ao: 'float' });
 const ROT = 0.83;
 const rot2 = (p: N<'vec2'>) => vec2(p.x.mul(Math.cos(ROT)).sub(p.y.mul(Math.sin(ROT))), p.x.mul(Math.sin(ROT)).add(p.y.mul(Math.cos(ROT))));
 
@@ -130,6 +133,9 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const nb = vec3(n).toVar();
     const rough = float(0.95).toVar();
     const snowW = float(0).toVar();
+    // 贴图坐标加一点低频扭曲：照片材质的平铺格子不再是一条条直线（远看山壁上才不会出现方格）
+    const warp = vec2(texture(noise, P.xz.mul(0.0043)).r, texture(noise, P.xz.mul(0.0043).add(0.5)).r).sub(0.5).mul(26.0);
+    const Pw = P.add(vec3(warp.x, warp.y.mul(0.6), warp.y)).toVar();
 
     if (L) {
       const terC = L.color;
@@ -144,8 +150,8 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       // 俯视投影：近处一个尺度 + 远处旋转后的大尺度
       const sampleFlat = (l: number, w: N<'float'>, A: N<'vec3'>, O: N<'vec3'>, Rr: N<'float'>) => {
         const t = L.tiles[l];
-        const uv1 = P.xz.div(t);
-        const uv2 = rot2(P.xz).div(t * 6.3).add(0.37);
+        const uv1 = Pw.xz.div(t);
+        const uv2 = rot2(Pw.xz).div(t * 6.3).add(0.37);
         const gx1 = dPx.xz.div(t);
         const gy1 = dPy.xz.div(t);
         const gx2 = rot2(dPx.xz).div(t * 6.3);
@@ -205,8 +211,8 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
         const c2 = vec3(0).toVar();
         const N2 = vec3(n).toVar();
         const rr2 = float(0).toVar();
-        If(k.lessThan(0.99), () => triOnce(l, t, P, c1, N1, r1));
-        If(k.greaterThan(0.01), () => triOnce(l, t * 5.7, P.add(31.7), c2, N2, rr2));
+        If(k.lessThan(0.99), () => triOnce(l, t, Pw, c1, N1, r1));
+        If(k.greaterThan(0.01), () => triOnce(l, t * 5.7, Pw.add(31.7), c2, N2, rr2));
         A.addAssign(tintL(l, mix(c1, c2, k)).mul(w));
         O.addAssign(normalize(mix(N1, N2, k)).sub(n).mul(w));
         Rr.addAssign(mix(r1, rr2, k).mul(w));
@@ -287,6 +293,31 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       const grad = r1.mul(dhx).add(rr2.mul(dhy)).mul(det.sign());
       nb.assign(normalize(n.mul(abs(det)).sub(grad.mul(bump.mul(1.2)))));
     }
+    // 宏观地貌：岩壁加上三平面投影的脊状浮雕（两个尺度），平缓的地面只加一点起伏；明暗再跟着真实的沟谷与山脊走
+    const mac = texture(U.macro, muv);
+    const cavS = mac.r.mul(2.0).sub(1.0);
+    const cavL = mac.g.mul(2.0).sub(1.0);
+    const rockK = rockW.mul(float(1).sub(snowW));
+    const relief = (s: number, o: number) => {
+      const fx = texture(U.relief, P.zy.div(s).add(o));
+      const fy = texture(U.relief, P.xz.div(s).add(o));
+      const fz = texture(U.relief, P.xy.div(s).add(o));
+      const hgt = fx.b.mul(tw.x).add(fy.b.mul(tw.y)).add(fz.b.mul(tw.z));
+      const ux = fx.rg.mul(2.0).sub(1.0);
+      const uy = fy.rg.mul(2.0).sub(1.0);
+      const uz = fz.rg.mul(2.0).sub(1.0);
+      const wn = vec3(0.0, ux.y, ux.x).mul(tw.x).add(vec3(uy.x, 0.0, uy.y).mul(tw.y)).add(vec3(uz.x, uz.y, 0.0).mul(tw.z));
+      return vec4(wn, hgt);
+    };
+    const rA = relief(190.0, 0.0);
+    const rB = relief(53.0, 0.41);
+    const footK = float(1).sub(smoothstep(0.5, 3.0, length(dPx).add(length(dPy))));
+    const reliefN = rA.xyz.mul(1.15).add(rB.xyz.mul(footK.mul(0.8)));
+    nb.assign(normalize(nb.add(reliefN.mul(mix(float(0.16), float(1.0), rockK)))));
+    const rH = rA.w.mul(0.6).add(rB.w.mul(0.4));
+    // 凸处（山脊、岩棱）亮，凹处（沟、裂缝）暗；积雪处减弱
+    const shade = float(1).sub(cavS.mul(0.26)).sub(cavL.mul(0.2)).add(rH.sub(0.42).mul(mix(float(0.1), float(0.62), rockK)));
+    col.mulAssign(clamp(shade, 0.55, 1.35).mul(float(1).sub(snowW.mul(0.5))).add(snowW.mul(0.5)));
     // 整体降低一点饱和度：照片材质向地图配色靠拢后草地偏艳，在中性色调映射下会显得发荧光
     col.assign(mix(col, vec3(dot(col, LUMW)), 0.18));
     // 森林区远处的“树冠层”：从空中看真实的森林是连成一片的树冠，而不是一棵棵树之间露出草地。
@@ -316,12 +347,13 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const wet = U.uWet.mul(float(1).sub(snowW));
     col.mulAssign(mix(1.0, 0.68, wet));
     rough.assign(mix(rough, 0.55, wet.mul(0.7)));
-    return TerrainOut(col, rough, nb);
+    return TerrainOut(col, rough, nb, pow(mac.b, 1.6));
   });
   // 颜色、粗糙度、法线引用同一个计算结果（着色器里只算一次）
   const res = result();
   mat.colorNode = vec4(res.get('col') as N<'vec3'>, 1.0);
   mat.roughnessNode = res.get('rough') as N<'float'>;
   mat.normalNode = normalize(cameraViewMatrix.mul(vec4(res.get('nb') as N<'vec3'>, 0.0)).xyz);
+  mat.aoNode = res.get('ao') as N<'float'>;
   return mat;
 }

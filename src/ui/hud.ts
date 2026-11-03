@@ -46,6 +46,7 @@ export class Hud {
   private lastText = -1;
   showDebug = false;
   private proj = { x: 0, y: 0, behind: false };
+  private pkPos = new THREE.Vector3();
 
   constructor(parent: HTMLElement) {
     this.root = el('div', 'hud hidden', parent);
@@ -346,6 +347,25 @@ export class Hud {
         g.lineTo(p.x, p.y - 13);
         g.stroke();
       }
+    }
+    // 附近的补给无人机：小圆点 + 种类
+    g.font = '600 12px system-ui, sans-serif';
+    g.textAlign = 'center';
+    for (const pk of s.world.map.pickups) {
+      if (s.pickupsTaken.has(pk.id)) continue;
+      const pos = this.pkPos.set(...pk.pos);
+      const dist = pos.distanceTo(view.rig.camera.position);
+      if (dist > 900) continue;
+      view.project(pos, p);
+      if (p.behind || p.x < 30 || p.y < 30 || p.x > W - 30 || p.y > H - 30) continue;
+      const col = pk.kind === 'boost' ? '#ffd23a' : pk.kind === 'shield' ? '#46b4ff' : '#4cff7a';
+      g.strokeStyle = col;
+      g.fillStyle = col;
+      g.lineWidth = 2;
+      g.beginPath();
+      g.arc(p.x, p.y, 8, 0, Math.PI * 2);
+      g.stroke();
+      g.fillText(`${pk.kind === 'boost' ? '动力' : pk.kind === 'shield' ? '护盾' : '维修'} ${Math.round(dist)} m`, p.x, p.y - 14);
     }
     if (nav.mode === 'complete') return;
     const targets: Array<{ pos: THREE.Vector3; color: string; label: string }> = [];

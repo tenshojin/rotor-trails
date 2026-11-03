@@ -36,6 +36,7 @@ import {
   viewportSharedTexture,
 } from 'three/tsl';
 import type { MapDef } from '../maps/types';
+import { FOG } from './atmosphere';
 import { getNoiseTexture } from './textures';
 
 type N<T extends string> = THREE.Node<T>;
@@ -58,7 +59,9 @@ export class WaterView {
 
   constructor(map: MapDef, depthTex: THREE.Texture) {
     const level = map.waterLevel ?? 0;
-    const size = map.size * 3.4;
+    // 水面一直铺到地平线（跟着相机走，波浪按世界坐标算，所以看不出移动）：
+    // 否则水面在地图外几公里就到头了，再往外是一条灰色的天空底边
+    const size = 64000;
     const geo = new THREE.PlaneGeometry(size, size, 1, 1);
     geo.rotateX(-Math.PI / 2);
     const muddy = map.id === 'amazon' ? 1 : 0;
@@ -126,7 +129,9 @@ export class WaterView {
       // 原来的不透明度 0.5（岸边）→ 0.96（深水），透过的部分改为折射
       const opacity = mix(0.5, 0.96, smoothstep(0.0, 0.22, wDepth));
       const transmit = float(1).sub(opacity).mul(float(1).sub(foam));
-      const rough = smoothstep(150.0, 2200.0, wDist).mul(0.07).add(foam.mul(0.6)).add(U.rain.mul(0.06));
+      // 粗糙度随距离变大：远处的小波浪细到像素以下，看到的是无数小镜面的平均——天空的倒影是一片柔和的渐变，
+      // 只有太阳方向有一条宽宽的闪光带，而不是像镜子一样映出一块块云
+      const rough = smoothstep(40.0, 1400.0, wDist).mul(U.wave.mul(0.16).add(0.24)).add(foam.mul(0.6)).add(U.rain.mul(0.06));
       return WaterOut(albedo.mul(opacity), transmit, nW, rough, foam);
     });
     const res = result();
@@ -138,7 +143,11 @@ export class WaterView {
     // 折射：按波浪法线偏移屏幕坐标，取水下已画好的场景颜色（略带水色）
     const refrUV = screenUV.add(nW.xz.mul(0.03));
     const refr = viewportSharedTexture(refrUV).rgb;
-    this.material.emissiveNode = refr.mul(transmit).mul(mix(vec3(1.0), vec3(shallow.r, shallow.g, shallow.b).mul(1.6).add(0.2), 0.35));
+    // 掠射处的海面：环境贴图模糊后混进了地平线以下的暗色，算出来偏黑；真实的远海反射的是地平线一带最亮的天空，
+    // 越远越接近天色，海天之间才是一条柔和的过渡。按视线掠射的程度补上这部分反射（不看波浪法线，否则远处会闪）
+    const flatNdv = clamp(cameraPosition.y.sub(positionWorld.y).div(length(positionWorld.sub(cameraPosition)).max(1.0)), 0.0, 1.0);
+    const graze = pow(float(1).sub(flatNdv), 7.0);
+    this.material.emissiveNode = refr.mul(transmit).mul(mix(vec3(1.0), vec3(shallow.r, shallow.g, shallow.b).mul(1.6).add(0.2), 0.35)).add(FOG.color.mul(graze.mul(0.55)));
     this.material.opacityNode = float(1);
     // 屏幕空间反射：水面在“金属度”通道写入菲涅尔反射率（正视约 2%，掠射接近 100%），光滑表面才反射；
     // 法线通道写波浪法线。其他透明材质不写这些通道（见 post.ts keepGBuffer）。
@@ -153,7 +162,9 @@ export class WaterView {
     this.mesh.renderOrder = 1;
   }
 
-  update(t: number, windX: number, windZ: number, windSpeed: number, rain: number): void {
+  update(t: number, windX: number, windZ: number, windSpeed: number, rain: number, cam: THREE.Vector3): void {
+    this.mesh.position.x = cam.x;
+    this.mesh.position.z = cam.z;
     this.u.time.value = t;
     this.u.wind.value.set(windX, windZ);
     this.u.wave.value = Math.min(1, windSpeed / 14);

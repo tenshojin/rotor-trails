@@ -1,11 +1,47 @@
-// 三维导航标记：当前航点光环、后续航点（较暗）、沿航线的少量箭头、任务光柱、停机坪进近框、悬停区、巡查点；
-// Buff 补给的三维外观（动力 = 黄色闪电、护盾 = 蓝色六边形、维修 = 绿色十字）。
+// 世界里的导航元素。原则：场景里只放现实中说得通的东西，方向与距离交给 HUD 的目标菱形和屏幕边缘箭头。
+//   · 任务目标：现场点燃的烟幕（SAR 常用：老远就能看到，还能看出风向）+ 停机坪四角 / 悬停区周围闪烁的引导灯；
+//   · 巡查点：闪烁的小灯；
+//   · 补给：悬停等待的无人机（吊舱颜色区分动力 / 护盾 / 维修），靠近时对接；
+//   · 三维航线标记（光环、箭头）是可选项，默认关闭（设置 → 显示）。
 
 import * as THREE from 'three/webgpu';
-import { float, positionGeometry, uniform, vec3 } from 'three/tsl';
 import type { MapDef, ObjectiveDef, V3 } from '../maps/types';
 import type { GameSession } from '../sim/session';
+import { FOG } from './atmosphere';
 import { getGlowTexture } from './propsView';
+
+/** 烟幕的一团：柔和的絮状圆斑 */
+let smokeTex: THREE.CanvasTexture | null = null;
+function getSmokeTexture(): THREE.CanvasTexture {
+  if (smokeTex) return smokeTex;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 128;
+  const g = cv.getContext('2d')!;
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 46; i++) {
+    const a = rnd() * Math.PI * 2;
+    const d = rnd() ** 0.7 * 38;
+    const r = 12 + rnd() * 22;
+    const x = 64 + Math.cos(a) * d;
+    const y = 64 + Math.sin(a) * d;
+    const grd = g.createRadialGradient(x, y, 0, x, y, r);
+    grd.addColorStop(0, 'rgba(255,255,255,0.16)');
+    grd.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 128, 128);
+  }
+  smokeTex = new THREE.CanvasTexture(cv);
+  smokeTex.colorSpace = THREE.SRGBColorSpace;
+  return smokeTex;
+}
+
+const SMOKE_N = 30;
+const SMOKE_LIFE = 19;
+const _smokeBase = new THREE.Color(1.0, 0.46, 0.14);
+const _smokeTop = new THREE.Color();
+const _c = new THREE.Color();
+const _wind = new THREE.Vector3();
 
 /**
  * 导航标记材质：不受雾影响（雾天/低云中仍能看到当前航点与航线箭头，保证公平），
@@ -19,15 +55,19 @@ export class NavView {
   readonly group = new THREE.Group();
   private rings: THREE.Mesh[] = [];
   private chevrons: THREE.Mesh[] = [];
-  private beam: THREE.Mesh;
-  private optBeam: THREE.Mesh;
-  private padFrame: THREE.Mesh;
-  private hoverZone: THREE.Mesh;
-  private inspect: THREE.Mesh[] = [];
-  private pickups = new Map<string, { obj: THREE.Group; kind: string; base: THREE.Vector3 }>();
+  /** 引导灯（停机坪四角、悬停区一圈、巡查点） */
+  private lamps: THREE.Sprite[] = [];
+  private lampOn = 0;
+  private smoke: Array<{ sp: THREE.Sprite; age: number; seed: number; pos: THREE.Vector3 }> = [];
+  private smokeSrc = new THREE.Vector3();
+  private smokeOn = false;
+  private lastT = 0;
+  private pickups = new Map<string, { obj: THREE.Group; kind: string; base: THREE.Vector3; led: THREE.Sprite; rotors: THREE.Mesh[] }>();
   private mats: THREE.Material[] = [];
   private geos: THREE.BufferGeometry[] = [];
   visible = true;
+  /** 三维航线标记（光环、箭头） */
+  guides = false;
 
   constructor(map: MapDef) {
     const ringGeo = new THREE.TorusGeometry(1, 0.035, 8, 48);
@@ -61,101 +101,85 @@ export class NavView {
       this.chevrons.push(c);
       this.group.add(c);
     }
-    const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 16, 1, true);
-    beamGeo.translate(0, 0.5, 0);
-    this.geos.push(beamGeo);
-    const beamMat = this.beamMaterial(0x42ff8a);
-    const optMat = this.beamMaterial(0xc08bff);
-    this.beam = new THREE.Mesh(beamGeo, beamMat);
-    this.optBeam = new THREE.Mesh(beamGeo, optMat);
-    this.group.add(this.beam, this.optBeam);
-    const frameGeo = new THREE.RingGeometry(0.92, 1, 4, 1);
-    frameGeo.rotateX(-Math.PI / 2);
-    frameGeo.rotateY(Math.PI / 4);
-    this.geos.push(frameGeo);
-    const fm = emissive(0x42ff8a, 0.8);
-    fm.side = THREE.DoubleSide;
-    this.mats.push(fm);
-    this.padFrame = new THREE.Mesh(frameGeo, fm);
-    this.group.add(this.padFrame);
-    const hz = new THREE.CylinderGeometry(1, 1, 1, 32, 1, true);
-    hz.translate(0, 0.5, 0);
-    this.geos.push(hz);
-    const hm = emissive(0x42ff8a, 0.16);
-    hm.side = THREE.DoubleSide;
-    this.mats.push(hm);
-    this.hoverZone = new THREE.Mesh(hz, hm);
-    this.group.add(this.hoverZone);
-    const dia = new THREE.OctahedronGeometry(2.4);
-    this.geos.push(dia);
-    const dm = emissive(0xffd23a, 0.85);
-    this.mats.push(dm);
-    for (let i = 0; i < 6; i++) {
-      const d = new THREE.Mesh(dia, dm);
-      this.inspect.push(d);
-      this.group.add(d);
+    const glow = getGlowTexture();
+    for (let i = 0; i < 12; i++) {
+      const m = new THREE.SpriteMaterial({ map: glow, color: 0xffd9a0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 });
+      this.mats.push(m);
+      const sp = new THREE.Sprite(m);
+      sp.visible = false;
+      this.lamps.push(sp);
+      this.group.add(sp);
+    }
+    const st = getSmokeTexture();
+    for (let i = 0; i < SMOKE_N; i++) {
+      const m = new THREE.SpriteMaterial({ map: st, transparent: true, depthWrite: false, opacity: 0, rotation: i * 2.399 });
+      this.mats.push(m);
+      const sp = new THREE.Sprite(m);
+      sp.visible = false;
+      sp.renderOrder = 6;
+      this.group.add(sp);
+      this.smoke.push({ sp, age: (i / SMOKE_N) * SMOKE_LIFE, seed: (i * 0.618) % 1, pos: new THREE.Vector3() });
     }
     this.buildPickups(map);
   }
 
-  /** 导航光柱：自下而上渐隐的加色光柱；不透明度由 userData.uOpacity（uniform 节点）控制 */
-  private beamMaterial(hex: number): THREE.MeshBasicNodeMaterial {
-    const c = new THREE.Color().setHex(hex);
-    const uOpacity = uniform(0.5);
-    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false });
-    const a = float(1).sub(positionGeometry.y).mul(uOpacity);
-    m.colorNode = vec3(c.r, c.g, c.b).mul(a);
-    m.opacityNode = a;
-    m.userData.uOpacity = uOpacity;
-    this.mats.push(m);
-    return m;
-  }
-
+  /** 补给无人机：四旋翼 + 机腹吊舱（颜色区分补给种类）+ 闪烁的信标灯 */
   private buildPickups(map: MapDef): void {
     const glow = getGlowTexture();
+    const body = new THREE.BoxGeometry(0.62, 0.16, 0.62);
+    const arm = new THREE.BoxGeometry(1.5, 0.05, 0.07);
+    const disc = new THREE.CircleGeometry(0.36, 20).rotateX(-Math.PI / 2);
+    const pod = new THREE.CapsuleGeometry(0.2, 0.42, 4, 12).rotateZ(Math.PI / 2);
+    this.geos.push(body, arm, disc, pod);
+    const dark = new THREE.MeshStandardMaterial({ color: 0x24262a, roughness: 0.5, metalness: 0.3 });
+    const blur = new THREE.MeshBasicMaterial({ color: 0x1a1c20, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
+    this.mats.push(dark, blur);
     for (const p of map.pickups) {
       const g = new THREE.Group();
-      const color = p.kind === 'boost' ? 0xffd23a : p.kind === 'shield' ? 0x46b4ff : 0x4cff7a;
-      const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(2.6, 1), new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.22, roughness: 0.1, metalness: 0.2, emissive: color, emissiveIntensity: 0.4, depthWrite: false }));
-      const wire = new THREE.Mesh(new THREE.IcosahedronGeometry(2.7, 1), new THREE.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity: 0.5, toneMapped: false }));
-      g.add(shell, wire);
-      const core = new THREE.Group();
-      const cm = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.2, roughness: 0.3, metalness: 0.4 });
-      if (p.kind === 'boost') {
-        const s = new THREE.Shape();
-        s.moveTo(0.2, 1.4);
-        s.lineTo(-0.8, -0.1);
-        s.lineTo(-0.05, -0.1);
-        s.lineTo(-0.3, -1.4);
-        s.lineTo(0.8, 0.2);
-        s.lineTo(0.05, 0.2);
-        s.closePath();
-        core.add(new THREE.Mesh(new THREE.ExtrudeGeometry(s, { depth: 0.3, bevelEnabled: false }).translate(0, 0, -0.15), cm));
-      } else if (p.kind === 'shield') {
-        core.add(new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 0.3, 6).rotateX(Math.PI / 2), cm));
-      } else {
-        core.add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.8, 0.4), cm), new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.5, 0.4), cm));
+      const color = p.kind === 'boost' ? 0xe0a820 : p.kind === 'shield' ? 0x2f7fd0 : 0x38a860;
+      const podMat = new THREE.MeshStandardMaterial({ color, roughness: 0.42, metalness: 0.1 });
+      this.mats.push(podMat);
+      g.add(new THREE.Mesh(body, dark));
+      for (const r of [Math.PI / 4, -Math.PI / 4]) {
+        const a = new THREE.Mesh(arm, dark);
+        a.rotation.y = r;
+        g.add(a);
       }
-      g.add(core);
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.6 }));
-      sp.scale.setScalar(11);
-      g.add(sp);
+      const rotors: THREE.Mesh[] = [];
+      for (const [x, z] of [[0.53, 0.53], [-0.53, 0.53], [0.53, -0.53], [-0.53, -0.53]]) {
+        const d = new THREE.Mesh(disc, blur);
+        d.position.set(x, 0.1, z);
+        rotors.push(d);
+        g.add(d);
+      }
+      const pm = new THREE.Mesh(pod, podMat);
+      pm.position.y = -0.3;
+      g.add(pm);
+      const lm = new THREE.SpriteMaterial({ map: glow, color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 });
+      this.mats.push(lm);
+      const led = new THREE.Sprite(lm);
+      led.position.y = -0.1;
+      g.add(led);
+      g.scale.setScalar(1.7);
       g.position.set(...p.pos);
       this.group.add(g);
-      this.pickups.set(p.id, { obj: g, kind: p.kind, base: new THREE.Vector3(...p.pos) });
+      this.pickups.set(p.id, { obj: g, kind: p.kind, base: new THREE.Vector3(...p.pos), led, rotors });
     }
   }
 
   update(s: GameSession, t: number, camPos: THREE.Vector3): void {
     const nav = s.nav.info;
     const show = this.visible && s.state === 'running';
+    const guides = show && this.guides;
+    const dt = Math.min(0.5, Math.max(0, t - this.lastT));
+    this.lastT = t;
     this.group.visible = this.visible;
     // 航点光环
     for (let i = 0; i < this.rings.length; i++) {
       const r = this.rings[i];
       const p = nav.preview[i];
       const isFork = nav.mode === 'fork';
-      if (!show || !p || nav.mode === 'approach' || (nav.mode === 'complete') || (i > 0 && !isFork && i >= nav.preview.length)) {
+      if (!guides || !p || nav.mode === 'approach' || (nav.mode === 'complete') || (i > 0 && !isFork && i >= nav.preview.length)) {
         r.visible = false;
         continue;
       }
@@ -174,7 +198,7 @@ export class NavView {
     }
     // 箭头：沿当前航段，高速时间距更大，数量有限
     let ci = 0;
-    if (show && nav.mode !== 'complete' && nav.mode !== 'fork') {
+    if (guides && nav.mode !== 'complete' && nav.mode !== 'fork') {
       const speed = s.groundSpeed;
       const spacing = Math.max(40, Math.min(140, speed * 2.2));
       const pts: V3[] = [[camPos.x, camPos.y, camPos.z], ...nav.preview.slice(0, 2).map((p) => p.pos)];
@@ -198,79 +222,99 @@ export class NavView {
       }
     }
     for (; ci < this.chevrons.length; ci++) this.chevrons[ci].visible = false;
-    // 任务光柱 / 停机坪框 / 悬停区 / 巡查点
+    // 任务目标的烟幕与引导灯
     const cur = s.mission.current();
-    this.beam.visible = false;
-    this.padFrame.visible = false;
-    this.hoverZone.visible = false;
-    this.inspect.forEach((d) => (d.visible = false));
-    if (show && cur) this.placeObjective(cur.def, cur.visited, s, t, camPos, true);
-    this.optBeam.visible = false;
-    if (show) {
-      for (const o of s.mission.optional) {
-        if (o.status === 'done') continue;
-        const g = s.mission.goalOf(o, s.body.pos);
-        this.optBeam.visible = true;
-        this.optBeam.position.set(g[0], g[1] - 30, g[2]);
-        const d = camPos.distanceTo(this.optBeam.position);
-        this.optBeam.scale.set(Math.max(2, d / 300), 600, Math.max(2, d / 300));
-        this.setBeamOpacity(this.optBeam, d);
-        break;
-      }
-    }
-    // Buff
+    this.lampOn = 0;
+    this.smokeOn = false;
+    if (show && cur) this.placeObjective(cur.def, cur.visited, s, t, camPos);
+    for (let i = this.lampOn; i < this.lamps.length; i++) this.lamps[i].visible = false;
+    this.updateSmoke(dt, s, camPos);
+    // 补给无人机
     for (const [id, p] of this.pickups) {
       p.obj.visible = !s.pickupsTaken.has(id);
       if (!p.obj.visible) continue;
-      p.obj.rotation.y = t * 1.4;
-      p.obj.position.y = p.base.y + Math.sin(t * 2 + p.base.x) * 0.6;
+      // 悬停时的轻微漂移
+      p.obj.position.set(p.base.x + Math.sin(t * 0.7 + p.base.z) * 0.5, p.base.y + Math.sin(t * 1.3 + p.base.x) * 0.4, p.base.z + Math.cos(t * 0.6 + p.base.x) * 0.5);
+      p.obj.rotation.y = Math.sin(t * 0.21 + p.base.y) * 1.2;
+      p.obj.rotation.z = Math.sin(t * 0.9 + p.base.x) * 0.04;
+      // 信标：每 1.2 秒闪一下，离得越远灯看起来越大一点（否则几百米外就看不见了）
+      const d = camPos.distanceTo(p.base);
+      const on = (t + p.base.x * 0.01) % 1.2 < 0.16 ? 1 : 0.22;
+      p.led.scale.setScalar(Math.min(14, Math.max(1.6, d / 70)) * (0.6 + 0.4 * on));
+      (p.led.material as THREE.SpriteMaterial).opacity = on;
     }
   }
 
-  /** 光柱用于远距离指示：靠近目标后逐渐淡出（此时由停机坪框、悬停区和着陆辅助接管），避免遮挡视线 */
-  private setBeamOpacity(beam: THREE.Mesh, d: number): void {
-    const k = 0.15 + 0.85 * Math.min(1, Math.max(0, (d - 40) / 160));
-    ((beam.material as THREE.Material).userData.uOpacity as { value: number }).value = 0.5 * k;
+  private lamp(x: number, y: number, z: number, camPos: THREE.Vector3, bright: number, hex = 0xffd9a0): void {
+    const sp = this.lamps[this.lampOn++];
+    if (!sp) return;
+    sp.visible = true;
+    sp.position.set(x, y, z);
+    const d = camPos.distanceTo(sp.position);
+    sp.scale.setScalar(Math.min(10, Math.max(0.9, d / 90)));
+    const m = sp.material as THREE.SpriteMaterial;
+    m.color.setHex(hex);
+    m.opacity = bright;
   }
 
-  private placeObjective(def: ObjectiveDef, visited: boolean[], s: GameSession, t: number, camPos: THREE.Vector3, main: boolean): void {
-    void main;
+  private placeObjective(def: ObjectiveDef, visited: boolean[], s: GameSession, t: number, camPos: THREE.Vector3): void {
     if (def.kind === 'land') {
       const pad = s.pad(def.padId);
       if (!pad) return;
-      this.beam.visible = true;
-      this.beam.position.set(pad.pos[0], pad.pos[1], pad.pos[2]);
-      const d = camPos.distanceTo(this.beam.position);
-      this.beam.scale.set(Math.max(2.5, d / 260), 500, Math.max(2.5, d / 260));
-      this.setBeamOpacity(this.beam, d);
-      if (d < 600) {
-        this.padFrame.visible = true;
-        this.padFrame.position.set(pad.pos[0], pad.pos[1] + 0.15, pad.pos[2]);
-        const sc = (pad.size / 2) * Math.SQRT2 * (1 + Math.sin(t * 4) * 0.03);
-        this.padFrame.scale.set(sc, 1, sc);
-        this.padFrame.rotation.y = pad.rotY ?? 0;
-      }
+      const [px, py, pz] = pad.pos;
+      this.smokeSrc.set(px + pad.size * 0.62, py + 0.3, pz + pad.size * 0.62);
+      this.smokeOn = true;
+      // 四角的引导灯依次闪烁
+      const r = (pad.size / 2) * 1.02;
+      const c = Math.cos(pad.rotY ?? 0);
+      const n = Math.sin(pad.rotY ?? 0);
+      const k = Math.floor(t * 3) % 4;
+      [[1, 1], [1, -1], [-1, -1], [-1, 1]].forEach(([a, b], i) => {
+        this.lamp(px + (a * c + b * n) * r, py + 0.5, pz + (-a * n + b * c) * r, camPos, i === k ? 1 : 0.28);
+      });
     } else if (def.kind === 'hover') {
-      this.beam.visible = true;
-      this.beam.position.set(def.center[0], def.center[1], def.center[2]);
-      const d = camPos.distanceTo(this.beam.position);
-      this.beam.scale.set(Math.max(2.5, d / 260), 500, Math.max(2.5, d / 260));
-      this.setBeamOpacity(this.beam, d);
-      if (d < 800) {
-        this.hoverZone.visible = true;
-        this.hoverZone.position.set(def.center[0], def.center[1] + def.minH, def.center[2]);
-        this.hoverZone.scale.set(def.radius, def.maxH - def.minH, def.radius);
+      this.smokeSrc.set(def.center[0] + def.radius * 1.5, def.center[1] + 0.4, def.center[2] + def.radius * 1.5);
+      this.smokeOn = true;
+      const k = Math.floor(t * 4) % 8;
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        this.lamp(def.center[0] + Math.cos(a) * def.radius, def.center[1] + 0.5, def.center[2] + Math.sin(a) * def.radius, camPos, i === k ? 1 : 0.3);
       }
     } else {
       def.points.forEach((p, i) => {
-        const d = this.inspect[i];
-        if (!d || visited[i]) return;
-        d.visible = true;
-        d.position.set(...p.pos);
-        d.rotation.y = t * 1.5;
-        const dist = camPos.distanceTo(d.position);
-        d.scale.setScalar(Math.max(1, dist / 250));
+        if (visited[i]) return;
+        this.lamp(p.pos[0], p.pos[1], p.pos[2], camPos, 0.45 + 0.55 * (Math.sin(t * 5 + i) > 0 ? 1 : 0), 0xffc860);
       });
+    }
+  }
+
+  /** 烟幕：一团团从地面升起、随风飘散，近处是橙色，往上淡成灰白。离得太远就不更新 */
+  private updateSmoke(dt: number, s: GameSession, camPos: THREE.Vector3): void {
+    const far = this.smokeOn ? camPos.distanceTo(this.smokeSrc) : Infinity;
+    if (far > 7000) {
+      for (const p of this.smoke) p.sp.visible = false;
+      return;
+    }
+    s.wind.sample(this.smokeSrc.x, this.smokeSrc.y + 15, this.smokeSrc.z, s.t, _wind);
+    const wx = _wind.x;
+    const wz = _wind.z;
+    _smokeTop.copy(FOG.color.value).multiplyScalar(0.95);
+    for (const p of this.smoke) {
+      p.age = (p.age + dt) % SMOKE_LIFE;
+      const k = p.age / SMOKE_LIFE;
+      // 位置只取决于“出生多久”：刚出来时喷得快，之后随风走，越往上越散
+      const sway = k * 5;
+      p.pos.set(
+        this.smokeSrc.x + wx * p.age * (0.25 + 0.5 * k) + Math.sin(p.seed * 40 + p.age * 0.7) * sway,
+        this.smokeSrc.y + 4.2 * p.age * (1 - 0.35 * k),
+        this.smokeSrc.z + wz * p.age * (0.25 + 0.5 * k) + Math.cos(p.seed * 31 + p.age * 0.6) * sway,
+      );
+      p.sp.position.copy(p.pos);
+      p.sp.visible = true;
+      p.sp.scale.setScalar(1.6 + k * 17 + p.seed * 2);
+      const m = p.sp.material as THREE.SpriteMaterial;
+      m.color.copy(_c.copy(_smokeBase).lerp(_smokeTop, Math.min(1, k * 2.2)));
+      m.opacity = Math.min(1, p.age / 0.5) * (1 - k) ** 1.5 * 0.62;
     }
   }
 

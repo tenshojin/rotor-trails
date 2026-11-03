@@ -9,12 +9,12 @@ const SEED = 2101;
 const n = new Perlin2(SEED);
 const n2 = new Perlin2(SEED + 7);
 const n3 = new Perlin2(SEED + 13);
-/** 森林区（0..1）：大尺度噪声划出成片的林地，低处（海边、平地）没有 */
+/** 森林区（0..1）：濑户内海的岛和山坡几乎被常绿林盖满，只有海边、平地和零星的空地露出地面 */
 const forestRaw = (x: number, z: number) => 0.5 + 0.5 * n3.fbm(x / 650, z / 650, 3);
-const forest = (x: number, z: number, h: number) => smoothstep(0.38, 0.52, forestRaw(x, z)) * smoothstep(8, 22, h);
+const forest = (x: number, z: number, h: number) => smoothstep(0.24, 0.36, forestRaw(x, z)) * smoothstep(5, 13, h);
 /** 林缘：森林区边上灌木最多 */
 const forestEdge = (x: number, z: number, h: number) => {
-  const f = smoothstep(0.4, 0.6, forestRaw(x, z)) * smoothstep(5, 15, h);
+  const f = smoothstep(0.24, 0.42, forestRaw(x, z)) * smoothstep(4, 11, h);
   return f * (1 - f) * 4;
 };
 

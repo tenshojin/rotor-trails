@@ -110,6 +110,8 @@ export interface Settings {
   shake: number;
   headMotion: boolean;
   motionBlur: boolean;
+  /** 场景里显示三维航线标记（光环与箭头）；默认关闭，方向由 HUD 的目标菱形与屏幕边缘箭头指示 */
+  navGuides: boolean;
   lightning: boolean;
   quality: QualityId;
   /** 光线追踪（屏幕空间：全局光照 + 反射 + 接触阴影），任意画质都可以单独开关 */
@@ -138,6 +140,7 @@ export function defaultSettings(): Settings {
     shake: 0.5,
     headMotion: true,
     motionBlur: false,
+    navGuides: false,
     lightning: true,
     quality: 'medium',
     rayTracing: false,
@@ -200,6 +203,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     shake: num(r.shake, 0, 1, d.shake),
     headMotion: bool(r.headMotion, d.headMotion),
     motionBlur: bool(r.motionBlur, d.motionBlur),
+    navGuides: bool(r.navGuides, d.navGuides),
     lightning: bool(r.lightning, d.lightning),
     quality: pick(r.quality, ['low', 'medium', 'high', 'ultra'] as const, d.quality),
     rayTracing: bool(r.rayTracing, d.rayTracing),

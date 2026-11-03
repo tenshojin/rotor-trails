@@ -7,6 +7,7 @@ import type { Heightfield } from '../sim/terrain';
 import type { TerrainLayers } from './terrainLayers';
 import { makeTerrainMaterial, makeWetUniform, type TerrainUniforms } from './terrainShader';
 import { getNoiseTexture } from './textures';
+import { getRockReliefTexture } from './terrainMacro';
 
 const CH = 64;
 const LOD_STEPS = [1, 2, 4, 8];
@@ -17,13 +18,15 @@ function col(hex: number): THREE.Color {
   return new THREE.Color().setHex(hex);
 }
 
-export function makeTerrainUniforms(map: MapDef, surfaceTex: THREE.Texture, forestTex: THREE.Texture, layers: TerrainLayers | null = null): TerrainUniforms {
+export function makeTerrainUniforms(map: MapDef, surfaceTex: THREE.Texture, forestTex: THREE.Texture, macroTex: THREE.Texture, layers: TerrainLayers | null = null): TerrainUniforms {
   const B: BiomeDef = map.biome;
   const strata = B.strataColors ?? [B.rock, B.rock2, B.dirt, B.sand];
   return {
     noise: getNoiseTexture(),
     surface: surfaceTex,
     forest: forestTex,
+    macro: macroTex,
+    relief: getRockReliefTexture(),
     layers,
     mapSize: map.size,
     sand: col(B.sand),
