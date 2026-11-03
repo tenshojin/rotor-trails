@@ -7,7 +7,7 @@ import { loadGltf } from './gltf';
 import { drawAnnunciator, drawAttitude, drawGps, drawVemdBottom, drawVemdTop, NEEDLE, type InstrumentData } from './instruments';
 import { getNoiseTexture } from './textures';
 
-/** 驾驶员眼点（机体坐标，右座），与 tools/blender/cockpit_layout.py 的 EYE 一致 */
+/** 驾驶员眼点（机体坐标，右侧机长座位），与 tools/blender/cockpit_layout.py 的 EYE 一致；实际视点的左右位置由设置“座舱视点居中”调整 */
 export const EYE = new THREE.Vector3(0.45, 0.42, -1.0);
 
 const MODEL_URL = 'models/cockpit.glb';

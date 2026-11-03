@@ -13,7 +13,7 @@ import type { WorldData } from '../world/worldgen';
 import type { WeatherParams } from '../sim/weather';
 import { QUALITY, type Settings } from '../game/settings';
 import { CameraRig } from './cameraRig';
-import { Cockpit } from './cockpit';
+import { Cockpit, EYE } from './cockpit';
 import { HeliModel } from './heliModel';
 import { loadModelLib, MODEL_FILES, type ModelLib } from './modelLib';
 import { loadDetailTextures } from './detailTextures';
@@ -299,7 +299,7 @@ export class WorldView {
       const tel = s.flight.telemetry;
       const load = Math.min(1.5, tel.thrust / (s.totalMass() * 9.81));
       this.heli.update(f.t, f.dt, s.state === 'crashed' ? Math.max(0, tel.rotorRpm * 0.3) : tel.rotorRpm);
-      this.rig.update(f.dt, f.t, _pos, _quat, _vel, load, { fov: set.fov, shake: set.shake, headMotion: set.headMotion });
+      this.rig.update(f.dt, f.t, _pos, _quat, _vel, load, { fov: set.fov, eyeX: EYE.x * (1 - set.viewCenter), shake: set.shake, headMotion: set.headMotion });
       const cockpitView = this.rig.mode === 'cockpit';
       this.heli.setCockpitView(cockpitView);
       // 有 Blender 外观时座舱模型（含机身外壳）在追尾视角也显示：从外面能透过玻璃看到舱内

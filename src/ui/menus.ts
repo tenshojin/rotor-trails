@@ -350,6 +350,7 @@ export class UI {
           select('quality', '画质', (Object.keys(QUALITY) as Array<keyof typeof QUALITY>).map((q) => [q, QUALITY[q].label])) +
           range('renderScale', '渲染分辨率', 0.5, 1, 0.05, pct) +
           range('fov', '视野范围（FOV）', 50, 100, 1, (v) => `${Math.round(v)}°`) +
+          range('viewCenter', '座舱视点居中（0% = 右侧机长座位）', 0, 1, 0.05, pct) +
           range('shake', '镜头震动强度', 0, 1, 0.05, pct) +
           check('headMotion', '头部晃动（加速度引起）', '关闭后机体的真实运动仍会反映在画面上') +
           check('motionBlur', '动态模糊', '默认关闭') +

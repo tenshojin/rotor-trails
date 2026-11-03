@@ -7,6 +7,8 @@ import { EYE } from './cockpit';
 
 export interface CameraSettings {
   fov: number;
+  /** 座舱视点的左右位置（机体坐标 x，米；0 = 机身中线，0.45 = 机长座位） */
+  eyeX: number;
   shake: number; // 0..1
   headMotion: boolean;
 }
@@ -78,7 +80,7 @@ export class CameraRig {
       // 侧看/下看时身体前倾或偏移，便于从侧窗和下视窗观察
       const lean = clamp((Math.abs(this.yaw) - 1.0) / 1.2, 0, 1);
       const down = clamp((-this.pitch - 0.5) / 0.6, 0, 1);
-      _off.set(EYE.x + Math.sign(this.yaw) * lean * 0.12 - down * 0.04, EYE.y - down * 0.08, EYE.z - down * 0.1 + lean * 0.04).add(this.head);
+      _off.set(s.eyeX + Math.sign(this.yaw) * lean * 0.12 - down * 0.04, EYE.y - down * 0.08, EYE.z - down * 0.1 + lean * 0.04).add(this.head);
       _off.applyQuaternion(quat);
       cam.position.copy(pos).add(_off);
       // 振动（真实旋翼振动 + 碰撞冲击），强度由设置控制

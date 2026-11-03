@@ -70,6 +70,10 @@ describe('本地存档', () => {
     expect(d.tutorialDone).toBe(true);
     expect(migrate(null).settings).toEqual(defaultSettings());
     expect(sanitizeSettings('garbage')).toEqual(defaultSettings());
+    // 座舱视点居中：没有这个字段的旧存档用默认值（居中 50%），超出 0..1 的值夹到边界
+    expect(d.settings.viewCenter).toBe(defaultSettings().viewCenter);
+    expect(sanitizeSettings({ viewCenter: 3 }).viewCenter).toBe(1);
+    expect(sanitizeSettings({ viewCenter: -1 }).viewCenter).toBe(0);
   });
 
   it('v1 存档的旧默认键位升级为新键位（下降 C、视角回正 Z），自定义键位保持不变', () => {

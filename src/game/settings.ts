@@ -105,6 +105,8 @@ export interface Settings {
   invertY: boolean;
   invertX: boolean;
   fov: number;
+  /** 座舱视点居中程度：0 = 右侧机长座位（真实位置），1 = 机身中线 */
+  viewCenter: number;
   shake: number;
   headMotion: boolean;
   motionBlur: boolean;
@@ -128,6 +130,7 @@ export function defaultSettings(): Settings {
     invertY: false,
     invertX: false,
     fov: 72,
+    viewCenter: 0.5,
     shake: 0.5,
     headMotion: true,
     motionBlur: false,
@@ -187,6 +190,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     invertY: bool(r.invertY, d.invertY),
     invertX: bool(r.invertX, d.invertX),
     fov: num(r.fov, 50, 100, d.fov),
+    viewCenter: num(r.viewCenter, 0, 1, d.viewCenter),
     shake: num(r.shake, 0, 1, d.shake),
     headMotion: bool(r.headMotion, d.headMotion),
     motionBlur: bool(r.motionBlur, d.motionBlur),
