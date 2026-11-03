@@ -33,6 +33,32 @@ interface RunConfig {
 const _wB = new THREE.Vector3();
 const _qInv = new THREE.Quaternion();
 
+/** WebGL 实际使用的显卡（浏览器不提供时返回空字符串） */
+function gpuName(r: THREE.WebGLRenderer): string {
+  try {
+    const gl = r.getContext();
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    return String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+  } catch {
+    return '';
+  }
+}
+
+const isIntegrated = (gpu: string) => /Intel|UHD|Iris|Radeon\(TM\) Graphics|Vega \d+ Graphics|Mali|Adreno|PowerVR|SwiftShader|llvmpipe/i.test(gpu) && !/Arc/i.test(gpu);
+
+/** 按显卡挑默认画质：独立显卡“高”，集成显卡/软件渲染“低”，其余“中” */
+function pickQuality(gpu: string): Settings['quality'] {
+  if (/RTX|GTX 1[6-9]|GTX [2-9]\d|Radeon RX ?[5-9]|Apple M[1-9]|Arc A[57]/i.test(gpu)) return 'high';
+  if (isIntegrated(gpu)) return 'low';
+  return 'medium';
+}
+
+/** 浏览器跑在集成显卡上时的提示（笔记本常见：有独显但浏览器默认用核显） */
+function gpuWarning(gpu: string): string | null {
+  if (!isIntegrated(gpu)) return null;
+  return '浏览器当前使用集成显卡（' + gpu.replace(/^ANGLE \(|\)$/g, '').slice(0, 60) + '），画面可能卡顿。电脑有独立显卡时：Windows 设置 → 系统 → 屏幕 → 显示卡，把浏览器设为“高性能”，重启浏览器即可。';
+}
+
 
 /** 只有触屏、没有精确指针（手机/平板）时提示：本游戏需要键盘和鼠标 */
 function touchOnlyWarning(): string | null {
@@ -72,6 +98,8 @@ export class App {
   private frames = 0;
   private fpsT = 0;
   fps = 0;
+  /** WebGL 实际使用的显卡名称 */
+  readonly gpu: string;
 
   constructor(root: HTMLElement) {
     this.save = new SaveStore();
@@ -80,6 +108,13 @@ export class App {
     canvas.className = 'gl';
     root.appendChild(canvas);
     this.view = new WorldView(canvas, this.settings);
+    this.gpu = gpuName(this.view.renderer);
+    if (this.save.fresh) {
+      // 第一次运行：按显卡选默认画质
+      this.settings.quality = pickQuality(this.gpu);
+      this.view.applySettings(this.settings);
+      this.save.save();
+    }
     this.hud = new Hud(root);
     this.hud.setOpacity(this.settings.hudOpacity);
     this.tutBox = document.createElement('div');
@@ -188,7 +223,7 @@ export class App {
     this.input.active = false;
     this.input.exitLock();
     this.ui.main(
-      { warning: [touchOnlyWarning(), this.save.warning].filter(Boolean).join('<br>') || null, tutorialDone: this.save.data.tutorialDone },
+      { warning: [touchOnlyWarning(), gpuWarning(this.gpu), this.save.warning].filter(Boolean).join('<br>') || null, tutorialDone: this.save.data.tutorialDone },
       {
         play: () => this.mapSelect(),
         tutorial: () => void this.startRun({ map: getMap('training'), weather: 'clear', assist: 'novice', tutorial: true }),

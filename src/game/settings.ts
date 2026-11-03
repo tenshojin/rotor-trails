@@ -94,10 +94,10 @@ export interface QualityPreset {
 }
 
 export const QUALITY: Record<QualityId, QualityPreset> = {
-  low: { label: '低', pixelRatio: 0.8, shadows: false, shadowSize: 512, shadowRange: 0, treeNear: 260, treeFar: 1300, terrainLod: 0.7, rainDensity: 0.35, envSize: 64, terrainTex: 512, msaa: 0, bloom: false, ao: false },
+  low: { label: '低', pixelRatio: 0.8, shadows: false, shadowSize: 512, shadowRange: 0, treeNear: 260, treeFar: 1300, terrainLod: 0.7, rainDensity: 0.35, envSize: 64, terrainTex: 0, msaa: 0, bloom: false, ao: false },
   medium: { label: '中', pixelRatio: 1, shadows: true, shadowSize: 1024, shadowRange: 600, treeNear: 380, treeFar: 2000, terrainLod: 1, rainDensity: 0.65, envSize: 128, terrainTex: 1024, msaa: 4, bloom: false, ao: false },
   high: { label: '高', pixelRatio: 1.5, shadows: true, shadowSize: 2048, shadowRange: 1200, treeNear: 520, treeFar: 2900, terrainLod: 1.35, rainDensity: 1, envSize: 256, terrainTex: 1024, msaa: 4, bloom: true, ao: false },
-  ultra: { label: '极高', pixelRatio: 2, shadows: true, shadowSize: 4096, shadowRange: 2000, treeNear: 700, treeFar: 3600, terrainLod: 1.7, rainDensity: 1, envSize: 256, terrainTex: 1024, msaa: 4, bloom: true, ao: true },
+  ultra: { label: '极高', pixelRatio: 2, shadows: true, shadowSize: 4096, shadowRange: 2000, treeNear: 700, treeFar: 3600, terrainLod: 1.7, rainDensity: 1, envSize: 256, terrainTex: 1024, msaa: 4, bloom: true, ao: false },
 };
 
 export interface Settings {

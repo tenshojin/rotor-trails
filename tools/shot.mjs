@@ -32,6 +32,8 @@ const proc = spawn(
     '--autoplay-policy=no-user-gesture-required',
     '--ignore-gpu-blocklist',
     '--enable-gpu',
+    // 双显卡笔记本上强制用独立显卡（否则无头浏览器会跑在核显上，帧率和画面都不能代表实际情况）
+    '--force_high_performance_gpu',
     '--use-angle=d3d11',
     '--enable-unsafe-swiftshader',
     '--hide-scrollbars',

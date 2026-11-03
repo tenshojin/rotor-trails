@@ -5,6 +5,8 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import type { GameSession } from '../sim/session';
 import type { WorldData } from '../world/worldgen';
@@ -54,6 +56,8 @@ export class WorldView {
   private envT = -10;
   private composer: EffectComposer | null = null;
   private afterimage: AfterimagePass | null = null;
+  /** 当前后期管线的配置（变化时重建） */
+  private postKey = '';
   private settings: Settings;
   // 地图相关
   world: WorldData | null = null;
@@ -119,18 +123,45 @@ export class WorldView {
     if (this.trees) this.trees.quality = { near: q.treeNear, far: q.treeFar, shadows: q.shadows };
     this.lightning.enabled = s.lightning;
     this.envKey = '';
-    if (s.motionBlur && !this.composer) {
-      this.composer = new EffectComposer(this.renderer);
-      this.composer.addPass(new RenderPass(this.scene, this.rig.camera));
-      this.afterimage = new AfterimagePass(0.55);
-      this.composer.addPass(this.afterimage);
-      this.composer.addPass(new OutputPass());
-    } else if (!s.motionBlur && this.composer) {
-      this.composer.dispose();
-      this.composer = null;
-      this.afterimage = null;
-    }
+    this.buildPost(dpr);
     this.resize();
+  }
+
+  /**
+   * 后期管线：半浮点渲染目标（保留高光）+ 多重采样抗锯齿 → [环境光遮蔽] → [泛光] → [动态模糊] → 色调映射输出。
+   * 低画质且不开动态模糊时直接渲染到屏幕。
+   */
+  private buildPost(dpr: number): void {
+    const s = this.settings;
+    const q = QUALITY[s.quality];
+    const key = `${q.msaa}_${q.bloom}_${q.ao}_${s.motionBlur}`;
+    if (key === this.postKey && this.composer) {
+      this.composer.setPixelRatio(dpr);
+      return;
+    }
+    this.postKey = key;
+    this.composer?.dispose();
+    this.composer = null;
+    this.afterimage = null;
+    if (q.msaa === 0 && !s.motionBlur) return;
+    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: q.msaa });
+    const c = new EffectComposer(this.renderer, rt);
+    c.setPixelRatio(dpr);
+    c.addPass(new RenderPass(this.scene, this.rig.camera));
+    if (q.ao) {
+      const ao = new GTAOPass(this.scene, this.rig.camera, 1, 1);
+      ao.updateGtaoMaterial({ radius: 1.2, distanceExponent: 1.5, thickness: 2, scale: 1, samples: 12 });
+      ao.blendIntensity = 0.75;
+      c.addPass(ao);
+    }
+    // 阈值较高：只有太阳、强镜面反光、灯光会晕开（阳光下的白色表面本身也有约 3 的亮度）
+    if (q.bloom) c.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.38, 0.6, 6.0));
+    if (s.motionBlur) {
+      this.afterimage = new AfterimagePass(0.55);
+      c.addPass(this.afterimage);
+    }
+    c.addPass(new OutputPass());
+    this.composer = c;
   }
 
   resize(): void {
@@ -156,7 +187,8 @@ export class WorldView {
     const forestTex = makeForestTexture(world.trees, map.size);
     this.mapTextures.push(surfaceTex, forestTex);
     progress?.(0.84, '加载地形材质');
-    const layers = await loadTerrainLayers(map.id, map.biome, QUALITY[this.settings.quality].terrainTex);
+    const texSize = QUALITY[this.settings.quality].terrainTex;
+    const layers = texSize > 0 ? await loadTerrainLayers(map.id, map.biome, texSize) : null;
     if (layers) this.mapTextures.push(layers.color, layers.normal);
     this.terrainUniforms = makeTerrainUniforms(map, surfaceTex, forestTex, layers);
     this.terrain = new TerrainView(map, world.terrain, this.terrainUniforms);
@@ -328,10 +360,12 @@ export class WorldView {
       this.rain.update(f.t, cp, w.rain, _w, s ? _vel : new THREE.Vector3(), q.rainDensity);
       this.clouds?.update(f.dt, w.cloudBase, w.cloudTop, w.lowCloud, _w.x, _w.z, w.overcast, cp);
     }
-    if (this.composer && this.afterimage) {
-      // 动态模糊只随视角/机体角速度增强
-      const spin = s ? s.body.angVel.length() : 0;
-      this.afterimage.uniforms.damp.value = Math.min(0.82, 0.35 + spin * 0.5);
+    if (this.composer) {
+      if (this.afterimage) {
+        // 动态模糊只随视角/机体角速度增强
+        const spin = s ? s.body.angVel.length() : 0;
+        this.afterimage.uniforms.damp.value = Math.min(0.82, 0.35 + spin * 0.5);
+      }
       this.composer.render(f.dt);
     } else this.renderer.render(this.scene, cam);
   }

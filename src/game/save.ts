@@ -71,6 +71,8 @@ export class SaveStore {
   data: SaveData;
   available = true;
   warning: string | null = null;
+  /** 本机第一次运行（没有任何存档） */
+  fresh = false;
   private storage: StorageLike | null;
 
   constructor(storage?: StorageLike | null) {
@@ -89,6 +91,7 @@ export class SaveStore {
       this.available = false;
       this.warning = '浏览器本地存储不可用：本次游戏的设置与进度不会被保存。';
       this.data = defaults();
+      this.fresh = true;
       return;
     }
     let raw: string | null = null;
@@ -99,6 +102,7 @@ export class SaveStore {
     }
     if (!raw) {
       this.data = defaults();
+      this.fresh = true;
       return;
     }
     try {
