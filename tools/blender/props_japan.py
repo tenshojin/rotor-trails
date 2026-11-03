@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import bkit as K  # noqa: E402
 import bldkit as BK  # noqa: E402
 import jhouse as JH  # noqa: E402
+import jlandmarks as JL  # noqa: E402
 
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 OUT = argv[0] if argv else 'public/models/props_japan.glb'
@@ -152,86 +153,6 @@ def torii():
     ROOTS.append(root)
 
 
-# ------------------------------------------------------------------ 五重塔
-def pagoda():
-    parts = []
-    parts.append(BK.bx('base', (13, 13, 1.6), (0, 0, 0.8), M('concrete')))
-    parts.append(BK.bx('steps', (3.0, 2.0, 0.8), (0, 7.4, 0.4), M('concrete')))
-    y = 1.6
-    for k in range(5):
-        w = 8.6 - k * 0.9
-        fh = 4.2 if k == 0 else 3.2
-        parts.append(BK.bx(f'body{k}', (w, w, fh), (0, 0, y + fh / 2), F('pagoda_red', 0x8f2a18, rough=0.6), uv=False))
-        # 白色连子窗/门、斗拱层（深色挑檐梁）
-        parts.append(BK.bx(f'door{k}', (w * 0.36, 0.06, fh * 0.6), (0, w / 2 + 0.03, y + fh * 0.42), F('pagoda_door', 0x3a2416, rough=0.6), uv=False))
-        parts.append(BK.bx(f'bracket{k}', (w + 0.8, w + 0.8, 0.45), (0, 0, y + fh - 0.1), F('bracket', 0x5a2416, rough=0.6), uv=False))
-        objs, lines, eaves = BK.roof_hip(f'roof{k}', w + 3.2, w + 3.2, 1.3, 0.6, 0.05, 0.22, M('kawara'), y + fh + 0.15)
-        parts += objs
-        for i, (a, b) in enumerate(lines[1:]):
-            parts.append(BK.ridge_tube(f'hip{k}{i}', a + Vector((0, 0, 0.2)), b + Vector((0, 0, 0.2)), 0.12, RIDGE))
-        parts += BK.eave_caps(f'cap{k}_', eaves, 0.4, 0.1, RIDGE)
-        y += fh + 1.3
-    # 相轮（九轮）
-    parts.append(BK.cyl('spire', 0.22, 8.0, (0, 0, y + 4.0), GOLD, 12, r2=0.14, uv=False))
-    for i in range(9):
-        parts.append(BK.cyl(f'ring{i}', 0.55 - i * 0.02, 0.12, (0, 0, y + 0.8 + i * 0.6), GOLD, 16, uv=False))
-    parts.append(K.sphere('hoju', 0.35, (0, 0, y + 8.2), GOLD, 12, 6))
-    root, _ = BK.model('pagoda', parts)
-    ROOTS.append(root)
-
-
-# ------------------------------------------------------------------ 神社拜殿
-def shrine():
-    parts = []
-    parts.append(BK.bx('base', (12, 9, 1.2), (0, 0, 0.6), M('concrete')))
-    parts.append(BK.bx('stair', (3.2, 1.4, 0.6), (0, 5.1, 0.3), M('concrete')))
-    parts.append(BK.bx('body', (9, 6.5, 3.2), (0, 0, 1.2 + 1.6), F('shrine_wood', 0x7a2a1a, rough=0.6), uv=False))
-    for sx in (-1, 0, 1):
-        for sy in (-1, 1):
-            parts.append(BK.cyl('pillar', 0.2, 3.2, (sx * 4.3, sy * 3.1, 2.8), VERMILION, 12, uv=False))
-    parts.append(BK.bx('front', (6.0, 0.08, 2.0), (0, 3.3, 2.4), SHOJI, uv=False))
-    parts.append(BK.bx('rope', (5.0, 0.3, 0.3), (0, 3.6, 3.9), ROPE, uv=False))  # 注连绳
-    objs, lines, eaves = BK.roof_gable('roof', 9, 6.5, 3.2, 1.4, 1.0, 0.25, M('kawara'), 4.4)
-    parts += objs
-    a, b = lines[0]
-    parts.append(BK.ridge_tube('ridge', a + Vector((0, 0, 0.25)), b + Vector((0, 0, 0.25)), 0.22, RIDGE))
-    for sx in (-1, 1):
-        parts.append(BK.gable_wall(f'gw{sx}', 9, 6.5, 3.2, 4.4, F('gable_wood', 0x5a2416, rough=0.7), x_side=sx))
-    # 千木与鲣木
-    for t in (-0.6, -0.2, 0.2, 0.6):
-        parts.append(BK.cyl('katsuogi', 0.16, 1.4, (t * 4.5, 0, 7.95), GOLD, 10, rot=(math.pi / 2, 0, 0), uv=False))
-    root, _ = BK.model('shrine', parts)
-    ROOTS.append(root)
-
-
-# ------------------------------------------------------------------ 灯塔
-def lighthouse():
-    parts = []
-    h = 20.0
-    parts.append(BK.cyl('plinth', 4.0, 2.0, (0, 0, 1.0), M('concrete'), 32, r2=4.2))
-    tower = BK.cyl('tower', 2.6, h, (0, 0, 2 + h / 2), WHITE, 32, r2=1.8, uv=False)
-    parts.append(tower)
-    for k in range(3):
-        r0 = 2.6 - (5 + k * 6 - 2) / h * 0.8
-        parts.append(BK.cyl(f'band{k}', r0 + 0.03, 1.0, (0, 0, 5 + k * 6), RED, 32, r2=r0 - 0.01, uv=False))
-    parts.append(BK.cyl('door', 0.6, 2.0, (0, 2.45, 3.0), F('lh_door', 0x2f4f6a, rough=0.5), 12, rot=(math.pi / 2, 0, 0), uv=False))
-    for z in (8.0, 14.0):
-        parts.append(BK.bx(f'win{z}', (0.5, 0.2, 0.9), (0, 2.25 - (z - 2) / h * 0.8, z), GLASS, uv=False))
-    parts.append(BK.cyl('gallery', 2.7, 0.35, (0, 0, h + 2.4), F('lh_dark', 0x2a2d31, rough=0.5, metal=0.4), 32, uv=False))
-    for i in range(24):
-        a = 2 * math.pi * i / 24
-        parts.append(BK.cyl(f'rail{i}', 0.03, 1.0, (2.55 * math.cos(a), 2.55 * math.sin(a), h + 3.0), F('lh_rail', 0xd8d8d0, rough=0.4, metal=0.6), 6, uv=False))
-    parts.append(K.torus('railtop', 2.55, 0.04, (0, 0, h + 3.5), F('lh_rail', 0xd8d8d0, rough=0.4, metal=0.6), 48, 6))
-    parts.append(BK.cyl('lantern', 1.4, 2.6, (0, 0, h + 3.8), F('lh_lamp', 0xfff6d0, rough=0.1, emit=0xfff2c0, emit_strength=2.0), 16, uv=False))
-    for i in range(8):
-        a = 2 * math.pi * i / 8
-        parts.append(BK.cyl(f'mull{i}', 0.05, 2.6, (1.42 * math.cos(a), 1.42 * math.sin(a), h + 3.8), F('lh_dark', 0x2a2d31, rough=0.5, metal=0.4), 6, uv=False))
-    parts.append(BK.cyl('cap', 1.8, 1.8, (0, 0, h + 6.0), RED, 24, r2=0.15, uv=False))
-    parts.append(BK.cyl('vent', 0.25, 0.5, (0, 0, h + 7.1), F('lh_dark', 0x2a2d31, rough=0.5, metal=0.4), 12, uv=False))
-    root, _ = BK.model('lighthouse', parts)
-    ROOTS.append(root)
-
-
 # ------------------------------------------------------------------ 渔船（参考长度 13 m，游戏按长度等比缩放）
 def boat(name, hull_hex):
     parts = []
@@ -293,9 +214,12 @@ jhouse('jhouse_2bL', True, 'wood', 11.0, 8.4)
 denchu('denchu_a', False)
 denchu('denchu_b', True)
 torii()
-pagoda()
-shrine()
-lighthouse()
+# 五重塔、拜殿：三级细节；灯塔、常夜灯：各一个实例，只做近景
+for lod in range(3):
+    ROOTS.append(JL.pagoda(lod))
+    ROOTS.append(JL.shrine(lod))
+ROOTS.append(JL.lighthouse())
+ROOTS.append(JL.joyato())
 for i, c in enumerate(HULL_COLORS):
     boat(f'boat_{i}', c)
 
@@ -306,11 +230,12 @@ for i, r in enumerate(ROOTS):
 if PREVIEW:
     os.makedirs(PREVIEW, exist_ok=True)
     K.world_sky(1.0, sun_dir=(0.5, -0.6, 0.7), sun_strength=4.0)
-    shots = {'jhouse_2b': ((14, 14, 7), (0, 0, 3.5)), 'jhouse_1a': ((-12, 13, 6), (0, 0, 2.5)), 'torii': ((10, 26, 6), (0, 0, 8)), 'pagoda': ((22, 26, 12), (0, 0, 14)), 'boat_0': ((10, 12, 6), (0, 0, 1.5))}
+    shots = {'pagoda': ((24, -30, 10), (0, 0, 14)), 'pagoda_eave': ((9, -11, 3.5), (0, 0, 7.5)), 'shrine': ((11, -16, 5), (0, 0, 3.5)), 'shrine_front': ((2, -11, 2.2), (0, -4, 3.2)), 'lighthouse': ((11, -15, 25), (0, 0, 21.5)), 'joyato': ((6, -8, 4), (0, 0, 4.5))}
     for nm, (cam_p, tgt) in shots.items():
+        target = nm.split('_')[0] if nm not in [r.name for r in ROOTS] else nm
         for r in ROOTS:
             for c in [r] + list(r.children):
-                c.hide_render = r.name != nm
+                c.hide_render = r.name != target
         cam = K.camera('cam_' + nm, cam_p, tgt, fov_deg=50)
         K.render(os.path.join(PREVIEW, nm + '.png'), cam, (900, 600), samples=48)
     for r in ROOTS:

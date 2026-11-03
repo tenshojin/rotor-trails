@@ -20,6 +20,7 @@ import { Input } from './input';
 import { SaveStore } from './save';
 import { keyName, type Settings } from './settings';
 import { Tutorial } from './tutorial';
+import { isTimeOfDay, type TimeOfDay } from '../render/timeOfDay';
 
 type State = 'boot' | 'menu' | 'loading' | 'ready' | 'playing' | 'paused' | 'failed' | 'result';
 
@@ -28,6 +29,8 @@ interface RunConfig {
   weather: string;
   assist: AssistId;
   tutorial: boolean;
+  /** 时段（只影响画面） */
+  time?: TimeOfDay;
 }
 
 const _wB = new THREE.Vector3();
@@ -167,7 +170,8 @@ export class App {
     requestAnimationFrame(this.frame);
     if (auto && MAPS.find((m) => m.id === auto)) {
       const m = getMap(auto);
-      await this.startRun({ map: m, weather: params.get('weather') ?? m.defaultWeather, assist: (params.get('assist') as AssistId) ?? this.settings.assist, tutorial: auto === 'training' && params.get('tutorial') !== '0' });
+      const tp = params.get('time');
+      await this.startRun({ map: m, weather: params.get('weather') ?? m.defaultWeather, assist: (params.get('assist') as AssistId) ?? this.settings.assist, tutorial: auto === 'training' && params.get('tutorial') !== '0', time: isTimeOfDay(tp) ? tp : 'day' });
       if (params.get('autostart') === '1') this.beginFlight();
     } else this.mainMenu();
   }
@@ -236,7 +240,7 @@ export class App {
 
   briefing(m: MapDef): void {
     this.ui.briefing(m, this.save.data.maps[m.id], this.settings, {
-      start: (weather, assist) => void this.startRun({ map: m, weather, assist, tutorial: false }),
+      start: (weather, assist, time) => void this.startRun({ map: m, weather, assist, tutorial: false, time }),
       back: () => this.mapSelect(),
     });
   }
@@ -271,6 +275,7 @@ export class App {
     this.session?.dispose();
     this.session = null;
     this.run = cfg;
+    this.view.setTimeOfDay(cfg.time ?? 'day');
     if (!this.world || this.world.map.id !== cfg.map.id) {
       this.ui.loading('生成地形', 0.02);
       const w = await generateWorld(cfg.map, true, (p, l) => this.ui.loading(l, p));

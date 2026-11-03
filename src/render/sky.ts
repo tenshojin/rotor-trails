@@ -257,6 +257,8 @@ export interface SkyColors {
 }
 
 const c = (hex: number) => new THREE.Color().setHex(hex);
+const _warm = new THREE.Color();
+const _dusk = new THREE.Color(0x6a5a72);
 
 export class SkyDome {
   readonly mesh: THREE.Mesh;
@@ -272,16 +274,15 @@ export class SkyDome {
   private sunE = 0;
   private readonly mieG = 0.8;
   private skyScale = 1;
+  /** 太阳高度带来的“白天程度”：0 = 贴着地平线，1 = 高于约 25°（清晨、黄昏时天空、阳光、环境光都更暗） */
+  dayK = 1;
   /** 晴空的天顶/地平线/朝阳地平线颜色与阳光透射（只与太阳位置、浑浊度有关，加载时算一次） */
   private clear = { zenith: new THREE.Color(), horizon: new THREE.Color(), horizonSun: new THREE.Color(), sunTint: new THREE.Color() };
 
   constructor(sunAzimuthDeg: number, sunElevationDeg: number, fogTint: number, groundTint: number) {
-    const az = (sunAzimuthDeg * Math.PI) / 180;
-    const el = (sunElevationDeg * Math.PI) / 180;
-    this.sunDir.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el)).normalize();
     this.fogTint = c(fogTint);
     this.groundTint = c(groundTint);
-    this.setAtmosphere(2.4, 1.6, 0.005);
+    this.setSun(sunAzimuthDeg, sunElevationDeg);
     this.u = makeSkyUniforms(this.sunDir, this.windOffset);
     this.u.betaR.value = this.betaR;
     this.u.betaM.value = this.betaM;
@@ -304,6 +305,15 @@ export class SkyDome {
     };
   }
 
+  /** 太阳方位角 / 高度角（度）：换时段（清晨、黄昏）时调用，重新计算大气参数（sunDir 是同一个对象，着色器自动跟随） */
+  setSun(azDeg: number, elDeg: number): void {
+    const az = (azDeg * Math.PI) / 180;
+    const el = (elDeg * Math.PI) / 180;
+    this.sunDir.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el)).normalize();
+    this.dayK = Math.max(0, Math.min(1, (elDeg - 1.5) / 23.5));
+    this.setAtmosphere(2.4, 1.6, 0.005);
+  }
+
   /** 大气参数：浑浊度（越大越朦胧发白）、瑞利系数（越大越蓝）、米氏系数 */
   private setAtmosphere(turbidity: number, rayleigh: number, mie: number): void {
     this.betaR.set(TOTAL_RAYLEIGH[0], TOTAL_RAYLEIGH[1], TOTAL_RAYLEIGH[2]).multiplyScalar(rayleigh);
@@ -315,7 +325,8 @@ export class SkyDome {
     this.skyScale = 1;
     const side = new THREE.Vector3(-this.sunDir.z, 0.06, this.sunDir.x).normalize();
     const L = this.radiance(side, new THREE.Color());
-    this.skyScale = 0.62 / Math.max(0.05, 0.2126 * L.r + 0.7152 * L.g + 0.0722 * L.b);
+    // 太阳很低时天空整体更暗（清晨、黄昏）
+    this.skyScale = (0.62 * (0.4 + 0.6 * this.dayK ** 0.7)) / Math.max(0.05, 0.2126 * L.r + 0.7152 * L.g + 0.0722 * L.b);
     const sunFlat = new THREE.Vector3(this.sunDir.x, 0.03, this.sunDir.z).normalize();
     this.radiance(new THREE.Vector3(0, 1, 0), this.clear.zenith);
     this.radiance(side, this.clear.horizon);
@@ -370,10 +381,11 @@ export class SkyDome {
     C.ground.copy(this.groundTint).multiplyScalar(0.55).lerp(C.horizon, 0.55);
     const sunVis = Math.max(0, 1 - oc * 0.92) * (1 - fogK * 0.55);
     C.sun.copy(this.clear.sunTint).lerp(c(0xfff3e4), 0.25);
-    C.sunIntensity = 3.3 * (0.12 + 0.88 * sunVis);
+    // 太阳越低，穿过的大气越厚：直射光变弱（6° 时约为正午的六成，同时由大气透射变成橙红）
+    C.sunIntensity = 3.3 * (0.12 + 0.88 * sunVis) * (0.32 + 0.68 * this.dayK ** 0.65);
     C.hemiSky.copy(C.zenith).lerp(C.horizon, 0.5);
     C.hemiGround.copy(this.groundTint).multiplyScalar(0.6);
-    C.hemiIntensity = 0.5 + 0.6 * oc + flash * 2.5;
+    C.hemiIntensity = (0.5 + 0.6 * oc) * (0.45 + 0.55 * this.dayK) + flash * 2.5;
     const u = this.u;
     u.ovZenith.value.copy(ovZen);
     u.ovHorizon.value.copy(ovHor);
@@ -387,6 +399,10 @@ export class SkyDome {
     u.skyScale.value = this.skyScale;
     u.cloudLit.value.copy(c(0xf6f7f9)).lerp(c(0x9aa0a8), oc).lerp(c(0x585e66), storm);
     u.cloudDark.value.copy(c(0xa3abb7)).lerp(c(0x6c727a), oc).lerp(c(0x30353c), storm);
+    // 清晨、黄昏：二维云层的亮面被斜阳染暖，暗面偏紫灰
+    const low = (1 - this.dayK) * (1 - oc);
+    u.cloudLit.value.lerp(_warm.copy(C.sun).multiplyScalar(0.95), low * 0.55);
+    u.cloudDark.value.lerp(_dusk, low * 0.5);
     u.cover.value = Math.min(0.98, w.cloudCover + oc * 0.4);
     u.flash.value = flash;
     // 体积云：环境光取天顶与地平线颜色，风把云整体吹走（米），帧序号用于步进抖动

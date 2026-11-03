@@ -204,6 +204,9 @@ export interface MapDef {
   biome: BiomeDef;
   /** 太阳方位角与高度角（度） */
   sun: [number, number];
+  /** 清晨 / 黄昏的太阳位置（可选，默认东偏南 96° 高 7.5° / 西偏南 264° 高 6.5°） */
+  sunDawn?: [number, number];
+  sunDusk?: [number, number];
   ambience: AmbienceDef;
   landmarks: Array<{ name: string; pos: V3 }>;
   briefing: string[];

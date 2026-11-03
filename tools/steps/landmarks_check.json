@@ -1,0 +1,101 @@
+{
+ "url": "about:blank",
+ "width": 1600,
+ "height": 900,
+ "steps": [
+  {
+   "goto": "http://localhost:5174/?map=japan&autostart=1&weather=clear"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app; A.settings.quality = 'ultra'; A.settings.rayTracing = false; A.view.applySettings(A.settings); const R = A.view.rig; R.update = () => {}; const W = A.session.world; window.__frame = (prefix, dist, height, yaw, pick, tilt) => { const all = W.builder.models.filter(m => m.name.startsWith(prefix)); if (!all.length) return 'none:' + prefix; const m0 = all[Math.min(all.length - 1, pick ?? 0)]; const near = all.filter(m => Math.hypot(m.pos[0] - m0.pos[0], m.pos[2] - m0.pos[2]) < 140); let cx = 0, cy = 0, cz = 0; for (const m of near) { cx += m.pos[0]; cy += m.pos[1]; cz += m.pos[2]; } cx /= near.length; cy /= near.length; cz /= near.length; const a = (yaw ?? 30) * Math.PI / 180; const px = cx + Math.sin(a) * dist, pz = cz - Math.cos(a) * dist; const py = Math.max(W.terrain.heightAt(px, pz) + 3, cy + height); R.camera.position.set(px, py, pz); R.camera.lookAt(cx, cy + (tilt ?? 0), cz); R.camera.updateMatrixWorld(); A.debugTeleport(px + 400, py + 120, pz + 400, 0, 0); return [near.length, Math.round(cx), Math.round(cy), Math.round(cz)]; }; return 1; })()"
+  },
+  {
+   "eval": "__frame('pagoda', 42, 6, 230, 0, 14)",
+   "label": "lm_pagoda"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "window.__app.debugState().render",
+   "label": "lm_pagoda stats"
+  },
+  {
+   "shot": "lm_pagoda.jpg"
+  },
+  {
+   "eval": "__frame('pagoda', 160, 40, 200, 0, 12)",
+   "label": "lm_pagoda_far"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "window.__app.debugState().render",
+   "label": "lm_pagoda_far stats"
+  },
+  {
+   "shot": "lm_pagoda_far.jpg"
+  },
+  {
+   "eval": "__frame('shrine', 24, 5, 30, 0, 3)",
+   "label": "lm_shrine"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "window.__app.debugState().render",
+   "label": "lm_shrine stats"
+  },
+  {
+   "shot": "lm_shrine.jpg"
+  },
+  {
+   "eval": "__frame('joyato', 22, 4, 300, 0, 4)",
+   "label": "lm_joyato"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "window.__app.debugState().render",
+   "label": "lm_joyato stats"
+  },
+  {
+   "shot": "lm_joyato.jpg"
+  },
+  {
+   "eval": "__frame('joyato', 70, 18, 250, 0, 2)",
+   "label": "lm_joyato_wide"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "window.__app.debugState().render",
+   "label": "lm_joyato_wide stats"
+  },
+  {
+   "shot": "lm_joyato_wide.jpg"
+  },
+  {
+   "eval": "__frame('lighthouse', 45, 12, 140, 0, 14)",
+   "label": "lm_lighthouse"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "eval": "window.__app.debugState().render",
+   "label": "lm_lighthouse stats"
+  },
+  {
+   "shot": "lm_lighthouse.jpg"
+  }
+ ]
+}

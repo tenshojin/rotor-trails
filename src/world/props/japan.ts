@@ -7,7 +7,28 @@ import type { Rng } from '../../core/noise';
 import type { PropDef } from '../../maps/types';
 import type { PropBuilder } from '../propBuilder';
 import { C, type PropCtx, type PropFn } from './common';
-import { frontSteps, lotPoint, plinth, railFence, settle, terrace, yard } from './settle';
+import { frontSteps, lotPoint, plinth, railFence, settle, siteGround, terrace, yard } from './settle';
+
+/** 五重塔各层（与 tools/blender/jlandmarks.py 的 pagoda_levels() 同一套参数）：底高、柱高、半宽、出檐外缘、檐口高、屋面内沿高 */
+const PAGODA_LEVELS = (() => {
+  const W = [7.0, 6.4, 5.8, 5.2, 4.6];
+  const H = [3.5, 2.6, 2.5, 2.4, 2.4];
+  const OV = [2.5, 2.4, 2.3, 2.2, 2.1];
+  const out: Array<{ k: number; zf: number; h: number; hw: number; X1: number; ze: number; zIn: number }> = [];
+  let z = 1.35;
+  for (let k = 0; k < 5; k++) {
+    const hw = W[k] / 2;
+    const zb = z + H[k] + 1.05;
+    const X1 = hw + OV[k];
+    const ze = zb - (X1 - (hw + 1.3)) * 0.42;
+    const xIn = k < 4 ? W[k + 1] / 2 + 0.85 : 0;
+    const zIn = ze + (X1 - xIn) * 0.42;
+    out.push({ k, zf: z, h: H[k], hw, X1, ze, zIn });
+    z = zIn + 0.25;
+  }
+  return out;
+})();
+const PAGODA_TOP = PAGODA_LEVELS[4].zIn;
 
 /** 花岗岩（基坛、石灯笼；顶点色按线性值使用，取偏暗的灰） */
 const GRANITE_J = 0x45433e;
@@ -411,16 +432,19 @@ export const japanProps: Record<string, PropFn> = {
     // 台地比拜殿四周宽出 3 m（前面 5 m，留出参拜的空地）；坡地上是带收分的石垣，前面一段石阶下到参道
     const { base, depth } = settle(ctx, ox, oz + 0, rot, 9, 9.5, 0.05);
     B.at(ox, base, oz, rot, 1);
-    terrace(B, 9, 9.5, depth, GRANITE_J, 0.32);
+    terrace(B, 9, 9.5, depth, GRANITE_J, 0.32, 'stone', 0.6, 0x6a6458);
     frontSteps(B, ctx, { x: ox, z: oz, rot }, base, 9.5, 2.8, GRANITE_J);
     yard(ctx, { x: ox, z: oz, rot, hw: 9, hd: 9.5, base }, 3, 0.5);
     approach(B, ctx, { x: ox, z: oz, rot }, 10, 52, 7.5, true);
     B.at(ox, base, oz, rot, 1);
     B.beginModel('shrine');
-    B.box(0, 0.6, 0, 12, 1.2, 9, 0x8a857c, { mat: 'rough' });
-    B.box(0, 2.8, 0, 9, 3.2, 6.5, 0x7a2a1a, {});
-    B.gable(0, 4.4, 0, 9, 6.5, 3.2, 1.4, 0x3b4350, {}, 0);
-    B.box(0, 2.2, 4.4, 2.2, 1.6, 0.2, 0xd8c070, { solid: false });
+    // 后备几何与碰撞体：基坛、高床上的拜殿、入母屋屋顶、向拜（与 jlandmarks.py 的 shrine() 一致；正面朝局部 +z）
+    B.box(0, 0.45, 0.8, 12, 0.9, 11.8, 0x8a857c, { mat: 'rough' });
+    B.box(0, 3.08, 0, 9, 3.05, 6.5, 0x7a2a1a, {});
+    B.hip(0, 4.0, 0, 12.2, 9.7, 3.0, 0.4, 0x3b4350, {}, 0.55);
+    B.box(0, 2.2, 3.3, 2.2, 1.6, 0.2, 0xd8c070, { solid: false });
+    for (const sx of [-2.1, 2.1]) B.cyl(sx, 2.2, 5.95, 0.16, 0.16, 2.6, 0xd2401e, 10, {});
+    B.box(0, 3.85, 4.8, 5.0, 0.3, 3.0, 0x3b4350, { solid: false });
     B.endModel();
     B.footprint(9);
   },
@@ -428,35 +452,77 @@ export const japanProps: Record<string, PropFn> = {
     // 五重塔（地标）：模型自带 1.6 m 的基坛，这里补上坡地下坡一侧露出的部分；四周是碎石院子与四座石灯笼
     const [ox, , oz] = B.origin;
     const rot = B.rotation;
-    const { base, depth } = settle(ctx, ox, oz, rot, 10, 10, 0.05);
+    const { base, depth } = settle(ctx, ox, oz, rot, 8, 8, 0.05);
     for (const [lx, lz] of [
-      [-8, -8],
-      [8, -8],
-      [-8, 8],
-      [8, 8],
+      [-7, -7],
+      [7, -7],
+      [-7, 7],
+      [7, 7],
     ] as Array<[number, number]>) {
       // 石灯笼立在台面上
       const [x, z] = lotPoint({ x: ox, z: oz, rot }, lx, lz);
       stoneLantern(B, ctx, x, z, rot + Math.PI / 4, base);
     }
     B.at(ox, base, oz, rot, 1);
-    terrace(B, 10, 10, depth, GRANITE_J, 0.32);
-    frontSteps(B, ctx, { x: ox, z: oz, rot }, base, 10, 2.8, GRANITE_J);
-    yard(ctx, { x: ox, z: oz, rot, hw: 10, hd: 10, base }, 3, 0.6);
+    terrace(B, 8, 8, depth, GRANITE_J, 0.32, 'stone', 0.6, 0x6a6458);
+    frontSteps(B, ctx, { x: ox, z: oz, rot }, base, 8, 2.8, GRANITE_J);
+    yard(ctx, { x: ox, z: oz, rot, hw: 8, hd: 8, base }, 3, 0.6);
     B.beginModel('pagoda');
-    B.box(0, 0.8, 0, 13, 1.6, 13, 0x8a857c, { mat: 'rough' });
-    let y = 1.6;
-    for (let k = 0; k < 5; k++) {
-      const w = 8.6 - k * 0.9;
-      const fh = k === 0 ? 4.2 : 3.2;
-      B.box(0, y + fh / 2, 0, w, fh, w, 0x7a2a1a, {});
-      B.hip(0, y + fh, 0, w + 3.2, w + 3.2, 1.3, 0.6, 0x323a44, { solid: false }, 0.05);
-      y += fh + 1.3;
+    // 后备几何与碰撞体：尺寸与 tools/blender/jlandmarks.py 的 pagoda_levels() 一致（每层塔身 + 一圈出檐）
+    B.box(0, 0.6, 0, 12.2, 1.2, 12.2, 0x8a857c, { mat: 'rough' });
+    for (const L of PAGODA_LEVELS) {
+      B.box(0, L.zf + L.h / 2, 0, L.hw * 2, L.h, L.hw * 2, 0x7a2a1a, {});
+      B.hip(0, L.ze, 0, (L.X1 - 0.1) * 2, (L.X1 - 0.1) * 2, L.zIn - L.ze, 0.05, 0x323a44, { solid: false }, L.k === 4 ? 0.02 : 0.5);
+      // 出檐：一块薄板形的碰撞体（直升机撞到屋檐会受损）
+      B.colliderBox(0, (L.ze + L.zIn) / 2, 0, L.X1, (L.zIn - L.ze) / 2 + 0.15, L.X1);
     }
-    B.cyl(0, y + 4, 0, 0.25, 0.15, 8, 0xb8a050, 6, { mat: 'metal', solid: false });
+    B.cyl(0, PAGODA_TOP + 4.6, 0, 0.25, 0.12, 9, 0xb8a050, 6, { mat: 'metal', solid: false });
     B.endModel();
-    B.colliderBox(0, y / 2, 0, 5, y / 2, 5);
+    B.addColliderCyl(0, PAGODA_TOP + 4.6, 0, 4.6, 0.6);
     B.footprint(9);
+  },
+  joyato(B, d, _rng, ctx) {
+    const [sx, , sz] = B.origin;
+    const a = (Number(d.p?.dir ?? 90) * Math.PI) / 180;
+    const ux = Math.sin(a);
+    const uz = -Math.cos(a);
+    const wl = ctx.waterLevel ?? 0;
+    let x = sx;
+    let z = sz;
+    for (let k = 0; k < 200 && ctx.terrain.heightAt(x + ux * 2, z + uz * 2) > wl + 1.2; k++) {
+      x += ux * 2;
+      z += uz * 2;
+    }
+    // 岸边砌一块石垣码头（向海一侧的石墙一直砌到水下），常夜灯立在码头靠陆一侧；局部 +z 朝海
+    const rot = Math.atan2(ux, uz);
+    const quay = { x: x + ux * 1.5, z: z + uz * 1.5, rot };
+    const qg = siteGround(ctx, quay.x, quay.z, rot, 7, 5.5);
+    const qtop = Math.max(qg.top, wl + 1.1) + 0.25;
+    B.at(quay.x, qtop, quay.z, rot, 1);
+    terrace(B, 7, 5.5, qtop - Math.min(qg.low, wl - 1.6), GRANITE_J, 0.12, 'stone', 0.4);
+    const [lx, lz] = lotPoint(quay, 0, -2.4);
+    const base = qtop;
+    const depth = 0;
+    B.at(lx, base, lz, rot, 1);
+    B.beginModel('joyato');
+    B.box(0, 0.35, 0, 4.4, 0.7, 4.4, 0x77736b, { mat: 'rough' });
+    B.box(0, 1.0, 0, 3.4, 0.6, 3.4, 0x8a857c, { mat: 'rough' });
+    B.box(0, 3.2, 0, 0.8, 4.2, 0.8, 0x8a857c, { mat: 'rough' });
+    B.box(0, 5.6, 0, 1.6, 1.6, 1.6, 0x9a958c, { mat: 'rough' });
+    B.hip(0, 6.4, 0, 3.0, 3.0, 0.8, 0.2, 0x8a857c, { mat: 'rough' }, 0.05);
+    B.endModel();
+    void depth;
+    B.footprint(4);
+    // 雁木：码头向海一侧，一级级下到水面以下的石阶（宽 9 m）
+    B.at(quay.x, qtop, quay.z, rot, 1);
+    for (let k = 0; k < 16; k++) {
+      const zz = 5.5 + 0.3 + k * 0.55;
+      const [wx, wz] = lotPoint(quay, 0, zz);
+      const top = -0.28 * (k + 1);
+      if (qtop + top < wl - 1.2) break;
+      const bottom = Math.min(ctx.terrain.heightAt(wx, wz), wl - 1.6) - 0.3 - qtop;
+      B.box(0, (top + bottom) / 2, zz, 9, top - bottom, 0.58, GRANITE_J, { mat: 'stone', jitter: 0.06 });
+    }
   },
   obsStation(B) {
     // 观测站：混凝土建筑 + 雷达罩 + 天线 + 太阳能板

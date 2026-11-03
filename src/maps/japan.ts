@@ -173,6 +173,8 @@ export const JAPAN: MapDef = {
     { type: 'shrine', pos: [-1415, 0, 590], rotY: 0.6, ground: true },
     { type: 'torii', pos: [-655, -1.5, 40], rotY: Math.PI / 2 },
     { type: 'lighthouse', pos: [-372, 0, -1478], ground: true },
+    // 鞆之浦式的常夜灯：从港口停机坪朝东走到岸边，立在码头上，前面是下到海里的雁木石阶
+    { type: 'joyato', pos: [-1060, 0, 820], ground: true, p: { dir: 90 } },
     { type: 'jvillage', pos: [-820, 0, -1080], ground: true, p: { r: 90, n: 7 } },
     { type: 'hangar', pos: [-985, 0, -1040], rotY: 0.2, ground: true, p: { w: 16, l: 20, h: 7 } },
     // 群岛

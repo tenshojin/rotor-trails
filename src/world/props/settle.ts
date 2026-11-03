@@ -71,23 +71,56 @@ export function plinth(B: PropBuilder, hw: number, hd: number, depth: number, co
  * 带收分的石砌台基（日本的石垣、寺社基坛）：上小下大的四棱台，四面向内倾斜（batter = 每米高度向外放出的距离），
  * 顶面就是台地的地面。局部坐标，台面在 y = 0；碰撞体用外接长方体。
  */
-export function terrace(B: PropBuilder, hw: number, hd: number, depth: number, color: number, batter = 0.3, mat: MatKey = 'stone', bury = 0.6): void {
+export function terrace(B: PropBuilder, hw: number, hd: number, depth: number, color: number, batter = 0.3, mat: MatKey = 'stone', bury = 0.6, top?: number): void {
   const H = depth + bury;
-  const xt = hw;
-  const zt = hd;
-  const xb = hw + batter * H;
-  const zb = hd + batter * H;
   const y0 = 0.02;
-  const y1 = -H;
-  const tris: number[] = [];
-  const quad = (A: number[], C: number[], D: number[], E: number[]) => tris.push(...A, ...C, ...D, ...A, ...D, ...E);
-  quad([-xb, y1, zb], [xb, y1, zb], [xt, y0, zt], [-xt, y0, zt]); // +z
-  quad([xb, y1, -zb], [-xb, y1, -zb], [-xt, y0, -zt], [xt, y0, -zt]); // -z
-  quad([xb, y1, zb], [xb, y1, -zb], [xt, y0, -zt], [xt, y0, zt]); // +x
-  quad([-xb, y1, -zb], [-xb, y1, zb], [-xt, y0, zt], [-xt, y0, -zt]); // -x
-  quad([-xt, y0, zt], [xt, y0, zt], [xt, y0, -zt], [-xt, y0, -zt]); // 台面
-  B.mesh(tris, color, mat, 0);
-  B.colliderBox(0, -H / 2, 0, (xt + xb) / 2, H / 2, (zt + zb) / 2);
+  // 四面石墙：一层层错缝的石块（每块明暗略有不同、略微凸出），远处看也像石垣而不是一整块灰板
+  const course = 0.55;
+  const rows = Math.max(1, Math.round(H / course));
+  const faces: Array<[number, number, number, number]> = [
+    [0, 1, hw, hd],
+    [0, -1, hw, hd],
+    [1, 0, hd, hw],
+    [-1, 0, hd, hw],
+  ];
+  for (const [nx, nz, half, off] of faces) {
+    // 墙面局部：沿墙方向 t（-1..1 × 半长），从上往下第 r 层；墙脚向外放出 batter × 深度
+    const sx = -nz;
+    const sz = nx;
+    for (let r = 0; r < rows; r++) {
+      const ya = y0 - (H * r) / rows;
+      const yb = y0 - (H * (r + 1)) / rows;
+      const oa = off + batter * (y0 - ya);
+      const ob = off + batter * (y0 - yb);
+      const ha = half + batter * (y0 - ya);
+      const hb = half + batter * (y0 - yb);
+      const L = hb * 2;
+      const n = Math.max(1, Math.round(L / (0.8 + 0.5 * hash01(nx * 3 + r, nz * 7 + r, 5))));
+      const stagger = r % 2 ? 0.5 : 0;
+      for (let k = -1; k < n; k++) {
+        const t0 = Math.max(-1, -1 + ((k + stagger) * 2) / n);
+        const t1 = Math.min(1, -1 + ((k + 1 + stagger) * 2) / n);
+        if (t1 - t0 < 1e-3) continue;
+        const bulge = 0.03 + 0.04 * hash01(nx * 11 + k, nz * 13 + r, 6);
+        const P = (t: number, y: number, o: number, h: number): number[] => [sx * t * h + nx * (o + bulge), y, sz * t * h + nz * (o + bulge)];
+        const A = P(t0, yb, ob, hb);
+        const Bq = P(t1, yb, ob, hb);
+        const Cq = P(t1, ya, oa, ha);
+        const Dq = P(t0, ya, oa, ha);
+        // 逆时针（从墙外看）：法线朝外
+        const tris = nx + nz > 0 ? [...A, ...Bq, ...Cq, ...A, ...Cq, ...Dq] : [...Bq, ...A, ...Dq, ...Bq, ...Dq, ...Cq];
+        B.mesh(tris, shadeHex(color, 0.82 + 0.36 * hash01(nx * 17 + k * 3.1, nz * 19 + r * 1.7, 7)), mat, 0);
+      }
+    }
+  }
+  // 台面（碎石 / 土）
+  B.mesh([-hw, y0, hd, hw, y0, hd, hw, y0, -hd, -hw, y0, hd, hw, y0, -hd, -hw, y0, -hd], top ?? shadeHex(color, 1.15), mat, 0);
+  B.colliderBox(0, -H / 2, 0, hw + (batter * H) / 2, H / 2, hd + (batter * H) / 2);
+}
+
+function shadeHex(hex: number, k: number): number {
+  const ch = (v: number) => Math.max(0, Math.min(255, Math.round(v * k)));
+  return (ch((hex >> 16) & 255) << 16) | (ch((hex >> 8) & 255) << 8) | ch(hex & 255);
 }
 
 /**

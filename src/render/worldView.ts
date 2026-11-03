@@ -22,6 +22,7 @@ import { loadTerrainLayers } from './terrainLayers';
 import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrainView';
 import { makeForestTexture, makeGroundHeightTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
 import { fogMaps, VFOG } from './volumetricFog';
+import { sunFor, type TimeOfDay } from './timeOfDay';
 import { updateCloudShadowMap } from './cloudShadowMap';
 import { TreeView, loadTreeLib } from './treeView';
 import { WaterView } from './water';
@@ -85,6 +86,8 @@ export class WorldView {
   private mapTextures: THREE.Texture[] = [];
   /** 雾最浓的基准高度（地图最低处） */
   private fogBaseY = 0;
+  /** 时段（白天 / 清晨 / 黄昏），只影响画面 */
+  private tod: TimeOfDay = 'day';
   flash = 0;
   /** 雷声回调（音频层） */
   onThunder: ((delay: number, strength: number) => void) | null = null;
@@ -171,6 +174,18 @@ export class WorldView {
     this.resize();
   }
 
+  /** 时段：换太阳位置（地图已加载时立刻生效），环境贴图随后重新烘焙 */
+  setTimeOfDay(tod: TimeOfDay): void {
+    this.tod = tod;
+    if (this.sky && this.world) {
+      const [az, el] = sunFor(this.world.map, tod);
+      this.sky.setSun(az, el);
+    }
+    // 太阳很低时远处的山也会把影子投进谷里：阴影框往太阳方向多留一些距离
+    this.sun.csm.lightMargin = this.sky ? 400 + 1800 * (1 - this.sky.dayK) : 400;
+    this.envKey = '';
+  }
+
   /** 后期管线（见 post.ts）：画质或光线追踪开关变化时重建。 */
   private buildPost(): void {
     if (!this.ready) return;
@@ -215,7 +230,9 @@ export class WorldView {
     this.terrainUniforms = makeTerrainUniforms(map, surfaceTex, forestTex, layers);
     this.terrain = new TerrainView(map, world.terrain, this.terrainUniforms);
     this.scene.add(this.terrain.group);
-    this.sky = new SkyDome(map.sun[0], map.sun[1], map.biome.fogTint, map.biome.grass);
+    const [sunAz, sunEl] = sunFor(map, this.tod);
+    this.sky = new SkyDome(sunAz, sunEl, map.biome.fogTint, map.biome.grass);
+    this.sun.csm.lightMargin = 400 + 1800 * (1 - this.sky.dayK);
     this.scene.add(this.sky.mesh);
     // 雾的基准高度：地图最低处（有水面时取水面）
     const hf = world.terrain;
@@ -292,7 +309,7 @@ export class WorldView {
   /** 天气变化时重新烘焙环境贴图（限频）。 */
   private updateEnv(w: WeatherParams, t: number): void {
     if (!this.sky) return;
-    const key = `${w.overcast.toFixed(1)}_${w.rain.toFixed(1)}_${Math.round(Math.log(w.visibility) * 2)}_${this.settings.quality}`;
+    const key = `${w.overcast.toFixed(1)}_${w.rain.toFixed(1)}_${Math.round(Math.log(w.visibility) * 2)}_${this.settings.quality}_${this.tod}`;
     if (key === this.envKey || t - this.envT < 2) return;
     this.envKey = key;
     this.envT = t;
@@ -376,12 +393,15 @@ export class WorldView {
       // 体积雾（光束）：贴地薄雾的浓度随能见度与降雨变化，湿润的地图更浓；雾团随风飘动
       VFOG.sun.value.copy(C.sun).multiplyScalar(C.sunIntensity);
       VFOG.amb.value.copy(FOG.color.value).multiplyScalar(0.9);
-      VFOG.mist.value = Math.min(0.01, Math.max(0.0005, 8 / Math.max(300, w.visibility))) * (world.map.biome.mist ?? 1) * (1 + 0.6 * w.rain);
-      VFOG.mistH.value = 40 + 30 * w.rain;
-      VFOG.haze.value = Math.min(1e-4, 0.25 / Math.max(300, w.visibility)) * (0.6 + 0.4 * (world.map.biome.mist ?? 1));
+      // 清晨：谷地与林间的晨雾（更浓、更厚）；清晨与黄昏的低空霾也更重（逆光时的光束最明显）
+      const todMist = this.tod === 'dawn' ? 3.2 : this.tod === 'dusk' ? 1.4 : 1;
+      VFOG.mist.value = Math.min(0.012, Math.max(0.0005, 8 / Math.max(300, w.visibility)) * (world.map.biome.mist ?? 1) * (1 + 0.6 * w.rain) * todMist);
+      VFOG.mistH.value = (40 + 30 * w.rain) * (this.tod === 'dawn' ? 1.6 : 1);
+      VFOG.haze.value = Math.min(1e-4, 0.25 / Math.max(300, w.visibility)) * (0.6 + 0.4 * (world.map.biome.mist ?? 1)) * (this.tod === 'day' ? 1 : 1.7);
       VFOG.wind.value.x -= _w.x * f.dt;
       VFOG.wind.value.z -= _w.z * f.dt;
-      this.renderer.toneMappingExposure = 1.0 - w.overcast * 0.12 + this.flash * 0.6;
+      // 清晨、黄昏整体更暗：曝光只补回一部分（像相机那样稍微提亮，但保留低光的气氛）
+      this.renderer.toneMappingExposure = (1.0 - w.overcast * 0.12) * (1 + 0.32 * (1 - this.sky.dayK)) + this.flash * 0.6;
       const q = QUALITY[set.quality];
       // 分层阴影：视野或宽高比变了要重新划分；每帧把各层阴影框跟随相机（内部按纹素对齐，避免闪烁）
       if (cam.fov !== this.csmFov || cam.aspect !== this.csmAspect) {

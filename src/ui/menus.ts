@@ -1,6 +1,7 @@
 // 菜单与界面：主菜单、地图选择、任务简介（天气/辅助选择）、加载、开始提示、暂停、失败、结算、设置（含改键）、操作说明、关于。
 
 import { ASSISTS, type AssistId } from '../config/flight';
+import { TIME_OF_DAY, type TimeOfDay } from '../render/timeOfDay';
 import type { MapDef } from '../maps/types';
 import type { MapRecord } from '../game/save';
 import { ACTION_LABEL, DEFAULT_BINDINGS, QUALITY, keyName, type Action, type Settings } from '../game/settings';
@@ -124,8 +125,9 @@ export class UI {
     this.bind(el, { pick: (b) => on.pick(maps[Number(b.dataset.i)]), back: on.back });
   }
 
-  briefing(m: MapDef, rec: MapRecord | undefined, settings: Settings, on: { start: (weather: string, assist: AssistId) => void; back: () => void }): void {
+  briefing(m: MapDef, rec: MapRecord | undefined, settings: Settings, on: { start: (weather: string, assist: AssistId, time: TimeOfDay) => void; back: () => void }): void {
     let weather = m.defaultWeather;
+    let time: TimeOfDay = 'day';
     let assist: AssistId = settings.assist;
     const objs = m.mission.main
       .map((o, i) => `<li><b>${i + 1}. ${o.title}</b><span>${o.detail}</span></li>`)
@@ -150,6 +152,9 @@ export class UI {
           <div class="card"><h3>天气</h3><div class="opts" data-group="weather">${m.weathers
             .map((w) => `<div class="opt-card ${w.id === weather ? 'sel' : ''}" data-a="weather" data-v="${w.id}"><b>${w.label}</b><span>${w.desc}</span></div>`)
             .join('')}</div></div>
+          <div class="card"><h3>时段</h3><div class="opts" data-group="time">${(Object.keys(TIME_OF_DAY) as TimeOfDay[])
+            .map((k) => `<div class="opt-card ${k === time ? 'sel' : ''}" data-a="time" data-v="${k}"><b>${TIME_OF_DAY[k].label}</b><span>${TIME_OF_DAY[k].desc}</span></div>`)
+            .join('')}</div></div>
           <div class="card"><h3>飞行辅助</h3><div class="opts" data-group="assist">${(Object.keys(ASSISTS) as AssistId[])
             .map((k) => `<div class="opt-card ${k === assist ? 'sel' : ''}" data-a="assist" data-v="${k}"><b>${ASSISTS[k].label}${k === m.recommendedAssist ? ' · 推荐' : ''}</b><span>${ASSISTS[k].desc}</span></div>`)
             .join('')}</div></div>
@@ -167,7 +172,11 @@ export class UI {
         assist = b.dataset.v as AssistId;
         sel('assist', assist);
       },
-      start: () => on.start(weather, assist),
+      time: (b) => {
+        time = b.dataset.v as TimeOfDay;
+        sel('time', time);
+      },
+      start: () => on.start(weather, assist, time),
       back: on.back,
     });
   }

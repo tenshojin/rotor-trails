@@ -1,0 +1,193 @@
+{
+ "url": "about:blank",
+ "width": 1600,
+ "height": 900,
+ "steps": [
+  {
+   "goto": "http://localhost:5174/?map=japan&autostart=1&weather=clear&time=dawn"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app; A.settings.quality = 'ultra'; A.settings.rayTracing = false; A.view.applySettings(A.settings); const R = A.view.rig; R.update = () => {}; const W = A.session.world; window.__dbg = (o) => { window.__postDebug = o; A.view.postKey = ''; A.view.applySettings(A.settings); return JSON.stringify(o); }; window.__sun = () => { const s = A.view.sky.sunDir; return Math.atan2(s.x, -s.z) * 180 / Math.PI; }; window.__look = (x, agl, z, dyaw, pitch) => { const y = W.terrain.heightAt(x, z) + agl; const hd = (__sun() + dyaw) * Math.PI / 180; const p = pitch * Math.PI / 180; R.camera.position.set(x, y, z); R.camera.lookAt(x + Math.sin(hd) * Math.cos(p) * 100, y + Math.sin(p) * 100, z - Math.cos(hd) * Math.cos(p) * 100); R.camera.updateMatrixWorld(); A.debugTeleport(x - Math.sin(hd) * 300, y + 300, z + Math.cos(hd) * 300, 0, 0); return [Math.round(x), Math.round(y), Math.round(z)]; }; window.__forest = (r) => { const T = W.trees; let best = -1, bn = 0; for (let i = 0; i < T.count; i += 5) { let n = 0; for (let j = 0; j < T.count; j += 2) { const dx = T.x[j] - T.x[i], dz = T.z[j] - T.z[i]; if (dx * dx + dz * dz < r * r) n++; } if (n > bn) { bn = n; best = i; } } return [T.x[best], T.z[best], bn]; }; return __sun(); })()",
+   "label": "sun"
+  },
+  {
+   "eval": "__look(-1200, 160, 650, 0, 3)",
+   "label": "t_dawn_jp_sun"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "t_dawn_jp_sun.jpg"
+  },
+  {
+   "eval": "__look(-1200, 120, 650, 180, -6)",
+   "label": "t_dawn_jp_away"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "t_dawn_jp_away.jpg"
+  },
+  {
+   "eval": "(() => { const f = __forest(40); const hd = __sun() * Math.PI / 180; return __look(f[0] - Math.sin(hd) * 45, 6, f[1] + Math.cos(hd) * 45, 0, 8); })()",
+   "label": "t_dawn_jp_forest"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "t_dawn_jp_forest.jpg"
+  },
+  {
+   "goto": "http://localhost:5174/?map=japan&autostart=1&weather=clear&time=dusk"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app; A.settings.quality = 'ultra'; A.settings.rayTracing = false; A.view.applySettings(A.settings); const R = A.view.rig; R.update = () => {}; const W = A.session.world; window.__dbg = (o) => { window.__postDebug = o; A.view.postKey = ''; A.view.applySettings(A.settings); return JSON.stringify(o); }; window.__sun = () => { const s = A.view.sky.sunDir; return Math.atan2(s.x, -s.z) * 180 / Math.PI; }; window.__look = (x, agl, z, dyaw, pitch) => { const y = W.terrain.heightAt(x, z) + agl; const hd = (__sun() + dyaw) * Math.PI / 180; const p = pitch * Math.PI / 180; R.camera.position.set(x, y, z); R.camera.lookAt(x + Math.sin(hd) * Math.cos(p) * 100, y + Math.sin(p) * 100, z - Math.cos(hd) * Math.cos(p) * 100); R.camera.updateMatrixWorld(); A.debugTeleport(x - Math.sin(hd) * 300, y + 300, z + Math.cos(hd) * 300, 0, 0); return [Math.round(x), Math.round(y), Math.round(z)]; }; window.__forest = (r) => { const T = W.trees; let best = -1, bn = 0; for (let i = 0; i < T.count; i += 5) { let n = 0; for (let j = 0; j < T.count; j += 2) { const dx = T.x[j] - T.x[i], dz = T.z[j] - T.z[i]; if (dx * dx + dz * dz < r * r) n++; } if (n > bn) { bn = n; best = i; } } return [T.x[best], T.z[best], bn]; }; return __sun(); })()",
+   "label": "sun"
+  },
+  {
+   "eval": "__look(-1200, 160, 650, 0, 3)",
+   "label": "t_dusk_jp_sun"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "t_dusk_jp_sun.jpg"
+  },
+  {
+   "eval": "__look(-1200, 120, 650, 180, -6)",
+   "label": "t_dusk_jp_away"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "t_dusk_jp_away.jpg"
+  },
+  {
+   "eval": "(() => { const f = __forest(40); const hd = __sun() * Math.PI / 180; return __look(f[0] - Math.sin(hd) * 45, 6, f[1] + Math.cos(hd) * 45, 0, 8); })()",
+   "label": "t_dusk_jp_forest"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "t_dusk_jp_forest.jpg"
+  },
+  {
+   "goto": "http://localhost:5174/?map=fjord&autostart=1&weather=clear&time=dusk"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app; A.settings.quality = 'ultra'; A.settings.rayTracing = false; A.view.applySettings(A.settings); const R = A.view.rig; R.update = () => {}; const W = A.session.world; window.__dbg = (o) => { window.__postDebug = o; A.view.postKey = ''; A.view.applySettings(A.settings); return JSON.stringify(o); }; window.__sun = () => { const s = A.view.sky.sunDir; return Math.atan2(s.x, -s.z) * 180 / Math.PI; }; window.__look = (x, agl, z, dyaw, pitch) => { const y = W.terrain.heightAt(x, z) + agl; const hd = (__sun() + dyaw) * Math.PI / 180; const p = pitch * Math.PI / 180; R.camera.position.set(x, y, z); R.camera.lookAt(x + Math.sin(hd) * Math.cos(p) * 100, y + Math.sin(p) * 100, z - Math.cos(hd) * Math.cos(p) * 100); R.camera.updateMatrixWorld(); A.debugTeleport(x - Math.sin(hd) * 300, y + 300, z + Math.cos(hd) * 300, 0, 0); return [Math.round(x), Math.round(y), Math.round(z)]; }; window.__forest = (r) => { const T = W.trees; let best = -1, bn = 0; for (let i = 0; i < T.count; i += 5) { let n = 0; for (let j = 0; j < T.count; j += 2) { const dx = T.x[j] - T.x[i], dz = T.z[j] - T.z[i]; if (dx * dx + dz * dz < r * r) n++; } if (n > bn) { bn = n; best = i; } } return [T.x[best], T.z[best], bn]; }; return __sun(); })()",
+   "label": "sun"
+  },
+  {
+   "eval": "__look(0, 160, 600, 0, 2)",
+   "label": "t_dusk_fjord"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "t_dusk_fjord.jpg"
+  },
+  {
+   "eval": "__look(0, 160, 600, 180, -4)",
+   "label": "t_dusk_fjord_away"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "t_dusk_fjord_away.jpg"
+  },
+  {
+   "goto": "http://localhost:5174/?map=himalaya&autostart=1&weather=clear&time=dawn"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app; A.settings.quality = 'ultra'; A.settings.rayTracing = false; A.view.applySettings(A.settings); const R = A.view.rig; R.update = () => {}; const W = A.session.world; window.__dbg = (o) => { window.__postDebug = o; A.view.postKey = ''; A.view.applySettings(A.settings); return JSON.stringify(o); }; window.__sun = () => { const s = A.view.sky.sunDir; return Math.atan2(s.x, -s.z) * 180 / Math.PI; }; window.__look = (x, agl, z, dyaw, pitch) => { const y = W.terrain.heightAt(x, z) + agl; const hd = (__sun() + dyaw) * Math.PI / 180; const p = pitch * Math.PI / 180; R.camera.position.set(x, y, z); R.camera.lookAt(x + Math.sin(hd) * Math.cos(p) * 100, y + Math.sin(p) * 100, z - Math.cos(hd) * Math.cos(p) * 100); R.camera.updateMatrixWorld(); A.debugTeleport(x - Math.sin(hd) * 300, y + 300, z + Math.cos(hd) * 300, 0, 0); return [Math.round(x), Math.round(y), Math.round(z)]; }; window.__forest = (r) => { const T = W.trees; let best = -1, bn = 0; for (let i = 0; i < T.count; i += 5) { let n = 0; for (let j = 0; j < T.count; j += 2) { const dx = T.x[j] - T.x[i], dz = T.z[j] - T.z[i]; if (dx * dx + dz * dz < r * r) n++; } if (n > bn) { bn = n; best = i; } } return [T.x[best], T.z[best], bn]; }; return __sun(); })()",
+   "label": "sun"
+  },
+  {
+   "eval": "__look(-1500, 250, 1300, 0, 4)",
+   "label": "t_dawn_himalaya"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "t_dawn_himalaya.jpg"
+  },
+  {
+   "goto": "http://localhost:5174/?map=canyon&autostart=1&weather=clear&time=dusk"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app; A.settings.quality = 'ultra'; A.settings.rayTracing = false; A.view.applySettings(A.settings); const R = A.view.rig; R.update = () => {}; const W = A.session.world; window.__dbg = (o) => { window.__postDebug = o; A.view.postKey = ''; A.view.applySettings(A.settings); return JSON.stringify(o); }; window.__sun = () => { const s = A.view.sky.sunDir; return Math.atan2(s.x, -s.z) * 180 / Math.PI; }; window.__look = (x, agl, z, dyaw, pitch) => { const y = W.terrain.heightAt(x, z) + agl; const hd = (__sun() + dyaw) * Math.PI / 180; const p = pitch * Math.PI / 180; R.camera.position.set(x, y, z); R.camera.lookAt(x + Math.sin(hd) * Math.cos(p) * 100, y + Math.sin(p) * 100, z - Math.cos(hd) * Math.cos(p) * 100); R.camera.updateMatrixWorld(); A.debugTeleport(x - Math.sin(hd) * 300, y + 300, z + Math.cos(hd) * 300, 0, 0); return [Math.round(x), Math.round(y), Math.round(z)]; }; window.__forest = (r) => { const T = W.trees; let best = -1, bn = 0; for (let i = 0; i < T.count; i += 5) { let n = 0; for (let j = 0; j < T.count; j += 2) { const dx = T.x[j] - T.x[i], dz = T.z[j] - T.z[i]; if (dx * dx + dz * dz < r * r) n++; } if (n > bn) { bn = n; best = i; } } return [T.x[best], T.z[best], bn]; }; return __sun(); })()",
+   "label": "sun"
+  },
+  {
+   "eval": "__look(-1300, 120, 700, 0, 2)",
+   "label": "t_dusk_canyon"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "t_dusk_canyon.jpg"
+  },
+  {
+   "eval": "__look(-1300, 120, 700, 180, -3)",
+   "label": "t_dusk_canyon_away"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "t_dusk_canyon_away.jpg"
+  },
+  {
+   "goto": "http://localhost:5174/?map=amazon&autostart=1&weather=clear&time=dawn"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app; A.settings.quality = 'ultra'; A.settings.rayTracing = false; A.view.applySettings(A.settings); const R = A.view.rig; R.update = () => {}; const W = A.session.world; window.__dbg = (o) => { window.__postDebug = o; A.view.postKey = ''; A.view.applySettings(A.settings); return JSON.stringify(o); }; window.__sun = () => { const s = A.view.sky.sunDir; return Math.atan2(s.x, -s.z) * 180 / Math.PI; }; window.__look = (x, agl, z, dyaw, pitch) => { const y = W.terrain.heightAt(x, z) + agl; const hd = (__sun() + dyaw) * Math.PI / 180; const p = pitch * Math.PI / 180; R.camera.position.set(x, y, z); R.camera.lookAt(x + Math.sin(hd) * Math.cos(p) * 100, y + Math.sin(p) * 100, z - Math.cos(hd) * Math.cos(p) * 100); R.camera.updateMatrixWorld(); A.debugTeleport(x - Math.sin(hd) * 300, y + 300, z + Math.cos(hd) * 300, 0, 0); return [Math.round(x), Math.round(y), Math.round(z)]; }; window.__forest = (r) => { const T = W.trees; let best = -1, bn = 0; for (let i = 0; i < T.count; i += 5) { let n = 0; for (let j = 0; j < T.count; j += 2) { const dx = T.x[j] - T.x[i], dz = T.z[j] - T.z[i]; if (dx * dx + dz * dz < r * r) n++; } if (n > bn) { bn = n; best = i; } } return [T.x[best], T.z[best], bn]; }; return __sun(); })()",
+   "label": "sun"
+  },
+  {
+   "eval": "__look(300, 90, -600, 0, 3)",
+   "label": "t_dawn_amazon"
+  },
+  {
+   "wait": 4500
+  },
+  {
+   "shot": "t_dawn_amazon.jpg"
+  }
+ ]
+}
