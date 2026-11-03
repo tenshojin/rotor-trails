@@ -36,6 +36,8 @@ const proc = spawn(
     '--enable-unsafe-swiftshader',
     '--hide-scrollbars',
     '--mute-audio',
+    // 额外参数（例如兼容性测试：CHROME_EXTRA_ARGS="--disable-webgl --disable-webgl2"）
+    ...(process.env.CHROME_EXTRA_ARGS ?? '').split(' ').filter(Boolean),
     'about:blank',
   ],
   { stdio: 'ignore' },

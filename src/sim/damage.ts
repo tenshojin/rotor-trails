@@ -228,7 +228,8 @@ export class DamageModel {
     if (descent > DAMAGE.safeDescent) amt += DAMAGE.hardLandingScale * Math.pow(descent - DAMAGE.safeDescent, DAMAGE.hardLandingExp);
     if (horizontal > DAMAGE.safeHorizontal) {
       const a = DAMAGE.sideLoadScale * (horizontal - DAMAGE.safeHorizontal);
-      if (a > amt) cause = 'sideLoad';
+      // 水平速度很大时已不是“带侧滑着陆”，而是高速撞地
+      if (a > amt) cause = horizontal > 9 ? 'impact' : 'sideLoad';
       amt += a;
     }
     if (attitudeDeg > DAMAGE.safeAttitudeDeg) {

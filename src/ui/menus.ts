@@ -110,7 +110,7 @@ export class UI {
       .map((m, i) => {
         const r = records[m.id];
         return `<div class="map-card map-${m.id}" data-a="pick" data-i="${i}">
-          <div class="mc-head"><span class="mc-no">${m.id === 'training' ? '训练' : `第 ${i} 关`}</span><span class="mc-stars" title="推荐难度">${stars(m.difficulty)}</span></div>
+          <div class="mc-head"><span class="mc-no">${m.id === 'training' ? '训练' : `第 ${maps.filter((x) => x.id !== 'training').indexOf(m) + 1} 关`}</span><span class="mc-stars" title="推荐难度">${stars(m.difficulty)}</span></div>
           <div class="mc-name">${m.name}</div><div class="mc-sub">${m.subtitle}</div>
           <div class="mc-desc">${m.description}</div>
           <div class="mc-foot"><span>推荐：${ASSISTS[m.recommendedAssist].label}</span>${r?.completed ? `<span class="mc-best">最佳 ${r.bestRating} · ${r.bestScore}</span>` : '<span class="muted">未完成</span>'}</div>

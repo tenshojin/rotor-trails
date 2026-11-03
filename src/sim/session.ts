@@ -572,7 +572,8 @@ export class GameSession {
     this.phys.setHeliMass(this.massApplied);
     this.phys.writeBody(b);
     copyBody(this.prev, b);
-    this.gear.reset(grounded && mode === 'exact');
+    // 检查点在地面上时两种恢复方式都放回地面：不产生一次虚假的“接地”
+    this.gear.reset(grounded);
     this.flight.resetTo(b, this.massApplied, this.altitudeMSL(), grounded);
     if (mode === 'exact' && !grounded) {
       this.flight.collective = s.collective;

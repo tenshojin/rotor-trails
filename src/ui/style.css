@@ -373,6 +373,10 @@ h3 {
   color: var(--muted);
   font-size: 14px;
 }
+/* 加载新地图时旧场景正在被替换：用不透明背景遮住，避免看到半成品画面 */
+.screen.loading {
+  background: radial-gradient(ellipse at 50% 40%, #13263a, #070d14 70%);
+}
 .click-start {
   cursor: pointer;
   background: rgba(3, 6, 10, 0.35);

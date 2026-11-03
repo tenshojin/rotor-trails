@@ -115,3 +115,16 @@ describe('耐久与损伤', () => {
     s.dispose();
   });
 });
+
+describe('失败原因分类', () => {
+  it('低速侧滑接地 → 侧滑着陆；高速擦地 → 机身撞击', () => {
+    const a = new DamageModel();
+    const out: DamageEvent[] = [];
+    a.processTouchdown(1, 6, 3, false, out);
+    expect(out[0].cause).toBe('sideLoad');
+    const b = new DamageModel();
+    const out2: DamageEvent[] = [];
+    b.processTouchdown(1, 40, 3, false, out2);
+    expect(out2[0].cause).toBe('impact');
+  });
+});

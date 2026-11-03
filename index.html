@@ -6,10 +6,76 @@
     <meta name="description" content="Rotor Trails（旋翼航迹）：第一人称拟真直升机闯关网页游戏" />
     <title>Rotor Trails · 旋翼航迹</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230b1622'/%3E%3Cpath d='M6 22h52' stroke='%2338e8ff' stroke-width='4'/%3E%3Cpath d='M32 22v8M18 30h22c6 0 10 4 10 9s-4 9-10 9H24c-4 0-6-3-6-6z' fill='%23e6e8ea'/%3E%3Cpath d='M50 39h10' stroke='%23e6e8ea' stroke-width='3'/%3E%3C/svg%3E" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0b1622;
+      }
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        color: #cfe3ee;
+        font: 15px/1.6 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif;
+        text-align: center;
+        padding: 0 16px;
+      }
+      #boot-splash b {
+        font-size: 28px;
+        letter-spacing: 2px;
+        color: #fff;
+      }
+      #boot-splash .bar {
+        width: 220px;
+        height: 3px;
+        background: #1d2f40;
+        overflow: hidden;
+        border-radius: 2px;
+      }
+      #boot-splash .bar i {
+        display: block;
+        width: 40%;
+        height: 100%;
+        background: #38e8ff;
+        animation: boot-move 1.2s ease-in-out infinite;
+      }
+      @keyframes boot-move {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(250%);
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div id="boot-splash">
+        <b>ROTOR TRAILS · 旋翼航迹</b>
+        <div class="bar"><i></i></div>
+        <div id="boot-msg">正在加载游戏（首次约 2 MB，之后会使用浏览器缓存）…</div>
+      </div>
+    </div>
     <noscript>Rotor Trails 需要启用 JavaScript。</noscript>
+    <script nomodule>
+      document.getElementById('boot-msg').textContent = '当前浏览器版本过旧，无法运行本游戏。请使用最新版 Chrome / Edge / Firefox / Safari。';
+    </script>
+    <script>
+      // 加载过慢或脚本加载失败（例如直接双击打开 index.html）时给出提示，而不是一直黑屏
+      setTimeout(function () {
+        var m = document.getElementById('boot-msg');
+        if (m && document.getElementById('boot-splash')) {
+          m.textContent = location.protocol === 'file:' ? '请通过网页服务器访问（例如 npm run preview），浏览器不允许从本地文件直接加载游戏模块。' : '加载时间较长，请检查网络后刷新页面。';
+        }
+      }, 25000);
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

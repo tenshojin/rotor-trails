@@ -235,6 +235,9 @@ export class App {
     }
     this.ui.loading('初始化物理', 0.98);
     this.session = await GameSession.create(this.world, cfg.weather, cfg.assist);
+    // 先推进一个物理步（停在坪上，无副作用），让 HUD 在“点击开始”画面里就显示真实的密度、航点等数值
+    this.session.step();
+    this.session.drainEvents();
     this.tutorial = cfg.tutorial ? new Tutorial(this.settings) : null;
     this.audio.setAmbience(cfg.map.ambience);
     this.stepper.reset();
