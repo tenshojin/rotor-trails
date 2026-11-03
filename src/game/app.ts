@@ -9,6 +9,7 @@ import { GRADE_LABEL } from '../sim/mission';
 import { computeScore } from '../sim/scoring';
 import { GameSession, STEP, type GameEvent } from '../sim/session';
 import { WorldView } from '../render/worldView';
+import { DEFAULT_PITCH } from '../render/cameraRig';
 import type { InstrumentData } from '../render/instruments';
 import { Hud } from '../ui/hud';
 import { UI } from '../ui/menus';
@@ -107,21 +108,59 @@ export class App {
 
   async start(): Promise<void> {
     const params = new URLSearchParams(location.search);
-    // 菜单背景：训练场
-    this.ui.loading('生成训练场', 0.1);
-    const w = await generateWorld(getMap('training'), true, (p, l) => this.ui.loading(l, p * 0.9));
-    await this.view.load(w, (p, l) => this.ui.loading(l, p));
-    this.world = w;
-    const pad = w.pads.get(w.map.spawn.padId)!;
-    this.view.heli.root.position.set(pad.pos[0], pad.pos[1] + 1.32, pad.pos[2]);
-    this.view.heli.root.quaternion.identity();
-    requestAnimationFrame(this.frame);
     const auto = params.get('map') as MapId | null;
+    if (!auto) {
+      // 菜单背景：训练场
+      this.ui.loading('生成训练场', 0.1);
+      const w = await generateWorld(getMap('training'), true, (p, l) => this.ui.loading(l, p * 0.9));
+      await this.view.load(w, (p, l) => this.ui.loading(l, p));
+      this.world = w;
+      const pad = w.pads.get(w.map.spawn.padId)!;
+      this.view.heli.root.position.set(pad.pos[0], pad.pos[1] + 1.32, pad.pos[2]);
+      this.view.heli.root.quaternion.identity();
+    }
+    requestAnimationFrame(this.frame);
     if (auto && MAPS.find((m) => m.id === auto)) {
       const m = getMap(auto);
       await this.startRun({ map: m, weather: params.get('weather') ?? m.defaultWeather, assist: (params.get('assist') as AssistId) ?? this.settings.assist, tutorial: auto === 'training' && params.get('tutorial') !== '0' });
       if (params.get('autostart') === '1') this.beginFlight();
     } else this.mainMenu();
+  }
+
+  // ---------------- 调试 / 自动化测试接口 ----------------
+
+  debugTeleport(x: number, y: number, z: number, heading: number, speed = 0): void {
+    this.session?.teleport(x, y, z, heading, speed);
+  }
+
+  /** 模拟按住按键 ms 毫秒（通过真实的键盘事件路径）。 */
+  async debugHold(codes: string[], ms: number): Promise<void> {
+    for (const c of codes) window.dispatchEvent(new KeyboardEvent('keydown', { code: c }));
+    await new Promise((r) => setTimeout(r, ms));
+    for (const c of codes) window.dispatchEvent(new KeyboardEvent('keyup', { code: c }));
+  }
+
+  debugLook(yaw: number, pitch: number): void {
+    this.view.rig.yaw = yaw;
+    this.view.rig.pitch = pitch;
+  }
+
+  debugState(): Record<string, unknown> {
+    const s = this.session;
+    if (!s) return { state: this.state };
+    return {
+      state: this.state,
+      sim: s.state,
+      t: +s.t.toFixed(1),
+      pos: [s.body.pos.x, s.body.pos.y, s.body.pos.z].map((v) => +v.toFixed(1)),
+      agl: +s.agl.toFixed(1),
+      gs: +s.groundSpeed.toFixed(1),
+      dur: +s.damage.durability.toFixed(1),
+      obj: s.mission.current()?.def.id ?? 'done',
+      nav: s.nav.info.label,
+      fps: +this.fps.toFixed(0),
+      render: this.view.info(),
+    };
   }
 
   // ---------------- 界面流程 ----------------
@@ -200,7 +239,7 @@ export class App {
     this.acc = 0;
     this.view.rig.setMode('cockpit');
     this.view.rig.yaw = 0;
-    this.view.rig.pitch = -0.06;
+    this.view.rig.pitch = DEFAULT_PITCH;
     this.state = 'ready';
     this.hud.show(true);
     const k = (a: keyof Settings['bindings']) => keyName(this.settings.bindings[a][0]);

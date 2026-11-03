@@ -1,0 +1,23 @@
+{
+  "url": "http://localhost:5174/?map=japan&autostart=1",
+  "width": 1920,
+  "height": 1080,
+  "steps": [
+    { "until": "window.__app && window.__app.state === 'playing'", "timeout": 90000 },
+    { "wait": 2500 },
+    { "shot": "japan_01_start.jpg" },
+    { "eval": "window.__app.debugTeleport(-640, 70, 700, 330, 30)" },
+    { "wait": 2500 },
+    { "shot": "japan_02_islets.jpg" },
+    { "eval": "window.__app.debugTeleport(-430, 45, 130, 20, 20)" },
+    { "wait": 2500 },
+    { "shot": "japan_03_gate.jpg" },
+    { "eval": "window.__app.debugTeleport(-1150, 120, 1150, 330, 0)" },
+    { "wait": 2500 },
+    { "shot": "japan_04_port.jpg" },
+    { "eval": "window.__app.debugTeleport(150, 70, 1100, 0, 0)" },
+    { "wait": 2500 },
+    { "shot": "japan_05_platform.jpg" },
+    { "eval": "window.__app.debugState()", "label": "state" }
+  ]
+}

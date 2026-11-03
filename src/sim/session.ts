@@ -155,6 +155,8 @@ export class GameSession {
       else if (c.kind === 'ball') P.addBall(c.c[0], c.c[1], c.c[2], c.r, c.tag);
       else P.addCapsule(c.c[0], c.c[1], c.c[2], c.hh, c.r, c.tag);
     }
+    // 推进一步让静态碰撞体进入宽相位结构，保证第一帧的射线查询（离地高度、起落架）有效
+    P.world.step();
     for (const p of map.pads) if (p.repair) this.repairUses[p.id] = p.repair.uses;
     this.mission = new MissionRuntime(map.mission);
     this.nav = new Navigator(map, world.terrain);
@@ -584,6 +586,25 @@ export class GameSession {
     this.lastStatus = this.damage.status;
     this.settledTime = 0;
     this.events = [];
+    for (const [, cols] of this.treeProxies) for (const c of cols) this.phys.removeCollider(c);
+    this.treeProxies.clear();
+    this.updateTreeProxies();
+  }
+
+  /** 调试/测试：把飞机放到指定位置，以给定航向（度）和前向速度飞行。 */
+  teleport(x: number, y: number, z: number, headingDeg: number, speed = 0): void {
+    const b = this.body;
+    b.pos.set(x, y, z);
+    b.quat.setFromAxisAngle(new Vector3(0, 1, 0), -headingDeg * DEG);
+    const h = headingDeg * DEG;
+    b.vel.set(Math.sin(h) * speed, 0, -Math.cos(h) * speed);
+    b.angVel.set(0, 0, 0);
+    this.phys.writeBody(b);
+    copyBody(this.prev, b);
+    this.gear.reset(false);
+    this.flight.resetTo(b, this.totalMass(), this.altitudeMSL(), false);
+    this.flight.altRef = y;
+    this.state = 'running';
     for (const [, cols] of this.treeProxies) for (const c of cols) this.phys.removeCollider(c);
     this.treeProxies.clear();
     this.updateTreeProxies();

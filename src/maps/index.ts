@@ -2,8 +2,9 @@
 
 import type { MapDef, MapId } from './types';
 import { TRAINING } from './training';
+import { JAPAN } from './japan';
 
-export const MAPS: MapDef[] = [TRAINING];
+export const MAPS: MapDef[] = [TRAINING, JAPAN];
 
 export function registerMap(m: MapDef): void {
   if (!MAPS.find((x) => x.id === m.id)) MAPS.push(m);

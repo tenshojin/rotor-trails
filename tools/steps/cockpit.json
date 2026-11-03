@@ -1,0 +1,21 @@
+{
+  "url": "http://localhost:5174/?map=japan&autostart=1",
+  "width": 1920,
+  "height": 1080,
+  "steps": [
+    { "until": "window.__app && window.__app.state === 'playing'", "timeout": 90000 },
+    { "wait": 1500 },
+    { "eval": "window.__app.debugTeleport(-640, 70, 700, 330, 25)" },
+    { "wait": 2000 },
+    { "shot": "cockpit_fwd.jpg" },
+    { "eval": "window.__app.debugLook(-1.6, -0.3)" },
+    { "wait": 500 },
+    { "shot": "cockpit_left.jpg" },
+    { "eval": "window.__app.debugLook(0, -0.9)" },
+    { "wait": 500 },
+    { "shot": "cockpit_down.jpg" },
+    { "eval": "window.__app.debugLook(0.3, 0.9)" },
+    { "wait": 500 },
+    { "shot": "cockpit_up.jpg" }
+  ]
+}

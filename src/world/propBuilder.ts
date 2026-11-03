@@ -424,6 +424,17 @@ export class PropBuilder {
     return this;
   }
 
+  addColliderCyl(cx: number, cy: number, cz: number, hh: number, r: number, tag?: ColliderTag): this {
+    const s = this.sc;
+    this.addCollider({ kind: 'cyl', c: this.w(cx, cy, cz), hh: hh * s, r: r * s, tag: tag ?? this.defaultTag });
+    return this;
+  }
+
+  addColliderBall(cx: number, cy: number, cz: number, r: number, tag?: ColliderTag): this {
+    this.addCollider({ kind: 'ball', c: this.w(cx, cy, cz), r: r * this.sc, tag: tag ?? this.defaultTag });
+    return this;
+  }
+
   colliderBoxQ(c: V3, h: V3, q: [number, number, number, number], tag?: ColliderTag): this {
     this.addCollider({ kind: 'boxq', c, h, q, tag: tag ?? this.defaultTag });
     return this;

@@ -6,7 +6,7 @@ import { drawEICAS, drawMFD, drawPFD, type InstrumentData } from './instruments'
 import { getNoiseTexture } from './textures';
 
 /** 驾驶员眼点（机体坐标） */
-export const EYE = new THREE.Vector3(0.46, 0.46, -0.62);
+export const EYE = new THREE.Vector3(0.46, 0.5, -0.58);
 
 // 机舱内壁采用与外部机身一致的椭球（略缩小）
 function shellGeometry(scale: number): THREE.BufferGeometry {
@@ -29,15 +29,15 @@ function shellGeometry(scale: number): THREE.BufferGeometry {
 
 /** 窗户区域（球面 UV 空间：u = 方位，0.75 = 正前，0.5 = 右侧；v = 0 顶部，0.5 赤道） */
 const WINDOWS: Array<[number, number, number, number]> = [
-  [0.625, 0.742, 0.17, 0.5], // 风挡左半
-  [0.758, 0.875, 0.17, 0.5], // 风挡右半
-  [0.64, 0.86, 0.045, 0.14], // 顶窗
-  [0.665, 0.735, 0.6, 0.76], // 下视窗左
-  [0.765, 0.835, 0.6, 0.76], // 下视窗右
-  [0.515, 0.605, 0.24, 0.58], // 右前门
-  [0.405, 0.495, 0.28, 0.55], // 右后门
-  [0.895, 0.985, 0.24, 0.58], // 左前门
-  [0.005, 0.095, 0.28, 0.55], // 左后门
+  [0.608, 0.746, 0.14, 0.53], // 风挡左半
+  [0.754, 0.892, 0.14, 0.53], // 风挡右半
+  [0.64, 0.86, 0.035, 0.12], // 顶窗
+  [0.66, 0.738, 0.58, 0.77], // 下视窗左
+  [0.762, 0.84, 0.58, 0.77], // 下视窗右
+  [0.508, 0.6, 0.2, 0.6], // 右前门
+  [0.4, 0.497, 0.26, 0.56], // 右后门
+  [0.9, 0.992, 0.2, 0.6], // 左前门
+  [0.003, 0.1, 0.26, 0.56], // 左后门
 ];
 
 function windowMask(): { solid: THREE.CanvasTexture; glass: THREE.CanvasTexture; color: THREE.CanvasTexture } {
@@ -59,7 +59,7 @@ function windowMask(): { solid: THREE.CanvasTexture; glass: THREE.CanvasTexture;
   gs.fillRect(0, 0, W, H);
   gg.fillStyle = '#000';
   gg.fillRect(0, 0, W, H);
-  gc.fillStyle = '#7f8790';
+  gc.fillStyle = '#9aa1a9';
   gc.fillRect(0, 0, W, H);
   // 内饰细节：缝线与面板
   gc.strokeStyle = 'rgba(0,0,0,0.25)';
@@ -70,7 +70,7 @@ function windowMask(): { solid: THREE.CanvasTexture; glass: THREE.CanvasTexture;
     gc.lineTo(W, y);
     gc.stroke();
   }
-  gc.fillStyle = '#5a616a';
+  gc.fillStyle = '#6c737c';
   gc.fillRect(0, H * 0.62, W, H * 0.38);
   const rr = (g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
     g.beginPath();
@@ -92,8 +92,8 @@ function windowMask(): { solid: THREE.CanvasTexture; glass: THREE.CanvasTexture;
     gg.fillStyle = '#fff';
     rr(gg, x - 2, y - 2, w + 4, h + 4, 15);
     gg.fill();
-    gc.strokeStyle = '#262a30';
-    gc.lineWidth = 12;
+    gc.strokeStyle = '#3a3f46';
+    gc.lineWidth = 5;
     rr(gc, x - 3, y - 3, w + 6, h + 6, 16);
     gc.stroke();
   }
@@ -122,7 +122,7 @@ export class Cockpit {
 
   constructor() {
     const masks = windowMask();
-    const shellMat = new THREE.MeshStandardMaterial({ map: masks.color, alphaMap: masks.solid, alphaTest: 0.5, side: THREE.BackSide, roughness: 0.9, metalness: 0 });
+    const shellMat = new THREE.MeshStandardMaterial({ map: masks.color, alphaMap: masks.solid, alphaTest: 0.5, side: THREE.BackSide, roughness: 0.9, metalness: 0, emissive: 0x15181c });
     const shell = new THREE.Mesh(shellGeometry(0.975), shellMat);
     this.root.add(shell);
     this.mats.push(shellMat);
@@ -168,8 +168,8 @@ export class Cockpit {
     const gripMat = new THREE.MeshStandardMaterial({ color: 0x1c1e22, roughness: 0.6, metalness: 0.2 });
     this.mats.push(frameMat, panelMat, glareMat, seatMat, floorMat, gripMat);
     // 舱内补光（模拟窗口进来的漫反射光）
-    const fill = new THREE.PointLight(0xf4f0e8, 0.9, 4, 2);
-    fill.position.set(0.1, 0.75, -0.7);
+    const fill = new THREE.PointLight(0xf4f0e8, 1.4, 4, 2);
+    fill.position.set(0.0, 0.25, -0.25);
     this.root.add(fill);
     const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, parent: THREE.Object3D = this.root) => {
       const m = new THREE.Mesh(geo, mat);
@@ -182,7 +182,7 @@ export class Cockpit {
       return m;
     };
     // 地板与座椅
-    add(new THREE.BoxGeometry(1.85, 0.06, 2.4), floorMat, 0, -0.78, -0.55);
+    add(new THREE.BoxGeometry(1.85, 0.06, 1.8), floorMat, 0, -0.78, -0.25);
     for (const sx of [-0.46, 0.46]) {
       add(new THREE.BoxGeometry(0.5, 0.14, 0.52), seatMat, sx, -0.38, -0.32);
       add(new THREE.BoxGeometry(0.5, 0.78, 0.12), seatMat, sx, 0.02, -0.02, -0.12);
@@ -190,9 +190,10 @@ export class Cockpit {
       add(new THREE.BoxGeometry(0.06, 0.44, 0.06), frameMat, sx, -0.6, -0.32);
     }
     // 仪表台（向后倾斜）与遮光罩
-    add(new THREE.BoxGeometry(1.72, 0.42, 0.14), panelMat, 0, -0.15, -1.42, -0.32);
-    add(new THREE.BoxGeometry(1.78, 0.05, 0.4), glareMat, 0, 0.08, -1.37, -0.05);
-    add(new THREE.BoxGeometry(1.7, 0.3, 0.5), panelMat, 0, -0.5, -1.55);
+    // 仪表板（面向驾驶员、顶部略向后倾）+ 窄遮光檐 + 下部机鼻舱
+    add(new THREE.BoxGeometry(1.62, 0.42, 0.1), panelMat, 0, -0.19, -1.45, -0.21);
+    add(new THREE.BoxGeometry(1.66, 0.035, 0.2), glareMat, 0, 0.03, -1.52, -0.04);
+    add(new THREE.BoxGeometry(0.62, 0.3, 0.42), panelMat, 0, -0.56, -1.58);
     // 中央操纵台
     add(new THREE.BoxGeometry(0.3, 0.42, 0.85), panelMat, 0, -0.56, -1.0, 0.25);
     // 顶部开关板
@@ -229,13 +230,13 @@ export class Cockpit {
       const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
       this.mats.push(mat);
       const g = new THREE.PlaneGeometry(w, h);
-      const m = add(g, mat, x, y, z, -0.32);
+      const m = add(g, mat, x, y, z, -0.21);
       m.castShadow = false;
       this.screens.push({ tex, ctx, kind });
     };
-    screen('pfd', 0.42, -0.12, -1.345, 0.25, 0.25);
-    screen('mfd', 0.12, -0.12, -1.345, 0.25, 0.25);
-    screen('eicas', -0.2, -0.12, -1.345, 0.25, 0.25);
+    screen('pfd', 0.42, -0.165, -1.392, 0.26, 0.26);
+    screen('mfd', 0.12, -0.165, -1.392, 0.26, 0.26);
+    screen('eicas', -0.2, -0.165, -1.392, 0.26, 0.26);
 
     // 周期变距杆
     this.cyclic.position.set(0.46, -0.76, -0.78);

@@ -11,6 +11,9 @@ export interface CameraSettings {
   headMotion: boolean;
 }
 
+/** 默认视线略向下（约 8°），能同时看到前方与仪表板上缘 */
+export const DEFAULT_PITCH = -0.14;
+
 const _e = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _qh = new THREE.Quaternion();
@@ -20,7 +23,7 @@ const _off = new THREE.Vector3();
 export class CameraRig {
   readonly camera: THREE.PerspectiveCamera;
   yaw = 0;
-  pitch = -0.06;
+  pitch = DEFAULT_PITCH;
   mode: 'cockpit' | 'chase' = 'cockpit';
   private recenter = false;
   private head = new THREE.Vector3();
@@ -55,8 +58,8 @@ export class CameraRig {
     }
     if (this.recenter) {
       this.yaw = damp(this.yaw, 0, 8, dt);
-      this.pitch = damp(this.pitch, -0.06, 8, dt);
-      if (Math.abs(this.yaw) < 0.002 && Math.abs(this.pitch + 0.06) < 0.002) this.recenter = false;
+      this.pitch = damp(this.pitch, DEFAULT_PITCH, 8, dt);
+      if (Math.abs(this.yaw) < 0.002 && Math.abs(this.pitch - DEFAULT_PITCH) < 0.002) this.recenter = false;
     }
     // 机体加速度 → 头部惯性位移（可关闭）
     const acc = _e.copy(vel).sub(this.prevVel).divideScalar(Math.max(1e-3, dt));
