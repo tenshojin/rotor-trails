@@ -1,11 +1,14 @@
 // 天空穹顶：Preetham 大气散射（晴空颜色随太阳位置变化：太阳一侧地平线更亮更暖、天顶深蓝）
-// + 阴天/暴雨/低能见度时向灰色过渡 + 程序化云层（随风移动，逆光“银边”、厚处暗底）+ 高亮太阳圆盘（供泛光）+ 闪电。
+// + 阴天/暴雨/低能见度时向灰色过渡 + 云 + 高亮太阳圆盘（供泛光）+ 闪电。
+// 云分两种：高画质用光线步进的体积积云（三维噪声塑形，向太阳方向步进算自阴影，
+// Henyey-Greenstein 相函数的逆光银边 + “粉末”效应的暗边）；低、中画质用平面投影的二维云层。
 // 同一个材质也渲染进 PMREM 环境贴图，给所有 PBR 材质提供与天气一致的环境光与反射。
 // 天空在地平线处的颜色在 CPU 端用同一套公式算出，作为大气雾的颜色（远山与天空自然衔接）。
 // 散射公式参照 three.js examples/jsm/objects/Sky.js（MIT）。
 
 import * as THREE from 'three/webgpu';
-import { acos, clamp, cos, dot, exp, float, Fn, max, mix, normalize, positionLocal, pow, smoothstep, step, texture, uniform, vec2, vec3 } from 'three/tsl';
+import { abs, acos, Break, clamp, cos, dot, exp, float, Fn, If, int, interleavedGradientNoise, Loop, max, min, mix, normalize, positionLocal, pow, screenCoordinate, select, smoothstep, step, texture, texture3D, uniform, vec2, vec3, vec4 } from 'three/tsl';
+import { getCloudNoise3D } from './cloudNoise';
 import type { WeatherParams } from '../sim/weather';
 import { getNoiseTexture } from './textures';
 
@@ -39,6 +42,16 @@ function makeSkyUniforms(sunDir: THREE.Vector3, wind: THREE.Vector2) {
     /** 1 = 画太阳圆盘；烘焙环境贴图时设为 0（阳光高光由方向光负责） */
     disc: uniform(1),
     wind: uniform(wind),
+    /** 体积云：相机世界坐标、云层底 / 顶高度（米）、步进次数（0 = 用二维云层）、风吹过的距离（米） */
+    camPos: uniform(new THREE.Vector3()),
+    cloudBase: uniform(1500),
+    cloudTop: uniform(2800),
+    steps: uniform(0),
+    windM: uniform(new THREE.Vector2()),
+    /** 云的环境光（天顶 / 地平线）与帧序号（抖动起点，配合时间抗锯齿收敛） */
+    ambTop: uniform(new THREE.Color(0.5, 0.6, 0.75)),
+    ambBottom: uniform(new THREE.Color(0.45, 0.5, 0.55)),
+    frame: uniform(0),
   };
 }
 
@@ -73,6 +86,7 @@ function skyColorNode(U: SkyU, noise: THREE.Texture) {
     }
     return sum.div(0.96875);
   };
+  const vol = volumetricClouds(U);
   return Fn(() => {
     const d = normalize(positionLocal);
     const h = d.y;
@@ -97,13 +111,106 @@ function skyColorNode(U: SkyU, noise: THREE.Texture) {
     const cc = mix(U.cloudLit, U.cloudDark, thick.mul(0.85)).add(
       U.sunColor.mul(U.sunVis).mul(pow(sd, 8.0).mul(0.6).mul(float(1).sub(thick)).add(pow(sd, 2.0).mul(0.08))),
     );
-    col.assign(mix(col, cc, cov.mul(fade).mul(0.95).mul(step(0.01, U.cover))));
+    // 开体积云时二维云层不画
+    const flat2d = step(U.steps, 0.5);
+    col.assign(mix(col, cc, cov.mul(fade).mul(0.95).mul(step(0.01, U.cover)).mul(flat2d)));
     // 太阳圆盘（高亮，后期泛光会让它自然晕开）+ 宽光晕
     const disc = smoothstep(0.99955, 0.99975, sd);
     col.addAssign(U.sunColor.mul(disc.mul(38.0).mul(U.disc).add(pow(sd, 400.0).mul(1.2).mul(U.disc)).add(pow(sd, 24.0).mul(0.12))).mul(U.sunVis));
+    // 体积云盖在天空与太阳之上（rgb = 散射光，a = 透过率）
+    const cl = vol(d);
+    col.assign(col.mul(cl.a).add(cl.rgb));
     col.addAssign(vec3(0.55, 0.6, 0.75).mul(U.flash));
     return col;
   })();
+}
+
+/**
+ * 体积积云：在 [cloudBase, cloudTop] 的云层里沿视线步进。
+ * 密度 = 大尺度覆盖图（随天气的云量）× 高度轮廓（底平、顶圆）× 三维 Perlin-Worley 形状，再用高频 Worley 侵蚀边缘；
+ * 每个有云的采样点向太阳方向步进 4 次算自阴影（比尔-朗伯），相函数取前向 + 后向两个 HG 的混合（逆光银边），
+ * “粉末”效应让朝阳面的薄边略暗、显出体积感。返回 vec4(散射光, 透过率)。
+ */
+function volumetricClouds(U: SkyU) {
+  const noise3 = getCloudNoise3D();
+  const noise2 = getNoiseTexture();
+  const SIGMA = 0.045; // 云核心的消光系数（1/米）
+  const hg = (c: THREE.Node<'float'>, g: number) => float(1 - g * g).div(pow(float(1 + g * g).sub(c.mul(2 * g)), 1.5));
+  const density = (p: THREE.Node<'vec3'>) => {
+    const span = U.cloudTop.sub(U.cloudBase);
+    const hn = clamp(p.y.sub(U.cloudBase).div(span), 0.0, 1.0);
+    const q = p.xz.add(U.windM);
+    // 大尺度：让天空里有的地方云多、有的地方晴（几公里尺度）
+    const wm = texture(noise2, q.div(16000.0)).level(float(0)).r;
+    const cm = mix(0.75, 1.25, wm);
+    // 积云的高度轮廓：底部平整（很快变浓），往上逐渐收窄成圆顶
+    const prof = smoothstep(0.0, 0.1, hn).mul(float(1).sub(smoothstep(0.3, 1.0, hn)));
+    // 三维 Perlin-Worley 团块（菜花状），乘上高度轮廓后按云量取阈值
+    const uvw = vec3(q.x, p.y.mul(1.4), q.y).div(3400.0);
+    const shape = texture3D(noise3, uvw).level(float(0));
+    const d0 = shape.r.mul(shape.a.mul(0.35).add(0.65)).mul(prof).mul(cm);
+    const th = float(1).sub(U.cover.mul(0.85));
+    const base = clamp(d0.sub(th.mul(0.7)).div(float(1).sub(th.mul(0.7))), 0.0, 1.0);
+    // 高频 Worley 侵蚀边缘（越靠云边侵蚀越多），底部的侵蚀更强，显出絮状
+    const det = texture3D(noise3, uvw.mul(5.1).add(0.21)).level(float(0));
+    const ero = mix(det.g, det.b, hn).mul(0.38).mul(float(1).sub(base));
+    return clamp(base.sub(ero), 0.0, 1.0).mul(1.6);
+  };
+  return Fn(([dIn]: [THREE.Node<'vec3'>]) => {
+    const d = vec3(dIn);
+    const acc = vec3(0.0).toVar();
+    const trans = float(1.0).toVar();
+    const cam = U.camPos;
+    const dy = select(abs(d.y).lessThan(1e-4), float(1e-4), d.y);
+    const tA = U.cloudBase.sub(cam.y).div(dy);
+    const tB = U.cloudTop.sub(cam.y).div(dy);
+    const t0 = max(min(tA, tB), 0.0).toVar();
+    const t1 = min(max(tA, tB), t0.add(16000.0)).toVar();
+    If(t1.greaterThan(t0).and(U.steps.greaterThan(0.5)), () => {
+      const dt = t1.sub(t0).div(U.steps).toVar();
+      // 每像素每帧不同的起点抖动（时间抗锯齿把步进带来的分层抹平）
+      const jit = interleavedGradientNoise(screenCoordinate.add(U.frame.mul(5.588238)));
+      const t = t0.add(dt.mul(jit)).toVar();
+      const cosT = dot(d, U.sunDir);
+      const phase = mix(hg(cosT, 0.62), hg(cosT, -0.25), 0.28).mul(1.6);
+      const sunC = U.sunColor.mul(U.sunVis).mul(2.8);
+      Loop({ start: int(0), end: int(U.steps), type: 'int', condition: '<' }, () => {
+        const p = U.camPos.add(d.mul(t));
+        const den = density(p).toVar();
+        If(den.greaterThan(0.004), () => {
+          // 向太阳步进 4 次（步长逐次加倍，共约 900 m）
+          const od = float(0).toVar();
+          let stepLen = 60;
+          let off = 30;
+          for (let k = 0; k < 4; k++) {
+            od.addAssign(density(p.add(U.sunDir.mul(off))).mul(stepLen));
+            off += stepLen * 1.5;
+            stepLen *= 2;
+          }
+          const tSun = exp(od.mul(-SIGMA));
+          const powder = float(1).sub(exp(den.mul(-SIGMA * 2.0 * 220.0)));
+          const hn = clamp(p.y.sub(U.cloudBase).div(U.cloudTop.sub(U.cloudBase)), 0.0, 1.0);
+          const amb = mix(U.ambBottom, U.ambTop, hn).mul(0.9);
+          const S = sunC.mul(tSun).mul(phase).mul(mix(float(1), powder, 0.55)).add(amb);
+          const a = exp(den.mul(-SIGMA).mul(dt));
+          acc.addAssign(S.mul(trans).mul(float(1).sub(a)));
+          trans.mulAssign(a);
+        });
+        t.addAssign(dt);
+        If(trans.lessThan(0.02), () => {
+          Break();
+        });
+      });
+      // 远处的云融进地平线的雾霾里；视线贴近地平线时淡出（大气透视）
+      const far = float(1).sub(exp(t0.div(-26000.0)));
+      const horizon = smoothstep(-0.02, 0.12, abs(d.y));
+      const keep = float(1).sub(far).mul(horizon);
+      const o = float(1).sub(trans).toVar();
+      acc.assign(mix(U.haze.mul(o), acc, keep));
+      trans.assign(mix(mix(trans, float(1), 0.6), trans, keep));
+    });
+    return vec4(acc, trans);
+  });
 }
 
 export interface SkyColors {
@@ -254,11 +361,26 @@ export class SkyDome {
     u.cloudDark.value.copy(c(0xa3abb7)).lerp(c(0x6c727a), oc).lerp(c(0x30353c), storm);
     u.cover.value = Math.min(0.98, w.cloudCover + oc * 0.4);
     u.flash.value = flash;
+    // 体积云：环境光取天顶与地平线颜色，风把云整体吹走（米），帧序号用于步进抖动
+    u.ambTop.value.copy(C.zenith).multiplyScalar(1.1);
+    // 云底：天空散射光被云体挡住大半，呈平整的灰色底部
+    u.ambBottom.value.copy(C.horizon).lerp(C.ground, 0.45).multiplyScalar(0.5);
+    u.windM.value.x -= windX * dt;
+    u.windM.value.y -= windZ * dt;
+    u.frame.value = (u.frame.value + 1) % 64;
     this.windOffset.x += windX * dt * 0.00004;
     this.windOffset.y += windZ * dt * 0.00004;
   }
 
+  /** 体积云的步进次数（0 = 用二维云层）与云层高度（米） */
+  setVolumetric(steps: number, base?: number, top?: number): void {
+    this.u.steps.value = steps;
+    if (base !== undefined) this.u.cloudBase.value = base;
+    if (top !== undefined) this.u.cloudTop.value = top;
+  }
+
   follow(camPos: THREE.Vector3): void {
+    this.u.camPos.value.copy(camPos);
     this.mesh.position.copy(camPos);
   }
 }

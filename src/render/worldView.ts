@@ -148,6 +148,8 @@ export class WorldView {
     }
     if (this.trees) this.trees.quality = { near: q.treeNear, far: q.treeFar, shadows: q.shadows, aa: q.msaa > 0 };
     if (this.props) this.props.lodScale = q.terrainLod;
+    // 高画质起用光线步进的体积积云（低、中用二维云层）
+    this.sky?.setVolumetric(s.quality === 'ultra' ? 44 : s.quality === 'high' ? 28 : 0);
     this.lightning.enabled = s.lightning;
     this.envKey = '';
     this.buildPost();
@@ -200,6 +202,11 @@ export class WorldView {
     let minH = Infinity;
     for (let i = 0; i <= 32; i++) for (let j = 0; j <= 32; j++) minH = Math.min(minH, hf.heightAt(-hf.half + (i * hf.size) / 32, -hf.half + (j * hf.size) / 32));
     this.fogBaseY = map.waterLevel !== null ? Math.max(minH, map.waterLevel) : minH;
+    // 积云层：一般在雾的基准高度之上 1300 m（夏季海边的晴天积云底约 1000~1500 m），且高于最高的山顶
+    let maxH = -Infinity;
+    for (let i = 0; i <= 32; i++) for (let j = 0; j <= 32; j++) maxH = Math.max(maxH, hf.heightAt(-hf.half + (i * hf.size) / 32, -hf.half + (j * hf.size) / 32));
+    const cloudBase = Math.max(this.fogBaseY + 1300, maxH + 250);
+    this.sky.setVolumetric(0, cloudBase, cloudBase + 1300);
     if (map.waterLevel !== null) {
       const depth = makeWaterDepthTexture(world.terrain, map.waterLevel);
       this.mapTextures.push(depth);
