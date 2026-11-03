@@ -11,7 +11,7 @@
 // 只能看到屏幕上可见的物体；屏幕外的信息由环境贴图补足。
 
 import * as THREE from 'three/webgpu';
-import { clamp, diffuseColor, dot, float, luminance, metalness, mix, mrt, normalView, output, packNormalToRGB, pass, renderOutput, roughness, sample, screenUV, smoothstep, unpackRGBToNormal, vec2, vec3, vec4, velocity, vibrance } from 'three/tsl';
+import { clamp, diffuseColor, dot, float, luminance, metalness, mix, mrt, normalView, output, packNormalToRGB, pass, perspectiveDepthToViewZ, reference, renderOutput, roughness, sample, screenUV, smoothstep, unpackRGBToNormal, vec2, vec3, vec4, velocity, vibrance } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
@@ -110,6 +110,9 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
   const vel = scenePass.getTextureNode('velocity');
   const nTex = scenePass.getTextureNode('normal');
   const sceneNormal = sample((uv: THREE.Node) => unpackRGBToNormal(nTex.sample(uv)));
+  // 离镜头 1.2~2.5 m 以内（座舱内部）不叠加屏幕空间遮蔽 / 全局光照：座舱模型已经烘焙了环境光遮蔽，再叠一遍仪表会发黑
+  const viewDist = perspectiveDepthToViewZ(depth, reference('near', 'float', camera), reference('far', 'float', camera)).negate();
+  const outside = smoothstep(1.2, 2.5, viewDist);
   let composite: THREE.Node<'vec4'> = color;
   if (cfg.rayTracing) {
     const P = RT[cfg.quality];
@@ -124,7 +127,7 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     gi.useTemporalFiltering = true;
     disposers.push(gi);
     const diffuse = scenePass.getTextureNode('diffuse');
-    const lit = vec4(color.rgb.mul(gi.a).add(diffuse.rgb.mul(gi.rgb)), color.a);
+    const lit = vec4(color.rgb.mul(mix(float(1), gi.a, outside)).add(diffuse.rgb.mul(gi.rgb).mul(outside)), color.a);
     const refl = ssr(color, depth, sceneNormal, { metalnessNode: nTex.a, roughnessNode: diffuse.a, camera });
     refl.quality.value = P.ssrQ;
     refl.maxDistance.value = 260;
@@ -134,7 +137,7 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     if (P.sss) {
       const contact = sss(depth, camera, sun);
       disposers.push(contact);
-      composite = vec4(composite.rgb.mul(mix(float(1), contact.r, 0.7)), 1);
+      composite = vec4(composite.rgb.mul(mix(float(1), contact.r, outside.mul(0.7))), 1);
     }
   } else if (dbg.ao !== false) {
     const q = cfg.quality;
@@ -147,7 +150,7 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     aoPass.samples.value = q === 'ultra' ? 24 : q === 'high' ? 16 : 8;
     aoPass.useTemporalFiltering = dbg.aoTemporal ?? true;
     disposers.push(aoPass);
-    composite = vec4(color.rgb.mul(mix(float(1), aoPass.r, 0.85)), color.a);
+    composite = vec4(color.rgb.mul(mix(float(1), aoPass.r, outside.mul(0.85))), color.a);
   }
   let aa: THREE.Node<'vec4'> = composite;
   if (dbg.traa !== false) {
