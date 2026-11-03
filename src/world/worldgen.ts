@@ -48,6 +48,7 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
     // 地形高度已经定了，这里只往地表掩码（hb.surface，与 world.surface 是同一份）里画路面、院子
     paintPath: (ch, pts, w, f, s = 1) => void hb.paintPath(ch, pts, w, f, s),
     paintCircle: (ch, x, z, r, f, s = 1) => void hb.paintCircle(ch, x, z, r, f, s),
+    paintRect: (ch, x, z, rot, hw, hd, f, s = 1) => void hb.paintRect(ch, x, z, rot, hw, hd, f, s),
   };
   const B = new PropBuilder(withMesh);
   const pads = new Map<string, PadDef>();

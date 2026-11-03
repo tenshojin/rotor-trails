@@ -221,12 +221,22 @@ export const CANYON: MapDef = {
     { type: 'adobe', pos: [RANGER[0] + 15, 0, RANGER[2] + 25], ground: true },
     { type: 'shed', pos: [RANGER[0] - 25, 0, RANGER[2] + 20], rotY: 0.4, ground: true, p: { w: 6, l: 9, h: 3.2, roof: 0x7a5a40, color: 0xc8a27a } },
     { type: 'windmill', pos: [RANGER[0] + 30, 0, RANGER[2] - 25], ground: true },
+    // 护林站：土路把维修坪、土坯房、工具棚、风车连起来；风车边是木栅栏围的圆形畜栏
+    { type: 'trail', pos: [RANGER[0], 0, RANGER[2]], p: { w: 2.2, pts: `${RANGER[0] - 25},${RANGER[2] + 20};${RANGER[0] - 4},${RANGER[2] + 14};${RANGER[0] + 15},${RANGER[2] + 25}` } },
+    { type: 'trail', pos: [RANGER[0], 0, RANGER[2]], p: { w: 2, pts: `${RANGER[0] + 10},${RANGER[2] - 6};${RANGER[0] + 22},${RANGER[2] - 18};${RANGER[0] + 30},${RANGER[2] - 25}` } },
+    { type: 'corral', pos: [RANGER[0] + 44, 0, RANGER[2] - 38], rotY: 2.4, ground: true, p: { r: 9 } },
     { type: 'antenna', pos: [MESA[0] + 85, 0, MESA[2] + 70], ground: true, p: { h: 24 } },
     { type: 'researchStation', pos: [MESA[0] - 40, 0, MESA[2] + 52], rotY: -0.3, ground: true },
     { type: 'boulders', pos: [-245, 0, 405], ground: true, p: { n: 9, spread: 26, r: 4, color: 0x9a4a32 } },
     { type: 'boulders', pos: [700, 0, -700], ground: true, p: { n: 8, spread: 30, r: 4, color: 0x9a4a32 } },
     { type: 'adobe', pos: [-1570, 0, 740], ground: true },
     { type: 'adobe', pos: [-1420, 0, 905], ground: true },
+    // 游客中心一带：皮卡停在土石停车场，土路通向水塔、两栋土坯房；停车场边是原木栅栏
+    { type: 'yard', pos: [-1445, 0, 784], p: { r: 14, s: 0.8 } },
+    { type: 'trail', pos: [-1525, 0, 775], p: { w: 2.6, pts: '-1445,784;-1500,790;-1525,800;-1550,830;-1570,860' } },
+    { type: 'trail', pos: [-1525, 0, 775], p: { w: 2.2, pts: '-1525,800;-1550,770;-1570,740' } },
+    { type: 'trail', pos: [-1525, 0, 775], p: { w: 2.2, pts: '-1445,784;-1430,830;-1425,870;-1420,905' } },
+    { type: 'fenceLine', pos: [-1445, 0, 784], p: { pts: '-1462,768;-1436,764;-1424,778;-1426,800', h: 1.1 } },
   ],
   vegetation: [
     { type: 'juniper', density: 140, scale: [0.7, 1.3], maxSlope: 0.28, mask: (x, z, h) => (h > 200 ? 0.5 + 0.5 * n.fbm(x / 260, z / 260, 2) : 0.15) },

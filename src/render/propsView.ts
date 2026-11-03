@@ -39,11 +39,14 @@ function makeMaterials(detail: THREE.DataArrayTexture | null): Record<MatKey, TH
   const std = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
   const rough = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   const metal = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.6 });
+  // 片石砌体（地基、田埂石墙）：颜色由顶点色决定，石缝与起伏来自照片细节
+  const stone = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.97, metalness: 0 });
   if (detail) {
     // 照片细节：墙面灰泥、混凝土、波纹铁皮（不再是纯色块）
     addDetail(std, detail, DETAIL.plaster, 0.8);
     addDetail(rough, detail, DETAIL.concrete, 1.0);
     addDetail(metal, detail, DETAIL.corrugated, 1.0);
+    addDetail(stone, detail, DETAIL.stone, 1.0);
   }
   return {
     std,
@@ -55,6 +58,7 @@ function makeMaterials(detail: THREE.DataArrayTexture | null): Record<MatKey, TH
     // 电线：细杆，不投影（几毫米宽的影子看不见，却要在每层阴影里各画一遍）
     wire: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.2 }),
     rock,
+    stone,
   };
 }
 

@@ -413,6 +413,34 @@ export class HeightBuilder {
     return this.paint(channel, (x, z) => (1 - smoothstep(radius, radius + feather, Math.hypot(x - cx, z - cz))) * strength);
   }
 
+  /** 旋转矩形（田地、院子）：中心 (cx, cz)、朝向 rot（与道具的 rotY 相同）、半宽 hw / 半深 hd；只遍历外接范围。 */
+  paintRect(channel: 0 | 1 | 2 | 3, cx: number, cz: number, rot: number, hw: number, hd: number, feather: number, strength = 1): this {
+    const r = this.res;
+    const ext = Math.hypot(hw, hd) + feather;
+    const i0 = Math.max(0, Math.floor(((cx - ext + this.size / 2) / this.size) * (r - 1)));
+    const i1 = Math.min(r - 1, Math.ceil(((cx + ext + this.size / 2) / this.size) * (r - 1)));
+    const j0 = Math.max(0, Math.floor(((cz - ext + this.size / 2) / this.size) * (r - 1)));
+    const j1 = Math.min(r - 1, Math.ceil(((cz + ext + this.size / 2) / this.size) * (r - 1)));
+    const c = Math.cos(rot);
+    const s = Math.sin(rot);
+    for (let iz = j0; iz <= j1; iz++) {
+      const dz = this.z(iz) - cz;
+      for (let ix = i0; ix <= i1; ix++) {
+        const dx = this.x(ix) - cx;
+        // 世界 → 局部（与 PropBuilder 的旋转约定一致：局部 x 轴 = (cos, -sin)）
+        const lx = dx * c - dz * s;
+        const lz = dx * s + dz * c;
+        const d = Math.max(Math.abs(lx) - hw, Math.abs(lz) - hd);
+        const v = (1 - smoothstep(0, feather, d)) * strength;
+        if (v <= 0) continue;
+        const k = (iz * r + ix) * 4 + channel;
+        const val = Math.round(clamp(v, 0, 1) * 255);
+        if (val > this.surface[k]) this.surface[k] = val;
+      }
+    }
+    return this;
+  }
+
   build(): Heightfield {
     return new Heightfield(this.size, this.res, this.data);
   }

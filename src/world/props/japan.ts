@@ -1,10 +1,50 @@
 // 日本海湾地图的建筑与地标：民居（瓦顶）、村落生成器、港口仓库、龙门吊、码头、渔船、渡轮、灯塔、
 // 海上鸟居、神社、五重塔、观测站、海蚀柱、防波堤。
+// 神社与五重塔参照濑户内沿岸的寺社（鞆之浦一带）：坐在花岗岩砌的基坛上，门前是碎石铺的参道，
+// 两旁立着春日式石灯笼，参道入口有一座小鸟居；灯塔坐在混凝土台基上，四周围着白色栏杆。
 
 import type { Rng } from '../../core/noise';
 import type { PropDef } from '../../maps/types';
 import type { PropBuilder } from '../propBuilder';
 import { C, type PropCtx, type PropFn } from './common';
+import { frontSteps, lotPoint, plinth, railFence, settle, terrace, yard } from './settle';
+
+/** 花岗岩（基坛、石灯笼；顶点色按线性值使用，取偏暗的灰） */
+const GRANITE_J = 0x45433e;
+
+/** 春日式石灯笼（约 2.1 m）：基座、竿、中台、火袋、笠、宝珠 */
+function stoneLantern(B: PropBuilder, ctx: PropCtx, x: number, z: number, rot: number, yAt?: number): void {
+  const y = yAt ?? ctx.terrain.heightAt(x, z);
+  if (ctx.waterLevel !== null && y < ctx.waterLevel + 0.3) return;
+  B.at(x, y, z, rot, 1);
+  const o = { mat: 'stone' as const, solid: false, jitter: 0.05 };
+  B.box(0, 0.05, 0, 0.78, 0.5, 0.78, GRANITE_J, o);
+  B.cyl(0, 0.62, 0, 0.15, 0.13, 0.75, GRANITE_J, 8, o);
+  B.box(0, 1.07, 0, 0.62, 0.16, 0.62, GRANITE_J, o);
+  B.box(0, 1.37, 0, 0.42, 0.44, 0.42, 0x5a5650, o);
+  B.box(0, 1.37, 0.215, 0.2, 0.22, 0.02, 0x1a1a18, { solid: false });
+  B.hip(0, 1.6, 0, 0.95, 0.95, 0.32, 0.12, GRANITE_J, o, 0.05);
+  B.sphere(0, 2.0, 0, 0.1, GRANITE_J, { mat: 'stone', solid: false, seg: 6 });
+}
+
+/** 参道：从 (局部) z0 到 z1 沿局部 +z 的碎石路，两旁每 spacing 米一对石灯笼，起点处一座小鸟居 */
+function approach(B: PropBuilder, ctx: PropCtx, l: { x: number; z: number; rot: number }, z0: number, z1: number, spacing: number, torii: boolean): void {
+  const a = lotPoint(l, 0, z0);
+  const b = lotPoint(l, 0, z1);
+  ctx.paintPath?.(1, [a, b], 1.8, 1.2, 0.9);
+  ctx.paintPath?.(2, [a, b], 4, 2, 1);
+  for (let zz = z0 + 3; zz < z1 - 4; zz += spacing)
+    for (const side of [-1, 1]) {
+      const [x, z] = lotPoint(l, side * 3.1, zz);
+      stoneLantern(B, ctx, x, z, l.rot);
+    }
+  if (!torii) return;
+  // 参道入口的小鸟居（与海上大鸟居同一个模型，缩小到约 5 m 高；柱脚埋进地面）
+  const [tx, tz] = lotPoint(l, 0, z1 - 2);
+  const s = 0.4;
+  B.at(tx, ctx.terrain.heightAt(tx, tz) + 1.5 * s, tz, l.rot, s);
+  toriiGeom(B);
+}
 
 const ROOF = [0x3b4350, 0x434b56, 0x4a3f3a, 0x2f3640];
 const WALL = [0xe9e3d6, 0xdcd4c2, 0x6b5440, 0xcfc6b2, 0x8a6a4c];
@@ -333,8 +373,21 @@ export const japanProps: Record<string, PropFn> = {
     B.cyl(-10, 9.5, 0, 1.2, 1.4, 4, 0xc0392b, 10, {});
     B.footprint(24);
   },
-  lighthouse(B) {
+  lighthouse(B, _d, _rng, ctx) {
     const h = 20;
+    // 混凝土台基 + 四周的白色栏杆（朝向灯塔的门留个口）
+    const [ox, , oz] = B.origin;
+    const { base, depth } = settle(ctx, ox, oz, 0, 4.3, 4.3, 0.15);
+    B.at(ox, base, oz, 0, 1);
+    plinth(B, 4.3, 4.3, depth, 0x5a5954, 'rough', 0.5);
+    const ring: Array<[number, number]> = [];
+    for (let k = 0; k <= 18; k++) {
+      const a = 0.4 + (k / 18) * (Math.PI * 2 - 0.8);
+      ring.push([ox + Math.cos(a) * 8.5, oz + Math.sin(a) * 8.5]);
+    }
+    railFence(B, ctx, ring, 1.1, 2.2, 0xe8e8e4);
+    yard(ctx, { x: ox, z: oz, rot: 0, hw: 4.3, hd: 4.3, base }, 4.5, 0.45);
+    B.at(ox, base, oz, 0, 1);
     B.beginModel('lighthouse');
     B.cyl(0, 1, 0, 4, 4.2, 2, 0x9a958c, 14, { mat: 'rough' });
     B.cyl(0, 2 + h / 2, 0, 2.6, 1.8, h, 0xf2f2ee, 16, {});
@@ -348,21 +401,21 @@ export const japanProps: Record<string, PropFn> = {
     B.footprint(6);
   },
   torii(B) {
-    // 海上鸟居（朱红）
-    const red = 0xc8361f;
-    const h = 13;
-    B.beginModel('torii');
-    for (const sx of [-4.2, 4.2]) B.cyl(sx, h / 2 - 1.5, 0, 0.55, 0.6, h + 3, red, 12, {});
-    B.box(0, h - 2.2, 0, 11, 0.7, 0.8, red, { solid: false });
-    B.box(0, h + 0.1, 0, 14.5, 0.9, 1.4, 0x222222, {});
-    B.box(-7.1, h + 0.5, 0, 1.4, 0.5, 1.4, 0x222222, { solid: false }, 0);
-    B.box(7.1, h + 0.5, 0, 1.4, 0.5, 1.4, 0x222222, { solid: false }, 0);
-    B.box(0, h - 0.6, 0, 13.4, 0.6, 1.0, red, { solid: false });
-    B.box(0, h - 1.4, 0, 1.0, 1.3, 0.3, 0x333333, { solid: false });
-    B.endModel();
+    toriiGeom(B);
     B.footprint(9);
   },
-  shrine(B) {
+  shrine(B, _d, _rng, ctx) {
+    // 拜殿坐在花岗岩基坛上（模型自带 1.2 m 的台基，这里补上坡地下坡一侧露出的部分），门前（局部 +z）是参道
+    const [ox, , oz] = B.origin;
+    const rot = B.rotation;
+    // 台地比拜殿四周宽出 3 m（前面 5 m，留出参拜的空地）；坡地上是带收分的石垣，前面一段石阶下到参道
+    const { base, depth } = settle(ctx, ox, oz + 0, rot, 9, 9.5, 0.05);
+    B.at(ox, base, oz, rot, 1);
+    terrace(B, 9, 9.5, depth, GRANITE_J, 0.32);
+    frontSteps(B, ctx, { x: ox, z: oz, rot }, base, 9.5, 2.8, GRANITE_J);
+    yard(ctx, { x: ox, z: oz, rot, hw: 9, hd: 9.5, base }, 3, 0.5);
+    approach(B, ctx, { x: ox, z: oz, rot }, 10, 52, 7.5, true);
+    B.at(ox, base, oz, rot, 1);
     B.beginModel('shrine');
     B.box(0, 0.6, 0, 12, 1.2, 9, 0x8a857c, { mat: 'rough' });
     B.box(0, 2.8, 0, 9, 3.2, 6.5, 0x7a2a1a, {});
@@ -371,8 +424,25 @@ export const japanProps: Record<string, PropFn> = {
     B.endModel();
     B.footprint(9);
   },
-  pagoda(B) {
-    // 五重塔（地标）
+  pagoda(B, _d, _rng, ctx) {
+    // 五重塔（地标）：模型自带 1.6 m 的基坛，这里补上坡地下坡一侧露出的部分；四周是碎石院子与四座石灯笼
+    const [ox, , oz] = B.origin;
+    const rot = B.rotation;
+    const { base, depth } = settle(ctx, ox, oz, rot, 10, 10, 0.05);
+    for (const [lx, lz] of [
+      [-8, -8],
+      [8, -8],
+      [-8, 8],
+      [8, 8],
+    ] as Array<[number, number]>) {
+      // 石灯笼立在台面上
+      const [x, z] = lotPoint({ x: ox, z: oz, rot }, lx, lz);
+      stoneLantern(B, ctx, x, z, rot + Math.PI / 4, base);
+    }
+    B.at(ox, base, oz, rot, 1);
+    terrace(B, 10, 10, depth, GRANITE_J, 0.32);
+    frontSteps(B, ctx, { x: ox, z: oz, rot }, base, 10, 2.8, GRANITE_J);
+    yard(ctx, { x: ox, z: oz, rot, hw: 10, hd: 10, base }, 3, 0.6);
     B.beginModel('pagoda');
     B.box(0, 0.8, 0, 13, 1.6, 13, 0x8a857c, { mat: 'rough' });
     let y = 1.6;
@@ -426,3 +496,18 @@ export const japanProps: Record<string, PropFn> = {
 };
 
 export { C };
+
+/** 鸟居（朱红）：当前变换下，柱脚在 y = -1.5（海上鸟居的柱子插进水里） */
+function toriiGeom(B: PropBuilder): void {
+  const red = 0xc8361f;
+  const h = 13;
+  B.beginModel('torii');
+  for (const sx of [-4.2, 4.2]) B.cyl(sx, h / 2 - 1.5, 0, 0.55, 0.6, h + 3, red, 12, {});
+  B.box(0, h - 2.2, 0, 11, 0.7, 0.8, red, { solid: false });
+  B.box(0, h + 0.1, 0, 14.5, 0.9, 1.4, 0x222222, {});
+  B.box(-7.1, h + 0.5, 0, 1.4, 0.5, 1.4, 0x222222, { solid: false }, 0);
+  B.box(7.1, h + 0.5, 0, 1.4, 0.5, 1.4, 0x222222, { solid: false }, 0);
+  B.box(0, h - 0.6, 0, 13.4, 0.6, 1.0, red, { solid: false });
+  B.box(0, h - 1.4, 0, 1.0, 1.3, 0.3, 0x333333, { solid: false });
+  B.endModel();
+}

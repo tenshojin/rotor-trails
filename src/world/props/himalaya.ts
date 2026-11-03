@@ -1,16 +1,34 @@
 // 尼泊尔高山地图的道具：石屋与村落、佛塔（白塔）、经幡、寺院、高山营地帐篷、玛尼石堆、气象站。
+//
+// 与地形的衔接参照昆布地区的夏尔巴村落（昆琼、庞坡切、南池）：石屋坐在干砌片石的房基上（坡地上露出一截），
+// 房子周围是用干砌石墙围起来的小块土豆田（翻过的褐色土地），石板小路串起各家，屋顶之间拉着经幡。
 
 import type { Rng } from '../../core/noise';
 import type { PropBuilder } from '../propBuilder';
 import type { PropCtx, PropFn } from './common';
+import { dryWall, hash01, lotPoint, overlaps, pathNet, plinth, rectLoop, settle, yard, type Lot } from './settle';
 
 const STONE = [0x8a8278, 0x7a7268, 0x9a9286, 0xa89e90];
+/** 干砌片石（房基、田埂） */
+const DRYSTONE = 0x45403a;
 
-function stoneHouse(B: PropBuilder, rng: Rng): void {
+interface StoneDims {
+  w: number;
+  l: number;
+  h: number;
+  stone: number;
+}
+
+/** 石屋尺寸与石色（随机数的取用顺序与原来相同） */
+function stoneDims(rng: Rng): StoneDims {
   const w = rng.range(6, 9);
   const l = rng.range(7, 10);
   const h = rng.range(3.5, 5.5);
-  const stone = rng.pick(STONE);
+  return { w, l, h, stone: rng.pick(STONE) };
+}
+
+function stoneHouse(B: PropBuilder, D: StoneDims): void {
+  const { w, l, h, stone } = D;
   // Blender 模型（夏尔巴石屋，参考尺寸 7.5 × 8.5 m、墙高 4.5 m；四种石色对应四种墙面/屋顶配色）
   B.beginModel(`stone_house_${'abcd'[STONE.indexOf(stone)]}`, 0, 0, 0, 0, w / 7.5, h / 4.5, l / 8.5);
   B.box(0, h / 2, 0, w, h, l, stone, { mat: 'rough', jitter: 0.08 });
@@ -38,25 +56,72 @@ function prayerLine(B: PropBuilder, a: [number, number, number], b: [number, num
 }
 
 export const himalayaProps: Record<string, PropFn> = {
-  stoneHouse(B, _d, rng) {
-    stoneHouse(B, rng);
+  stoneHouse(B, _d, rng, ctx) {
+    const [x, , z] = B.origin;
+    const D = stoneDims(rng);
+    const { base, depth } = settle(ctx, x, z, B.rotation, D.w / 2, D.l / 2, 0.3);
+    B.at(x, base, z, B.rotation, 1);
+    stoneHouse(B, D);
+    plinth(B, D.w / 2, D.l / 2, depth, DRYSTONE, 'stone', 0.12);
   },
   hvillage(B, d, rng, ctx: PropCtx) {
     const [cx, , cz] = B.origin;
     const r = Number(d.p?.r ?? 80);
     const n = Number(d.p?.n ?? 10);
-    const placed: Array<[number, number]> = [];
-    for (let tries = 0; placed.length < n && tries < n * 25; tries++) {
+    const lots: Array<Lot & { h: number }> = [];
+    for (let tries = 0; lots.length < n && tries < n * 25; tries++) {
       const a = rng.range(0, Math.PI * 2);
       const rr = Math.sqrt(rng.float()) * r;
       const x = cx + Math.cos(a) * rr;
       const z = cz + Math.sin(a) * rr;
       if (ctx.terrain.slopeAt(x, z) > 0.22) continue;
-      if (placed.some(([px, pz]) => Math.hypot(px - x, pz - z) < 14)) continue;
-      const foot = Math.min(ctx.terrain.heightAt(x, z), ctx.terrain.heightAt(x + 4, z), ctx.terrain.heightAt(x - 4, z), ctx.terrain.heightAt(x, z + 4), ctx.terrain.heightAt(x, z - 4));
-      B.at(x, foot, z, rng.range(0, Math.PI), 1);
-      stoneHouse(B, rng);
-      placed.push([x, z]);
+      if (lots.some((l) => Math.hypot(l.x - x, l.z - z) < 14)) continue;
+      const rot = rng.range(0, Math.PI);
+      const D = stoneDims(rng);
+      // 房子坐在占地范围内的最高处，干砌片石的房基一直砌到下坡一侧的地面以下
+      const { base, depth } = settle(ctx, x, z, rot, D.w / 2, D.l / 2, 0.3);
+      B.at(x, base, z, rot, 1);
+      stoneHouse(B, D);
+      plinth(B, D.w / 2, D.l / 2, depth, DRYSTONE, 'stone', 0.12);
+      lots.push({ x, z, rot, hw: D.w / 2, hd: D.l / 2, base, h: D.h });
+    }
+    if (!lots.length) return;
+    for (const l of lots) yard(ctx, l, 2, 0.5);
+    // 石板小路串起各家
+    const edges = pathNet(
+      ctx,
+      lots.map((l) => [l.x, l.z]),
+      1.1,
+      0.8,
+      1,
+    );
+    // 土豆田：房子旁边一两块干砌石墙围起来的长方形田地（翻过的褐色土）
+    const fields: Array<{ x: number; z: number; hw: number; hd: number }> = [];
+    for (const l of lots)
+      for (const side of [1, -1]) {
+        if (hash01(l.x, l.z, side > 0 ? 31 : 32) > 0.65) continue;
+        const fhw = 6 + hash01(l.x, l.z, 33) * 4;
+        const fhd = 5 + hash01(l.x, l.z, 34) * 3;
+        const [fx, fz] = lotPoint(l, side * (l.hw + 2.5 + fhw), (hash01(l.x, l.z, 35) - 0.5) * 6);
+        if (ctx.terrain.slopeAt(fx, fz) > 0.3) continue;
+        if (overlaps(lots.filter((o) => o !== l), fx, fz, Math.hypot(fhw, fhd), 2)) continue;
+        if (fields.some((f) => Math.hypot(f.x - fx, f.z - fz) < Math.hypot(f.hw, f.hd) + Math.hypot(fhw, fhd))) continue;
+        fields.push({ x: fx, z: fz, hw: fhw, hd: fhd });
+        const plot = { x: fx, z: fz, rot: l.rot };
+        ctx.paintRect?.(1, fx, fz, l.rot, fhw - 0.6, fhd - 0.6, 1.2, 0.6);
+        ctx.paintRect?.(2, fx, fz, l.rot, fhw + 1, fhd + 1, 2, 1);
+        // 靠房子一侧的角上留一个口子
+        const loop = rectLoop(plot, fhw, fhd).map(([x, z], k) => [x + (hash01(fx, fz, 40 + (k % 4)) - 0.5) * 2.8, z + (hash01(fx, fz, 44 + (k % 4)) - 0.5) * 2.8] as [number, number]);
+        dryWall(B, ctx, loop, 1.0, 0.7, DRYSTONE, [lotPoint(plot, -side * fhw, -fhd + 1.5)]);
+      }
+    // 屋顶之间拉经幡（约四成的小路两端）
+    for (const [i, j] of edges) {
+      const A = lots[i];
+      const Bh = lots[j];
+      if (hash01(A.x + Bh.x, A.z + Bh.z, 36) > 0.4) continue;
+      if (Math.hypot(A.x - Bh.x, A.z - Bh.z) > 45) continue;
+      B.at(0, 0, 0, 0, 1);
+      prayerLine(B, [A.x, A.base + A.h + 1.4, A.z], [Bh.x, Bh.base + Bh.h + 1.4, Bh.z]);
     }
   },
   chorten(B) {
@@ -81,8 +146,13 @@ export const himalayaProps: Record<string, PropFn> = {
     B.cyl(x2, h / 2, z2, 0.08, 0.06, h, 0x6a5a4a, 6, { solid: false });
     prayerLine(B, [0, h, 0], [x2, h, z2]);
   },
-  monastery(B, _d, rng) {
-    // 寺院：白墙、红色檐带、金顶（Blender 模型参照丹波切寺）
+  monastery(B, _d, rng, ctx) {
+    // 寺院：白墙、红色檐带、金顶（Blender 模型参照丹波切寺）；坐在石砌台基上，门前是石板铺的院子
+    const [ox, , oz] = B.origin;
+    const rot = B.rotation;
+    // 占地含西侧的附属石屋（局部 x = -20 .. 13）
+    const { base, depth } = settle(ctx, ox - Math.cos(rot) * 3.5, oz + Math.sin(rot) * 3.5, rot, 16.5, 9.5, 0.5);
+    B.at(ox, base, oz, rot, 1);
     B.beginModel('monastery');
     B.box(0, 4, 0, 22, 8, 16, 0xe8e4dc, { mat: 'rough' });
     B.box(0, 8.4, 0, 22.4, 0.8, 16.4, 0x8a2a1a, { solid: false });
@@ -92,6 +162,9 @@ export const himalayaProps: Record<string, PropFn> = {
     for (let i = -2; i <= 2; i++) B.box(i * 4, 3.5, 8.04, 1.2, 1.8, 0.06, 0x1a1a1a, { solid: false });
     B.box(-16, 3, 4, 8, 6, 10, rng.pick(STONE), { mat: 'rough' });
     B.endModel();
+    plinth(B, 12, 8.5, depth, DRYSTONE, 'stone', 0.6);
+    B.box(-16, -(depth + 0.5) / 2 + 0.02, 4, 8.4, depth + 0.5, 10.4, DRYSTONE, { mat: 'stone', jitter: 0.04 });
+    yard(ctx, { x: ox, z: oz, rot, hw: 12, hd: 8.5, base }, 6, 0.55);
     prayerLine(B, [11, 9, -8], [30, 2, -20]);
     prayerLine(B, [-11, 9, 8], [-26, 1, 22]);
     B.footprint(18);

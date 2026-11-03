@@ -1,0 +1,177 @@
+{
+ "url": "about:blank",
+ "width": 1600,
+ "height": 900,
+ "steps": [
+  {
+   "goto": "http://localhost:5174/?map=fjord&autostart=1&weather=clear"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app; A.settings.quality = 'ultra'; A.settings.rayTracing = false; A.view.applySettings(A.settings); const R = A.view.rig; R.update = () => {}; const W = A.session.world; window.__frame = (prefix, dist, height, yaw, pick, tilt) => { const all = W.builder.models.filter(m => m.name.startsWith(prefix)); if (!all.length) return 'none:' + prefix; const m0 = all[Math.min(all.length - 1, pick ?? 0)]; const near = all.filter(m => Math.hypot(m.pos[0] - m0.pos[0], m.pos[2] - m0.pos[2]) < 140); let cx = 0, cy = 0, cz = 0; for (const m of near) { cx += m.pos[0]; cy += m.pos[1]; cz += m.pos[2]; } cx /= near.length; cy /= near.length; cz /= near.length; const a = (yaw ?? 30) * Math.PI / 180; const px = cx + Math.sin(a) * dist, pz = cz - Math.cos(a) * dist; const py = Math.max(W.terrain.heightAt(px, pz) + 3, cy + height); R.camera.position.set(px, py, pz); R.camera.lookAt(cx, cy + (tilt ?? 0), cz); R.camera.updateMatrixWorld(); A.debugTeleport(px + 400, py + 120, pz + 400, 0, 0); return [near.length, Math.round(cx), Math.round(cy), Math.round(cz)]; }; return 1; })()"
+  },
+  {
+   "eval": "__frame('nhouse_', 150, 70, 40, 0)",
+   "label": "b_fj_village"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "shot": "b_fj_village.jpg"
+  },
+  {
+   "eval": "__frame('nhouse_', 45, 14, 200, 0, 2)",
+   "label": "b_fj_village_close"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "shot": "b_fj_village_close.jpg"
+  },
+  {
+   "eval": "__frame('nhouse_', 170, 80, 120, 20)",
+   "label": "b_fj_head"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "shot": "b_fj_head.jpg"
+  },
+  {
+   "eval": "__frame('stave_church', 60, 24, 150, 0, 4)",
+   "label": "b_fj_church"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "shot": "b_fj_church.jpg"
+  },
+  {
+   "eval": "__frame('nhouse_white_turf', 55, 20, 60, 0, 2)",
+   "label": "b_fj_turf"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "shot": "b_fj_turf.jpg"
+  },
+  {
+   "goto": "http://localhost:5174/?map=himalaya&autostart=1&weather=clear"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app; A.settings.quality = 'ultra'; A.settings.rayTracing = false; A.view.applySettings(A.settings); const R = A.view.rig; R.update = () => {}; const W = A.session.world; window.__frame = (prefix, dist, height, yaw, pick, tilt) => { const all = W.builder.models.filter(m => m.name.startsWith(prefix)); if (!all.length) return 'none:' + prefix; const m0 = all[Math.min(all.length - 1, pick ?? 0)]; const near = all.filter(m => Math.hypot(m.pos[0] - m0.pos[0], m.pos[2] - m0.pos[2]) < 140); let cx = 0, cy = 0, cz = 0; for (const m of near) { cx += m.pos[0]; cy += m.pos[1]; cz += m.pos[2]; } cx /= near.length; cy /= near.length; cz /= near.length; const a = (yaw ?? 30) * Math.PI / 180; const px = cx + Math.sin(a) * dist, pz = cz - Math.cos(a) * dist; const py = Math.max(W.terrain.heightAt(px, pz) + 3, cy + height); R.camera.position.set(px, py, pz); R.camera.lookAt(cx, cy + (tilt ?? 0), cz); R.camera.updateMatrixWorld(); A.debugTeleport(px + 400, py + 120, pz + 400, 0, 0); return [near.length, Math.round(cx), Math.round(cy), Math.round(cz)]; }; return 1; })()"
+  },
+  {
+   "eval": "__frame('stone_house_', 150, 70, 30, 0)",
+   "label": "b_hm_village"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "shot": "b_hm_village.jpg"
+  },
+  {
+   "eval": "__frame('stone_house_', 50, 16, 210, 0, 2)",
+   "label": "b_hm_village_close"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "shot": "b_hm_village_close.jpg"
+  },
+  {
+   "eval": "__frame('stone_house_', 120, 55, 100, 12)",
+   "label": "b_hm_mid"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "shot": "b_hm_mid.jpg"
+  },
+  {
+   "eval": "__frame('monastery', 70, 25, 160, 0, 4)",
+   "label": "b_hm_monastery"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "shot": "b_hm_monastery.jpg"
+  },
+  {
+   "goto": "http://localhost:5174/?map=amazon&autostart=1&weather=clear"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app; A.settings.quality = 'ultra'; A.settings.rayTracing = false; A.view.applySettings(A.settings); const R = A.view.rig; R.update = () => {}; const W = A.session.world; window.__frame = (prefix, dist, height, yaw, pick, tilt) => { const all = W.builder.models.filter(m => m.name.startsWith(prefix)); if (!all.length) return 'none:' + prefix; const m0 = all[Math.min(all.length - 1, pick ?? 0)]; const near = all.filter(m => Math.hypot(m.pos[0] - m0.pos[0], m.pos[2] - m0.pos[2]) < 140); let cx = 0, cy = 0, cz = 0; for (const m of near) { cx += m.pos[0]; cy += m.pos[1]; cz += m.pos[2]; } cx /= near.length; cy /= near.length; cz /= near.length; const a = (yaw ?? 30) * Math.PI / 180; const px = cx + Math.sin(a) * dist, pz = cz - Math.cos(a) * dist; const py = Math.max(W.terrain.heightAt(px, pz) + 3, cy + height); R.camera.position.set(px, py, pz); R.camera.lookAt(cx, cy + (tilt ?? 0), cz); R.camera.updateMatrixWorld(); A.debugTeleport(px + 400, py + 120, pz + 400, 0, 0); return [near.length, Math.round(cx), Math.round(cy), Math.round(cz)]; }; return 1; })()"
+  },
+  {
+   "eval": "__frame('stilt_hut', 120, 55, 40, 8)",
+   "label": "b_am_village"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "shot": "b_am_village.jpg"
+  },
+  {
+   "eval": "__frame('stilt_hut', 60, 20, 220, 3, 2)",
+   "label": "b_am_camp"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "shot": "b_am_camp.jpg"
+  },
+  {
+   "goto": "http://localhost:5174/?map=canyon&autostart=1&weather=clear"
+  },
+  {
+   "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded",
+   "timeout": 120000
+  },
+  {
+   "eval": "(() => { document.querySelectorAll('.hud, #hud, .hud-root').forEach(e => e.style.display = 'none'); const A = window.__app; A.settings.quality = 'ultra'; A.settings.rayTracing = false; A.view.applySettings(A.settings); const R = A.view.rig; R.update = () => {}; const W = A.session.world; window.__frame = (prefix, dist, height, yaw, pick, tilt) => { const all = W.builder.models.filter(m => m.name.startsWith(prefix)); if (!all.length) return 'none:' + prefix; const m0 = all[Math.min(all.length - 1, pick ?? 0)]; const near = all.filter(m => Math.hypot(m.pos[0] - m0.pos[0], m.pos[2] - m0.pos[2]) < 140); let cx = 0, cy = 0, cz = 0; for (const m of near) { cx += m.pos[0]; cy += m.pos[1]; cz += m.pos[2]; } cx /= near.length; cy /= near.length; cz /= near.length; const a = (yaw ?? 30) * Math.PI / 180; const px = cx + Math.sin(a) * dist, pz = cz - Math.cos(a) * dist; const py = Math.max(W.terrain.heightAt(px, pz) + 3, cy + height); R.camera.position.set(px, py, pz); R.camera.lookAt(cx, cy + (tilt ?? 0), cz); R.camera.updateMatrixWorld(); A.debugTeleport(px + 400, py + 120, pz + 400, 0, 0); return [near.length, Math.round(cx), Math.round(cy), Math.round(cz)]; }; return 1; })()"
+  },
+  {
+   "eval": "__frame('visitor_center', 130, 55, 30, 0)",
+   "label": "b_cy_visitor"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "shot": "b_cy_visitor.jpg"
+  },
+  {
+   "eval": "__frame('windmill', 90, 35, 200, 0)",
+   "label": "b_cy_ranger"
+  },
+  {
+   "wait": 3500
+  },
+  {
+   "shot": "b_cy_ranger.jpg"
+  }
+ ]
+}

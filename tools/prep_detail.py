@@ -16,6 +16,8 @@ LAYERS = {
     'concrete': 'concrete_wall_008',
     'corrugated': 'corrugated_iron',
     'planks': 'hinoki_planks',
+    # 片石干砌墙（锡金拉布登孜遗址，CC0）：喜马拉雅石屋与石墙、峡湾的石砌地基
+    'stone': 'rabdentse_ruins_wall',
 }
 
 

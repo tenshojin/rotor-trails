@@ -150,7 +150,7 @@ export const AMAZON: MapDef = {
     { id: 'A-final', name: '林冠观测平台', pos: [FINAL[0], 38.4, FINAL[2]], size: 14, kind: 'final', style: 'raised' },
   ],
   props: [
-    { type: 'camp', pos: [START[0], 0, START[2]], ground: true, p: { r: 45, n: 6 } },
+    { type: 'camp', pos: [START[0], 0, START[2]], ground: true, p: { r: 45, n: 6, jetty: 0 } },
     { type: 'dock', pos: [START[0] + 30, 0, START[2] + 40], rotY: 0.6 },
     { type: 'canoe', pos: [START[0] + 50, 0.1, START[2] + 60], rotY: 0.8 },
     { type: 'camp', pos: [CAMP_A[0], 0, CAMP_A[2]], ground: true, p: { r: 38, n: 5 } },

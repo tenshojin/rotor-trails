@@ -1,6 +1,10 @@
 // 亚马孙雨林地图的道具：高脚屋、帐篷、浮动码头、科考船、独木舟、林冠观测塔、营地生成器。
+//
+// 营地与地形的衔接参照亚马孙河沿岸的河民村落（ribeirinhos）：高脚屋之间是踩实的红土空地与小路，
+// 一条小路通到河边，岸边伸出木板栈桥，独木舟系在栈桥旁、或拖上岸边。
 
 import type { PropFn } from './common';
+import { pathNet } from './settle';
 
 const THATCH = [0x8a7444, 0x7a6438, 0x9a8250];
 const WOOD = [0x6a4a2c, 0x5a3e24, 0x7a5636];
@@ -56,6 +60,57 @@ export const amazonProps: Record<string, PropFn> = {
       if (placed.length % 3 === 0) amazonProps.tent(B, d, rng, ctx);
       else amazonProps.stiltHut(B, { type: 'stiltHut', pos: [x, h, z] }, rng, ctx);
     }
+    if (!placed.length) return;
+    // 屋前屋后踩实的红土空地、连接各家与停机坪的小路
+    for (const [x, z] of placed) {
+      ctx.paintCircle?.(1, x, z, 5.5, 3, 0.6);
+      ctx.paintCircle?.(2, x, z, 9, 3, 1);
+    }
+    pathNet(ctx, [[cx, cz], ...placed], 1.2, 0.75, 1);
+    // 通到河边的小路 + 木板栈桥 + 独木舟（地图上已有码头的营地用 jetty: 0 关掉）
+    const wl = ctx.waterLevel;
+    if (wl === null || Number(d.p?.jetty ?? 1) <= 0) return;
+    let best: { x: number; z: number; ux: number; uz: number; s: number } | null = null;
+    for (let k = 0; k < 32; k++) {
+      const a = (k / 32) * Math.PI * 2;
+      const ux = Math.cos(a);
+      const uz = Math.sin(a);
+      for (let s = 8; s < 170; s += 2) {
+        const x = cx + ux * s;
+        const z = cz + uz * s;
+        if (ctx.terrain.heightAt(x, z) < wl - 0.4) {
+          if (!best || s < best.s) best = { x, z, ux, uz, s };
+          break;
+        }
+      }
+    }
+    if (!best) return;
+    // 岸边（往回退到刚好露出水面的地方）
+    let sx = best.x;
+    let sz = best.z;
+    for (let k = 0; k < 20 && ctx.terrain.heightAt(sx, sz) < wl + 0.2; k++) {
+      sx -= best.ux;
+      sz -= best.uz;
+    }
+    ctx.paintPath?.(1, [[cx, cz], [sx, sz]], 1.2, 1.5, 0.7);
+    ctx.paintPath?.(2, [[cx, cz], [sx, sz]], 3, 2, 1);
+    // 局部 x 轴沿栈桥朝外（与 PropBuilder 的旋转约定一致）
+    const rot = Math.atan2(-best.uz, best.ux);
+    B.at(sx, wl + 0.75, sz, rot, 1);
+    B.box(6, 0, 0, 14, 0.16, 2.2, 0x7a5636, { solid: false, jitter: 0.14 });
+    for (let x = 0; x <= 13; x += 3.25)
+      for (const side of [-1, 1]) B.cyl(x, -1.7, side * 1.0, 0.11, 0.11, 3.6, 0x4a3420, 6, { solid: false });
+    // 系在栈桥旁的独木舟（船身沿栈桥方向）
+    B.beginModel('canoe_wood', 8, -0.86, 2.2, Math.PI / 2 + 0.06);
+    B.box(8, -0.61, 2.2, 6, 0.5, 0.9, 0x7a5636, { solid: false }, 0.06);
+    B.endModel();
+    // 拖上岸的一条
+    const bx = sx - best.ux * 4 - best.uz * 3;
+    const bz = sz - best.uz * 4 + best.ux * 3;
+    B.at(bx, Math.max(ctx.terrain.heightAt(bx, bz), wl + 0.05), bz, rot + 0.5, 1);
+    B.beginModel('canoe_blue', 0, 0, 0, Math.PI / 2);
+    B.box(0, 0.25, 0, 6, 0.5, 0.9, 0x2a5a8a, { solid: false });
+    B.endModel();
   },
   dock(B, d) {
     const len = Number(d.p?.len ?? 30);

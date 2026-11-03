@@ -1,14 +1,20 @@
 // 美国西南峡谷地图的道具：研究站、巡查传感器桩、天然岩拱、石柱（hoodoo）、游客中心、土坯房、水塔、风车、皮卡。
+//
+// 与地形的衔接参照美国西南部的牧场与国家公园护林站：土坯房坐在一圈略深色的土坯 / 石砌墙基上，
+// 房前是踩实的土院子，土路连接各栋房子；风车旁边有圆形的金属饮水槽和木栅栏围的畜栏。
 
 import { quatYawPitch } from '../propBuilder';
 import type { PropFn } from './common';
+import { plinth, settle, yard } from './settle';
 
 const RED = 0xb4583a;
 
 export const canyonProps: Record<string, PropFn> = {
-  researchStation(B) {
+  researchStation(B, _d, _rng, ctx) {
     // 模块化集装箱营地（Blender 模型：波纹铁皮模块房、太阳能板、水罐、通信天线杆）
     const cols = [0xe8e4da, 0xd8d0c0, 0x8a9aa8];
+    const [ox, , oz] = B.origin;
+    yard(ctx, { x: ox, z: oz, rot: B.rotation, hw: 16, hd: 13, base: 0 }, 3, 0.55);
     B.beginModel('research_station');
     for (let i = 0; i < 4; i++) B.box(-10 + i * 7, 1.45, -6, 6, 2.9, 3.0, cols[i % 3], { mat: 'metal' }, 0);
     B.box(4, 1.45, 5, 12, 2.9, 3, 0xf0ece4, { mat: 'metal' });
@@ -126,8 +132,14 @@ export const canyonProps: Record<string, PropFn> = {
       canyonProps.hoodoo(B, { type: 'hoodoo', pos: [x, 0, z] }, rng, ctx);
     }
   },
-  visitorCenter(B) {
-    // Blender 模型：土坯风格游客中心（木柱门廊、大玻璃窗、采光塔楼）
+  visitorCenter(B, _d, _rng, ctx) {
+    // Blender 模型：土坯风格游客中心（木柱门廊、大玻璃窗、采光塔楼）；坐在略深色的墙基上
+    const [ox, , oz] = B.origin;
+    const rot = B.rotation;
+    const { base, depth } = settle(ctx, ox, oz, rot, 13.5, 7.5, 0.25);
+    B.at(ox, base, oz, rot, 1);
+    plinth(B, 13.5, 7.5, depth, 0x6a5038, 'rough', 0.25);
+    yard(ctx, { x: ox, z: oz, rot, hw: 13.5, hd: 7.5, base }, 5, 0.55);
     B.beginModel('visitor_center');
     B.box(0, 2.2, 0, 26, 4.4, 14, 0xc8a27a, {});
     B.box(0, 4.6, 0, 27, 0.5, 15, 0x8a6a4a, { solid: false });
@@ -137,11 +149,18 @@ export const canyonProps: Record<string, PropFn> = {
     B.endModel();
     B.footprint(16);
   },
-  adobe(B, d, rng) {
+  adobe(B, d, rng, ctx) {
     const w = Number(d.p?.w ?? rng.range(7, 11));
     const l = Number(d.p?.l ?? rng.range(6, 9));
     const c = rng.pick([0xc8a27a, 0xb88e64, 0xd4b48c]);
     // Blender 模型（陶斯村落样式的土坯房，参考尺寸 9 × 7.5 m；三种颜色对应三种门窗配色）
+    // 坐在占地范围内的最高处，下坡一侧露出一圈墙基
+    const [ox, , oz] = B.origin;
+    const rot = B.rotation;
+    const { base, depth } = settle(ctx, ox, oz, rot, w / 2, l / 2, 0.2);
+    B.at(ox, base, oz, rot, 1);
+    plinth(B, w / 2, l / 2, depth, 0x6a5038, 'rough', 0.18);
+    yard(ctx, { x: ox, z: oz, rot, hw: w / 2, hd: l / 2, base }, 4, 0.6);
     B.beginModel(`adobe_${'abc'[[0xc8a27a, 0xb88e64, 0xd4b48c].indexOf(c)]}`, 0, 0, 0, 0, w / 9, 1, l / 7.5);
     B.box(0, 1.8, 0, w, 3.6, l, c, { jitter: 0.05 });
     B.box(0, 3.75, 0, w + 0.3, 0.3, l + 0.3, 0x9a7a58, { solid: false });
@@ -165,7 +184,17 @@ export const canyonProps: Record<string, PropFn> = {
     B.addColliderCyl(0, 6, 0, 6, 2.2);
     B.footprint(5);
   },
-  windmill(B) {
+  windmill(B, _d, _rng, ctx) {
+    // 风车旁边的圆形金属饮水槽
+    const [ox, oy, oz] = B.origin;
+    const rot = B.rotation;
+    const tx = ox + Math.cos(rot) * 4.5;
+    const tz = oz - Math.sin(rot) * 4.5;
+    B.at(tx, ctx.terrain.heightAt(tx, tz), tz, 0, 1);
+    B.cyl(0, 0.35, 0, 2.3, 2.3, 0.9, 0x8a8e90, 18, { mat: 'metal', solid: false });
+    B.cyl(0, 0.62, 0, 2.15, 2.15, 0.06, 0x3a5a62, 18, { mat: 'glass', solid: false });
+    ctx.paintCircle?.(1, ox, oz, 9, 4, 0.7);
+    B.at(ox, oy, oz, rot, 1);
     B.beginModel('windmill');
     B.beam([-1.2, 0, -1.2], [-0.2, 11, -0.2], 0.18, 0x777777, { solid: false });
     B.beam([1.2, 0, -1.2], [0.2, 11, -0.2], 0.18, 0x777777, { solid: false });

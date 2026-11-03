@@ -4,6 +4,7 @@ import type { Rng } from '../../core/noise';
 import type { PadDef, PropDef } from '../../maps/types';
 import type { Heightfield } from '../../sim/terrain';
 import type { PropBuilder } from '../propBuilder';
+import { railFence } from './settle';
 
 export interface PropCtx {
   terrain: Heightfield;
@@ -13,6 +14,8 @@ export interface PropCtx {
   /** 往地表掩码里画（只影响地面着色与植被分布，不改地形高度）：通道 1 = 泥土 / 碎石，2 = 不长树 */
   paintPath?(channel: 0 | 1 | 2 | 3, points: Array<[number, number]>, width: number, feather: number, strength?: number): void;
   paintCircle?(channel: 0 | 1 | 2 | 3, x: number, z: number, r: number, feather: number, strength?: number): void;
+  /** 旋转矩形（rot 与道具的 rotY 相同）：田地、院子 */
+  paintRect?(channel: 0 | 1 | 2 | 3, x: number, z: number, rot: number, hw: number, hd: number, feather: number, strength?: number): void;
 }
 
 export type PropFn = (B: PropBuilder, d: PropDef, rng: Rng, ctx: PropCtx) => void;
@@ -225,6 +228,45 @@ export const commonProps: Record<string, PropFn> = {
       B.box(x, sz / 2 + (i > 3 ? 1.2 : 0), z, sz, sz, sz, rng.pick([0x9a7444, 0x6f7a3a, 0x8a8a7a]), { jitter: 0.15, solid: i < 4 }, rng.range(0, 1.5));
     }
     B.footprint(4);
+  },
+  /** 土路 / 碎石路：p.pts = "x,z;x,z;…"（世界坐标），p.w = 半宽，p.s = 浓度 */
+  trail(_B, d, _rng, ctx) {
+    const pts = String(d.p?.pts ?? '')
+      .split(';')
+      .filter(Boolean)
+      .map((s) => s.split(',').map(Number) as [number, number]);
+    if (pts.length < 2) return;
+    const w = Number(d.p?.w ?? 2);
+    ctx.paintPath?.(1, pts, w, w * 0.8 + 1, Number(d.p?.s ?? 0.85));
+    ctx.paintPath?.(2, pts, w + 2, 2, 1);
+  },
+  /** 立柱横杆栅栏：p.pts 同上，p.h = 高度 */
+  fenceLine(B, d, _rng, ctx) {
+    const pts = String(d.p?.pts ?? '')
+      .split(';')
+      .filter(Boolean)
+      .map((s) => s.split(',').map(Number) as [number, number]);
+    if (pts.length >= 2) railFence(B, ctx, pts, Number(d.p?.h ?? 1.2), Number(d.p?.spacing ?? 2.8), Number(d.p?.color ?? 0x4a3a2a));
+  },
+  /** 圆形畜栏（牧场）：半径 p.r，朝 rotY 方向留门 */
+  corral(B, d, _rng, ctx) {
+    const [cx, , cz] = B.origin;
+    const r = Number(d.p?.r ?? 9);
+    const rot = B.rotation;
+    const pts: Array<[number, number]> = [];
+    for (let k = 0; k <= 20; k++) {
+      const a = rot + 0.35 + (k / 20) * (Math.PI * 2 - 0.7);
+      pts.push([cx + Math.cos(a) * r, cz + Math.sin(a) * r]);
+    }
+    railFence(B, ctx, pts, 1.5, 2.6, Number(d.p?.color ?? 0x4a3a2a));
+    ctx.paintCircle?.(1, cx, cz, r, 2, 0.75);
+    ctx.paintCircle?.(2, cx, cz, r + 3, 2, 1);
+  },
+  /** 踩实的院子：半径 p.r，浓度 p.s */
+  yard(_B, d, _rng, ctx) {
+    const [x, , z] = d.pos;
+    ctx.paintCircle?.(1, x, z, Number(d.p?.r ?? 10), Number(d.p?.f ?? 4), Number(d.p?.s ?? 0.6));
+    ctx.paintCircle?.(2, x, z, Number(d.p?.r ?? 10) + 4, 3, 1);
   },
   flagpole(B, d) {
     const h = Number(d.p?.h ?? 9);

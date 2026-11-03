@@ -1,13 +1,13 @@
-// 程序道具的细节纹理（见 tools/prep_detail.py）：灰泥、混凝土、波纹铁皮、木板四层打包成纹理数组，
+// 程序道具的细节纹理（见 tools/prep_detail.py）：灰泥、混凝土、波纹铁皮、木板、片石墙五层打包成纹理数组，
 // 三平面投影叠加在顶点色上——法线细节 + 明暗起伏。整个会话只加载一次。
 
 import * as THREE from 'three/webgpu';
 import { abs, cameraViewMatrix, dot, float, Fn, int, max, mix, normalize, normalViewGeometry, normalWorld, positionWorld, pow, sqrt, struct, texture, vec3, vec4 } from 'three/tsl';
 
-export const DETAIL = { plaster: 0, concrete: 1, corrugated: 2, planks: 3 } as const;
+export const DETAIL = { plaster: 0, concrete: 1, corrugated: 2, planks: 3, stone: 4 } as const;
 /** 各层一个平铺单元的尺寸（米） */
-const TILE = [1.6, 2.7, 1.2, 1.9];
-const NAMES = ['plaster', 'concrete', 'corrugated', 'planks'];
+const TILE = [1.6, 2.7, 1.2, 1.9, 2.2];
+const NAMES = ['plaster', 'concrete', 'corrugated', 'planks', 'stone'];
 
 let cache: Promise<THREE.DataArrayTexture | null> | null = null;
 
