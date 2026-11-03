@@ -57,6 +57,10 @@ export class WorldView {
   /** renderer.init() 完成后才能渲染 */
   private ready = false;
   private gbT = -10;
+  private trackGpu = false;
+  private gpuBusy = false;
+  /** GPU 每帧耗时的滑动平均（毫秒），只在 ?gputime=1 时有值 */
+  gpuMs = 0;
   private settings: Settings;
   // 地图相关
   world: WorldData | null = null;
@@ -86,8 +90,11 @@ export class WorldView {
     this.settings = settings;
     // 反向深度缓冲：近裁剪面几厘米（座舱）到远处几千米都有足够的深度精度
     // ?backend=webgl：强制使用 WebGL2 后端（测试不支持 WebGPU 的浏览器时的表现）
-    const forceWebGL = new URLSearchParams(location.search).get('backend') === 'webgl';
-    this.renderer = new THREE.WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', reversedDepthBuffer: true, forceWebGL });
+    const params = new URLSearchParams(location.search);
+    const forceWebGL = params.get('backend') === 'webgl';
+    // ?gputime=1：用 GPU 时间戳测每帧渲染耗时（window.__gpuMs，毫秒；调画质档位用）
+    this.trackGpu = params.get('gputime') === '1';
+    this.renderer = new THREE.WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', reversedDepthBuffer: true, forceWebGL, trackTimestamp: this.trackGpu });
     const r = this.renderer;
     r.outputColorSpace = THREE.SRGBColorSpace;
     // Khronos PBR Neutral：高光柔和滚降，中间调颜色基本不偏（天空、海水、植被都接近照片），对比度和饱和度在 post.ts 的调色里补
@@ -380,6 +387,17 @@ export class WorldView {
     if (!this.ready) return;
     if (this.post) this.post.pipeline.render();
     else this.renderer.render(this.scene, cam);
+    if (this.trackGpu && !this.gpuBusy) {
+      this.gpuBusy = true;
+      this.renderer
+        .resolveTimestampsAsync('render')
+        .then(() => {
+          const ms = this.renderer.info.render.timestamp;
+          if (ms > 0) this.gpuMs = this.gpuMs > 0 ? this.gpuMs * 0.9 + ms * 0.1 : ms;
+          (window as unknown as { __gpuMs: number }).__gpuMs = this.gpuMs;
+        })
+        .finally(() => (this.gpuBusy = false));
+    }
   }
 
   drawInstruments(t: number, d: InstrumentData): void {
