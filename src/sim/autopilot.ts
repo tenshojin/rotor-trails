@@ -131,8 +131,8 @@ export class Autopilot {
       inp.turn = clamp(herr / 22, -1, 1);
       // 大角度转弯时先减速；需要大幅爬升时先就地爬升（避免斜着撞上峭壁）
       if (Math.abs(herr) > 50) vDes = Math.min(vDes, 14);
-      if (alt - b.pos.y > 30) {
-        vDes = Math.min(vDes, Math.max(3, 30 - (alt - b.pos.y) * 0.25));
+      if (alt - b.pos.y > 15) {
+        vDes = Math.min(vDes, Math.max(3, 30 - (alt - b.pos.y) * 0.35));
         // 贴近地形时先爬升再转向，避免尾桨扫到峭壁
         if (s.agl < 25) inp.turn *= 0.15;
       }
@@ -197,7 +197,9 @@ export class Autopilot {
       inp.vertical = -1;
       if (cur.landing === null && s.settledTime > 1.5 && cur.progress === 0) {
         // 着陆不合格（或不在坪上）：重新起飞再降
-        this.note('着陆未被接受，重新尝试');
+        const tags = s.gear.contacts.map((c) => (c.active ? `${c.tag?.kind}:${c.tag?.padId ?? c.tag?.id ?? ''}` : '-')).join(' ');
+        const td = s.lastTouchdown;
+        this.note(`着陆未被接受，重新尝试 [${tags}] settled=${s.settledPad} td=${td ? `${td.padId}/${td.metrics.grade}/${td.metrics.reasons.join(',')}` : 'none'} pos=${b.pos.x.toFixed(0)},${b.pos.y.toFixed(1)},${b.pos.z.toFixed(0)}`);
         this.phase = 'takeoff';
       }
       return;
@@ -235,7 +237,12 @@ export function runAutopilot(s: GameSession, maxSeconds: number, opts: { pathPre
         if (!e.ev.optional) ap.onObjectiveDone();
       }
       if (e.type === 'mission' && e.ev.type === 'landingRejected') ap.log.push({ t: +s.t.toFixed(1), phase: ap.phase, note: '着陆不合格：' + e.ev.metrics.reasons.join(',') });
-      if (e.type === 'damage' && !e.ev.blocked && e.ev.amount > 1) ap.log.push({ t: +s.t.toFixed(1), phase: ap.phase, note: `受损 ${e.ev.cause} -${e.ev.amount.toFixed(1)}` });
+      if (e.type === 'damage' && !e.ev.blocked && e.ev.amount > 1)
+        ap.log.push({
+          t: +s.t.toFixed(1),
+          phase: ap.phase,
+          note: `受损 ${e.ev.cause} -${e.ev.amount.toFixed(1)} @(${s.body.pos.x.toFixed(0)},${s.body.pos.y.toFixed(0)},${s.body.pos.z.toFixed(0)}) v=${s.groundSpeed.toFixed(1)} nav=${s.nav.info.label} ${s.contacts.map((c) => `${c.part}/${c.tag.kind}`).join(',')}`,
+        });
     }
   }
   return {

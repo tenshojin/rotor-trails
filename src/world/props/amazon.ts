@@ -32,17 +32,25 @@ export const amazonProps: Record<string, PropFn> = {
   },
   camp(B, d, rng, ctx) {
     // 营地：若干高脚屋 + 帐篷 + 物资箱
-    const [cx, , cz] = B.origin;
+    const [cx, cy, cz] = B.origin;
     const r = Number(d.p?.r ?? 40);
     const n = Number(d.p?.n ?? 4);
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + rng.range(-0.3, 0.3);
-      const x = cx + Math.cos(a) * r * rng.range(0.6, 1);
-      const z = cz + Math.sin(a) * r * rng.range(0.6, 1);
+    const placed: Array<[number, number]> = [];
+    for (let tries = 0; placed.length < n && tries < n * 12; tries++) {
+      const a = rng.range(0, Math.PI * 2);
+      const rr = r * rng.range(0.35, 1);
+      const x = cx + Math.cos(a) * rr;
+      const z = cz + Math.sin(a) * rr;
       const h = ctx.terrain.heightAt(x, z);
       if (ctx.waterLevel !== null && h < ctx.waterLevel + 0.5) continue;
+      // 只在营地所在的河岸平地上建屋（不爬上旁边的山坡），且彼此不重叠
+      if (Math.abs(h - cy) > 4 || ctx.terrain.slopeAt(x, z) > 0.25) continue;
+      if (placed.some(([px, pz]) => Math.hypot(px - x, pz - z) < 13)) continue;
+      // 避开停机坪
+      if (Math.hypot(x - cx, z - cz) < 16) continue;
+      placed.push([x, z]);
       B.at(x, h, z, a + Math.PI / 2, 1);
-      if (i % 3 === 2) amazonProps.tent(B, d, rng, ctx);
+      if (placed.length % 3 === 0) amazonProps.tent(B, d, rng, ctx);
       else amazonProps.stiltHut(B, { type: 'stiltHut', pos: [x, h, z] }, rng, ctx);
     }
   },
