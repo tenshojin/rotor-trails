@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import type { MatKey, ModelInstance } from '../world/propBuilder';
 import type { WorldData } from '../world/worldgen';
+import { addDetail, DETAIL } from './detailTextures';
 import { instanceModel, type ModelLib } from './modelLib';
 import { getNoiseTexture } from './textures';
 
@@ -24,7 +25,7 @@ export function getGlowTexture(): THREE.CanvasTexture {
   return glowTex;
 }
 
-function makeMaterials(): Record<MatKey, THREE.Material> {
+function makeMaterials(detail: THREE.DataArrayTexture | null): Record<MatKey, THREE.Material> {
   const noise = getNoiseTexture();
   const rock = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
   rock.onBeforeCompile = (shader) => {
@@ -40,10 +41,19 @@ function makeMaterials(): Record<MatKey, THREE.Material> {
       );
   };
   rock.customProgramCacheKey = () => 'rock-v1';
+  const std = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
+  const rough = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+  const metal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.6 });
+  if (detail) {
+    // 照片细节：墙面灰泥、混凝土、波纹铁皮（不再是纯色块）
+    addDetail(std, detail, DETAIL.plaster, 0.8);
+    addDetail(rough, detail, DETAIL.concrete, 1.0);
+    addDetail(metal, detail, DETAIL.corrugated, 1.0);
+  }
   return {
-    std: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 }),
-    rough: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }),
-    metal: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.6 }),
+    std,
+    rough,
+    metal,
     glass: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.08, metalness: 0.3, envMapIntensity: 1.6 }),
     emit: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
     cloth: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0, side: THREE.DoubleSide }),
@@ -80,8 +90,8 @@ export class PropsView {
   /** 模型实例（几何体与材质属于模型库，由模型库释放） */
   private instanced: THREE.InstancedMesh[] = [];
 
-  constructor(world: WorldData, lib: ModelLib | null = null) {
-    this.materials = makeMaterials();
+  constructor(world: WorldData, lib: ModelLib | null = null, detail: THREE.DataArrayTexture | null = null) {
+    this.materials = makeMaterials(detail);
     // Blender 模型：同名实例合在一起做实例化绘制
     const byName = new Map<string, ModelInstance[]>();
     for (const inst of world.builder.models) {
