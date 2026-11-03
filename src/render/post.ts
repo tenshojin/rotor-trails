@@ -23,16 +23,15 @@ import { traa } from 'three/addons/tsl/display/TRAANode.js';
 export type QualityTier = 'low' | 'medium' | 'high' | 'ultra';
 
 /**
- * 透明材质（玻璃、光柱、雨、云、光点等）只写最终颜色：多渲染目标的辅助通道（法线、漫反射、运动向量）
- * 默认不混合、直接覆盖，透明物体会把后面不透明物体的数据冲掉（例如风挡玻璃让整片外景被当成玻璃来算全局光照和反射）。
- * 这里让这些通道按材质的混合方式写入 alpha = 0 的值，也就是保持原样。
+ * 透明材质（玻璃、光柱、雨、云、光点等）只写最终颜色：辅助通道（法线、漫反射、运动向量）写入 alpha = 0 的值。
+ * 这些通道在 buildPost 里设成“跟随材质混合”——不透明物体照常直接写入，透明物体按 alpha = 0 混合就等于保持原样；
+ * 否则透明物体会把后面不透明物体的数据冲掉（例如风挡玻璃让整片外景被当成玻璃来算全局光照和反射）。
+ * 注意：WebGPU 后端按整条渲染通道上的设置决定逐通道混合，材质自己的 mrtNode 只能改输出值、改不了混合方式。
  */
 export function keepGBuffer(mat: THREE.Material): void {
   const m = mat as THREE.Material & { mrtNode?: THREE.Node | null };
   if (m.mrtNode || mat.userData.gbuffer) return;
-  const keep = mrt({ normal: vec4(0), diffuse: vec4(0), velocity: vec4(0) });
-  for (const k of ['normal', 'diffuse', 'velocity']) keep.setBlendMode(k, new THREE.BlendMode(THREE.MaterialBlending));
-  m.mrtNode = keep;
+  m.mrtNode = mrt({ normal: vec4(0), diffuse: vec4(0), velocity: vec4(0) });
   mat.needsUpdate = true;
 }
 
@@ -76,6 +75,9 @@ interface PostDebug {
   contrast?: number;
   vibrance?: number;
   vignette?: number;
+  bloom?: boolean;
+  /** 直接显示某个通道：normal / velocity / color */
+  view?: string;
 }
 
 export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, sun: THREE.DirectionalLight, cfg: PostConfig): Post {
@@ -94,7 +96,10 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
   // 多渲染目标：WebGPU 默认每像素最多 32 字节，所以金属度放进法线纹理的 A 通道、粗糙度放进漫反射纹理的 A 通道
   const att: Record<string, THREE.Node> = { output, normal: cfg.rayTracing ? vec4(packNormalToRGB(normalView), metalness) : packNormalToRGB(normalView), velocity };
   if (cfg.rayTracing) att.diffuse = vec4(diffuseColor.rgb, roughness);
-  scenePass.setMRT(mrt(att));
+  const passMRT = mrt(att);
+  // 辅助通道跟随材质混合：不透明物体直接写入，透明物体（keepGBuffer 写 alpha = 0）保持原样
+  for (const k of ['normal', 'diffuse', 'velocity']) if (att[k]) passMRT.setBlendMode(k, new THREE.BlendMode(THREE.MaterialBlending));
+  scenePass.setMRT(passMRT);
   // 法线、漫反射色用 8 位纹理（省带宽）
   for (const k of ['normal', 'diffuse']) {
     const t = att[k] ? scenePass.getTexture(k) : null;
@@ -151,11 +156,16 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     aa = t;
   }
   let out: THREE.Node<'vec4'> = aa;
-  if (cfg.quality === 'high' || cfg.quality === 'ultra') {
+  if ((cfg.quality === 'high' || cfg.quality === 'ultra') && dbg.bloom !== false) {
     // 阈值较高：只有太阳、强镜面反光、灯光会晕开（阳光下的白色表面本身也有约 3 的亮度）
     const b = bloom(aa, cfg.quality === 'ultra' ? 0.22 : 0.18, 0.5, 4.0);
     disposers.push(b);
     out = aa.add(b);
+  }
+  if (dbg.view) {
+    pipeline.outputColorTransform = false;
+    pipeline.outputNode = dbg.view === 'normal' ? vec4(nTex.rgb, 1) : dbg.view === 'velocity' ? vec4(vel.xy.mul(50).add(0.5), 0.5, 1) : vec4(color.rgb, 1);
+    return { pipeline, dispose: () => disposers.forEach((d) => d.dispose()) };
   }
   // 色调映射 + 色彩空间转换之后再调色（在显示空间里调对比度、饱和度更直观）
   pipeline.outputColorTransform = false;

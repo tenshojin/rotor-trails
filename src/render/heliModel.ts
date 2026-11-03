@@ -1,7 +1,8 @@
 // 直升机外观模型（程序化，机体坐标与物理碰撞体一致）：机身、尾梁、垂尾、平尾、尾桨、发动机整流罩、
 // 三片主旋翼（高速时显示为模糊桨盘）、滑橇、航行灯与防撞闪光灯。
 
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { float, length, materialOpacity, mix, smoothstep, uv, vec3 } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { HELI } from '../config/flight';
 import { loadGltf } from './gltf';
@@ -40,7 +41,7 @@ export class HeliModel {
   readonly tailRotor = new THREE.Group();
   private blades: THREE.Mesh;
   private disc: THREE.Mesh;
-  private discMat: THREE.MeshBasicMaterial;
+  private discMat: THREE.MeshBasicNodeMaterial;
   private bladeMat: THREE.MeshStandardMaterial;
   private tailDisc: THREE.Mesh;
   private beacon: THREE.Sprite;
@@ -174,22 +175,15 @@ export class HeliModel {
     this.blades.castShadow = true;
     this.rotor.add(this.blades);
     this.proc.push(this.blades);
-    // 模糊桨盘：径向条纹贴图
-    const cv = document.createElement('canvas');
-    cv.width = cv.height = 256;
-    const g = cv.getContext('2d')!;
-    const grd = g.createRadialGradient(128, 128, 10, 128, 128, 128);
-    grd.addColorStop(0, 'rgba(30,30,32,0.0)');
-    // 真实照片里转动的旋翼只是一层很淡的灰影，桨尖一圈略亮
-    grd.addColorStop(0.12, 'rgba(30,30,32,0.2)');
-    grd.addColorStop(0.92, 'rgba(30,30,32,0.12)');
-    grd.addColorStop(0.97, 'rgba(230,230,230,0.22)');
-    grd.addColorStop(1, 'rgba(30,30,32,0)');
-    g.fillStyle = grd;
-    g.fillRect(0, 0, 256, 256);
-    const discTex = new THREE.CanvasTexture(cv);
-    discTex.colorSpace = THREE.SRGBColorSpace;
-    this.discMat = new THREE.MeshBasicMaterial({ map: discTex, transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: 0.6 });
+    // 模糊桨盘：着色器里直接算径向渐变（真实照片里转动的旋翼只是一层很淡的灰影，桨尖一圈略亮）
+    this.discMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: 0.6 });
+    {
+      const r = length(uv().sub(0.5)).mul(2.0);
+      const rim = smoothstep(0.9, 0.97, r).mul(float(1).sub(smoothstep(0.97, 1.0, r)));
+      const body = smoothstep(0.08, 0.14, r).mul(mix(0.2, 0.12, smoothstep(0.14, 0.9, r))).mul(float(1).sub(smoothstep(0.95, 1.0, r)));
+      this.discMat.colorNode = mix(vec3(0.012, 0.012, 0.014), vec3(0.79, 0.79, 0.79), rim);
+      this.discMat.opacityNode = body.add(rim.mul(0.12)).mul(materialOpacity);
+    }
     this.mats.push(this.discMat);
     this.disc = new THREE.Mesh(new THREE.CircleGeometry(HELI.rotorRadius, 48).rotateX(-Math.PI / 2), this.discMat);
     this.disc.position.y = 0.03;

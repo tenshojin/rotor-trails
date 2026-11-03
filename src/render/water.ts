@@ -71,7 +71,7 @@ export class WaterView {
       metalness: 0,
       ior: 1.333,
       envMapIntensity: muddy ? 0.7 : 1.15,
-      transparent: true, // 在不透明物体之后画（折射要取到水下已画好的场景）；输出 alpha = 1
+      // 不透明（直接写入法线、反射率等辅助通道）；renderOrder = 1 保证在其他不透明物体之后画，折射才取得到水下已画好的场景
       depthWrite: true,
     });
 
