@@ -1,6 +1,7 @@
 // 植被：按地图规则确定性散布（同一份实例数据同时用于实例化渲染与碰撞代理）。
 
 import { Rng } from '../core/noise';
+import { flowAt, type FlowMap } from './flow';
 import type { MapDef, TreeType } from '../maps/types';
 import type { Heightfield } from '../sim/terrain';
 import type { Footprint } from './propBuilder';
@@ -77,7 +78,7 @@ class ExclusionGrid {
   }
 }
 
-export function scatterTrees(map: MapDef, terrain: Heightfield, surface: Uint8Array, footprints: Footprint[]): TreeSet {
+export function scatterTrees(map: MapDef, terrain: Heightfield, surface: Uint8Array, footprints: Footprint[], flow: FlowMap | null = null): TreeSet {
   const ex = new ExclusionGrid();
   for (const f of footprints) ex.add(f);
   for (const [x, z, r] of map.clearings) ex.add({ x, z, r });
@@ -111,7 +112,9 @@ export function scatterTrees(map: MapDef, terrain: Heightfield, surface: Uint8Ar
         if (surface[(iz * res + ix) * 4 + 2] > 110) continue;
         // A 通道：积雪（或港区的水泥地）上也不长
         if (surface[(iz * res + ix) * 4 + 3] > 90) continue;
-        const w = rule.mask ? rule.mask(x, z, h, slope) : 1;
+        let w = rule.mask ? rule.mask(x, z, h, slope) : 1;
+        // 沿沟生长：水汇到的地方比别处密得多
+        if (rule.wash && flow) w = Math.min(1, w * (1 - rule.wash) + rule.wash * Math.min(1, flowAt(flow, map.size, x, z) * 2.2));
         if (w <= 0 || rng.float() > w) continue;
         const s = rule.scale[0] + (rule.scale[1] - rule.scale[0]) * rng.float();
         if (ex.hit(x, z, spec.crownR * s * 0.7)) continue;

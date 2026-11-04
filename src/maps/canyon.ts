@@ -360,11 +360,11 @@ export const CANYON: MapDef = {
   ],
   vegetation: [
     // 高原上是一片片的杜松林和成丛的鼠尾草（疏密不均），谷底才有仙人掌
-    { type: 'juniper', density: 620, scale: [0.7, 1.4], maxSlope: 0.3, mask: (x, z, h) => (h > 200 ? smoothstep(-0.05, 0.4, n.fbm(x / 340, z / 340, 3)) : 0.1) },
+    { type: 'juniper', density: 620, scale: [0.7, 1.4], maxSlope: 0.3, wash: 0.3, mask: (x, z, h) => (h > 200 ? smoothstep(-0.05, 0.4, n.fbm(x / 340, z / 340, 3)) : 0.1) },
     { type: 'cactus', density: 45, scale: [0.7, 1.2], maxSlope: 0.2, mask: (_x, _z, h) => (h < 200 ? 1 : 0.15) },
     // 崖脚的崩塌石块：只落在陡崖下面的缓坡和岩架上
     { type: 'boulder', density: 5200, scale: [0.22, 1.9], maxSlope: 0.5, mask: (_x, _z, h, s) => (h < 295 ? (0.12 + 0.88 * smoothstep(0.01, 0.07, s)) * (1 - smoothstep(0.34, 0.5, s)) : 0) },
-    { type: 'shrub', density: 1900, scale: [0.6, 1.2], maxSlope: 0.34, mask: (x, z) => smoothstep(-0.25, 0.3, n.fbm(x / 170 + 9, z / 170, 3)) },
+    { type: 'shrub', density: 4200, scale: [0.5, 1.15], maxSlope: 0.34, wash: 0.75, mask: (x, z) => 0.45 * smoothstep(-0.25, 0.3, n.fbm(x / 170 + 9, z / 170, 3)) },
   ],
   clearings: [
     [-1500, 820, 70],
@@ -472,6 +472,7 @@ export const CANYON: MapDef = {
     fogTint: 0xe6cfb4,
     forestFloor: 0x7a6a48,
     mist: 0.5,
+    wash: 0xdcc39a,
   },
   sun: [220, 34],
   ambience: { wind: 0.9, birds: 0.15 },

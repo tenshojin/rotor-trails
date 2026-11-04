@@ -42,6 +42,7 @@ import {
   mx_worley_noise_float,
 } from 'three/tsl';
 import type { RockFormDef } from '../world/rockForm';
+import { FOG } from './atmosphere';
 import { terrainSun } from './sunMap';
 import type { TerrainLayers } from './terrainLayers';
 import { VFOG } from './volumetricFog';
@@ -55,6 +56,8 @@ export interface TerrainUniforms {
   noise: THREE.Texture;
   surface: THREE.Texture;
   forest: THREE.Texture;
+  /** 干河道的颜色（null：沟里植被更密） */
+  wash: THREE.Color | null;
   /** 地形宏观图与岩石浮雕图（见 terrainMacro.ts） */
   macro: THREE.Texture;
   relief: THREE.Texture;
@@ -112,7 +115,8 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const h = P.y;
     const muv = P.xz.div(U.mapSize).add(0.5);
     const surf = texture(U.surface, muv);
-    const forest = texture(U.forest, muv).r;
+    const forestMap = texture(U.forest, muv);
+    const forest = forestMap.r;
     // 地图外面的远景地形没有宏观图：凹凸取中性值，坡度用几何法线
     const inMap = step(abs(muv.x.sub(0.5)), 0.5).mul(step(abs(muv.y.sub(0.5)), 0.5));
     const mac0 = texture(U.macro, muv);
@@ -128,7 +132,8 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const n2 = triG(0.019, 0.0).toVar();
     const n3 = triG(0.045, 0.37).toVar();
     // 各层权重：草地 → 林地 → 沙 → 泥土 → 岩石 → 积雪，逐层覆盖
-    const g2 = smoothstep(0.35, 0.65, n1);
+    // 两种地表的分界不是一条平滑的曲线：掺上小尺度的噪声，边缘才碎
+    const g2 = smoothstep(0.38, 0.62, n1.add(n3.sub(0.5).mul(0.3)).add(n2.sub(0.5).mul(0.24)));
     const fo = clamp(forest.mul(1.3), 0.0, 0.85);
     // 沙滩的宽窄沿海岸线变化：有的地方是宽沙滩，有的地方树林和岩石直接到水边
     const beachVar = texture(noise, P.xz.mul(0.0034).add(0.71)).g.sub(0.5).mul(3.4);
@@ -289,7 +294,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
         if (R.debris) {
           // 岩架上堆的是上面崩下来的碎石，和岩壁同一个颜色；只有平的谷底、台地才是沙土
           const deb = float(1).sub(rockW).mul(smoothstep(0.035, 0.11, mac.a)).mul(R.debris);
-          col.assign(mix(col, stain.rgb.mul(clamp(lum, 0.7, 1.25)), deb));
+          col.assign(mix(col, stain.rgb.mul(clamp(lum, 0.7, 1.05)), deb));
         }
       } else if (U.strata > 0) {
         const sc = strataColor(h.add(n1.sub(0.5).mul(18.0)));
@@ -407,6 +412,11 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const big2 = texture(noise, P.xz.mul(0.00083).add(0.6)).r;
     const patchK = float(1).sub(rockW.mul(0.6)).mul(float(1).sub(snowW));
     col.mulAssign(mix(vec3(1.0), mix(vec3(0.8, 0.84, 0.84), vec3(1.16, 1.12, 1.02), big.mul(0.6).add(big2.mul(0.4))), patchK));
+    // 水系：雨水汇到的沟。荒漠里是一条条浅色的干河道，别处是沿沟更密更绿的植被
+    const fl = forestMap.g.mul(inMap);
+    const washK = smoothstep(0.1, 0.5, fl.add(n3.sub(0.5).mul(0.2))).mul(float(1).sub(rockW)).mul(float(1).sub(snowW)).mul(float(1).sub(surf.a)).toVar();
+    if (U.wash) col.assign(mix(col, c3(U.wash).mul(n2.mul(0.3).add(0.85)), washK.mul(0.62)));
+    else col.mulAssign(mix(vec3(1.0), vec3(0.66, 0.8, 0.58), washK.mul(float(1).sub(forest)).mul(0.85)));
     // 整体降低一点饱和度：照片材质向地图配色靠拢后草地偏艳，在中性色调映射下会显得发荧光
     col.assign(mix(col, vec3(dot(col, LUMW)), 0.18));
     // 森林区远处的“树冠层”：从空中看真实的森林是连成一片的树冠，而不是一棵棵树之间露出草地。
@@ -461,6 +471,8 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
   // 反光：山谷里背阴的岩壁被对面晒着太阳的岩壁照亮——暖色的光在阴影里来回反射，
   // 这是峡谷清晨、黄昏最好看的地方，也是阴影里不至于一片死黑的原因
   const shadeK = float(1).sub(terrainSun(positionWorld));
-  mat.emissiveNode = (res.get('col') as N<'vec3'>).mul(VFOG.sun).mul(shadeK.mul(float(1.15).sub(SKY_VIS())).mul(0.1));
+  // 背对太阳的坡（自己的影子里）也一样：只有蓝天照着会发青，实际上还接着地面反上来的暖光
+  const backK = clamp(dot(normalize(normalWorld), FOG.sunDir).negate().add(0.15), 0.0, 1.0);
+  mat.emissiveNode = (res.get('col') as N<'vec3'>).mul(VFOG.sun).mul(shadeK.mul(float(1.15).sub(SKY_VIS())).mul(0.1).add(backK.mul(0.075)));
   return mat;
 }

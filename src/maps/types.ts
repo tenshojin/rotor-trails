@@ -66,6 +66,8 @@ export interface VegetationRule {
   maxSlope?: number;
   /** 返回 0..1 的分布权重 */
   mask?: (x: number, z: number, h: number, slope: number) => number;
+  /** 沿沟生长的程度 0..1：沟里的权重往 1 靠（见 world/flow.ts） */
+  wash?: number;
 }
 
 export interface RouteNodeDef {
@@ -178,6 +180,8 @@ export interface BiomeDef {
   forestFloor: number;
   /** 贴地薄雾的浓淡（湿润的海边、雨林 > 1，干燥的高原、荒漠 < 1；默认 1） */
   mist?: number;
+  /** 干河道的颜色（荒漠里的沟是一条条浅色的沙；不设时沟里按植被更密处理，颜色偏深偏绿） */
+  wash?: number;
 }
 
 export interface AmbienceDef {

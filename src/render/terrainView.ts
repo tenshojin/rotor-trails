@@ -27,6 +27,7 @@ export function makeTerrainUniforms(map: MapDef, surfaceTex: THREE.Texture, fore
     surface: surfaceTex,
     forest: forestTex,
     macro: macroTex,
+    wash: B.wash === undefined ? null : col(B.wash),
     relief: getRockReliefTexture(),
     layers,
     mapSize: map.size,

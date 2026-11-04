@@ -254,8 +254,10 @@ export const HIMALAYA: MapDef = {
     // 冰碛：谷底和山脚散落的大石块
     { type: 'boulder', density: 1500, scale: [0.25, 1.7], maxH: 1020, maxSlope: 0.5, mask: (x, z, _h, s) => smoothstep(0.5, 0.62, 0.5 + 0.5 * n.fbm(x / 210 - 5, z / 210, 3)) * (1 - smoothstep(0.34, 0.5, s)) },
     // 灌丛成片长：一片片深色的杜松、杜鹃灌丛，中间是草甸和碎石
-    { type: 'juniper', density: 900, scale: [0.6, 1.1], minH: 300, maxH: 950, maxSlope: 0.5, mask: (x, z) => smoothstep(0.42, 0.62, 0.5 + 0.5 * n2.fbm(x / 170, z / 170, 3)) },
-    { type: 'shrub', density: 1500, scale: [0.6, 1.1], maxH: 1150, maxSlope: 0.55, mask: (x, z) => 0.12 + 0.88 * smoothstep(0.4, 0.6, 0.5 + 0.5 * n.fbm(x / 130 + 3, z / 130, 3)) },
+    // 谷里是一片片的云杉林（沿着沟长上山坡），林子外面是成丛的灌木
+    { type: 'spruce', density: 1500, scale: [0.55, 1.15], minH: 300, maxH: 950, maxSlope: 0.52, wash: 0.25, mask: (x, z) => smoothstep(0.46, 0.6, 0.5 + 0.5 * n2.fbm(x / 170, z / 170, 3)) },
+    { type: 'juniper', density: 120, scale: [0.5, 0.85], minH: 300, maxH: 1050, maxSlope: 0.5, mask: (x, z) => smoothstep(0.42, 0.62, 0.5 + 0.5 * n.fbm(x / 240, z / 240, 3)) },
+    { type: 'shrub', density: 2400, scale: [0.5, 1.05], maxH: 1150, maxSlope: 0.55, wash: 0.5, mask: (x, z) => 0.12 + 0.88 * smoothstep(0.4, 0.6, 0.5 + 0.5 * n.fbm(x / 130 + 3, z / 130, 3)) },
   ],
   clearings: [
     [BASE[0], BASE[2], 60],

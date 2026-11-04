@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { hash2i } from '../core/noise';
 import type { MapDef } from '../maps/types';
 import type { Heightfield } from '../sim/terrain';
+import type { FlowMap } from '../world/flow';
 import type { TreeSet } from '../world/vegetation';
 
 /** 周期性值噪声（可无缝平铺）。 */
@@ -98,8 +99,8 @@ export function makeSurfaceTexture(surface: Uint8Array, res: number): THREE.Data
   return t;
 }
 
-/** 植被密度（512²）：森林地面变暗、远景替代。R = 树冠覆盖度。 */
-export function makeForestTexture(trees: TreeSet, size: number): THREE.DataTexture {
+/** 植被密度（512²）：森林地面变暗、远景替代。R = 树冠覆盖度，G = 汇流（水系，见 world/flow.ts）。 */
+export function makeForestTexture(trees: TreeSet, size: number, flow: FlowMap | null = null): THREE.DataTexture {
   const N = 512;
   const acc = new Float32Array(N * N);
   const k = N / size;
@@ -125,6 +126,15 @@ export function makeForestTexture(trees: TreeSet, size: number): THREE.DataTextu
     const v = Math.min(1, acc[i]);
     data[i * 4] = Math.round(v * 255);
     data[i * 4 + 3] = 255;
+  }
+  if (flow) {
+    for (let z = 0; z < N; z++) {
+      const fz = Math.min(flow.n - 1, Math.round(((z + 0.5) / N) * (flow.n - 1)));
+      for (let x = 0; x < N; x++) {
+        const fx = Math.min(flow.n - 1, Math.round(((x + 0.5) / N) * (flow.n - 1)));
+        data[(z * N + x) * 4 + 1] = flow.data[fz * flow.n + fx];
+      }
+    }
   }
   const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
   t.magFilter = THREE.LinearFilter;

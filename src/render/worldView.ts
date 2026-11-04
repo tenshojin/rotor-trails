@@ -240,7 +240,7 @@ export class WorldView {
     progress?.(0.82, '构建地形网格');
     await tick();
     const surfaceTex = makeSurfaceTexture(world.surface, world.terrain.res);
-    const forestTex = makeForestTexture(world.trees, map.size);
+    const forestTex = makeForestTexture(world.trees, map.size, world.flow);
     // 体积雾：贴地薄雾按离地高度变淡、林区更浓
     const groundTex = makeGroundHeightTexture(world.terrain, map.waterLevel);
     const macroTex = makeTerrainMacroTexture(world.terrain);

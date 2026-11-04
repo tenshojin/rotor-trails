@@ -1,6 +1,7 @@
 // 世界生成：地形 → 停机坪 → 道具（渲染几何 + 碰撞体）→ 植被。仿真与渲染共用同一份结果。
 
 import { Rng } from '../core/noise';
+import { makeFlowMap, type FlowMap } from './flow';
 import type { MapDef, PadDef, V3 } from '../maps/types';
 import { obstacleTop } from '../sim/routeCheck';
 import { HeightBuilder, type Heightfield } from '../sim/terrain';
@@ -16,6 +17,8 @@ export interface WorldData {
   map: MapDef;
   terrain: Heightfield;
   surface: Uint8Array;
+  /** 汇流图（水系） */
+  flow: FlowMap;
   builder: PropBuilder;
   colliders: ColliderSpec[];
   trees: TreeSet;
@@ -109,8 +112,9 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
   }
   progress?.(0.65, '种植植被');
   await tick();
-  const trees = scatterTrees(map, terrain, hb.surface, B.footprints);
-  const world: WorldData = { map, terrain, surface: hb.surface, builder: B, colliders: B.colliders, trees, pads, ctx };
+  const flow = makeFlowMap(terrain, map.waterLevel);
+  const trees = scatterTrees(map, terrain, hb.surface, B.footprints, flow);
+  const world: WorldData = { map, terrain, surface: hb.surface, flow, builder: B, colliders: B.colliders, trees, pads, ctx };
   resolveAutoAltitudes(world);
   attachPickupsToNodes(world);
   progress?.(0.8, '完成');

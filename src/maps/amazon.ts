@@ -286,8 +286,8 @@ export const AMAZON: MapDef = {
   defaultWeather: 'clear',
   biome: {
     sand: 0xc9b08a,
-    grass: 0x3f6a2a,
-    grass2: 0x4f7a30,
+    grass: 0x46622f,
+    grass2: 0x566e35,
     dirt: 0x7a5a3a,
     rock: 0x6a6052,
     rock2: 0x4e463c,
