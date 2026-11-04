@@ -70,7 +70,7 @@ save_l(0.46 + 0.10 * (1 - pebble) + 0.04 * band_noise(30, 120), 'leather_rough')
 # 饰板与皮革的底色：皮纹的凹处略暗，再叠一层很淡的大块斑驳（手摸、日晒留下的深浅），整片不再是一个纯色
 mottle = band_noise(3, 12) * 0.6 + band_noise(12, 40) * 0.4
 cavity = np.clip(1.0 - pebble * 1.15, 0, 1)
-for name, rgb, mot, cav in (('lining', (0.565, 0.556, 0.535), 0.018, 0.05), ('liningd', (0.285, 0.285, 0.29), 0.022, 0.09), ('leather', (0.25, 0.255, 0.265), 0.03, 0.16)):
+for name, rgb, mot, cav in (('lining', (0.565, 0.556, 0.535), 0.018, 0.05), ('liningd', (0.3, 0.292, 0.28), 0.022, 0.09), ('leather', (0.272, 0.262, 0.25), 0.03, 0.16)):
     k = (1 + mot * mottle - cav * cavity)[..., None]
     save_rgb(np.array(rgb)[None, None, :] * k, name + '_diffuse')
 

@@ -608,6 +608,24 @@ table.score .total td {
   padding: 9px 12px;
   backdrop-filter: blur(2px);
 }
+.hud .panel {
+  transition: opacity 0.8s;
+}
+/* 平稳飞行时面板淡下去；有警告、分岔、着陆时恢复 */
+.hud.hud-calm .panel {
+  opacity: 0.3;
+}
+/* 简洁：只留航向带、目标标记和警告 */
+.hud.hud-min .hud-obj,
+.hud.hud-min .hud-flight,
+.hud.hud-min .hud-status,
+.hud.hud-min .hud-buffs {
+  display: none;
+}
+/* 隐藏：只有告警还显示 */
+.hud.hud-off > :not(.hud-warn):not(.hud-toasts) {
+  display: none;
+}
 .hud-label {
   font-size: 11px;
   letter-spacing: 0.15em;

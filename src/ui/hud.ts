@@ -44,6 +44,9 @@ export class Hud {
   private hint: HTMLDivElement;
   private debug: HTMLDivElement;
   private lastText = -1;
+  private mode = 0;
+  /** 上次有事情需要注意的时间：平稳飞行一段时间后，面板淡下去，把风景让出来 */
+  private busyT = 0;
   showDebug = false;
   private proj = { x: 0, y: 0, behind: false };
   private pkPos = new THREE.Vector3();
@@ -81,6 +84,14 @@ export class Hud {
 
   show(on: boolean): void {
     this.root.classList.toggle('hidden', !on);
+  }
+
+  /** 完整 → 简洁 → 隐藏，返回新模式的名字 */
+  cycleMode(): string {
+    this.mode = (this.mode + 1) % 3;
+    this.root.classList.toggle('hud-min', this.mode === 1);
+    this.root.classList.toggle('hud-off', this.mode === 2);
+    return ['完整', '简洁', '隐藏'][this.mode];
   }
 
   setOpacity(o: number): void {
@@ -215,6 +226,9 @@ export class Hud {
     if (s.weatherInCloud > 0.5) warns.push('<div class="w amber">在云中：依靠仪表与导航飞行</div>');
     if (st === 'critical') warns.push('<div class="w red">严重受损：前往维修点或谨慎飞行</div>');
     this.warn.innerHTML = warns.join('');
+    const busy = warns.length > 0 || !this.forks.classList.contains('hidden') || !this.landing.classList.contains('hidden') || s.groundSpeed < 8 || this.toasts.children.length > 0;
+    if (busy) this.busyT = t;
+    this.root.classList.toggle('hud-calm', t - this.busyT > 7);
     this.updateLanding(s, set);
     if (this.showDebug) {
       this.debug.classList.remove('hidden');

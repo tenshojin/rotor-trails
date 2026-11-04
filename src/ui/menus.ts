@@ -303,6 +303,7 @@ export class UI {
           <tr><td>${k('view')}</td><td>切换座舱/追尾视角</td></tr>
           <tr><td>${k('nav')}</td><td>切换导航目标（主线/可选任务）；分岔处切换推荐路线</td></tr>
           <tr><td>${k('mapRange')}</td><td>切换座舱地图显示范围</td></tr>
+          <tr><td>${k('hud')}</td><td>HUD 显示：完整 / 简洁（只留航向带和目标标记）/ 隐藏（想看风景、截图的时候）</td></tr>
           <tr><td>${k('pause')}</td><td>暂停</td></tr></table></div>
         <div><h3>飞行要点</h3><ul class="tips">
           <li>直升机有真实的重量和惯性：加速、减速、转弯都需要时间和空间，<b>高速时请提前减速</b>。</li>

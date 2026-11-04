@@ -42,6 +42,7 @@ export class HeliModel {
   private blades: THREE.Mesh;
   private disc: THREE.Mesh;
   private discMat: THREE.MeshBasicNodeMaterial;
+  private inCockpit = true;
   private bladeMat: THREE.MeshStandardMaterial;
   private tailDisc: THREE.Mesh;
   private beacon: THREE.Sprite;
@@ -276,6 +277,7 @@ export class HeliModel {
   setCockpitView(cockpit: boolean): void {
     // Blender 外观模型从座舱里只能透过顶窗看到整流罩与旋翼，始终显示；程序外观在座舱视角时隐藏
     if (!this.extLoaded) this.exterior.visible = !cockpit;
+    this.inCockpit = cockpit;
   }
 
   /** rpm：旋翼转速比例（0..1），t：时间，dt：帧间隔 */
@@ -287,13 +289,15 @@ export class HeliModel {
     this.rotorSpin.rotation.y = this.rotorAngle;
     // 高转速时桨叶变透明、显示模糊桨盘（避免频闪）
     const blur = Math.min(1, Math.max(0, (rpm - 0.3) / 0.5));
-    this.bladeMat.opacity = 1 - blur * 0.82;
+    // 从座舱里看：高速转动的桨叶是一片几乎看不见的闪动，不是一块块半透明的板子
+    const fade = this.inCockpit ? 0.95 : 0.82;
+    this.bladeMat.opacity = 1 - blur * fade;
     this.bladeMat.depthWrite = blur < 0.5;
     for (const m of this.glbBladeMats) {
-      m.opacity = 1 - blur * 0.82;
+      m.opacity = 1 - blur * fade;
       m.depthWrite = blur < 0.5;
     }
-    this.discMat.opacity = blur * 0.45;
+    this.discMat.opacity = blur * (this.inCockpit ? 0.14 : 0.45);
     // 高速旋转时桨叶不投影：每帧角度不同的桨叶阴影会被时间抗锯齿累积成一整块深色圆盘，
     // 而真实的旋翼阴影只是很淡的闪烁
     const shadow = blur < 0.35;

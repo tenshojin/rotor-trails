@@ -1548,12 +1548,32 @@ if DO_BAKE:
         moving.append((ob.name, ob.matrix_world.translation.copy(), dict(ob.items())))
         DYNAMIC.remove(ob)
         static.append(ob)
-    whole = K.join(static, 'cockpit_static')
+    # 舱壁（开了窗洞的外壳）单独按“绕机身一圈 × 沿机身长度”展开，占贴图下面一块：
+    # 智能展开会把窗洞边缘的细碎三角形拆成很多小岛，烘出来窗框旁边一圈毛边
+    shell_ob = next(o for o in static if o.name == 'st_shell')
+    whole = K.join([o for o in static if o is not shell_ob], 'cockpit_static')
     static = [whole]
     AO_WEIGHT = {'cp_paint': 0.02, 'cp_paint_dark': 0.02, 'cp_paint_stripe': 0.02, 'cp_lining': 0.8, 'cp_floor': 0.6, 'cp_lining_dark': 0.9,
                  'cp_panelfront': 3.0, 'cp_gauges': 2.0, 'cp_black': 1.6, 'cp_knob': 1.6, 'cp_glare': 1.0,
                  'cp_felt': 0.6, 'cp_seatmesh': 1.0, 'cp_leather': 1.0, 'cp_brushed': 0.9, 'cp_placard': 0.5}
     K.smart_uv(whole, 'AO', angle=60.0, margin=0.0015, weight=lambda n: AO_WEIGHT.get(n, 1.0))
+    SPLIT = 0.42
+    lay = whole.data.uv_layers['AO']
+    for d in lay.data:
+        d.uv = (d.uv[0], SPLIT + d.uv[1] * (1 - SPLIT))
+    me = shell_ob.data
+    sl = me.uv_layers.new(name='AO')
+    names = [m.name if m else '' for m in me.materials]
+    for poly in me.polygons:
+        inner = names[poly.material_index] in ('cp_lining', 'cp_seal')
+        cos = [me.vertices[me.loops[li].vertex_index].co for li in poly.loop_indices]
+        As = [math.atan2(c.x, c.z) / (2 * math.pi) + 0.5 for c in cos]
+        # 展开的接缝在机腹（地板下面看不见）：跨接缝的面和外表面都不需要遮蔽，指到贴图里留白的一小块（ao_finish.py 涂白）
+        ok = inner and max(As) - min(As) < 0.4
+        for li, c, a in zip(poly.loop_indices, cos, As):
+            sl.data[li].uv = (0.002 + a * 0.996, 0.002 + (c.y + 1.4) / 3.95 * (SPLIT - 0.008)) if ok else (0.9985, SPLIT - 0.003)
+    whole = K.join([whole, shell_ob], 'cockpit_static')
+    static = [whole]
     lay = whole.data.uv_layers['AO']
     us = [d.uv[0] for d in lay.data]
     vs = [d.uv[1] for d in lay.data]

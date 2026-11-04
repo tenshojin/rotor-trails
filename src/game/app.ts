@@ -379,7 +379,7 @@ export class App {
     this.mainMenu();
   }
 
-  private onEdge(a: 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange'): void {
+  private onEdge(a: 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud'): void {
     const s = this.session;
     if (a === 'pause') {
       if (this.state === 'playing') this.pause();
@@ -392,6 +392,7 @@ export class App {
     else if (a === 'center') this.view.rig.center();
     else if (a === 'view') this.view.rig.setMode(this.view.rig.mode === 'cockpit' ? 'chase' : 'cockpit');
     else if (a === 'nav') s.cycleNav();
+    else if (a === 'hud') this.hud.toast(`HUD：${this.hud.cycleMode()}`, 'info', 1500);
     else if (a === 'mapRange') {
       const r = [1000, 2000, 4000];
       const c = this.view.cockpit;
