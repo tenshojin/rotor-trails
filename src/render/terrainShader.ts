@@ -28,6 +28,7 @@ import {
   normalWorld,
   positionWorld,
   pow,
+  sin,
   smoothstep,
   sqrt,
   step,
@@ -40,7 +41,10 @@ import {
   mx_noise_float,
   mx_worley_noise_float,
 } from 'three/tsl';
+import type { RockFormDef } from '../world/rockForm';
+import { terrainSun } from './sunMap';
 import type { TerrainLayers } from './terrainLayers';
+import { VFOG } from './volumetricFog';
 
 type N<T extends string> = THREE.Node<T>;
 
@@ -77,6 +81,9 @@ export interface TerrainUniforms {
   waterLevel: number;
   /** 雨后地面变湿（0..1），每帧更新 */
   uWet: ReturnType<typeof makeWetUniform>;
+  /** 地层（见 world/rockForm.ts）：有地层表时，岩石的颜色按它查 */
+  rockForm: RockFormDef | null;
+  strataLUT: THREE.Texture | null;
 }
 
 const LUMW = vec3(0.2126, 0.7152, 0.0722);
@@ -123,7 +130,9 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     // 各层权重：草地 → 林地 → 沙 → 泥土 → 岩石 → 积雪，逐层覆盖
     const g2 = smoothstep(0.35, 0.65, n1);
     const fo = clamp(forest.mul(1.3), 0.0, 0.85);
-    const sandW = max(float(1).sub(smoothstep(U.beachTop - 0.5, U.beachTop + 2.0, h.add(n2.sub(0.5).mul(2.5)))), surf.r).toVar();
+    // 沙滩的宽窄沿海岸线变化：有的地方是宽沙滩，有的地方树林和岩石直接到水边
+    const beachVar = texture(noise, P.xz.mul(0.0034).add(0.71)).g.sub(0.5).mul(3.4);
+    const sandW = max(float(1).sub(smoothstep(U.beachTop - 0.5, U.beachTop + 2.0, h.add(n2.sub(0.5).mul(2.5)).add(beachVar))), surf.r).toVar();
     const dirtW = surf.g.mul(0.9).toVar();
     const rk = triR(0.006, 0.0).mul(0.65).add(triG(0.028, 0.0).mul(0.35));
     const r2 = smoothstep(0.32, 0.68, rk).toVar();
@@ -251,7 +260,25 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       }
       ws.assign(max(ws, 1e-3));
       col.assign(acc.div(ws));
-      if (U.strata > 0) {
+      if (U.rockForm && U.strataLUT) {
+        // 地层：岩石的颜色按地层表查（层线和地形的台阶对得上，绕山连续），照片材质只留明暗细节
+        const R = U.rockForm;
+        let sw: N<'float'> = P.x.mul(R.dip[0]).add(P.z.mul(R.dip[1]));
+        for (const [kx, kz, a, ph] of R.waves) sw = sw.add(sin(P.x.mul(kx).add(P.z.mul(kz)).add(ph)).mul(a));
+        // 层线不是尺子画的：沿层面有几米的起伏，上层风化下来的颜色也会顺着岩壁往下淌一点
+        const sy = h.add(sw).add(n2.sub(0.5).mul(7.0)).add(n3.sub(0.5).mul(5.0)).add(n1.sub(0.5).mul(6.0));
+        const lay = texture(U.strataLUT, vec2(sy.sub(R.y0).div(R.y1 - R.y0), 0.5));
+        const stain = texture(U.strataLUT, vec2(sy.add(9.0).sub(R.y0).div(R.y1 - R.y0), 0.5));
+        const lum = dot(col, LUMW).div(Math.max(0.02, 0.2126 * U.rock.r + 0.7152 * U.rock.g + 0.0722 * U.rock.b));
+        const rc = mix(lay.rgb, stain.rgb, smoothstep(0.45, 0.8, n3).mul(0.5)).mul(clamp(lum, 0.55, 1.5));
+        // 只有真正的崖壁才露出层线：缓坡上满山一圈圈的条纹会像等高线
+        col.assign(mix(col, rc, rockW.mul(smoothstep(0.26, 0.5, mac.a)).mul(R.tint)));
+        if (R.debris) {
+          // 岩架上堆的是上面崩下来的碎石，和岩壁同一个颜色；只有平的谷底、台地才是沙土
+          const deb = float(1).sub(rockW).mul(smoothstep(0.035, 0.11, mac.a)).mul(R.debris);
+          col.assign(mix(col, stain.rgb.mul(clamp(lum, 0.7, 1.25)), deb));
+        }
+      } else if (U.strata > 0) {
         const sc = strataColor(h.add(n1.sub(0.5).mul(18.0)));
         col.assign(mix(col, col.mul(sc).div(max(0.05, dot(sc, LUMW))).mul(0.42), rockW.mul(U.strata * 0.32)));
       }
@@ -270,9 +297,10 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
         const sr = float(0).toVar();
         If(triK.lessThan(0.99), () => sampleFlat(7, float(1).sub(triK), sc, so, sr));
         If(triK.greaterThan(0.01), () => sampleTri(7, triK, sc, so, sr));
-        // 航拍雪原偏灰，提亮成新雪
-        col.assign(mix(col, mix(sc, vec3(0.92, 0.94, 0.97), 0.35), sW));
-        nb.assign(normalize(mix(nb, normalize(n.add(so.mul(0.6))), sW)));
+        // 航拍雪原偏灰，提亮成新雪。远处看雪是一整片平滑的白：照片的纹理按距离淡掉，否则平铺的重复一眼就能看出来
+        const snowFar = smoothstep(70.0, 520.0, length(P.sub(cameraPosition)));
+        col.assign(mix(col, mix(sc, vec3(0.8, 0.83, 0.88), mix(float(0.35), float(0.9), snowFar)), sW));
+        nb.assign(normalize(mix(nb, normalize(n.add(so.mul(mix(float(0.6), float(0.05), snowFar)))), sW)));
         rough.assign(mix(rough, sr.mul(0.8), sW));
       });
       snowW.assign(sW);
@@ -336,7 +364,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const rB = relief(53.0, 0.41);
     const footK = float(1).sub(smoothstep(0.5, 3.0, length(dPx).add(length(dPy))));
     const reliefN = rA.xyz.mul(1.15).add(rB.xyz.mul(footK.mul(0.8)));
-    nb.assign(normalize(nb.add(reliefN.mul(mix(float(0.16), float(1.0), rockK)))));
+    nb.assign(normalize(nb.add(reliefN.mul(mix(mix(float(0.16), float(0.34), snowW), float(1.0), rockK)))));
     const rH = rA.w.mul(0.6).add(rB.w.mul(0.4));
     // 凸处（山脊、岩棱）亮，凹处（沟、裂缝）暗；积雪处减弱
     const shade = float(1).sub(cavS.mul(0.26)).sub(cavL.mul(0.2)).add(rH.sub(0.42).mul(mix(float(0.1), float(0.62), rockK)));
@@ -372,11 +400,16 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     // 水下：变暗偏蓝绿；雨后变湿：变暗、更光滑
     const under = float(1).sub(smoothstep(U.waterLevel - 2.0, U.waterLevel + 0.3, h));
     col.assign(mix(col, col.mul(vec3(0.55, 0.7, 0.72)), under));
+    // 水边一条被浪打湿的深色带（沙滩、礁石、岩壁脚下都有）
+    const tide = float(1).sub(smoothstep(U.waterLevel + 0.25, U.waterLevel + 1.1, h.add(n3.sub(0.5).mul(0.9))));
+    col.mulAssign(mix(float(1), float(0.62), tide.mul(float(1).sub(under))));
+    rough.assign(mix(rough, 0.42, tide));
     const wet = U.uWet.mul(float(1).sub(snowW));
     col.mulAssign(mix(1.0, 0.68, wet));
     rough.assign(mix(rough, 0.55, wet.mul(0.7)));
     return TerrainOut(col, rough, nb, mix(float(0.42), float(1), mac.b));
   });
+  const SKY_VIS = Fn(() => texture(U.macro, positionWorld.xz.div(U.mapSize).add(0.5)).b);
   // 颜色、粗糙度、法线引用同一个计算结果（着色器里只算一次）
   const res = result();
   // 颜色不放在 colorNode 上：three.js 为了支持带透明度的阴影，会把 colorNode 的 alpha 带进阴影通道的着色器，
@@ -392,5 +425,9 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
   mat.roughnessNode = res.get('rough') as N<'float'>;
   mat.normalNode = normalize(cameraViewMatrix.mul(vec4(res.get('nb') as N<'vec3'>, 0.0)).xyz);
   mat.aoNode = res.get('ao') as N<'float'>;
+  // 反光：山谷里背阴的岩壁被对面晒着太阳的岩壁照亮——暖色的光在阴影里来回反射，
+  // 这是峡谷清晨、黄昏最好看的地方，也是阴影里不至于一片死黑的原因
+  const shadeK = float(1).sub(terrainSun(positionWorld));
+  mat.emissiveNode = (res.get('col') as N<'vec3'>).mul(VFOG.sun).mul(shadeK.mul(float(1.15).sub(SKY_VIS())).mul(0.1));
   return mat;
 }

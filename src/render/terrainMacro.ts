@@ -7,6 +7,7 @@
 
 import * as THREE from 'three/webgpu';
 import type { Heightfield } from '../sim/terrain';
+import { layerTable, type RockFormDef } from '../world/rockForm';
 
 function boxBlur(src: Float32Array, n: number, r: number): Float32Array {
   const tmp = new Float32Array(src.length);
@@ -83,6 +84,53 @@ export function makeTerrainMacroTexture(t: Heightfield): THREE.DataTexture {
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.needsUpdate = true;
   return tex;
+}
+
+/**
+ * 地层表贴图：一行像素，横坐标是地层坐标（y0..y1）。每层一个底色，
+ * 层内叠上细碎的纹层（风化程度不同，深浅不一），层与层的接触面有一条深色的线——这是岩壁上最抢眼的横向线条。
+ * A 通道是硬度。
+ */
+export function makeStrataTexture(d: RockFormDef): THREE.DataTexture {
+  const W = 4096;
+  const data = new Uint8Array(W * 4);
+  const T = layerTable(d);
+  const c = new THREE.Color();
+  const span = d.y1 - d.y0;
+  for (let i = 0; i < W; i++) {
+    const y = d.y0 + ((i + 0.5) / W) * span;
+    const L = T.at[Math.min(T.at.length - 1, Math.max(0, (y - d.y0) | 0))];
+    const b = d.bands[T.band[L]];
+    const u = (y - T.start[L]) / (T.end[L] - T.start[L]);
+    c.setHex(b.c, THREE.SRGBColorSpace);
+    // 纹层：几个频率不同的层状起伏（硬层薄、软层厚一些）
+    const f1 = Math.sin(y * 1.9 + L * 2.1);
+    const f2 = Math.sin(y * 0.73 + L * 0.7);
+    const f3 = Math.sin(y * 4.3 + L * 5.3);
+    const lam = 1 + 0.07 * f1 + 0.09 * f2 + 0.04 * f3;
+    // 接触面：层底略深（上一层风化下来的物质盖住了它），层顶略浅
+    const edge = 1 - 0.24 * (1 - Math.min(1, u * (T.end[L] - T.start[L]) / 1.6)) + 0.08 * u;
+    const k = lam * edge;
+    const o = i * 4;
+    // 按 sRGB 字节存（贴图声明成 sRGB，读出来是线性值）
+    data[o] = Math.min(255, Math.round(lin2s(c.r * k) * 255));
+    data[o + 1] = Math.min(255, Math.round(lin2s(c.g * k) * 255));
+    data[o + 2] = Math.min(255, Math.round(lin2s(c.b * k) * 255));
+    data[o + 3] = Math.round(b.hard * 255);
+  }
+  const tex = new THREE.DataTexture(data, W, 1, THREE.RGBAFormat);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function lin2s(v: number): number {
+  const x = Math.max(0, v);
+  return x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055;
 }
 
 function hash(x: number, y: number, s: number): number {

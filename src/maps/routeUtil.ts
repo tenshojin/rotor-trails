@@ -1,5 +1,6 @@
 // 航线工具：沿地形样条（峡谷、河道、峡湾、山谷）自动生成航点，保证航线与地形走向一致。
 
+import { riverOffsets } from '../world/river';
 import { densifyPath, type Vec2 } from '../sim/terrain';
 import type { RouteNodeDef, V3 } from './types';
 
@@ -68,4 +69,31 @@ export class PathSampler {
     }
     return out;
   }
+}
+
+/**
+ * 沿一条中心线做河：off(s) 是偏离中心线的距离（河在谷底蜿蜒），keep 里的圆（停机坪、建筑）要绕开。
+ * 返回沿下游方向排列的点 [x, z, 水面高度, 半宽]；level 随 s 升高时自动反过来排。
+ */
+export function riverLine(
+  P: PathSampler,
+  s0: number,
+  s1: number,
+  step: number,
+  off: (s: number) => number,
+  level: (s: number) => number,
+  half: (s: number) => number,
+  keep: Array<[number, number, number]>,
+): Array<[number, number, number, number]> {
+  const pts: Array<{ x: number; z: number; nx: number; nz: number; off: number; s: number }> = [];
+  for (let s = s0; s <= s1; s += step) {
+    const c = P.at(s);
+    const a = P.at(s - 6);
+    const b = P.at(s + 6);
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    pts.push({ x: c[0], z: c[1], nx: -(b[1] - a[1]) / l, nz: (b[0] - a[0]) / l, off: off(s), s });
+  }
+  riverOffsets(pts, keep);
+  const out = pts.map((p): [number, number, number, number] => [p.x + p.nx * p.off, p.z + p.nz * p.off, level(p.s), half(p.s)]);
+  return out[0][2] < out[out.length - 1][2] ? out.reverse() : out;
 }

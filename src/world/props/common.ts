@@ -22,7 +22,7 @@ export type PropFn = (B: PropBuilder, d: PropDef, rng: Rng, ctx: PropCtx) => voi
 
 export const C = {
   white: 0xe8e6e0,
-  concrete: 0x9a9890,
+  concrete: 0x7f7d76,
   darkConcrete: 0x6f6d68,
   asphalt: 0x3a3b3d,
   yellow: 0xe0b020,

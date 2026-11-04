@@ -60,6 +60,8 @@ export interface PostConfig {
 
 export interface Post {
   pipeline: THREE.RenderPipeline;
+  /** 色调映射之前的线性画面（人眼适应用它测亮度） */
+  hdr(): THREE.Texture | null;
   /** 体积雾节点（没开时为 null；调试用） */
   fog: VolumetricFogNode | null;
   dispose(): void;
@@ -103,7 +105,7 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     // FXAA 要在色调映射与色彩空间转换之后做
     pipeline.outputColorTransform = false;
     pipeline.outputNode = fxaa(grade(renderOutput(scenePass), dbg));
-    return { pipeline, fog: null, dispose: () => disposers.forEach((d) => d.dispose()) };
+    return { pipeline, fog: null, hdr: () => scenePass.getTexture('output'), dispose: () => disposers.forEach((d) => d.dispose()) };
   }
   // 多渲染目标：WebGPU 默认每像素最多 32 字节，所以金属度放进法线纹理的 A 通道、粗糙度放进漫反射纹理的 A 通道
   const att: Record<string, THREE.Node> = { output, normal: cfg.rayTracing ? vec4(packNormalToRGB(normalView), metalness) : packNormalToRGB(normalView), velocity };
@@ -172,10 +174,13 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     composite = applyVolumetricFog(composite, fogNode, depth, camera);
   }
   let aa: THREE.Node<'vec4'> = composite;
+  let hdr = (): THREE.Texture | null => scenePass.getTexture('output');
   if (dbg.traa !== false) {
     const t = traa(composite, depth, vel, camera);
     disposers.push(t);
     aa = t;
+    // 时间抗锯齿的结果已经叠好了雾和遮蔽，就是眼睛最后看到的亮度
+    hdr = () => (t as unknown as { getTextureNode(): { value: THREE.Texture } }).getTextureNode().value;
   }
   let out: THREE.Node<'vec4'> = aa;
   if (cfg.motionBlur) {
@@ -195,12 +200,12 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     const fogView = fogNode ? fogNode.getTextureNode() : vec4(0, 0, 0, 1);
     pipeline.outputNode =
       dbg.view === 'normal' ? vec4(nTex.rgb, 1) : dbg.view === 'velocity' ? vec4(vel.xy.mul(50).add(0.5), 0.5, 1) : dbg.view === 'fog' ? vec4(fogView.rgb.mul(4).add(0.25), 1) : dbg.view === 'fogT' ? vec4(vec3(fogView.a), 1) : dbg.view === 'cloud' ? cloudShadowDebug(screenUV) : vec4(color.rgb, 1);
-    return { pipeline, fog: fogNode, dispose: () => disposers.forEach((d) => d.dispose()) };
+    return { pipeline, fog: fogNode, hdr, dispose: () => disposers.forEach((d) => d.dispose()) };
   }
   // 色调映射 + 色彩空间转换之后再调色（在显示空间里调对比度、饱和度更直观）
   pipeline.outputColorTransform = false;
   pipeline.outputNode = grade(renderOutput(out), dbg);
-  return { pipeline, fog: fogNode, dispose: () => disposers.forEach((d) => d.dispose()) };
+  return { pipeline, fog: fogNode, hdr, dispose: () => disposers.forEach((d) => d.dispose()) };
 }
 
 /**

@@ -41,6 +41,8 @@ async function boot(): Promise<void> {
   hideSplash();
   const app = new App(root);
   (window as unknown as { __app: App }).__app = app;
+  // 巡检工具用：自动驾驶按需加载，不进主包
+  (window as unknown as { __loadAutopilot: () => Promise<unknown> }).__loadAutopilot = () => import('./sim/autopilot');
   try {
     await app.start();
   } catch (e) {

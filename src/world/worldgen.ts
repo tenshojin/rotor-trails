@@ -6,6 +6,8 @@ import { obstacleTop } from '../sim/routeCheck';
 import { HeightBuilder, type Heightfield } from '../sim/terrain';
 import { erode } from './erosion';
 import { PropBuilder, type ColliderSpec } from './propBuilder';
+import { carveRiver } from './river';
+import { applyRockForm } from './rockForm';
 import { buildPad, type PropCtx } from './props/common';
 import { PROP_FNS } from './props/index';
 import { scatterTrees, type TreeSet } from './vegetation';
@@ -71,6 +73,11 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
     progress?.(0.25, '雨水侵蚀');
     await tick();
     erode(hb.data, map.res, map.seed, { droplets: map.erosion, waterLevel: map.waterLevel, mask: protectMask(map) });
+  }
+  if (map.rockForm) applyRockForm(hb.data, map.res, map.size, map.rockForm, protectMask(map));
+  if (map.rivers) {
+    const mask = protectMask(map);
+    for (const r of map.rivers) carveRiver(hb, r, mask);
   }
   const terrain = hb.build();
   progress?.(0.45, '布置建筑与停机坪');

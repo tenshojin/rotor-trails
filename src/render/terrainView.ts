@@ -6,8 +6,9 @@ import type { BiomeDef, MapDef } from '../maps/types';
 import type { Heightfield } from '../sim/terrain';
 import type { TerrainLayers } from './terrainLayers';
 import { makeTerrainMaterial, makeWetUniform, type TerrainUniforms } from './terrainShader';
+import { TERRAIN_SHADOW_LAYER } from './sunShadows';
 import { getNoiseTexture } from './textures';
-import { getRockReliefTexture } from './terrainMacro';
+import { getRockReliefTexture, makeStrataTexture } from './terrainMacro';
 
 const CH = 64;
 const LOD_STEPS = [1, 2, 4, 8];
@@ -48,6 +49,8 @@ export function makeTerrainUniforms(map: MapDef, surfaceTex: THREE.Texture, fore
     rockSlope: B.rockSlope,
     waterLevel: map.waterLevel ?? -9999,
     uWet: makeWetUniform(),
+    rockForm: map.rockForm ?? null,
+    strataLUT: map.rockForm ? makeStrataTexture(map.rockForm) : null,
   };
 }
 
@@ -203,8 +206,9 @@ export class TerrainView {
         c.lod = want;
       }
       c.mesh.castShadow = d < this.shadowRange && c.lod <= 1;
-      // 较粗的地形块离镜头至少几百米，不会落进最近两层阴影（图层 1）；最细的一级带图层 0 + 2
-      c.mesh.layers.mask = c.lod >= 1 ? 1 << 1 : (1 << 0) | (1 << 2);
+      // 地形只进前三层阴影：最远一层里只有镜头附近的地形块投影，影子落到一两公里外的山坡上是一条条古怪的直线。
+      // 山的大影子由山影贴图负责（见 sunMap.ts）。
+      c.mesh.layers.mask = c.lod >= 2 ? 1 << 1 : c.lod === 1 ? 1 << TERRAIN_SHADOW_LAYER : (1 << 2) | (1 << TERRAIN_SHADOW_LAYER);
     }
     // 回收：远处的高精度块
     if (this.cache.size > 900) {
@@ -219,16 +223,14 @@ export class TerrainView {
     }
   }
 
-  /** 地图外围远景（不碰撞）：边缘高度向外延伸并逐渐过渡到 farTerrain。 */
+  /**
+   * 地图外围远景（不碰撞）：边缘高度向外延伸并逐渐过渡到 farTerrain。
+   * 网格线靠近地图的地方密（约 24 m）、越远越稀（每格放大一点），这样几公里外的山也有山脊和岩棱，
+   * 而不是 100 多米一格的光滑馒头；总顶点数比等距网格还少。
+   */
   private buildFar(map: MapDef): THREE.Mesh | null {
     const hf = this.hf;
-    const S = hf.size;
-    const extent = S * (map.farExtent ?? 1.6);
-    const step = map.farExtent ? 128 : 96;
-    const n = Math.ceil((extent * 2) / step);
-    const pos: number[] = [];
-    const nor: number[] = [];
-    const idx: number[] = [];
+    const extent = hf.size * (map.farExtent ?? 1.6);
     const heightAt = (x: number, z: number) => {
       const cx = Math.max(-hf.half, Math.min(hf.half, x));
       const cz = Math.max(-hf.half, Math.min(hf.half, z));
@@ -238,30 +240,54 @@ export class TerrainView {
       const farH = map.farTerrain ? map.farTerrain(x, z) : edge;
       return edge + (farH - edge) * t * t * (3 - 2 * t) - 2 - Math.min(6, out * 0.02);
     };
-    for (let j = 0; j <= n; j++)
-      for (let i = 0; i <= n; i++) {
-        const x = -extent + i * step;
-        const z = -extent + j * step;
-        pos.push(x, heightAt(x, z), z);
-        const e = step;
-        const nx = heightAt(x - e, z) - heightAt(x + e, z);
-        const nz = heightAt(x, z - e) - heightAt(x, z + e);
-        const l = Math.hypot(nx, 2 * e, nz);
-        nor.push(nx / l, (2 * e) / l, nz / l);
-      }
-    const inner = hf.half - step * 0.5;
-    for (let j = 0; j < n; j++)
+    const rich = !!map.farTerrain;
+    const inner: number[] = [];
+    const innerStep = rich ? 32 : 64;
+    for (let x = -hf.half; x <= hf.half + 1e-3; x += innerStep) inner.push(x);
+    const outer: number[] = [];
+    let d = rich ? 24 : 48;
+    let x = hf.half;
+    while (x < extent) {
+      x += d;
+      d *= rich ? 1.02 : 1.05;
+      outer.push(x);
+    }
+    const xs = [...outer.map((v) => -v).reverse(), ...inner, ...outer];
+    const n = xs.length;
+    const H = new Float32Array(n * n);
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) H[j * n + i] = heightAt(xs[i], xs[j]);
+    const pos = new Float32Array(n * n * 3);
+    const nor = new Float32Array(n * n * 3);
+    for (let j = 0; j < n; j++) {
+      const j0 = Math.max(0, j - 1);
+      const j1 = Math.min(n - 1, j + 1);
       for (let i = 0; i < n; i++) {
-        const x0 = -extent + i * step;
-        const z0 = -extent + j * step;
-        if (x0 > -inner && x0 + step < inner && z0 > -inner && z0 + step < inner) continue;
-        const a = j * (n + 1) + i;
-        idx.push(a, a + n + 1, a + 1, a + 1, a + n + 1, a + n + 2);
+        const i0 = Math.max(0, i - 1);
+        const i1 = Math.min(n - 1, i + 1);
+        const k = (j * n + i) * 3;
+        pos[k] = xs[i];
+        pos[k + 1] = H[j * n + i];
+        pos[k + 2] = xs[j];
+        const gx = (H[j * n + i1] - H[j * n + i0]) / (xs[i1] - xs[i0]);
+        const gz = (H[j1 * n + i] - H[j0 * n + i]) / (xs[j1] - xs[j0]);
+        const l = 1 / Math.hypot(gx, 1, gz);
+        nor[k] = -gx * l;
+        nor[k + 1] = l;
+        nor[k + 2] = -gz * l;
+      }
+    }
+    const idx: number[] = [];
+    const lim = hf.half - innerStep * 0.5;
+    for (let j = 0; j < n - 1; j++)
+      for (let i = 0; i < n - 1; i++) {
+        if (xs[i] > -lim && xs[i + 1] < lim && xs[j] > -lim && xs[j + 1] < lim) continue;
+        const a = j * n + i;
+        idx.push(a, a + n, a + 1, a + 1, a + n, a + n + 1);
       }
     const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-    g.setIndex(idx);
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    g.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
     g.computeBoundingSphere();
     const m = new THREE.Mesh(g, this.material);
     // 远景本来落不进阴影范围，但开着接收阴影才能和近处地形共用一份着色器（这么大的着色器多一个变体要多编译好几秒）

@@ -545,15 +545,60 @@ export const japanProps: Record<string, PropFn> = {
     }
   },
   obsStation(B) {
-    // 观测站：混凝土建筑 + 雷达罩 + 天线 + 太阳能板
-    B.box(0, 2, 0, 12, 4, 8, 0xdad6cc, {});
-    B.box(0, 4.15, 0, 12.4, 0.3, 8.4, 0x6a6e74, { solid: false });
-    B.box(0, 2.2, 4.05, 9, 1.2, 0.1, 0x2a3440, { mat: 'glass', solid: false });
-    B.cyl(3.5, 5.2, -1.5, 0.8, 0.8, 2, 0xdadada, 10, {});
-    B.sphere(3.5, 7.2, -1.5, 1.8, 0xf2f2f2, { seg: 10 });
-    B.cyl(-4, 9, -2, 0.12, 0.08, 10, 0xd0d0d0, 6, { mat: 'metal', solid: true });
+    // 观测站：一层的混凝土小楼（海风吹得外墙发灰），屋顶上是雷达罩、天线和设备，旁边一排太阳能板
+    const WALL = 0xb9b4a9;
+    const TRIM = 0x8e8d88;
+    const FRAME = 0x4a4d50;
+    B.box(0, 0.2, 0, 12.9, 0.4, 8.9, 0x7c7a73, { mat: 'rough' });
+    B.box(0, 2.2, 0, 12, 3.8, 8, WALL, { mat: 'rough', jitter: 0.03 });
+    // 女儿墙与压顶
+    for (const [x, z, sx, sz] of [
+      [0, 3.98, 12.2, 0.24],
+      [0, -3.98, 12.2, 0.24],
+      [5.98, 0, 0.24, 8.2],
+      [-5.98, 0, 0.24, 8.2],
+    ]) {
+      B.box(x, 4.35, z, sx, 0.7, sz, WALL, { mat: 'rough', solid: false });
+      B.box(x, 4.74, z, sx + 0.1, 0.08, sz + 0.1, TRIM, { solid: false });
+    }
+    B.box(0, 4.14, 0, 11.7, 0.1, 7.7, 0x55575a, { solid: false });
+    // 前后的窗（窗框 + 玻璃 + 窗台），侧面一扇小窗
+    for (const z of [4.02, -4.02]) {
+      for (let i = 0; i < 4; i++) {
+        const x = -4.2 + i * 2.8;
+        if (z > 0 && i === 2) continue;
+        B.box(x, 2.6, z, 1.7, 1.45, 0.06, FRAME, { solid: false });
+        B.box(x, 2.6, z + Math.sign(z) * 0.03, 1.5, 1.25, 0.04, 0x25303a, { mat: 'glass', solid: false });
+        B.box(x, 2.6, z + Math.sign(z) * 0.05, 0.05, 1.25, 0.03, FRAME, { solid: false });
+        B.box(x, 1.84, z + Math.sign(z) * 0.06, 1.8, 0.07, 0.16, TRIM, { solid: false });
+      }
+    }
+    // 门、雨棚、门前台阶
+    B.box(1.4, 1.5, 4.03, 1.15, 2.2, 0.07, 0x3d4247, { solid: false });
+    B.box(1.75, 1.5, 4.08, 0.08, 0.08, 0.06, 0xb8b8b4, { mat: 'metal', solid: false });
+    B.box(1.4, 2.82, 4.5, 1.9, 0.1, 1.1, TRIM, { solid: false });
+    B.box(1.4, 0.3, 4.6, 2.2, 0.2, 1.2, 0x7c7a73, { mat: 'rough', solid: false });
+    // 空调外机、管线
+    B.box(-5.4, 0.85, 4.35, 0.9, 0.7, 0.42, 0xa8a8a2, { solid: false });
+    B.box(-5.4, 0.85, 4.57, 0.62, 0.5, 0.02, 0x3a3c3e, { solid: false });
+    B.cyl(5.75, 2.3, 4.08, 0.05, 0.05, 3.9, 0x6f7276, 6, { mat: 'metal', solid: false });
+    // 屋顶：雷达罩（圆滑的白球 + 底座），设备箱，栏杆
+    B.cyl(3.5, 4.9, -1.5, 1.05, 1.15, 1.3, 0x9a9b98, 24, {});
+    B.cyl(3.5, 5.6, -1.5, 1.32, 1.32, 0.12, 0x77797b, 24, { solid: false });
+    B.sphere(3.5, 7.1, -1.5, 1.85, 0xe4e4e0, { seg: 30, jitter: 0.004 });
+    B.box(-1.5, 4.55, 1.8, 1.8, 0.75, 1.1, 0x9b9c98, { solid: false });
+    B.box(-1.5, 4.55, 2.36, 1.3, 0.5, 0.02, 0x3f4245, { solid: false });
+    B.cyl(-4, 9, -2, 0.12, 0.08, 10, 0xc4c4c0, 8, { mat: 'metal', solid: true });
+    B.box(-4, 13.4, -2, 0.9, 0.05, 0.05, 0xc4c4c0, { mat: 'metal', solid: false });
+    B.box(-4, 12.6, -2, 0.05, 0.05, 1.3, 0xc4c4c0, { mat: 'metal', solid: false });
     B.anchor('blink', -4, 14.2, -2, 0, { color: 'red', period: 2 });
-    for (let i = 0; i < 3; i++) B.box(-8 - i * 2.6, 1.1, 2, 2.2, 0.08, 3.4, 0x1a2a4a, { mat: 'glass', solid: false }, 0);
+    // 太阳能板：斜架在地上
+    for (let i = 0; i < 3; i++) {
+      const x = -8 - i * 2.6;
+      B.box(x, 1.1, 2, 2.2, 0.08, 3.4, 0x18233f, { mat: 'glass', solid: false }, 0);
+      B.box(x, 0.5, 3.3, 0.08, 1, 0.08, 0x8a8c8e, { mat: 'metal', solid: false });
+      B.box(x, 0.5, 0.7, 0.08, 1, 0.08, 0x8a8c8e, { mat: 'metal', solid: false });
+    }
     B.footprint(10);
   },
   seaStack(B, d, rng) {

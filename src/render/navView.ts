@@ -12,7 +12,7 @@ import { getGlowTexture } from './propsView';
 
 /** 烟幕的一团：柔和的絮状圆斑 */
 let smokeTex: THREE.CanvasTexture | null = null;
-function getSmokeTexture(): THREE.CanvasTexture {
+export function getSmokeTexture(): THREE.CanvasTexture {
   if (smokeTex) return smokeTex;
   const cv = document.createElement('canvas');
   cv.width = cv.height = 128;
@@ -36,7 +36,7 @@ function getSmokeTexture(): THREE.CanvasTexture {
   return smokeTex;
 }
 
-const SMOKE_N = 30;
+const SMOKE_N = 64;
 const SMOKE_LIFE = 19;
 const _smokeBase = new THREE.Color(1.0, 0.46, 0.14);
 const _smokeTop = new THREE.Color();
@@ -311,10 +311,10 @@ export class NavView {
       );
       p.sp.position.copy(p.pos);
       p.sp.visible = true;
-      p.sp.scale.setScalar(1.6 + k * 17 + p.seed * 2);
+      p.sp.scale.setScalar(1.5 + k * 13 + p.seed * 1.6);
       const m = p.sp.material as THREE.SpriteMaterial;
       m.color.copy(_c.copy(_smokeBase).lerp(_smokeTop, Math.min(1, k * 2.2)));
-      m.opacity = Math.min(1, p.age / 0.5) * (1 - k) ** 1.5 * 0.62;
+      m.opacity = Math.min(1, p.age / 0.5) * (1 - k) ** 1.7 * 0.5;
     }
   }
 

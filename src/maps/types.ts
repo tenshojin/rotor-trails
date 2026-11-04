@@ -1,5 +1,6 @@
 // 地图配置结构（配置驱动）：地形配方、停机坪、道具、植被、航线、任务、Buff、风区、天气、视觉与环境音。
 
+import type { RockFormDef } from '../world/rockForm';
 import type { AssistId } from '../config/flight';
 import type { HeightBuilder } from '../sim/terrain';
 import type { WeatherPreset } from '../sim/weather';
@@ -10,6 +11,22 @@ export type MapId = 'training' | 'japan' | 'canyon' | 'amazon' | 'fjord' | 'hima
 
 export type PadKind = 'start' | 'delivery' | 'repair' | 'final' | 'helipad';
 export type PadStyle = 'ground' | 'roof' | 'pier' | 'platform' | 'ledge' | 'raised';
+
+/** 河流：沿下游方向排列的点 [x, z, 水面高度, 半宽] */
+export interface RiverDef {
+  pts: Array<[number, number, number, number]>;
+  /** 河床比水面低多少（米） */
+  depth: number;
+  /** 河岸接回原地面的宽度（米） */
+  bank: number;
+  /** 河心、河边的水色（sRGB 十六进制） */
+  deep: number;
+  shallow: number;
+  /** 水流速度（米 / 秒） */
+  speed: number;
+  /** 两岸卵石滩的宽度（米） */
+  bar?: number;
+}
 
 export interface PadDef {
   id: string;
@@ -189,6 +206,10 @@ export interface MapDef {
   pavedMask?: boolean;
   /** 水力侵蚀的雨滴数（见 world/erosion.ts）；缺省不做 */
   erosion?: number;
+  /** 岩层（见 world/rockForm.ts）：陡坡改成硬层成崖、软层成坡的剖面，并按同一张地层表上色 */
+  rockForm?: RockFormDef;
+  /** 河流（不参与飞行模拟，只有地形和画面） */
+  rivers?: RiverDef[];
   buildTerrain(b: HeightBuilder): void;
   /** 地图外围远景地形（不参与碰撞） */
   farTerrain?(x: number, z: number): number;

@@ -5,8 +5,62 @@ import { Perlin2 } from '../core/noise';
 import { smoothstep } from '../core/math';
 import { makeWeather } from '../sim/weather';
 import type { Vec2 } from '../sim/terrain';
-import { PathSampler } from './routeUtil';
+import type { RockFormDef } from '../world/rockForm';
+import { PathSampler, riverLine } from './routeUtil';
 import type { MapDef, RouteNodeDef, V3 } from './types';
+
+/**
+ * 地层（从谷底往上）：深色基岩 → 褐色砂岩崖 → 灰绿页岩缓坡 → 石灰岩 → 一整层红色的大崖 → 红色的薄层岩架 →
+ * 红色页岩缓坡 → 浅色砂岩崖 → 奶油色的盖层（就是台地的边缘）。再往上是孤丘才有的层。
+ */
+const ROCK: RockFormDef = {
+  y0: 40,
+  y1: 900,
+  dip: [0.004, -0.003],
+  waves: [
+    [0.0011, 0.0007, 5, 1.1],
+    [-0.0006, 0.0017, 3.5, 2.4],
+    [0.0031, -0.0023, 1.6, 0.4],
+  ],
+  bench: 0.9,
+  slope: [0.5, 1.15],
+  tint: 0.82,
+  debris: 0.75,
+  warp: [
+    [13, 105],
+    [5, 36],
+  ],
+  bands: [
+    { t: 30, hard: 0.75, c: 0x54423a },
+    { t: 14, hard: 0.9, c: 0x80593f },
+    { t: 26, hard: 0.08, c: 0x8d7b5e },
+    { t: 12, hard: 0.6, c: 0x9c8466 },
+    { t: 44, hard: 1, c: 0xa9553a },
+    { t: 10, hard: 0.15, c: 0x8e4a35 },
+    { t: 9, hard: 0.85, c: 0xa65a3c },
+    { t: 7, hard: 0.15, c: 0x96503a },
+    { t: 11, hard: 0.9, c: 0xb0623f },
+    { t: 6, hard: 0.15, c: 0x8f4e38 },
+    { t: 10, hard: 0.85, c: 0xa85b3d },
+    { t: 22, hard: 0.1, c: 0x9c4f3a },
+    { t: 26, hard: 1, c: 0xd8c09a },
+    { t: 12, hard: 0.35, c: 0xc2a27c },
+    { t: 26, hard: 0.95, c: 0xd9c8a6 },
+    { t: 24, hard: 0.2, c: 0xa8603f },
+    { t: 36, hard: 1, c: 0xc07a4e },
+    { t: 18, hard: 0.2, c: 0x9e5a3e },
+    { t: 44, hard: 1, c: 0xc98a5a },
+    { t: 20, hard: 0.2, c: 0xa4684a },
+    { t: 40, hard: 1, c: 0xb8734c },
+    { t: 22, hard: 0.2, c: 0xa8684a },
+    { t: 48, hard: 1, c: 0xc9875a },
+    { t: 24, hard: 0.2, c: 0xa0624a },
+    { t: 44, hard: 1, c: 0xbe7a50 },
+    { t: 30, hard: 0.2, c: 0xa86c4e },
+    { t: 60, hard: 1, c: 0xc48458 },
+    { t: 60, hard: 0.5, c: 0xb47650 },
+  ],
+};
 
 const SEED = 3301;
 const n = new Perlin2(SEED);
@@ -191,6 +245,38 @@ export const CANYON: MapDef = {
   altitudeOffset: 1500,
   waterLevel: null,
   erosion: 200000,
+  rockForm: ROCK,
+  rivers: [
+    {
+      // 谷底的河：泥沙不多的时候是灰绿色，绕着研究站和岩拱的石脚流
+      pts: riverLine(
+        MAINP,
+        40,
+        MAINP.len - 40,
+        22,
+        (s) => {
+          const c = MAINP.at(s);
+          return floorHalf(s, c[0], c[1]) * (0.34 * Math.sin(s / 190 + 0.6) + 0.15 * Math.sin(s / 83 + 2.1));
+        },
+        (s) => floorAt(s) - 1.1,
+        (s) => 10 + 3.5 * Math.sin(s / 420 + 1) + 1.5 * Math.sin(s / 150),
+        [
+          [STATION[0], STATION[2], 46],
+          [STATION[0] + 30, STATION[2] + 22, 36],
+          ...S_SENS.map((s): [number, number, number] => {
+            const p = MAINP.at(s);
+            return [p[0] + 12, p[1] + 6, 22];
+          }),
+        ],
+      ),
+      depth: 1.6,
+      bank: 18,
+      deep: 0x3e5a4c,
+      shallow: 0x7a8064,
+      speed: 1.6,
+      bar: 16,
+    },
+  ],
   buildTerrain(b) {
     b.fill(plateau);
     const carve = (path: Vec2[], maxD: number, fwF: (s: number, x: number, z: number) => number, floorF: (s: number, len: number) => number, wallW: number) =>

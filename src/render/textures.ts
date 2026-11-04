@@ -109,7 +109,7 @@ export function makeForestTexture(trees: TreeSet, size: number): THREE.DataTextu
     const cx = (trees.x[i] + size / 2) * k;
     const cz = (trees.z[i] + size / 2) * k;
     // 雨林林冠树（模型树冠半径约 12.5 m）的林下地面范围更大，树冠之间看下去是阴暗的林地而不是草坪
-    const r = Math.max(1, (t === 2 || t === 3 ? 24 : 6) * trees.s[i] * k);
+    const r = Math.max(1.5, (t === 2 || t === 3 ? 24 : 8.5) * trees.s[i] * k);
     const x0 = Math.max(0, Math.floor(cx - r));
     const x1 = Math.min(N - 1, Math.ceil(cx + r));
     const z0 = Math.max(0, Math.floor(cz - r));

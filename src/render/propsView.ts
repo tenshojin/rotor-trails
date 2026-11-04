@@ -4,11 +4,12 @@ import * as THREE from 'three/webgpu';
 import { abs, attribute, cameraViewMatrix, float, max, mix, normalize, normalWorld, positionGeometry, positionLocal, positionWorld, pow, sin, smoothstep, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
 import { wetColor, wetRough } from './wetness';
 import type { MatKey, ModelInstance } from '../world/propBuilder';
+import type { MapDef } from '../maps/types';
 import type { WorldData } from '../world/worldgen';
 import { addDetail, DETAIL } from './detailTextures';
 import { instanceModel, LodModel, type ModelLib } from './modelLib';
 import { refineRock } from './rockMesh';
-import { getRockReliefTexture } from './terrainMacro';
+import { getRockReliefTexture, makeStrataTexture } from './terrainMacro';
 import { getNoiseTexture } from './textures';
 
 /** 三级细节模型的切换距离（米，再乘画质系数）：近景几何细节 → 中景贴图 → 远景体块 */
@@ -32,7 +33,7 @@ export function getGlowTexture(): THREE.CanvasTexture {
   return glowTex;
 }
 
-function makeMaterials(detail: THREE.DataArrayTexture | null): Record<MatKey, THREE.Material> {
+function makeMaterials(detail: THREE.DataArrayTexture | null, map: MapDef): Record<MatKey, THREE.Material> {
   const noise = getNoiseTexture();
   // 岩石：顶点色 × 世界坐标噪声（明暗斑驳）+ 水平的岩层纹，表面用和地形岩壁相同的脊状浮雕（三平面投影，两个尺度）
   const rock = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
@@ -55,7 +56,18 @@ function makeMaterials(detail: THREE.DataArrayTexture | null): Record<MatKey, TH
   const rA = relS(46.0, 0.13);
   const rB = relS(11.0, 0.57);
   const band = texture(noise, vec2(P.y.mul(0.021), P.x.mul(0.0007).add(P.z.mul(0.0005)))).r;
-  rock.colorNode = vec4(vec3(rn.mul(0.35).add(0.62).add(rA.w.mul(0.34)).add(rB.w.mul(0.2)).mul(band.mul(0.5).add(0.78))), 1.0);
+  const mott = vec3(rn.mul(0.35).add(0.62).add(rA.w.mul(0.34)).add(rB.w.mul(0.2)).mul(band.mul(0.5).add(0.78)));
+  rock.colorNode = vec4(mott, 1.0);
+  if (map.rockForm) {
+    // 岩拱、石林和旁边的山是同一套地层：颜色按高度查同一张表
+    const R = map.rockForm;
+    let sw: THREE.Node<'float'> = P.x.mul(R.dip[0]).add(P.z.mul(R.dip[1]));
+    for (const [kx, kz, a, ph] of R.waves) sw = sw.add(sin(P.x.mul(kx).add(P.z.mul(kz)).add(ph)).mul(a));
+    const lut = makeStrataTexture(R);
+    const y = P.y.add(sw).add(rn.sub(0.5).mul(4.0));
+    rock.vertexColors = false;
+    rock.colorNode = vec4(texture(lut, vec2(y.sub(R.y0).div(R.y1 - R.y0), 0.5)).rgb.mul(mott.mul(0.8).add(0.1)), 1.0);
+  }
   rock.normalNode = normalize(cameraViewMatrix.mul(vec4(normalize(nW.add(rA.xyz.mul(1.1)).add(rB.xyz.mul(0.8))), 0.0)).xyz);
   const std = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
   const rough = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
@@ -123,7 +135,7 @@ export class PropsView {
   lodScale = 1;
 
   constructor(world: WorldData, lib: ModelLib | null = null, detail: THREE.DataArrayTexture | null = null) {
-    this.materials = makeMaterials(detail);
+    this.materials = makeMaterials(detail, world.map);
     // Blender 模型：同名实例合在一起做实例化绘制
     const byName = new Map<string, ModelInstance[]>();
     for (const inst of world.builder.models) {

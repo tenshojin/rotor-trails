@@ -4,8 +4,29 @@ import { Perlin2 } from '../core/noise';
 import { clamp, smoothstep } from '../core/math';
 import { makeWeather } from '../sim/weather';
 import type { Vec2 } from '../sim/terrain';
+import { randomBands, type RockFormDef } from '../world/rockForm';
 import { PathSampler } from './routeUtil';
 import type { MapDef, RouteNodeDef, V3 } from './types';
+
+/** 片麻岩：灰色的岩体里斜着的片理，一层硬一层软，岩壁上是一道道斜着的岩架 */
+const ROCK: RockFormDef = {
+  y0: -120,
+  y1: 3500,
+  dip: [0.17, -0.24],
+  waves: [
+    [0.0013, 0.0009, 26, 0.7],
+    [-0.0007, 0.0021, 15, 2.1],
+    [0.0037, 0.0029, 6, 4.0],
+  ],
+  bench: 0.62,
+  slope: [0.75, 1.7],
+  tint: 0.6,
+  warp: [
+    [10, 150],
+    [4, 46],
+  ],
+  bands: randomBands(811, 90, [0x6e6c68, 0x5f5e5c, 0x7c7a74, 0x565451, 0x87847c, 0x66625c], [8, 58]),
+};
 
 const SEED = 5501;
 const n = new Perlin2(SEED);
@@ -62,7 +83,7 @@ function far(x: number, z: number): number {
   const k = smoothstep(2100, 5600, x) * smoothstep(-300, 300, h);
   if (k <= 0) return h;
   const wx = x + 500 * n2.noise(x / 2400, z / 2400);
-  const crag = Math.pow(n.ridged(wx / 3600, z / 3600 + 5, 5, 2.05, 0.5, 2.0), 1.25);
+  const crag = Math.pow(n.ridged(wx / 3600, z / 3600 + 5, 7, 2.05, 0.5, 2.0), 1.25);
   return h + k * (500 + 1900 * crag);
 }
 
@@ -163,7 +184,7 @@ const strait = (() => {
   ss.forEach((s, i) => {
     const c = FP.at(s);
     const nn = nrmL(s);
-    const off = halfW(s) - 40;
+    const off = halfW(s) - 62;
     out.push({ id: `f-s${i}`, pos: [Math.round(c[0] + nn[0] * off), 45, Math.round(c[1] + nn[1] * off)], radius: 30, speed: 22, label: '近岸海峡', clearance: 15, checkpoint: i === 0 });
   });
   return out;
@@ -199,6 +220,7 @@ export const FJORD_MAP: MapDef = {
   altitudeOffset: 0,
   waterLevel: 0,
   erosion: 260000,
+  rockForm: ROCK,
   buildTerrain(b) {
     b.fill(land);
     b.applySpline(FJORD, WALL + 400, (h, d, s) => {

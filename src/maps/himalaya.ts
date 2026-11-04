@@ -5,8 +5,29 @@ import { Perlin2 } from '../core/noise';
 import { smoothstep } from '../core/math';
 import { makeWeather } from '../sim/weather';
 import type { Vec2 } from '../sim/terrain';
-import { PathSampler } from './routeUtil';
+import { randomBands, type RockFormDef } from '../world/rockForm';
+import { PathSampler, riverLine } from './routeUtil';
 import type { MapDef, RouteNodeDef, V3 } from './types';
+
+/** 被挤压抬升过的变质岩：倾角很大，深灰、褐黄、铁锈色的岩层斜穿山体 */
+const ROCK: RockFormDef = {
+  y0: -200,
+  y1: 5200,
+  dip: [0.3, 0.16],
+  waves: [
+    [0.0011, -0.0008, 60, 1.3],
+    [0.0006, 0.0017, 34, 0.2],
+    [-0.0029, 0.0023, 12, 3.1],
+  ],
+  bench: 0.6,
+  slope: [0.8, 1.7],
+  tint: 0.62,
+  warp: [
+    [14, 170],
+    [5, 55],
+  ],
+  bands: randomBands(611, 120, [0x4f4a46, 0x6b6056, 0x8a7b68, 0x5c5048, 0x7a6a58, 0x9a8c78, 0x46423e], [10, 64]),
+};
 
 const SEED = 6601;
 const n = new Perlin2(SEED);
@@ -61,7 +82,7 @@ function farRange(x: number, z: number): number {
   const k = smoothstep(2200, 6500, r);
   const wx = x + 700 * n2.noise(x / 2600, z / 2600);
   const wz = z + 700 * n2.noise(x / 2600 + 7.1, z / 2600 - 2.3);
-  const crag = Math.pow(n.ridged(wx / 5200, wz / 5200, 5, 2.05, 0.5, 2.0), 1.2);
+  const crag = Math.pow(n.ridged(wx / 5200, wz / 5200, 7, 2.05, 0.5, 2.0), 1.2);
   return mountains(x, z) * (1 - 0.7 * k) + k * (1500 + 2900 * crag);
 }
 
@@ -147,6 +168,37 @@ export const HIMALAYA: MapDef = {
   altitudeOffset: ALT0,
   waterLevel: null,
   erosion: 220000,
+  rockForm: ROCK,
+  rivers: [
+    {
+      // 冰川融水：磨细的岩粉让河水是不透明的乳蓝色，从冰川脚下一路冲下来
+      pts: riverLine(
+        VP,
+        30,
+        VP.len - 130,
+        16,
+        (s) => (0.26 * Math.sin(s / 170 + 1) + 0.12 * Math.sin(s / 67 + 0.4)) * (150 + 40 * Math.sin(s / 500)),
+        (s) => valleyFloor(s) - 0.8,
+        (s) => 3.5 + 7.5 * (1 - s / VP.len),
+        [
+          [BASE[0], BASE[2], 70],
+          [BASE[0] + 70, BASE[2] - 40, 40],
+          [BASE[0] - 60, BASE[2] + 70, 100],
+          [BASE[0] + 40, BASE[2] + 50, 26],
+          [MID[0], MID[2], 60],
+          [MID[0] + 60, MID[2] + 60, 80],
+          [MID[0] - 30, MID[2] - 30, 36],
+          [MID[0] + 25, MID[2] - 35, 18],
+        ],
+      ),
+      depth: 1.1,
+      bank: 12,
+      deep: 0x6fb3b4,
+      shallow: 0xa9d2cc,
+      speed: 2.4,
+      bar: 22,
+    },
+  ],
   buildTerrain(b) {
     b.fill(mountains);
     // U 形冰川谷
@@ -198,8 +250,9 @@ export const HIMALAYA: MapDef = {
   ],
   vegetation: [
     { type: 'pine', density: 420, scale: [0.7, 1.15], maxH: 520, maxSlope: 0.45, mask: (x, z, h) => (1 - smoothstep(380, 520, h)) * (0.5 + 0.5 * n.fbm(x / 200, z / 200, 2)) },
-    { type: 'juniper', density: 260, scale: [0.6, 1.0], minH: 300, maxH: 900, maxSlope: 0.5 },
-    { type: 'shrub', density: 380, scale: [0.6, 1.0], maxH: 1100, maxSlope: 0.55 },
+    // 灌丛成片长：一片片深色的杜松、杜鹃灌丛，中间是草甸和碎石
+    { type: 'juniper', density: 900, scale: [0.6, 1.1], minH: 300, maxH: 950, maxSlope: 0.5, mask: (x, z) => smoothstep(0.42, 0.62, 0.5 + 0.5 * n2.fbm(x / 170, z / 170, 3)) },
+    { type: 'shrub', density: 1500, scale: [0.6, 1.1], maxH: 1150, maxSlope: 0.55, mask: (x, z) => 0.12 + 0.88 * smoothstep(0.4, 0.6, 0.5 + 0.5 * n.fbm(x / 130 + 3, z / 130, 3)) },
   ],
   clearings: [
     [BASE[0], BASE[2], 60],
@@ -318,8 +371,8 @@ export const HIMALAYA: MapDef = {
   defaultWeather: 'clear',
   biome: {
     sand: 0x8f887a,
-    grass: 0x7a7458,
-    grass2: 0x8c8366,
+    grass: 0x6f7a4e,
+    grass2: 0x8c7052,
     dirt: 0x736858,
     rock: 0x6e6c6a,
     rock2: 0x504e4d,

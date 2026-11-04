@@ -213,8 +213,8 @@ export const JAPAN: MapDef = {
   // 海边零星的黑松，村子、海岸与平地保持开阔；林缘与空地上灌木较多。
   vegetation: [
     { type: 'pine', density: 520, scale: [0.8, 1.35], minH: 3, maxSlope: 0.5, mask: (x, z, h) => (h > 3 ? 0.4 + 0.4 * n.fbm(x / 220, z / 220, 2) : 0) },
-    { type: 'pine', density: 3400, scale: [0.85, 1.4], minH: 8, maxSlope: 0.6, mask: (x, z, h) => forest(x, z, h) * 0.75 },
-    { type: 'broadleaf', density: 3000, scale: [0.9, 1.45], minH: 12, maxSlope: 0.55, mask: (x, z, h) => forest(x, z, h) * (h > 30 ? 1 : 0.55) },
+    { type: 'pine', density: 5200, scale: [0.85, 1.5], minH: 8, maxSlope: 0.6, mask: (x, z, h) => forest(x, z, h) * 0.8 },
+    { type: 'broadleaf', density: 6200, scale: [0.9, 1.6], minH: 12, maxSlope: 0.55, mask: (x, z, h) => forest(x, z, h) * (h > 30 ? 1 : 0.6) },
     { type: 'broadleaf', density: 260, scale: [0.85, 1.3], minH: 10, maxSlope: 0.38, mask: (x, z) => 0.3 + 0.5 * n2.fbm(x / 300, z / 300, 2) },
     { type: 'shrub', density: 700, scale: [0.7, 1.4], minH: 3, maxSlope: 0.6, mask: (x, z, h) => 0.35 + 0.65 * forestEdge(x, z, h) },
   ],

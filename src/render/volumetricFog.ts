@@ -18,6 +18,7 @@ import { abs, clamp, context, dot, exp, float, floor, fract, Fn, If, interleaved
 import { FOG } from './atmosphere';
 import { getCloudNoise3D } from './cloudNoise';
 import { cloudShadow } from './cloudShadowMap';
+import { terrainSun } from './sunMap';
 import { SHADOW_SPLITS, type SunShadows } from './sunShadows';
 
 /** 体积雾参数（WorldView 每帧按天气更新） */
@@ -195,7 +196,7 @@ export class VolumetricFogNode extends THREE.Node {
       const n = texture3D(noise3, p.add(VFOG.wind).div(240.0)).level(float(0)).a;
       const patch = smoothstep(0.3, 0.7, n).mul(1.3).add(0.35);
       // 第二项：头顶有树冠的程度（只在树冠高度以下才算林下）
-      return vec2(VFOG.mist.mul(exp(above.div(VFOG.mistH).negate())).mul(f.mul(2.4).add(0.3)).mul(patch), f.mul(float(1).sub(smoothstep(12.0, 36.0, above))));
+      return vec2(VFOG.mist.mul(exp(above.div(VFOG.mistH).negate())).mul(f.mul(1.7).add(0.3)).mul(patch), f.mul(float(1).sub(smoothstep(12.0, 36.0, above))));
     };
 
     const frag = Fn(() => {
@@ -237,7 +238,7 @@ export class VolumetricFogNode extends THREE.Node {
         const t = tA.mul(s.mul(s));
         const dt = tA.mul(s.mul(2.0).add(1.0 / N)).div(N);
         const p = cam.add(wd.mul(t));
-        const vis = sunVis(p, t.mul(fwd)).mul(cloudShadow(p));
+        const vis = sunVis(p, t.mul(fwd)).mul(cloudShadow(p)).mul(terrainSun(p));
         const fade = float(1).sub(smoothstep(range * 0.55, range, t));
         const m = mistAt(p);
         const a = exp(m.x.mul(fade).mul(dt).negate());
@@ -259,7 +260,7 @@ export class VolumetricFogNode extends THREE.Node {
         Loop(NF, ({ i }: { i: THREE.Node<'int'> }) => {
           const t = tA.add(float(i).add(jit).mul(seg));
           const p = cam.add(wd.mul(t));
-          const vis = sunVis(p, t.mul(fwd)).mul(cloudShadow(p));
+          const vis = sunVis(p, t.mul(fwd)).mul(cloudShadow(p)).mul(terrainSun(p));
           const ah = exp(hazeAt(p).mul(seg).negate());
           Lh.addAssign(sunH.mul(vis).mul(Th.mul(Tm).mul(float(1).sub(ah))));
           Th.mulAssign(ah);

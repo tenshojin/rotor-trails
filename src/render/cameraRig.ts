@@ -44,6 +44,7 @@ export class CameraRig {
     this.camera.layers.enable(1);
     // 图层 2 = 只进最近两层阴影的物体（座舱内部等）；近处的普通物体同时带图层 0 和 2
     this.camera.layers.enable(2);
+    this.camera.layers.enable(3);
   }
 
   look(dx: number, dy: number): void {

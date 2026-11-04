@@ -6,9 +6,13 @@ import * as THREE from 'three/webgpu';
 import { positionWorld, uniform } from 'three/tsl';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
 import { cloudShadow } from './cloudShadowMap';
+import { terrainSun } from './sunMap';
 
 /** 能进入最近两层阴影的物体带的图层（默认物体由 markNearShadow 统一加上） */
 export const NEAR_SHADOW_LAYER = 2;
+
+/** 近处地形块带的图层：只进第三层阴影（40~320 m），不进最远一层 */
+export const TERRAIN_SHADOW_LAYER = 3;
 
 /** 给场景里还是默认图层（只有图层 0）的物体加上图层 2，让它们进入最近两层阴影。 */
 export function markNearShadow(root: THREE.Object3D): void {
@@ -56,7 +60,8 @@ export class SunShadows {
     void camera; // CSM 在第一次渲染时自动取当前相机并创建各层阴影
     l.shadow.shadowNode = this.csm;
     // 云影：直射阳光再乘上头顶云层的透过率（与天空里看到的体积云是同一份密度，云影跟着云一起飘）
-    (l as THREE.DirectionalLight & { colorNode?: THREE.Node }).colorNode = this.radiance.mul(cloudShadow(positionWorld));
+    // 山影：分层阴影范围之外（以及范围之内）山挡住太阳的地方，见 sunMap.ts
+    (l as THREE.DirectionalLight & { colorNode?: THREE.Node }).colorNode = this.radiance.mul(cloudShadow(positionWorld)).mul(terrainSun(positionWorld));
   }
 
   /** 光的颜色与强度（每帧由天空/天气给出） */
@@ -111,6 +116,7 @@ export class SunShadows {
         else {
           c.shadow!.camera.layers.set(0);
           c.shadow!.camera.layers.enable(1);
+          if (i === 2) c.shadow!.camera.layers.enable(TERRAIN_SHADOW_LAYER);
         }
       });
     }

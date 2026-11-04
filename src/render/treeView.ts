@@ -5,6 +5,7 @@
 import * as THREE from 'three/webgpu';
 import { cameraPosition, dFdx, dFdy, dot, length, log2, max, normalize, normalLocal, normalViewGeometry, positionGeometry, positionLocal, positionWorld, pow, sin, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
 import { FOG } from './atmosphere';
+import { terrainSun } from './sunMap';
 import { VFOG } from './volumetricFog';
 import { loadGltf } from './gltf';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -394,7 +395,8 @@ export class TreeView {
         m.colorNode = vec4(albedo, c.a.mul(boost));
         // 叶片是半透明的：迎着太阳看时被照透（发亮的黄绿色）；树冠里的暗处也有叶片之间反射的绿光，不是黑洞
         const back = pow(max(dot(normalize(positionWorld.sub(cameraPosition)), FOG.sunDir), 0.0), 3.0);
-        m.emissiveNode = albedo.mul(vec3(1.08, 1.16, 0.72)).mul(FOG.color.mul(0.2).add(VFOG.sun.mul(back.mul(0.15).add(0.018))));
+        // （阳光那部分要乘山影：在山的影子里叶片没有被照透，否则一棵棵树在暗处发光）
+        m.emissiveNode = albedo.mul(vec3(1.08, 1.16, 0.72)).mul(FOG.color.mul(0.13).add(VFOG.sun.mul(back.mul(0.15).add(0.018)).mul(terrainSun(positionWorld))));
         // 双面渲染时背面不翻转法线（叶片法线朝树冠外侧，翻转会让背面发黑）
         m.normalNode = normalViewGeometry;
       }

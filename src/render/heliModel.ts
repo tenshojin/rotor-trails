@@ -2,7 +2,7 @@
 // 三片主旋翼（高速时显示为模糊桨盘）、滑橇、航行灯与防撞闪光灯。
 
 import * as THREE from 'three/webgpu';
-import { float, length, materialOpacity, mix, smoothstep, uv, vec3 } from 'three/tsl';
+import { float, length, materialOpacity, mix, smoothstep, uniform, uv, vec3 } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { HELI } from '../config/flight';
 import { loadGltf } from './gltf';
@@ -42,6 +42,7 @@ export class HeliModel {
   private blades: THREE.Mesh;
   private disc: THREE.Mesh;
   private discMat: THREE.MeshBasicNodeMaterial;
+  private readonly rimK = uniform(0.035);
   private inCockpit = true;
   private bladeMat: THREE.MeshStandardMaterial;
   private tailDisc: THREE.Mesh;
@@ -184,7 +185,7 @@ export class HeliModel {
       const body = smoothstep(0.08, 0.14, r).mul(mix(0.2, 0.12, smoothstep(0.14, 0.9, r))).mul(float(1).sub(smoothstep(0.95, 1.0, r)));
       this.discMat.colorNode = mix(vec3(0.012, 0.012, 0.014), vec3(0.79, 0.79, 0.79), rim);
       // 桨尖一圈只略微显出（太亮的话从座舱里看，晴空上会横着一道白色弧线）
-      this.discMat.opacityNode = body.add(rim.mul(0.035)).mul(materialOpacity);
+      this.discMat.opacityNode = body.add(rim.mul(this.rimK)).mul(materialOpacity);
     }
     this.mats.push(this.discMat);
     this.disc = new THREE.Mesh(new THREE.CircleGeometry(HELI.rotorRadius, 48).rotateX(-Math.PI / 2), this.discMat);
@@ -278,6 +279,8 @@ export class HeliModel {
     // Blender 外观模型从座舱里只能透过顶窗看到整流罩与旋翼，始终显示；程序外观在座舱视角时隐藏
     if (!this.extLoaded) this.exterior.visible = !cockpit;
     this.inCockpit = cockpit;
+    // 从座舱里看，桨尖那一圈在暗的山壁前会变成一道横着的亮线；肉眼其实看不到它
+    this.rimK.value = cockpit ? 0.004 : 0.035;
     // 两侧航行灯和顶上的防撞灯离眼睛不到两米，从座舱里看会变成一大团光（真实的灯是朝外照的）；尾灯离得远，留着
     this.navLights[0].visible = !cockpit;
     this.navLights[1].visible = !cockpit;

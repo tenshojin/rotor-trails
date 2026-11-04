@@ -36,12 +36,20 @@ export function erode(data: Float32Array, res: number, seed: number, o: ErosionO
   // 陡坡先加一层不规则的起伏：完全光滑的坡面上，水流只会排成一排等距的平行槽，看上去像窗帘的褶子
   const pn = new Perlin2(seed + 3);
   const perturb = new Float32Array(data.length);
+  // 岩性：陡坡上只有软弱带（节理、破碎带）才冲得出沟，整块的硬岩冲不动。
+  // 否则满山都是一样深、一样宽的沟，看上去像窗帘的褶
+  const weak = new Float32Array(data.length).fill(1);
+  const steep = new Float32Array(data.length);
   for (let y = 1; y < res - 1; y++)
     for (let x = 1; x < res - 1; x++) {
       const i = y * res + x;
       const s = Math.hypot(h[i + 1] - h[i - 1], h[i + res] - h[i - res]);
       const k = Math.min(1, Math.max(0, (s - 0.012) / 0.03));
       if (k <= 0) continue;
+      const zone = pn.fbm(x / 58 + 11, y / 58 - 7, 3);
+      const open = Math.min(1, Math.max(0, (zone - 0.02) / 0.3));
+      weak[i] = 1 - k * (1 - (0.06 + 0.94 * open * open));
+      steep[i] = k;
       const warp = pn.noise(x / 37, y / 37) * 26;
       perturb[i] = k * (pn.fbm((x + warp) / 44, (y - warp) / 19, 3) * 0.05 + pn.fbm((x - warp) / 11, (y + warp) / 7, 2) * 0.014);
     }
@@ -112,7 +120,7 @@ export function erode(data: Float32Array, res: number, seed: number, o: ErosionO
         h[i + res] += put * (1 - u) * v * k;
         h[i + res + 1] += put * u * v * k;
       } else {
-        const take = Math.min((cap - sed) * ERODE, -dh);
+        const take = Math.min((cap - sed) * ERODE, -dh) * weak[i];
         for (let k = 0; k < bw.length; k++) {
           const p = (iy + by[k]) * res + ix + bx[k];
           h[p] -= take * bw[k] * (mask ? mask[p] : 1);
@@ -138,9 +146,21 @@ export function erode(data: Float32Array, res: number, seed: number, o: ErosionO
       }
     d = o;
   }
+  // 陡坡上再抹掉三四格宽的细沟：岩壁上留下的应该是少数几条大冲沟，而不是一排等距的细槽
+  let wide = d;
+  for (let pass = 0; pass < 5; pass++) {
+    const o = wide.slice();
+    for (let y = 1; y < res - 1; y++)
+      for (let x = 1; x < res - 1; x++) {
+        const i = y * res + x;
+        o[i] = (wide[i] * 4 + (wide[i - 1] + wide[i + 1] + wide[i - res] + wide[i + res]) * 2 + wide[i - res - 1] + wide[i - res + 1] + wide[i + res - 1] + wide[i + res + 1]) / 16;
+      }
+    wide = o;
+  }
   for (let i = 0; i < n; i++) {
     const k = mask ? mask[i] : 1;
     const dep = raw[i] > 0 ? 1 : 0.55;
-    data[i] += (raw[i] + (d[i] - raw[i]) * dep) * k;
+    const fine = raw[i] + (d[i] - raw[i]) * dep;
+    data[i] += (fine + (wide[i] - fine) * steep[i]) * k;
   }
 }

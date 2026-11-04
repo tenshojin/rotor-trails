@@ -22,6 +22,11 @@ import { loadTerrainLayers } from './terrainLayers';
 import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrainView';
 import { makeForestTexture, makeGroundHeightTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
 import { fogMaps, VFOG } from './volumetricFog';
+import { DownwashView } from './downwash';
+import { GroundCover } from './groundCover';
+import { RiverView } from './riverView';
+import { EyeAdapt } from './eyeAdapt';
+import { clearSunMap, setSunMap } from './sunMap';
 import { sunFor, type TimeOfDay } from './timeOfDay';
 import { WET } from './wetness';
 import { updateCloudShadowMap } from './cloudShadowMap';
@@ -95,6 +100,11 @@ export class WorldView {
   private fogBaseY = 0;
   /** 时段（白天 / 清晨 / 黄昏），只影响画面 */
   private tod: TimeOfDay = 'day';
+  /** 人眼适应（自动曝光） */
+  readonly eye = new EyeAdapt();
+  private wash: DownwashView | null = null;
+  private rivers: RiverView | null = null;
+  private grass: GroundCover | null = null;
   flash = 0;
   /** 雷声回调（音频层） */
   onThunder: ((delay: number, strength: number) => void) | null = null;
@@ -174,6 +184,10 @@ export class WorldView {
     }
     if (this.trees) this.trees.quality = { near: q.treeNear, far: q.treeFar, shadows: q.shadows, aa: q.msaa > 0 };
     if (this.props) this.props.lodScale = q.terrainLod;
+    // 水面倒影：低画质没有后期管线，省掉
+    const mirror = s.quality === 'low' ? 0 : 1;
+    if (this.water) this.water.ssr.value = mirror;
+    if (this.rivers) this.rivers.ssr.value = mirror;
     // 高画质起用光线步进的体积积云（低、中用二维云层）
     this.sky?.setVolumetric(s.quality === 'ultra' ? 72 : s.quality === 'high' ? 44 : 0);
     this.lightning.enabled = s.lightning;
@@ -187,6 +201,7 @@ export class WorldView {
     this.tod = tod;
     if (this.sky && this.world) {
       const [az, el] = sunFor(this.world.map, tod);
+      this.eye.snap();
       this.sky.setSun(az, el);
     }
     // 太阳很低时远处的山也会把影子投进谷里：阴影框往太阳方向多留一些距离
@@ -242,6 +257,8 @@ export class WorldView {
     const [sunAz, sunEl] = sunFor(map, this.tod);
     this.sky = new SkyDome(sunAz, sunEl, map.biome.fogTint, map.biome.grass);
     this.sun.csm.lightMargin = 400 + 1800 * (1 - this.sky.dayK);
+    setSunMap(world.terrain, this.sky.sunDir);
+    this.eye.snap();
     this.scene.add(this.sky.mesh);
     // 雾的基准高度：地图最低处（有水面时取水面）
     const hf = world.terrain;
@@ -256,7 +273,7 @@ export class WorldView {
     if (map.waterLevel !== null) {
       const depth = makeWaterDepthTexture(world.terrain, map.waterLevel);
       this.mapTextures.push(depth);
-      this.water = new WaterView(map, depth);
+      this.water = new WaterView(map, depth, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true);
       this.scene.add(this.water.mesh);
     }
     progress?.(0.88, '构建建筑与植被');
@@ -272,6 +289,14 @@ export class WorldView {
     this.nav = new NavView(map);
     this.nav.guides = this.settings.navGuides;
     this.scene.add(this.nav.group);
+    this.wash = new DownwashView(map);
+    this.scene.add(this.wash.group);
+    this.grass = new GroundCover(world, forestTex);
+    this.scene.add(this.grass.group);
+    if (map.rivers) {
+      this.rivers = new RiverView(map.rivers, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true);
+      this.scene.add(this.rivers.group);
+    }
     this.clouds = new CloudLayer(map.size);
     this.scene.add(this.clouds.group);
     this.minimap = makeMinimapCanvas(map, world.terrain, world.trees);
@@ -295,6 +320,9 @@ export class WorldView {
     rm(this.props?.group);
     rm(this.trees?.group);
     rm(this.nav?.group);
+    rm(this.wash?.group);
+    rm(this.rivers?.group);
+    rm(this.grass?.group);
     rm(this.clouds?.group);
     this.terrain?.dispose();
     this.sky?.clouds.dispose();
@@ -306,6 +334,13 @@ export class WorldView {
     this.modelLib = null;
     this.trees?.dispose();
     this.nav?.dispose();
+    this.wash?.dispose();
+    this.wash = null;
+    this.rivers?.dispose();
+    this.rivers = null;
+    this.grass?.dispose();
+    this.grass = null;
+    clearSunMap();
     this.clouds?.dispose();
     for (const t of this.mapTextures) t.dispose();
     this.mapTextures = [];
@@ -440,15 +475,15 @@ export class WorldView {
       // 舱内补光：地平线一带的天光，混一半内饰反射出来的暖色（否则座舱背光处全是天空的蓝）
       CABIN_FILL.value.copy(FOG.color.value).lerp(_cabinWarm, 0.55).multiplyScalar(0.42 * (1 - 0.35 * w.overcast));
       // 清晨：谷地与林间的晨雾（更浓、更厚）；清晨与黄昏的低空霾也更重（逆光时的光束最明显）
-      const todMist = this.tod === 'dawn' ? 3.2 : this.tod === 'dusk' ? 1.4 : 1;
+      const todMist = this.tod === 'dawn' ? 1.9 : this.tod === 'dusk' ? 1.3 : 1;
       VFOG.mist.value = Math.min(0.012, Math.max(0.0005, 8 / Math.max(300, w.visibility)) * (world.map.biome.mist ?? 1) * (1 + 0.6 * w.rain) * todMist);
-      VFOG.mistH.value = (40 + 30 * w.rain) * (this.tod === 'dawn' ? 1.6 : 1);
+      VFOG.mistH.value = (40 + 30 * w.rain) * (this.tod === 'dawn' ? 1.3 : 1);
       VFOG.haze.value = Math.min(1e-4, 0.25 / Math.max(300, w.visibility)) * (0.6 + 0.4 * (world.map.biome.mist ?? 1)) * (this.tod === 'day' ? 1 : 1.7);
       VFOG.shade.value = 1 - Math.min(1, w.overcast * 1.4);
       VFOG.wind.value.x -= _w.x * f.dt;
       VFOG.wind.value.z -= _w.z * f.dt;
       // 清晨、黄昏整体更暗：曝光只补回一部分（像相机那样稍微提亮，但保留低光的气氛）
-      this.renderer.toneMappingExposure = (1.0 - w.overcast * 0.12) * (1 + 0.32 * (1 - this.sky.dayK)) + this.flash * 0.6;
+      this.renderer.toneMappingExposure = (1.0 - w.overcast * 0.12) * this.eye.update(f.dt) + this.flash * 0.6;
       const q = QUALITY[set.quality];
       // 分层阴影：视野或宽高比变了要重新划分；每帧把各层阴影框跟随相机（内部按纹素对齐，避免闪烁）
       if (cam.fov !== this.csmFov || cam.aspect !== this.csmAspect) {
@@ -473,6 +508,12 @@ export class WorldView {
       const gust = s ? Math.min(1, s.windInfo.gust / 8) : 0.2;
       this.trees?.update(f.t, cam, _w.x, _w.z, gust);
       if (s) this.nav?.update(s, f.t, cp);
+      this.rivers?.update(f.t);
+      this.grass?.update(f.t, cp);
+      if (s && this.wash) {
+        this.wash.update(f.dt, s);
+        this.water?.setWash(this.wash.state.x, this.wash.state.z, this.wash.state.water);
+      }
       this.rain.update(f.t, cp, w.rain, _w, s ? _vel : new THREE.Vector3(), q.rainDensity);
       // 低云层：开着体积雾时由它画（按深度积分，和地形没有硬边），否则退回半透明的面片
       const volLow = !!this.post?.fog;
@@ -490,6 +531,7 @@ export class WorldView {
     if (this.post) this.post.pipeline.render();
     else this.renderer.render(this.scene, cam);
     undoWarm?.();
+    this.eye.sample(this.renderer, this.post?.hdr() ?? null);
     this.frames++;
     this.frameStats.calls = this.renderer.info.render.drawCalls;
     this.frameStats.tris = this.renderer.info.render.triangles;
