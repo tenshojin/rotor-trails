@@ -115,9 +115,36 @@ export function applyRockForm(data: Float32Array, res: number, size: number, d: 
       delta[i] = (y0 + (y1 - y0) * bandProfile(u, T.hard[L]) - y) * k;
     }
   }
+  // 崖顶不能高过身后的台地：硬层的剖面会把崖边往上抬，否则崖边是一圈凸起的矮墙，从台地上看过去一排锯齿
+  const cap = dilate(data, res, 4);
   // 变化量抹一下：一格 4 米，层线的折角落在格子中间时不会出现一格宽的锯齿
   const soft = blur3(delta, res);
-  for (let i = 0; i < data.length; i++) data[i] += delta[i] * 0.55 + soft[i] * 0.45;
+  for (let i = 0; i < data.length; i++) {
+    const d = delta[i] * 0.55 + soft[i] * 0.45;
+    data[i] = d > 0 ? Math.min(data[i] + d, Math.max(data[i], cap[i])) : data[i] + d;
+  }
+}
+
+/** r 格之内的最大值（横竖各走一遍） */
+function dilate(src: Float32Array, res: number, r: number): Float32Array {
+  const tmp = new Float32Array(src.length);
+  const out = new Float32Array(src.length);
+  for (let z = 0; z < res; z++) {
+    const row = z * res;
+    for (let x = 0; x < res; x++) {
+      let m = -Infinity;
+      for (let k = Math.max(0, x - r); k <= Math.min(res - 1, x + r); k++) if (src[row + k] > m) m = src[row + k];
+      tmp[row + x] = m;
+    }
+  }
+  for (let x = 0; x < res; x++) {
+    for (let z = 0; z < res; z++) {
+      let m = -Infinity;
+      for (let k = Math.max(0, z - r); k <= Math.min(res - 1, z + r); k++) if (tmp[k * res + x] > m) m = tmp[k * res + x];
+      out[z * res + x] = m;
+    }
+  }
+  return out;
 }
 
 /** 崩塌：相邻两格的高差超过 maxDiff 就把多出来的部分往低处挪（几十遍之后尖刺变成站得住的陡壁） */

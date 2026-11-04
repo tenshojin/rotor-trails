@@ -105,14 +105,27 @@ export class TerrainView {
     if (this.far) this.group.add(this.far);
   }
 
-  private buildIndex(n: number): THREE.BufferAttribute {
+  /**
+   * h：给出时按高差选每个方格的对角线（走高差小的那条）。网格粗了以后，崖边用固定对角线会是一排锯齿，
+   * 对角线顺着崖线走才是一条线。最细一级不用（要和物理地形的三角形一致）。
+   */
+  private buildIndex(n: number, h?: (k: number) => number): THREE.BufferAttribute {
     const idx: number[] = [];
     const v = (i: number, j: number) => j * (n + 1) + i;
     for (let j = 0; j < n; j++)
       for (let i = 0; i < n; i++) {
-        // 与 Rapier 一致的对角线：(x1,z0)-(x0,z1)
-        idx.push(v(i, j), v(i, j + 1), v(i + 1, j));
-        idx.push(v(i + 1, j), v(i, j + 1), v(i + 1, j + 1));
+        const a = v(i, j);
+        const b = v(i + 1, j);
+        const c = v(i, j + 1);
+        const d = v(i + 1, j + 1);
+        if (h && Math.abs(h(a) - h(d)) < Math.abs(h(b) - h(c))) {
+          idx.push(a, c, d);
+          idx.push(a, d, b);
+        } else {
+          // 与 Rapier 一致的对角线：(x1,z0)-(x0,z1)
+          idx.push(a, c, b);
+          idx.push(b, c, d);
+        }
       }
     // 裙边：每条边的顶点向下复制一份
     const base = (n + 1) * (n + 1);
@@ -180,7 +193,7 @@ export class TerrainView {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-    g.setIndex(this.indexByLod[lod]);
+    g.setIndex(lod === 0 ? this.indexByLod[0] : this.buildIndex(n, (q) => pos[q * 3 + 1]));
     g.computeBoundingSphere();
     this.cache.set(key, g);
     return g;

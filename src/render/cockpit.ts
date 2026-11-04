@@ -25,8 +25,8 @@ const GLARE_Z: [number, number] = [-2.05, -1.5];
 /** 雨刷：转轴（机体坐标里风挡下沿附近的目标点，从眼点打一条射线落到玻璃上）、臂长、摆动范围（弧度，0 = 竖直） */
 const WIPER_AIM: Array<[number, number, number]> = [[0.5, 0.0, -2.1], [-0.34, 0.0, -2.1]];
 const WIPER_LEN = 0.56;
-const WIPER_REST = 1.3;
-const WIPER_SWEEP = 1.5;
+const WIPER_REST = 1.95;
+const WIPER_SWEEP = 2.1;
 
 /** 舱内补光：四面是窗的机舱里，天空和地面的光在内饰之间来回反射，背光的角落也不会全黑。
  * 环境贴图只算得到“这一点看得见多少天空”，算不到这部分反射，所以另加一项（颜色和亮度由 WorldView 按天空每帧设置）。 */
@@ -400,6 +400,8 @@ export class Cockpit {
     }
     const s = 0.5 - 0.5 * Math.cos(this.wipeT * Math.PI * 2);
     this.setWiperAngle(WIPER_REST - WIPER_SWEEP * s);
+    // 停着的时候收在风挡下沿外面，从舱里看不到
+    for (const w of this.wipers) w.pivot.visible = on || this.wipeT > 0;
     this.glassUniforms.uWipeOn.value = rain > 0.04 ? 1 : 0;
     this.glassUniforms.uFlow.value = Math.min(1, airspeed / 35);
     this.glassUniforms.uShield.value = shield;
