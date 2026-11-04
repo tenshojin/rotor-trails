@@ -36,6 +36,8 @@ export interface RockFormDef {
   tint: number;
   /** 岩架和缓坡上的碎屑有多少是上方岩层风化下来的（0 = 不改地表颜色；有植被的地方用 0） */
   debris?: number;
+  /** 最陡的坡度（高差 / 水平距离）：比这更陡的地方岩石站不住，会塌下来 */
+  talus?: number;
   /**
    * 岩壁的平面形状：把地形在水平方向上扭一扭，每项 [幅度（米）, 尺度（米）]。
    * 岩壁的走向因此有进有退（支墩和凹龛），而不是一整面光滑的弧；平地不受影响。
@@ -90,6 +92,7 @@ export function applyRockForm(data: Float32Array, res: number, size: number, d: 
   const cell = size / (res - 1);
   const half = size / 2;
   const T = layerTable(d);
+  if (d.talus) slump(data, res, d.talus * cell, mask);
   if (d.warp) warpPlan(data, res, cell, d.warp, mask);
   // 用平滑过的高度算坡度：单格的毛刺不算陡坡
   const sm = blur3(blur3(data, res), res);
@@ -115,6 +118,30 @@ export function applyRockForm(data: Float32Array, res: number, size: number, d: 
   // 变化量抹一下：一格 4 米，层线的折角落在格子中间时不会出现一格宽的锯齿
   const soft = blur3(delta, res);
   for (let i = 0; i < data.length; i++) data[i] += delta[i] * 0.55 + soft[i] * 0.45;
+}
+
+/** 崩塌：相邻两格的高差超过 maxDiff 就把多出来的部分往低处挪（几十遍之后尖刺变成站得住的陡壁） */
+function slump(data: Float32Array, res: number, maxDiff: number, mask?: Float32Array): void {
+  for (let pass = 0; pass < 36; pass++) {
+    for (let z = 1; z < res - 1; z++) {
+      for (let x = 1; x < res - 1; x++) {
+        const i = z * res + x;
+        const k = mask ? mask[i] : 1;
+        if (k <= 0) continue;
+        const h = data[i];
+        let lo = i + 1;
+        if (data[i - 1] < data[lo]) lo = i - 1;
+        if (data[i + res] < data[lo]) lo = i + res;
+        if (data[i - res] < data[lo]) lo = i - res;
+        const diff = h - data[lo] - maxDiff;
+        if (diff > 0) {
+          const m = diff * 0.5 * k * (mask ? mask[lo] : 1);
+          data[i] -= m;
+          data[lo] += m;
+        }
+      }
+    }
+  }
 }
 
 function warpPlan(data: Float32Array, res: number, cell: number, warp: Array<[number, number]>, mask?: Float32Array): void {

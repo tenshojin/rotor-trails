@@ -47,7 +47,7 @@ export interface EyeAdaptOptions {
   tauDown: number;
 }
 
-export const EYE_DEFAULT: EyeAdaptOptions = { key: 0.23, strength: 0.62, min: 0.7, max: 2.3, tauUp: 2.6, tauDown: 1.1 };
+export const EYE_DEFAULT: EyeAdaptOptions = { key: 0.23, strength: 0.62, min: 0.58, max: 2.3, tauUp: 2.6, tauDown: 1.1 };
 
 export class EyeAdapt {
   /** 当前的曝光倍数 */

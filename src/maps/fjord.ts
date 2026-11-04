@@ -407,7 +407,7 @@ export const FJORD_MAP: MapDef = {
     beachTop: 2.2,
     snowLine: 800,
     rockSlope: 0.33,
-    waterDeep: 0x16323f,
+    waterDeep: 0x1b3f50,
     waterShallow: 0x2a5e62,
     fogTint: 0xc6ced4,
     forestFloor: 0x26361e,

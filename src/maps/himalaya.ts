@@ -22,6 +22,7 @@ const ROCK: RockFormDef = {
   bench: 0.6,
   slope: [0.8, 1.7],
   tint: 0.62,
+  talus: 3.2,
   warp: [
     [14, 170],
     [5, 55],
@@ -372,7 +373,7 @@ export const HIMALAYA: MapDef = {
   biome: {
     sand: 0x8f887a,
     grass: 0x6f7a4e,
-    grass2: 0x8c7052,
+    grass2: 0x857a58,
     dirt: 0x736858,
     rock: 0x6e6c6a,
     rock2: 0x504e4d,

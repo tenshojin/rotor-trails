@@ -272,7 +272,8 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
         const lum = dot(col, LUMW).div(Math.max(0.02, 0.2126 * U.rock.r + 0.7152 * U.rock.g + 0.0722 * U.rock.b));
         const rc = mix(lay.rgb, stain.rgb, smoothstep(0.45, 0.8, n3).mul(0.5)).mul(clamp(lum, 0.55, 1.5));
         // 只有真正的崖壁才露出层线：缓坡上满山一圈圈的条纹会像等高线
-        col.assign(mix(col, rc, rockW.mul(smoothstep(0.26, 0.5, mac.a)).mul(R.tint)));
+        // （地图外的远景网格很粗，层线在上面像等高线，减弱一些）
+        col.assign(mix(col, rc, rockW.mul(smoothstep(0.26, 0.5, mac.a)).mul(mix(float(0.4), float(1), inMap)).mul(R.tint)));
         if (R.debris) {
           // 岩架上堆的是上面崩下来的碎石，和岩壁同一个颜色；只有平的谷底、台地才是沙土
           const deb = float(1).sub(rockW).mul(smoothstep(0.035, 0.11, mac.a)).mul(R.debris);

@@ -296,14 +296,18 @@ export class HeliModel {
     this.rotorSpin.rotation.y = this.rotorAngle;
     // 高转速时桨叶变透明、显示模糊桨盘（避免频闪）
     const blur = Math.min(1, Math.max(0, (rpm - 0.3) / 0.5));
-    // 从座舱里看：高速转动的桨叶是一片几乎看不见的闪动，不是一块块半透明的板子
-    const fade = this.inCockpit ? 0.95 : 0.82;
-    this.bladeMat.opacity = 1 - blur * fade;
+    // 从座舱里看：高速转动的桨叶肉眼看不出一片一片的，只有桨盘那层淡淡的灰影。
+    // 哪怕只留 5% 的不透明度，每一帧都会有一块半透明的四边形横在头顶，所以转起来就整片隐藏
+    const fade = this.inCockpit ? 1 : 0.82;
+    const bladeA = 1 - blur * fade;
+    this.bladeMat.opacity = bladeA;
     this.bladeMat.depthWrite = blur < 0.5;
     for (const m of this.glbBladeMats) {
-      m.opacity = 1 - blur * fade;
+      m.opacity = bladeA;
       m.depthWrite = blur < 0.5;
     }
+    this.blades.visible = bladeA > 0.004;
+    for (const m of this.glbBlades) m.visible = bladeA > 0.004;
     this.discMat.opacity = blur * (this.inCockpit ? 0.14 : 0.45);
     // 高速旋转时桨叶不投影：每帧角度不同的桨叶阴影会被时间抗锯齿累积成一整块深色圆盘，
     // 而真实的旋翼阴影只是很淡的闪烁
