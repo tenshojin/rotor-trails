@@ -215,7 +215,7 @@ export const CANYON: MapDef = {
       const p = MAINP.at(s);
       return { type: 'sensorPost', pos: [p[0] + 12, 0, p[1] + 6] as V3, ground: true };
     }),
-    { type: 'arch', pos: [ARCH_X, floorAt(S_ARCH) - 3, ARCH_Z], rotY: ARCH_ROT, p: { span: 96, rise: 74, thick: 15, depth: 20 } },
+    { type: 'arch', pos: [ARCH_X, floorAt(S_ARCH) - 3, ARCH_Z], rotY: ARCH_ROT, p: { span: 104, rise: 86, thick: 15, depth: 20 } },
     { type: 'hoodooField', pos: [-640, 0, 220], ground: true, p: { r: 110, n: 16 } },
     { type: 'hoodooField', pos: [-1250, 0, 380], ground: true, p: { r: 120, n: 12 } },
     { type: 'hoodooField', pos: [1000, 0, -300], ground: true, p: { r: 100, n: 10 } },
