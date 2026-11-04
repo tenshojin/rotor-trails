@@ -66,7 +66,6 @@ def jib_crane(name):
     d = Vector((math.cos(math.radians(20)), 0, math.sin(math.radians(20))))
     n = Vector((-d.z, 0, d.x))
     Ln = 27.0
-    tops = [a0 + n * 1.0 + Vector((0, 0, 0))]
     p0 = [a0 + Vector((0, 0.9, 0)), a0 + Vector((0, -0.9, 0)), a0 + n * 1.3]
     tip = a0 + d * Ln + n * 0.2
     for i, p in enumerate(p0):
@@ -92,27 +91,20 @@ def jib_crane(name):
 
 
 def hull_loft(name, L, W, keel, top, m, bow0=0.7, z0=None, z1=None, n=30, prof=8):
-    """船体放样：x 从船尾到船首，首部收窄并上扬，截面 U 形。z0..z1 只取这一段高度（用来分色）。"""
+    """船体放样：x 从船尾到船首，首部收窄并上扬，截面下窄上宽。z0..z1 只取这一段高度（用来分色）；不给 z1 时到舷边。"""
+    lo = keel if z0 is None else z0
     verts, faces = [], []
     for i in range(n + 1):
         t = i / n
         x = -L / 2 + L * t
         bow = max(0.0, (t - bow0) / (1 - bow0))
         half = W / 2 * (1 - bow ** 1.9 * 0.97)
-        tp = top + 1.5 * bow ** 2
-        for j in range(prof + 1):
-            a = j / prof
-            z = (z0 if z0 is not None else keel) + ((z1 if z1 is not None else tp) - (z0 if z0 is not None else keel)) * a
-            if z1 is None:
-                z = (z0 if z0 is not None else keel) + (tp - (z0 if z0 is not None else keel)) * a
-            k = min(1.0, max(0.0, (z - keel) / (top - keel)))
-            y = half * (0.62 + 0.38 * k ** 0.5)
-            verts.append((x, y, z))
-        for j in range(prof + 1):
-            a = j / prof
-            z = (z0 if z0 is not None else keel) + ((z1 if z1 is not None else tp) - (z0 if z0 is not None else keel)) * a
-            k = min(1.0, max(0.0, (z - keel) / (top - keel)))
-            verts.append((x, -half * (0.62 + 0.38 * k ** 0.5), z))
+        hi = z1 if z1 is not None else top + 1.5 * bow ** 2
+        for sy in (1, -1):
+            for j in range(prof + 1):
+                z = lo + (hi - lo) * j / prof
+                k = min(1.0, max(0.0, (z - keel) / (top - keel)))
+                verts.append((x, sy * half * (0.62 + 0.38 * k ** 0.5), z))
     col = 2 * (prof + 1)
     for i in range(n):
         for j in range(prof):
