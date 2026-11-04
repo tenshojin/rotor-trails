@@ -25,6 +25,14 @@ export function markNearShadow(root: THREE.Object3D): void {
 export const SHADOW_SPLITS = [4, 40, 320, 2600];
 /** 各层的法线偏移（约 1.5 个阴影纹素，避免自阴影条纹） */
 const NORMAL_BIAS = [0.006, 0.05, 0.3, 2.2];
+/**
+ * 阴影要画的东西占一帧绘制调用的一半以上，而远处的影子在几帧之内几乎不变：
+ * 最近一层（座舱）每帧画，往外隔 2、4、8 帧画一次，错开在不同的帧里。
+ * 相机转过一定角度或者走出一段距离就立刻重画（阴影框是按视锥算的，转头时旧的框盖不到新转进来的地方）。
+ */
+const SHADOW_PERIOD = [1, 2, 4, 8];
+const SHADOW_TURN = [0, 0.06, 0.04, 0.028];
+const SHADOW_MOVE = [0, 3, 20, 90];
 
 export class SunShadows {
   readonly light: THREE.DirectionalLight;
@@ -35,6 +43,8 @@ export class SunShadows {
   private mapSize: number;
   private configured = 0;
   private enabled = true;
+  private frame = 0;
+  private readonly drawn = SHADOW_PERIOD.map(() => ({ frame: -99, pos: new THREE.Vector3(1e9, 0, 0), q: new THREE.Quaternion() }));
 
   constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera, mapSize: number) {
     this.mapSize = mapSize;
@@ -118,8 +128,24 @@ export class SunShadows {
           c.shadow!.camera.layers.enable(1);
           if (i === 2) c.shadow!.camera.layers.enable(TERRAIN_SHADOW_LAYER);
         }
+        c.shadow!.autoUpdate = false;
+        c.shadow!.needsUpdate = true;
       });
     }
+    this.frame++;
+    this.csm.lights.forEach((c, i) => {
+      const d = this.drawn[i];
+      const p = SHADOW_PERIOD[i];
+      const due = this.frame - d.frame >= p && (p === 1 || this.frame % p === i % p);
+      const moved = d.pos.distanceToSquared(cam.position) > SHADOW_MOVE[i] ** 2;
+      const turned = d.q.angleTo(cam.quaternion) > SHADOW_TURN[i];
+      if (due || (i > 0 && (moved || turned))) {
+        c.shadow!.needsUpdate = true;
+        d.frame = this.frame;
+        d.pos.copy(cam.position);
+        d.q.copy(cam.quaternion);
+      }
+    });
   }
 
   dispose(): void {

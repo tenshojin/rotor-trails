@@ -3,7 +3,7 @@
 // 三角剖分与 Rapier（parry）默认方式一致：每个格子沿 (x0,z1)-(x1,z0) 对角线切成两个三角形，
 // 因此 heightAt() 返回的高度与物理碰撞面完全一致（有单元测试校验）。
 
-import { clamp, segDist2D, smoothstep } from '../core/math';
+import { clamp, smoothstep } from '../core/math';
 
 export type Vec2 = [number, number];
 
@@ -245,32 +245,94 @@ export class HeightBuilder {
     const r = this.res;
     const dist = new Float32Array(r * r).fill(Infinity);
     const sArr = new Float32Array(r * r);
+    const n = path.length - 1;
+    const ax = new Float64Array(n);
+    const az = new Float64Array(n);
+    const ex = new Float64Array(n);
+    const ez = new Float64Array(n);
+    const l2 = new Float64Array(n);
+    const len = new Float64Array(n);
+    const start = new Float64Array(n);
     let acc = 0;
-    for (let k = 1; k < path.length; k++) {
-      const a = path[k - 1];
-      const b = path[k];
-      const segLen = Math.hypot(b[0] - a[0], b[1] - a[1]);
-      const minX = Math.min(a[0], b[0]) - maxDist;
-      const maxX = Math.max(a[0], b[0]) + maxDist;
-      const minZ = Math.min(a[1], b[1]) - maxDist;
-      const maxZ = Math.max(a[1], b[1]) + maxDist;
-      const ix0 = clamp(Math.floor((minX + this.half) / this.cell), 0, r - 1);
-      const ix1 = clamp(Math.ceil((maxX + this.half) / this.cell), 0, r - 1);
-      const iz0 = clamp(Math.floor((minZ + this.half) / this.cell), 0, r - 1);
-      const iz1 = clamp(Math.ceil((maxZ + this.half) / this.cell), 0, r - 1);
-      for (let iz = iz0; iz <= iz1; iz++) {
-        const z = this.z(iz);
-        for (let ix = ix0; ix <= ix1; ix++) {
-          const x = this.x(ix);
-          const { d, t } = segDist2D(x, z, a[0], a[1], b[0], b[1]);
-          const i = iz * r + ix;
-          if (d < dist[i] && d <= maxDist) {
-            dist[i] = d;
-            sArr[i] = acc + t * segLen;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (let k = 0; k < n; k++) {
+      const a = path[k];
+      const b = path[k + 1];
+      ax[k] = a[0];
+      az[k] = a[1];
+      ex[k] = b[0] - a[0];
+      ez[k] = b[1] - a[1];
+      l2[k] = ex[k] * ex[k] + ez[k] * ez[k];
+      len[k] = Math.hypot(ex[k], ez[k]);
+      start[k] = acc;
+      acc += len[k];
+      minX = Math.min(minX, a[0], b[0]);
+      maxX = Math.max(maxX, a[0], b[0]);
+      minZ = Math.min(minZ, a[1], b[1]);
+      maxZ = Math.max(maxZ, a[1], b[1]);
+    }
+    // 线段 16 根一组，每组一个外接圆：离圆比当前最近距离还远的组整组跳过。结果和逐段比较完全一样，快几十倍
+    const G = 16;
+    const groups = Math.ceil(n / G);
+    const gx = new Float64Array(groups);
+    const gz = new Float64Array(groups);
+    const gr = new Float64Array(groups);
+    for (let g = 0; g < groups; g++) {
+      const k0 = g * G;
+      const k1 = Math.min(n, k0 + G);
+      let sx = 0;
+      let sz = 0;
+      for (let k = k0; k < k1; k++) {
+        sx += ax[k] + ex[k] / 2;
+        sz += az[k] + ez[k] / 2;
+      }
+      sx /= k1 - k0;
+      sz /= k1 - k0;
+      let rad = 0;
+      for (let k = k0; k < k1; k++) rad = Math.max(rad, Math.hypot(ax[k] - sx, az[k] - sz), Math.hypot(ax[k] + ex[k] - sx, az[k] + ez[k] - sz));
+      gx[g] = sx;
+      gz[g] = sz;
+      gr[g] = rad + 1e-6;
+    }
+    const ix0 = clamp(Math.floor((minX - maxDist + this.half) / this.cell), 0, r - 1);
+    const ix1 = clamp(Math.ceil((maxX + maxDist + this.half) / this.cell), 0, r - 1);
+    const iz0 = clamp(Math.floor((minZ - maxDist + this.half) / this.cell), 0, r - 1);
+    const iz1 = clamp(Math.ceil((maxZ + maxDist + this.half) / this.cell), 0, r - 1);
+    for (let iz = iz0; iz <= iz1; iz++) {
+      const z = this.z(iz);
+      for (let ix = ix0; ix <= ix1; ix++) {
+        const x = this.x(ix);
+        let best = Infinity;
+        let bestS = 0;
+        for (let g = 0; g < groups; g++) {
+          const dx = x - gx[g];
+          const dz = z - gz[g];
+          const lb = Math.sqrt(dx * dx + dz * dz) - gr[g];
+          if (lb > maxDist || lb > best) continue;
+          const k1 = Math.min(n, (g + 1) * G);
+          for (let k = g * G; k < k1; k++) {
+            const px = x - ax[k];
+            const pz = z - az[k];
+            let t = l2[k] > 0 ? (px * ex[k] + pz * ez[k]) / l2[k] : 0;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            const cx = ax[k] + ex[k] * t - x;
+            const cz = az[k] + ez[k] * t - z;
+            const d = Math.sqrt(cx * cx + cz * cz);
+            if (d < best && d <= maxDist) {
+              best = Math.fround(d); // 和存进 Float32Array 再比较的结果一致
+              bestS = start[k] + t * len[k];
+            }
           }
         }
+        if (best !== Infinity) {
+          const i = iz * r + ix;
+          dist[i] = best;
+          sArr[i] = bestS;
+        }
       }
-      acc += segLen;
     }
     return { dist, s: sArr, length: acc };
   }
@@ -396,21 +458,81 @@ export class HeightBuilder {
 
   /** 沿折线绘制地表掩码（道路、河岸）。 */
   paintPath(channel: 0 | 1 | 2 | 3, points: Vec2[], width: number, feather: number, strength = 1): this {
-    const f = this.splineField(points, width + feather);
+    // 只在路径的外接范围内算（村子里的小路有几百条，不能每条都扫一遍整张地图）
+    const path = densifyPath(points, 6);
     const r = this.res;
-    for (let i = 0; i < r * r; i++) {
-      const d = f.dist[i];
-      if (d === Infinity) continue;
-      const v = (1 - smoothstep(width, width + feather, d)) * strength;
-      const k = i * 4 + channel;
-      const val = Math.round(clamp(v, 0, 1) * 255);
-      if (val > this.surface[k]) this.surface[k] = val;
+    const R = width + feather;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const [x, z] of path) {
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minZ = Math.min(minZ, z);
+      maxZ = Math.max(maxZ, z);
+    }
+    const ix0 = clamp(Math.floor((minX - R + this.half) / this.cell), 0, r - 1);
+    const ix1 = clamp(Math.ceil((maxX + R + this.half) / this.cell), 0, r - 1);
+    const iz0 = clamp(Math.floor((minZ - R + this.half) / this.cell), 0, r - 1);
+    const iz1 = clamp(Math.ceil((maxZ + R + this.half) / this.cell), 0, r - 1);
+    const w = ix1 - ix0 + 1;
+    const dist = new Float32Array(w * (iz1 - iz0 + 1)).fill(Infinity);
+    for (let k = 1; k < path.length; k++) {
+      const a = path[k - 1];
+      const b = path[k];
+      const jx0 = clamp(Math.floor((Math.min(a[0], b[0]) - R + this.half) / this.cell), ix0, ix1);
+      const jx1 = clamp(Math.ceil((Math.max(a[0], b[0]) + R + this.half) / this.cell), ix0, ix1);
+      const jz0 = clamp(Math.floor((Math.min(a[1], b[1]) - R + this.half) / this.cell), iz0, iz1);
+      const jz1 = clamp(Math.ceil((Math.max(a[1], b[1]) + R + this.half) / this.cell), iz0, iz1);
+      const ex = b[0] - a[0];
+      const ez = b[1] - a[1];
+      const l2 = ex * ex + ez * ez;
+      for (let iz = jz0; iz <= jz1; iz++) {
+        const z = this.z(iz);
+        for (let ix = jx0; ix <= jx1; ix++) {
+          const x = this.x(ix);
+          let t = l2 > 0 ? ((x - a[0]) * ex + (z - a[1]) * ez) / l2 : 0;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const cx = a[0] + ex * t - x;
+          const cz = a[1] + ez * t - z;
+          const d = Math.sqrt(cx * cx + cz * cz);
+          const i = (iz - iz0) * w + ix - ix0;
+          if (d < dist[i] && d <= R) dist[i] = d;
+        }
+      }
+    }
+    for (let iz = iz0; iz <= iz1; iz++) {
+      for (let ix = ix0; ix <= ix1; ix++) {
+        const d = dist[(iz - iz0) * w + ix - ix0];
+        if (d === Infinity) continue;
+        const v = (1 - smoothstep(width, width + feather, d)) * strength;
+        const k = (iz * r + ix) * 4 + channel;
+        const val = Math.round(clamp(v, 0, 1) * 255);
+        if (val > this.surface[k]) this.surface[k] = val;
+      }
     }
     return this;
   }
 
   paintCircle(channel: 0 | 1 | 2 | 3, cx: number, cz: number, radius: number, feather: number, strength = 1): this {
-    return this.paint(channel, (x, z) => (1 - smoothstep(radius, radius + feather, Math.hypot(x - cx, z - cz))) * strength);
+    const r = this.res;
+    const R = radius + feather;
+    const ix0 = clamp(Math.floor((cx - R + this.half) / this.cell), 0, r - 1);
+    const ix1 = clamp(Math.ceil((cx + R + this.half) / this.cell), 0, r - 1);
+    const iz0 = clamp(Math.floor((cz - R + this.half) / this.cell), 0, r - 1);
+    const iz1 = clamp(Math.ceil((cz + R + this.half) / this.cell), 0, r - 1);
+    for (let iz = iz0; iz <= iz1; iz++) {
+      const z = this.z(iz);
+      for (let ix = ix0; ix <= ix1; ix++) {
+        const v = (1 - smoothstep(radius, R, Math.hypot(this.x(ix) - cx, z - cz))) * strength;
+        if (v <= 0) continue;
+        const k = (iz * r + ix) * 4 + channel;
+        const val = Math.round(clamp(v, 0, 1) * 255);
+        if (val > this.surface[k]) this.surface[k] = val;
+      }
+    }
+    return this;
   }
 
   /** 旋转矩形（田地、院子）：中心 (cx, cz)、朝向 rot（与道具的 rotY 相同）、半宽 hw / 半深 hd；只遍历外接范围。 */
