@@ -278,7 +278,7 @@ export class WorldView {
     if (map.waterLevel !== null) {
       const depth = makeWaterDepthTexture(world.terrain, map.waterLevel);
       this.mapTextures.push(depth);
-      this.water = new WaterView(map, depth, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true, field);
+      this.water = new WaterView(map, depth, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true, field, this.sky);
       this.scene.add(this.water.mesh);
     }
     progress?.(0.88, '构建建筑与植被');
@@ -299,7 +299,7 @@ export class WorldView {
     this.grass = new GroundCover(world, forestTex);
     this.scene.add(this.grass.group);
     if (map.rivers) {
-      this.rivers = new RiverView(map.rivers, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true, field);
+      this.rivers = new RiverView(map.rivers, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true, field, this.sky);
       this.scene.add(this.rivers.group);
     }
     this.clouds = new CloudLayer(map.size);

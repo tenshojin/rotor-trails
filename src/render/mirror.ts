@@ -1,7 +1,6 @@
 // 水面倒影：沿反射方向在屏幕上步进，碰到画面里的山、树、房子就取那里的颜色（水面本身是平的，这样做又便宜又准）；
 // 光线飞出画面（低头看水、山在画面外）时接着在地形高度图里走（倒影场，见 reflectMap.ts），山还是映得出来；
-// 什么都没碰到时，这个方向的天空要是就在画面里，直接取那里的颜色（云也映进水里）；
-// 天空也在画面外才退回环境贴图。海面、峡湾、河面共用。
+// 什么都没碰到就是天空：按方向算大气颜色，再盖上云层贴图里的云（云也映进水里）。海面、峡湾、河面共用。
 
 import * as THREE from 'three/webgpu';
 import {
@@ -32,6 +31,7 @@ import {
   select,
   smoothstep,
   step,
+  struct,
   texture,
   vec2,
   vec3,
@@ -41,10 +41,13 @@ import {
 } from 'three/tsl';
 import { FOG } from './atmosphere';
 import type { ReflectField } from './reflectMap';
+import type { SkyDome } from './sky';
 import { terrainSun } from './sunMap';
 import { VFOG } from './volumetricFog';
 
 type N<T extends string> = THREE.Node<T>;
+
+const MirrorOut = struct({ rgb: 'vec3', total: 'float', hit: 'float' });
 
 /** 步数、第一步长度（米）、每步放大的倍数、最后的二分次数 */
 const STEPS = 17;
@@ -116,11 +119,10 @@ function fieldMarch(P0: N<'vec3'>, Rd: N<'vec3'>, f: ReflectField): N<'vec4'> {
 }
 
 /**
- * 返回 vec4(倒影颜色, 倒影权重)。权重 0 的地方（白沫上、天空也在画面外）由材质自己的环境反射负责。
- * 权重是负数表示映的是天空（取绝对值）：山和树把水面的天光挡住了，天空没有。
+ * 返回结构体：rgb = 倒影颜色，total = 倒影权重（白沫上是 0，由材质自己的环境反射负责），hit = 其中碰到山、树、房子的部分。
  * nW：世界空间的波浪法线（这里会压平一些，否则远处的倒影会碎成一片噪点）
  */
-export function screenMirror(nW: N<'vec3'>, foam: N<'float'>, depthNode: THREE.TextureNode, on: N<'float'>, field: ReflectField | null = null, spread: N<'float'> = float(0)): N<'vec4'> {
+export function screenMirror(nW: N<'vec3'>, foam: N<'float'>, depthNode: THREE.TextureNode, on: N<'float'>, field: ReflectField | null, spread: N<'float'>, sky: SkyDome): ReturnType<typeof MirrorOut> {
   return Fn(() => {
     const P0 = positionWorld;
     const V = normalize(P0.sub(cameraPosition));
@@ -172,20 +174,20 @@ export function screenMirror(nW: N<'vec3'>, foam: N<'float'>, depthNode: THREE.T
       });
     }
     const wFar = far.a.mul(live).mul(float(1).sub(k));
-    // 天空：光线走到无穷远落在画面的哪里。太阳那一小块不取，水面的碎金由方向光的高光负责
+    // spread：波浪把倒影上下拉开多少（屏幕比例）。三点采样 + 每像素抖动，时间抗锯齿再把它抹平
+    const jit = interleavedGradientNoise(screenCoordinate.xy).sub(0.5).mul(0.66);
+    const sp = spread.toVar();
+    const offs = [-0.66, 0, 0.66];
+    const tap = (uvq: N<'vec2'>, o: number) => vec2(uvq.x, clamp(uvq.y.add(jit.add(o).mul(sp)), 0.002, 0.998));
+    const seen = offs.map((o) => viewportSharedTexture(tap(huv, o)).rgb).reduce((a, b) => a.add(b)).mul(1 / 3);
+    // 天空：光线走到无穷远落在画面的哪里（云只有画面里才有）
     const cS = cameraProjectionMatrix.mul(cameraViewMatrix.mul(vec4(Rd, 0.0))).toVar();
     const uvS = toUV(cS).toVar();
     const eS = min(min(uvS.x, float(1).sub(uvS.x)), min(uvS.y, float(1).sub(uvS.y)));
-    const sky = step(cameraFar.mul(0.9), viewZ(vec2(clamp(uvS.x, 0.0, 1.0), clamp(uvS.y, 0.0, 1.0))));
-    const skyK = float(1).sub(hit).mul(float(1).sub(far.a)).mul(step(0.01, cS.w)).mul(smoothstep(0.0, 0.14, eS)).mul(sky).mul(float(1).sub(smoothstep(0.985, 0.998, dot(Rd, FOG.sunDir)))).mul(float(1).sub(foam)).mul(on);
-    // spread：波浪把倒影上下拉开多少（屏幕比例）。三点采样 + 每像素抖动，时间抗锯齿再把它抹平
-    const uvF = mix(uvS, huv, hit).toVar();
-    const jit = interleavedGradientNoise(screenCoordinate.xy).sub(0.5).mul(0.66);
-    const sp = spread.toVar();
-    const tap = (o: number) => viewportSharedTexture(vec2(uvF.x, clamp(uvF.y.add(jit.add(o).mul(sp)), 0.002, 0.998))).rgb;
-    const seen = tap(-0.66).add(tap(0)).add(tap(0.66)).mul(1 / 3);
-    const wHit = k.add(wFar);
-    const rgb = select(wHit.greaterThan(0.001), seen.mul(k).add(far.rgb.mul(wFar)).div(wHit.max(0.001)), seen);
-    return vec4(rgb, wHit.sub(skyK));
+    const skyRgb = sky.reflectedSky(Rd, offs.map((o) => tap(vec2(clamp(uvS.x, 0.0, 1.0), clamp(uvS.y, 0.0, 1.0)), o)), step(0.01, cS.w).mul(smoothstep(0.0, 0.12, eS)));
+    const wHit = k.add(wFar).toVar();
+    const wSky = max(float(1).sub(wHit), 0.0).mul(live);
+    const total = wHit.add(wSky).toVar();
+    return MirrorOut(seen.mul(k).add(far.rgb.mul(wFar)).add(skyRgb.mul(wSky)).div(max(total, 0.001)), total, wHit);
   })();
 }

@@ -28,6 +28,7 @@ import type { RiverDef } from '../maps/types';
 import { FOG } from './atmosphere';
 import { sceneDepthNode, screenMirror } from './mirror';
 import type { ReflectField } from './reflectMap';
+import type { SkyDome } from './sky';
 import { getNoiseTexture } from './textures';
 
 type N<T extends string> = THREE.Node<T>;
@@ -91,7 +92,7 @@ export class RiverView {
   private readonly mats: THREE.Material[] = [];
   private readonly geos: THREE.BufferGeometry[] = [];
 
-  constructor(rivers: RiverDef[], reversedDepth: boolean, private readonly field: ReflectField | null = null) {
+  constructor(rivers: RiverDef[], reversedDepth: boolean, private readonly field: ReflectField | null, private readonly sky: SkyDome) {
     const depthNode = sceneDepthNode(reversedDepth);
     for (const r of rivers) {
       const g = ribbon(r);
@@ -150,15 +151,16 @@ export class RiverView {
     mat.colorNode = vec4(body.mul(foam.mul(0.7).add(0.3)), 1.0);
     mat.normalNode = normalize(cameraViewMatrix.mul(vec4(nW, 0.0)).xyz);
     mat.roughnessNode = float(0.12).add(foam.mul(0.6)).add(rapid.mul(0.08));
-    const refl = screenMirror(nW, foam, depthNode, this.ssr, this.field, float(0.012)).toVar();
+    const refl = screenMirror(nW, foam, depthNode, this.ssr, this.field, float(0.012), this.sky);
+    const reflRgb = refl.get('rgb') as N<'vec3'>;
     const nV = normalize(cameraViewMatrix.mul(vec4(normalize(mix(nW, vec3(0.0, 1.0, 0.0), 0.5)), 0.0)).xyz);
     const ndv = clamp(dot(nV, normalize(positionView).negate()), 0.0, 1.0);
     const fres = float(0.02).add(float(0.98).mul(pow(float(1).sub(ndv), 5.0)));
-    const reflK = refl.a.abs().toVar();
+    const reflK = (refl.get('total') as N<'float'>).toVar();
     mat.specularIntensityNode = float(1).sub(reflK);
     // 水体内部散射的颜色主要来自天光，不怎么跟着阳光走（和海面一样）
     const skyLight = FOG.color.mul(0.42);
-    mat.emissiveNode = body.mul(skyLight).mul(max(float(1).sub(fres), 0.0)).add(refl.rgb.mul(fres.mul(reflK)));
+    mat.emissiveNode = body.mul(skyLight).mul(max(float(1).sub(fres), 0.0)).add(reflRgb.mul(fres.mul(reflK)));
     return mat;
   }
 

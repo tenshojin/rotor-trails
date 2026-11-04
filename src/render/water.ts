@@ -51,6 +51,7 @@ import type { MapDef } from '../maps/types';
 import { FOG } from './atmosphere';
 import { sceneDepthNode, screenMirror } from './mirror';
 import type { ReflectField } from './reflectMap';
+import type { SkyDome } from './sky';
 import { getNoiseTexture } from './textures';
 
 type N<T extends string> = THREE.Node<T>;
@@ -95,7 +96,7 @@ export class WaterView {
     wash: uniform(new THREE.Vector4(0, 0, 0, HELI.rotorRadius)),
   };
 
-  constructor(map: MapDef, depthTex: THREE.Texture, reversedDepth = true, field: ReflectField | null = null) {
+  constructor(map: MapDef, depthTex: THREE.Texture, reversedDepth: boolean, field: ReflectField | null, sky: SkyDome) {
     const level = map.waterLevel ?? 0;
     // 水面一直铺到地平线（跟着相机走，波浪按世界坐标算，所以看不出移动）：
     // 否则水面在地图外几公里就到头了，再往外是一条灰色的天空底边
@@ -231,16 +232,17 @@ export class WaterView {
     const depthNode = sceneDepthNode(reversedDepth);
     // 比像素还细的波把倒影上下拉开：越远、风越大拉得越长（离得近时波浪本身就把倒影揉碎了）
     const spread = smoothstep(20.0, 1100.0, length(positionWorld.sub(cameraPosition))).mul(0.05).add(0.002).mul(this.u.wave.add(0.35));
-    const refl = screenMirror(nW, foamN, depthNode, this.ssr, field, spread).toVar();
+    const refl = screenMirror(nW, foamN, depthNode, this.ssr, field, spread, sky);
+    const reflRgb = refl.get('rgb') as N<'vec3'>;
+    const reflK = (refl.get('total') as N<'float'>).toVar();
+    const hitK = refl.get('hit') as N<'float'>;
     const nReflV = normalize(cameraViewMatrix.mul(vec4(normalize(mix(nW, vec3(0.0, 1.0, 0.0), 0.5)), 0.0)).xyz);
     const ndvR = clamp(dot(nReflV, normalize(positionView).negate()), 0.0, 1.0);
     const fresR = float(0.02).add(float(0.98).mul(pow(float(1).sub(ndvR), 5.0)));
-    // 被山、树挡住的方向没有天光也没有太阳的反光，换成倒影；映的是天空时水色不变，只是环境贴图换成画面里真实的天（带云）
-    const reflK = refl.a.abs().toVar();
-    const hitK = refl.a.max(0.0);
+    // 倒影取代环境贴图；被山、树挡住的方向水色也暗一些（那里没有天光）
     this.material.specularIntensityNode = float(1).sub(reflK);
-    this.material.emissiveNode = refr.mul(transmit).mul(mix(vec3(1.0), vec3(shallow.r, shallow.g, shallow.b).mul(1.6).add(0.2), 0.35)).add(FOG.color.mul(graze.mul(0.55))).add(alb.mul(float(1).sub(foamK).mul(0.7)).mul(FOG.color).mul(0.85));
-    this.material.emissiveNode = (this.material.emissiveNode as N<'vec3'>).mul(float(1).sub(hitK.mul(0.75))).add(refl.rgb.mul(fresR.mul(reflK).mul(1 - 0.25 * muddy)));
+    this.material.emissiveNode = refr.mul(transmit).mul(mix(vec3(1.0), vec3(shallow.r, shallow.g, shallow.b).mul(1.6).add(0.2), 0.35)).add(FOG.color.mul(graze.mul(0.55).mul(float(1).sub(reflK)))).add(alb.mul(float(1).sub(foamK).mul(0.7)).mul(FOG.color).mul(0.85));
+    this.material.emissiveNode = (this.material.emissiveNode as N<'vec3'>).mul(float(1).sub(hitK.mul(0.75))).add(reflRgb.mul(fresR.mul(reflK).mul(1 - 0.25 * muddy)));
     this.material.opacityNode = float(1);
     const lit = new WaterLighting(res.get('glint') as N<'float'>);
     (this.material as unknown as { setupLightingModel(): THREE.PhysicalLightingModel }).setupLightingModel = () => lit;

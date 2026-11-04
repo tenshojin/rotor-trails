@@ -123,10 +123,10 @@ function makeSkyUniforms(sunDir: THREE.Vector3, wind: THREE.Vector2) {
 
 type SkyU = ReturnType<typeof makeSkyUniforms>;
 
-/** 天空颜色（线性 HDR，色调映射在后期统一做）。d：视线方向（单位向量）。 */
-function skyColorNode(U: SkyU, noise: THREE.Texture, cloudTex: THREE.TextureNode) {
+/** Preetham 晴空：d 方向的大气散射颜色 */
+function preethamNode(U: SkyU) {
   const PI_ = Math.PI;
-  const preetham = Fn(([d]: [THREE.Node<'vec3'>]) => {
+  return Fn(([d]: [THREE.Node<'vec3'>]) => {
     const dd = vec3(d);
     const za = acos(max(0.0, dd.y));
     const inv = float(1).div(cos(za).add(float(0.15).mul(pow(float(93.885).sub(za.mul(180 / PI_)), -1.253))));
@@ -141,6 +141,11 @@ function skyColorNode(U: SkyU, noise: THREE.Texture, cloudTex: THREE.TextureNode
     const c = Lin.add(Fex.mul(0.1)).mul(0.04).add(vec3(0.0, 0.0003, 0.00075));
     return pow(c, vec3(1.0 / 2.4)).mul(U.skyScale);
   });
+}
+
+/** 天空颜色（线性 HDR，色调映射在后期统一做）。d：视线方向（单位向量）。 */
+function skyColorNode(U: SkyU, noise: THREE.Texture, cloudTex: THREE.TextureNode) {
+  const preetham = preethamNode(U);
   const fbm = (p: THREE.Node<'vec2'>) => {
     let sum: THREE.Node<'float'> = float(0);
     let a = 0.5;
@@ -472,6 +477,32 @@ export class SkyDome {
   follow(camPos: THREE.Vector3): void {
     this.u.camPos.value.copy(camPos);
     this.mesh.position.copy(camPos);
+  }
+
+  /**
+   * 水面倒影看到的天空：方向 d 上的大气颜色，再盖上 uv 处的体积云（uv：这个方向在屏幕上的位置）。
+   * 不用画面里的颜色：座舱立柱、山挡住的方向一样有天，画面外的方向也一样有。
+   * cloudK：体积云的权重（方向在画面外时为 0，云只算到画面边上）。
+   */
+  reflectedSky(d: THREE.Node<'vec3'>, uvs: Array<THREE.Node<'vec2'>>, cloudK: THREE.Node<'float'>): THREE.Node<'vec3'> {
+    const U = this.u;
+    const preetham = preethamNode(U);
+    const tex = this.clouds.tex;
+    return Fn(() => {
+      const h = d.y;
+      const col = vec3(preetham(normalize(vec3(d.x, max(h, 0.0), d.z)))).toVar();
+      col.assign(mix(col, mix(U.ovHorizon, U.ovZenith, pow(clamp(h, 0.0, 1.0), 0.5)), U.overcast));
+      col.assign(mix(col, U.haze, U.hazeK.mul(float(1).sub(smoothstep(0.0, 0.35, h)))));
+      const sd = max(dot(d, U.sunDir), 0.0);
+      col.addAssign(U.sunColor.mul(pow(sd, 24.0).mul(0.12)).mul(U.sunVis));
+      // 几个采样点的平均：波浪把云的倒影上下拉开
+      const acc = vec4(0).toVar();
+      for (const q of uvs) acc.addAssign(tex.sample(q));
+      const cl = acc.mul(1 / uvs.length);
+      col.assign(mix(col, col.mul(cl.a).add(cl.rgb), U.useTex.mul(cloudK)));
+      col.assign(mix(col, U.fogCol, U.skyFog));
+      return col;
+    })();
   }
 
   /** 烘焙环境贴图时：CloudPass 的纹理是屏幕空间的，这里改用二维云层；返回的函数用来恢复 */
