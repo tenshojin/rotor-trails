@@ -209,10 +209,14 @@ def harbor_light(name, hexc):
 def quay_seg(name, length=40.0):
     """岸壁一段（沿 Y）：混凝土墙 + 压顶、橡胶护舷、系船柱、爬梯。原点 = 岸壁外沿的地面高度处，+X 朝水面。"""
     parts = []
-    m = M('padconcrete')
-    # 墙体往陆地一侧铺 9 m：地形在这一带从陆地掉到水下，由这块顶板盖住
-    parts.append(BK.bx('wall', (9.0, length, 9.0), (-4.5, 0, -4.42), m))
-    parts.append(BK.bx('cap', (1.4, length, 0.36), (-0.7, 0, 0.1), m))
+    # 墙体往陆地一侧铺 9 m：地形在这一带从陆地掉到水下，由这块顶板盖住。
+    # 顶面和港区地面的水泥一个颜色，临水的墙面被海水泡得深一些
+    top = F('quay_top', 0x8f8e88, rough=0.85)
+    side = F('quay_side', 0x5f605e, rough=0.9)
+    cap = F('quay_cap', 0xa3a29b, rough=0.8)
+    parts.append(BK.bx('wall', (9.0, length, 8.96), (-4.5, 0, -4.48), top, uv=False))
+    parts.append(BK.bx('wall_face', (0.08, length, 8.6), (0.03, 0, -4.4), side, uv=False))
+    parts.append(BK.bx('cap', (1.4, length, 0.36), (-0.7, 0, 0.1), cap, uv=False))
     black = F('rubber_black', 0x1c1c1e, rough=0.8)
     iron = F('bollard', 0x35383c, rough=0.45, metal=0.4)
     for i in range(int(length / 10)):
@@ -230,16 +234,18 @@ def quay_seg(name, length=40.0):
 def pier_seg(name, length=20.0, width=10.0):
     """栈桥一段（沿 X）：混凝土桥面、两侧护轮槛、方桩与横梁、橡胶护舷。原点 = 桥面中线，桥面高 0。"""
     parts = []
-    m = M('padconcrete')
-    parts.append(BK.bx('deck', (length, width, 0.6), (0, 0, -0.3), m))
+    top = F('quay_top', 0x8f8e88, rough=0.85)
+    side = F('quay_side', 0x5f605e, rough=0.9)
+    cap = F('quay_cap', 0xa3a29b, rough=0.8)
+    parts.append(BK.bx('deck', (length, width, 0.6), (0, 0, -0.3), top, uv=False))
     for sy in (-1, 1):
-        parts.append(BK.bx(f'curb{sy}', (length, 0.3, 0.3), (0, sy * (width / 2 - 0.15), 0.15), m))
+        parts.append(BK.bx(f'curb{sy}', (length, 0.3, 0.3), (0, sy * (width / 2 - 0.15), 0.15), cap, uv=False))
         parts.append(K.box(f'fender{sy}', (2.0, 0.4, 1.3), (0, sy * (width / 2 + 0.15), -0.7), F('rubber_black', 0x1c1c1e, rough=0.8), bevel=0.1))
         parts.append(K.cylinder(f'bol{sy}', 0.2, 0.5, (length / 4, sy * (width / 2 - 0.5), 0.25), F('bollard', 0x35383c, rough=0.45, metal=0.4), 10))
     for x in (-length / 2 + 2.5, length / 2 - 2.5):
-        parts.append(BK.bx(f'beam{x}', (1.0, width, 0.8), (x, 0, -1.0), m))
+        parts.append(BK.bx(f'beam{x}', (1.0, width, 0.8), (x, 0, -1.0), side, uv=False))
         for y in (-width / 2 + 0.9, 0.0, width / 2 - 0.9):
-            parts.append(BK.bx(f'pile{x}{y}', (0.7, 0.7, 8.0), (x, y, -5.0), m))
+            parts.append(BK.bx(f'pile{x}{y}', (0.7, 0.7, 8.0), (x, y, -5.0), side, uv=False))
     return BK.model(name, parts)[0]
 
 
@@ -313,7 +319,7 @@ def build_all():
     roots.append(pier_seg('pier_seg'))
     roots.append(kei_truck('kei_truck'))
     roots.append(fish_boxes('fish_boxes'))
-    roots.append(net_pile('net_a', 0x2f7a5a))
-    roots.append(net_pile('net_b', 0xc8602a, seed=9))
+    roots.append(net_pile('net_a', 0x2c4a40))
+    roots.append(net_pile('net_b', 0xa8552c, seed=9))
     roots.append(street_lamp('street_lamp'))
     return roots
