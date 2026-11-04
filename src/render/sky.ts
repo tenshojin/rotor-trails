@@ -254,7 +254,9 @@ function volumetricClouds(U: SkyU) {
           const hn = clamp(p.y.sub(U.cloudBase).div(U.cloudTop.sub(U.cloudBase)), 0.0, 1.0);
           const amb0 = mix(U.ambBottom as unknown as THREE.Node<'vec3'>, U.ambTop as unknown as THREE.Node<'vec3'>, smoothstep(0.0, 0.5, hn)).mul(0.62);
           const amb = mix(amb0, vec3(dot(amb0, vec3(0.3, 0.55, 0.15))), 0.45);
-          const S = sunC.mul(tSun.mul(phase).mul(mix(float(1), powder, 0.5)).add(tMs.mul(0.3))).add(amb);
+          // 阴天时云层就是天空：亮度要和灰色的天顶、地平线一致，否则厚云会把整个世界（和环境贴图）压成一片黑
+          const ovc = mix(U.ovHorizon as unknown as THREE.Node<'vec3'>, U.ovZenith as unknown as THREE.Node<'vec3'>, hn).mul(U.overcast.mul(1.05));
+          const S = sunC.mul(tSun.mul(phase).mul(mix(float(1), powder, 0.5)).add(tMs.mul(0.3))).add(amb).add(ovc);
           const a = exp(den.mul(-SIGMA).mul(dt));
           acc.addAssign(S.mul(trans).mul(float(1).sub(a)));
           trans.mulAssign(a);
@@ -409,8 +411,8 @@ export class SkyDome {
     const storm = Math.min(1, w.rain * w.overcast * 1.2);
     const fogK = Math.min(1, 1500 / Math.max(200, w.visibility));
     // 阴天的灰色天空
-    const ovZen = c(0x7a828c).lerp(c(0x3a4048), storm);
-    const ovHor = c(0xa6adb4).lerp(this.fogTint, 0.25).lerp(c(0x5f666e), storm);
+    const ovZen = c(0x7a828c).lerp(c(0x4a525c), storm);
+    const ovHor = c(0xa6adb4).lerp(this.fogTint, 0.25).lerp(c(0x70787f), storm);
     const haze = c(0xc9cfd4).lerp(this.fogTint, 0.35).lerp(ovHor, oc);
     C.zenith.copy(this.clear.zenith).lerp(ovZen, oc);
     C.horizon.copy(this.clear.horizon).lerp(ovHor, oc).lerp(haze, fogK * 0.8);

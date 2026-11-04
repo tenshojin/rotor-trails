@@ -61,8 +61,8 @@ function farRange(x: number, z: number): number {
   const k = smoothstep(2200, 6500, r);
   const wx = x + 700 * n2.noise(x / 2600, z / 2600);
   const wz = z + 700 * n2.noise(x / 2600 + 7.1, z / 2600 - 2.3);
-  const crag = Math.pow(n.ridged(wx / 3100, wz / 3100, 6, 2.05, 0.5, 2.2), 1.3);
-  return mountains(x, z) * (1 - 0.6 * k) + k * (1250 + 4300 * crag);
+  const crag = Math.pow(n.ridged(wx / 5200, wz / 5200, 5, 2.05, 0.5, 2.0), 1.2);
+  return mountains(x, z) * (1 - 0.7 * k) + k * (1500 + 2900 * crag);
 }
 
 /**

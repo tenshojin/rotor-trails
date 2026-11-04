@@ -257,7 +257,9 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       col.mulAssign(n2.mul(0.16).add(0.92));
       // 积雪：按带细节的法线判断“朝上的程度”——雪积在岩石的平台、凹处，边缘跟着岩石纹理走
       const flatK = nb.y.add(n3.sub(0.5).mul(0.14));
-      const sW = max(snowAlt.mul(smoothstep(0.52, 0.74, flatK)), U.paved ? float(0) : surf.a.mul(smoothstep(0.34, 0.58, flatK))).toVar();
+      // 雪线以上很多的地方（远处的高峰）连陡坡也挂满雪，只有最陡的岩壁露出来
+      const highSnow = smoothstep(U.snowLine + 500.0, U.snowLine + 1100.0, h.add(n1.sub(0.5).mul(240.0))).mul(smoothstep(0.08, 0.3, flatK));
+      const sW = max(max(snowAlt.mul(smoothstep(0.52, 0.74, flatK)), highSnow), U.paved ? float(0) : surf.a.mul(smoothstep(0.34, 0.58, flatK))).toVar();
       If(sW.greaterThan(0.01), () => {
         const sc = vec3(0).toVar();
         const so = vec3(0).toVar();
