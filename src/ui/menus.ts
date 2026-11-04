@@ -367,6 +367,7 @@ export class UI {
           check('headMotion', '头部晃动（加速度引起）', '关闭后机体的真实运动仍会反映在画面上') +
           check('motionBlur', '动态模糊', '默认关闭') +
           check('navGuides', '三维航线标记', '在场景里显示光环和箭头，默认关闭（方向看 HUD 的菱形标记）') +
+          check('eyeAdapt', '人眼适应', '看向明暗不同的地方时，曝光像眼睛一样慢慢调整；关闭后曝光固定。') +
           check('lightning', '闪电闪光', '对光敏感可关闭') +
           '<p class="muted">低画质只减少远景细节、阴影和雨滴数量，不改变碰撞、导航或物理难度。抗锯齿开关在下次启动时生效。</p>';
       } else if (tab === 'audio') {

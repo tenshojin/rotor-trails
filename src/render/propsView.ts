@@ -1,8 +1,8 @@
 // 建筑/道具渲染：把 PropBuilder 合批数据转成网格；锚点生成风向袋、旗帜、信标灯、经幡等动态对象。
 
 import * as THREE from 'three/webgpu';
-import { abs, attribute, cameraViewMatrix, float, max, mix, normalize, normalWorld, positionGeometry, positionLocal, positionWorld, pow, sin, smoothstep, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
-import { wetColor, wetRough } from './wetness';
+import { abs, attribute, cameraViewMatrix, float, max, mix, normalize, normalWorld, positionGeometry, positionLocal, positionWorld, pow, sin, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
+import { wetColor, wetRough, windowGlow } from './wetness';
 import type { MatKey, ModelInstance } from '../world/propBuilder';
 import type { MapDef } from '../maps/types';
 import type { WorldData } from '../world/worldgen';
@@ -86,11 +86,17 @@ function makeMaterials(detail: THREE.DataArrayTexture | null, map: MapDef): Reco
     m.colorNode = wetColor((m.colorNode as THREE.Node<'vec4'> | null) ?? vec4(1, 1, 1, 1));
     m.roughnessNode = wetRough(float(m.roughness));
   }
+  const glass = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.08, metalness: 0.3, envMapIntensity: 1.6 });
+  {
+    // 偏蓝的是太阳能板，不算窗
+    const c = attribute<'vec3'>('color', 'vec3');
+    glass.emissiveNode = windowGlow(step(c.b, c.r.mul(1.6).add(0.02)));
+  }
   return {
     std,
     rough,
     metal,
-    glass: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.08, metalness: 0.3, envMapIntensity: 1.6 }),
+    glass,
     emit: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
     cloth: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0, side: THREE.DoubleSide }),
     // 电线：细杆，不投影（几毫米宽的影子看不见，却要在每层阴影里各画一遍）

@@ -28,7 +28,7 @@ import { RiverView } from './riverView';
 import { EyeAdapt } from './eyeAdapt';
 import { clearSunMap, setSunMap } from './sunMap';
 import { sunFor, type TimeOfDay } from './timeOfDay';
-import { WET } from './wetness';
+import { WET, WINDOW_LIGHT } from './wetness';
 import { updateCloudShadowMap } from './cloudShadowMap';
 import { makeTerrainMacroTexture } from './terrainMacro';
 import { TreeView, loadTreeLib } from './treeView';
@@ -184,12 +184,12 @@ export class WorldView {
     }
     if (this.trees) this.trees.quality = { near: q.treeNear, far: q.treeFar, shadows: q.shadows, aa: q.msaa > 0 };
     if (this.props) this.props.lodScale = q.terrainLod;
-    // 水面倒影：低画质没有后期管线，省掉
+    // 水面倒影：低画质没有后期管线，省掉；开着光线追踪时海面由后期的屏幕空间反射负责，不要反射两遍
     const mirror = s.quality === 'low' ? 0 : 1;
-    if (this.water) this.water.ssr.value = mirror;
+    if (this.water) this.water.ssr.value = s.rayTracing ? 0 : mirror;
     if (this.rivers) this.rivers.ssr.value = mirror;
     // 高画质起用光线步进的体积积云（低、中用二维云层）
-    this.sky?.setVolumetric(s.quality === 'ultra' ? 72 : s.quality === 'high' ? 44 : 0);
+    this.sky?.setVolumetric(s.quality === 'ultra' ? 56 : s.quality === 'high' ? 40 : 0);
     this.lightning.enabled = s.lightning;
     this.envKey = '';
     this.buildPost();
@@ -480,10 +480,13 @@ export class WorldView {
       VFOG.mistH.value = (40 + 30 * w.rain) * (this.tod === 'dawn' ? 1.3 : 1);
       VFOG.haze.value = Math.min(1e-4, 0.25 / Math.max(300, w.visibility)) * (0.6 + 0.4 * (world.map.biome.mist ?? 1)) * (this.tod === 'day' ? 1 : 1.7);
       VFOG.shade.value = 1 - Math.min(1, w.overcast * 1.4);
+      WINDOW_LIGHT.value = Math.max(this.tod === 'dusk' ? 1 : this.tod === 'dawn' ? 0.35 : 0, Math.max(0, (w.overcast - 0.6) / 0.4) * 0.45);
       VFOG.wind.value.x -= _w.x * f.dt;
       VFOG.wind.value.z -= _w.z * f.dt;
       // 清晨、黄昏整体更暗：曝光只补回一部分（像相机那样稍微提亮，但保留低光的气氛）
-      this.renderer.toneMappingExposure = (1.0 - w.overcast * 0.12) * this.eye.update(f.dt) + this.flash * 0.6;
+      const adapted = this.eye.update(f.dt);
+      const fixed = 1 + 0.32 * (1 - this.sky.dayK);
+      this.renderer.toneMappingExposure = (1.0 - w.overcast * 0.12) * (this.settings.eyeAdapt ? adapted : fixed) + this.flash * 0.6;
       const q = QUALITY[set.quality];
       // 分层阴影：视野或宽高比变了要重新划分；每帧把各层阴影框跟随相机（内部按纹素对齐，避免闪烁）
       if (cam.fov !== this.csmFov || cam.aspect !== this.csmAspect) {

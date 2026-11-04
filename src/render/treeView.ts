@@ -329,7 +329,7 @@ export class TreeView {
     // 风化的石头颜色比新鲜岩面灰一些、暗一些
     rockTint.setHex(rock);
     const grey = (rockTint.r + rockTint.g + rockTint.b) / 3;
-    rockTint.lerp(new THREE.Color(grey, grey, grey), 0.55).multiplyScalar(1.5);
+    rockTint.lerp(new THREE.Color(grey, grey, grey), 0.55).multiplyScalar(0.85 / Math.max(grey, 0.03));
     this.modeled = lib !== null;
     for (let t = 0; t < TREE_TYPES.length; t++) this.byType.push([]);
     for (let i = 0; i < trees.count; i++) this.byType[trees.type[i]].push(i);

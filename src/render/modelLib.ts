@@ -3,8 +3,8 @@
 // 文件不存在或加载失败时返回 null，道具退回程序几何体。
 
 import * as THREE from 'three/webgpu';
-import { attribute, materialColor, materialRoughness, uv, vec4 } from 'three/tsl';
-import { wetColor, wetRough } from './wetness';
+import { attribute, materialColor, materialRoughness, step, uv, vec4 } from 'three/tsl';
+import { wetColor, wetRough, windowGlow } from './wetness';
 import { loadGltf } from './gltf';
 import type { ModelInstance } from '../world/propBuilder';
 
@@ -41,6 +41,9 @@ export async function loadModelLib(file: string): Promise<ModelLib | null> {
         vc.colorNode = wetColor(vec4(attribute('color', 'vec3'), 1.0));
         vc.roughnessNode = wetRough(uv(1).x);
         vc.metalnessNode = uv(1).y;
+        // 纯色部件里又暗又光滑的就是窗玻璃
+        const col = attribute<'vec3'>('color', 'vec3');
+        vc.emissiveNode = windowGlow(step(uv(1).x, 0.14).mul(step(col.r.add(col.g).add(col.b), 0.42)));
       }
       (m.material as THREE.Material).dispose();
       m.material = vc;

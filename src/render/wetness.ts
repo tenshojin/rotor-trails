@@ -3,10 +3,24 @@
 // 朝上的面（屋顶、地面、台阶）湿得最透，竖直的墙面只湿一部分。WET 由 WorldView 每帧按天气的 wetness 设置。
 
 import * as THREE from 'three/webgpu';
-import { float, mix, normalWorld, smoothstep, uniform } from 'three/tsl';
+import { float, floor, hash, mix, normalWorld, positionWorld, smoothstep, step, uniform, vec3 } from 'three/tsl';
 
 /** 湿润程度 0..1（天气的 wetness） */
 export const WET = uniform(0);
+
+/** 窗灯亮度 0..1：黄昏全开，清晨和阴雨天亮一部分，白天关 */
+export const WINDOW_LIGHT = uniform(0);
+
+/**
+ * 窗灯：一块块地亮（按世界坐标约 2.6 米一格抽签，大约一半的窗户亮着），暖色。
+ * k：这里是不是窗玻璃（0..1）
+ */
+export function windowGlow(k: THREE.Node<'float'>): THREE.Node<'vec3'> {
+  const c = floor(positionWorld.div(2.6));
+  const lit = step(0.46, hash(c.x.mul(17.0).add(c.y.mul(5.0)).add(c.z.mul(31.0))));
+  const warm = hash(c.x.mul(3.0).add(c.z.mul(11.0)).add(c.y.mul(7.0))).mul(0.5).add(0.75);
+  return vec3(1.0, 0.68, 0.36).mul(k.mul(lit).mul(warm).mul(WINDOW_LIGHT).mul(3.4));
+}
 
 /** 该处被淋湿的程度：朝上的面 1，竖直墙面约 0.35，朝下的面（檐下）几乎不湿 */
 export function wetAmount(): THREE.Node<'float'> {

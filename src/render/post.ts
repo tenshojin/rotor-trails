@@ -162,7 +162,7 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     aoPass.radius.value = 1.6;
     aoPass.distanceExponent.value = 1.5;
     aoPass.thickness.value = 2;
-    aoPass.samples.value = q === 'ultra' ? 24 : q === 'high' ? 16 : 8;
+    aoPass.samples.value = q === 'ultra' ? 16 : q === 'high' ? 12 : 8;
     aoPass.useTemporalFiltering = dbg.aoTemporal ?? true;
     disposers.push(aoPass);
     composite = vec4(color.rgb.mul(mix(float(1), aoPass.r, outside.mul(0.85))), color.a);

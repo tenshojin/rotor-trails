@@ -12,7 +12,7 @@ const BY_MAP: Partial<Record<MapId, string[]>> = {
   canyon: ['dry_ground_01', 'cracked_red_ground', 'gravelly_sand', 'gravelly_sand', 'cracked_red_ground', 'cliff_side', 'rock_face', 'snow_field_aerial'],
   amazon: ['rocky_terrain_02', 'aerial_grass_rock', 'forest_leaves_02', 'brown_mud_02', 'red_laterite_soil_stones', 'rock_face', 'mossy_rock', 'snow_field_aerial'],
   fjord: ['rocky_terrain_02', 'aerial_grass_rock', 'forest_ground_04', 'gravelly_sand', 'brown_mud_02', 'rock_face', 'mossy_rock', 'snow_field_aerial'],
-  himalaya: ['dry_ground_01', 'aerial_rocks_02', 'forest_ground_04', 'gravelly_sand', 'cracked_red_ground', 'rock_face', 'aerial_rocks_02', 'snow_field_aerial'],
+  himalaya: ['rocky_terrain_02', 'aerial_rocks_02', 'forest_ground_04', 'gravelly_sand', 'gravelly_sand', 'rock_face', 'aerial_rocks_02', 'snow_field_aerial'],
 };
 
 /** 各层向地图原有配色靠拢的程度（保留照片的明暗细节，色相取地图配色） */
