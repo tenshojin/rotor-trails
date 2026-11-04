@@ -95,6 +95,9 @@ function makeSkyUniforms(sunDir: THREE.Vector3, wind: THREE.Vector2) {
     cloudLit: uniform(new THREE.Color()),
     cloudDark: uniform(new THREE.Color()),
     cover: CLOUD.cover,
+    /** 能见度很低时天空被雾盖住的程度 0..1，以及雾的颜色 */
+    skyFog: uniform(0),
+    fogCol: uniform(new THREE.Color()),
     flash: uniform(0),
     /** 1 = 画太阳圆盘；烘焙环境贴图时设为 0（阳光高光由方向光负责） */
     disc: uniform(1),
@@ -189,6 +192,8 @@ function skyColorNode(U: SkyU, noise: THREE.Texture, cloudTex: THREE.TextureNode
     // 体积云盖在天空与太阳之上（rgb = 散射光，a = 透过率）
     const cl = cloudTex.sample(screenUV);
     col.assign(mix(col, col.mul(cl.a).add(cl.rgb), U.useTex));
+    // 能见度很低时什么都看不见：天空就是雾的颜色，看不到云，也没有海天线
+    col.assign(mix(col, U.fogCol, U.skyFog));
     col.addAssign(vec3(0.55, 0.6, 0.75).mul(U.flash));
     return col;
   })();
@@ -425,6 +430,8 @@ export class SkyDome {
     u.ovHorizon.value.copy(ovHor);
     u.overcast.value = oc;
     u.haze.value.copy(haze);
+    u.skyFog.value = Math.min(0.97, Math.max(0, (1500 - w.visibility) / 900));
+    u.fogCol.value.copy(C.fog);
     u.hazeK.value = fogK * 0.85;
     u.ground.value.copy(C.ground);
     u.sunColor.value.copy(C.sun);

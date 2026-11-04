@@ -474,7 +474,12 @@ export class WorldView {
       this.trees?.update(f.t, cam, _w.x, _w.z, gust);
       if (s) this.nav?.update(s, f.t, cp);
       this.rain.update(f.t, cp, w.rain, _w, s ? _vel : new THREE.Vector3(), q.rainDensity);
-      this.clouds?.update(f.dt, w.cloudBase, w.cloudTop, w.lowCloud, _w.x, _w.z, w.overcast, cp);
+      // 低云层：开着体积雾时由它画（按深度积分，和地形没有硬边），否则退回半透明的面片
+      const volLow = !!this.post?.fog;
+      VFOG.lowK.value = volLow ? w.lowCloud : 0;
+      VFOG.lowBase.value = w.cloudBase;
+      VFOG.lowTop.value = w.cloudTop;
+      this.clouds?.update(f.dt, w.cloudBase, w.cloudTop, volLow ? 0 : w.lowCloud, _w.x, _w.z, w.overcast, cp);
     }
     if (!this.ready) return;
     this.renderer.info.reset();

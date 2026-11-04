@@ -5,6 +5,7 @@
 //     阳光穿过树冠、屋檐、云缝的地方亮，被挡住的地方暗——这就是光束（丁达尔效应）。
 //     散射用 Henyey-Greenstein 相函数（以前向散射为主）：迎着太阳看时光束最明显，背着太阳只剩淡淡的雾气。
 //   · 低空的霾（标高约 1.5 km，一直到云底）：同样按阴影与云影照亮，迎着太阳时云缝、山脊后面透出一道道光（云隙光）。
+//   · 低云层（山腰的云海）：沿视线和云层相交的那一段积分，碰到地形就停——云贴着山坡自然消失，没有和地形相交的硬线。
 //   · 远处的大气雾（atmosphere.ts 的解析雾）自己不知道哪里有阴影：这里统计视线上“被挡住的比例”，
 //     把雾里朝太阳一侧的那部分散射光按比例扣掉——山的阴影、云影在远处的雾里显出一道道暗带（云隙光）。
 //
@@ -39,6 +40,10 @@ export const VFOG = {
   mapSize: uniform(4000),
   /** 远处大气雾里阴影的强度（1 = 被挡住的部分完全扣掉朝阳散射） */
   shade: uniform(1),
+  /** 低云层：浓度 0..1（0 = 没有）、底 / 顶高度（米） */
+  lowK: uniform(0),
+  lowBase: uniform(1200),
+  lowTop: uniform(1450),
 };
 
 /** 当前地图的地表高度图与森林密度图（WorldView 加载地图时设置；换图后体积雾自动重建） */
@@ -63,6 +68,10 @@ export const FOG_QUALITY: Record<'medium' | 'high' | 'ultra', FogQuality> = {
 
 /** 远处统计阴影的最远距离（米） */
 const FAR_RANGE = 8000;
+/** 低云层沿视线的采样数 */
+const LOW_STEPS = 7;
+/** 低云的消光系数（1/米） */
+const LOW_SIGMA = 0.014;
 
 const _size = /*@__PURE__*/ new THREE.Vector2();
 let _state: THREE.RendererUtils.RendererState | undefined;
@@ -185,7 +194,8 @@ export class VolumetricFogNode extends THREE.Node {
       const above = max(p.y.sub(g), 0.0);
       const n = texture3D(noise3, p.add(VFOG.wind).div(240.0)).level(float(0)).a;
       const patch = smoothstep(0.3, 0.7, n).mul(1.3).add(0.35);
-      return vec2(VFOG.mist.mul(exp(above.div(VFOG.mistH).negate())).mul(f.mul(2.4).add(0.3)).mul(patch), f);
+      // 第二项：头顶有树冠的程度（只在树冠高度以下才算林下）
+      return vec2(VFOG.mist.mul(exp(above.div(VFOG.mistH).negate())).mul(f.mul(2.4).add(0.3)).mul(patch), f.mul(float(1).sub(smoothstep(12.0, 36.0, above))));
     };
 
     const frag = Fn(() => {
@@ -267,7 +277,34 @@ export class VolumetricFogNode extends THREE.Node {
       const lobe = max((FOG.sunColor as unknown as V3).sub(FOG.color as unknown as V3), vec3(0.0)).mul(pow(max(cosT, 0.0), 6.0)).mul(F);
       // 阴天没有阳光可以扣：解析雾里朝阳的那部分本来就很弱，再按云影扣会把雾扣成黑的
       const shade = select(sky, float(0.0), VFOG.shade);
-      return vec4(Lm.add(Lh).sub(lobe.mul(S).mul(shade)), Tm);
+      // —— 低云层 ——
+      const Lc = vec3(0.0).toVar();
+      const Tc = float(1).toVar();
+      If(VFOG.lowK.greaterThan(0.005), () => {
+        const dy = select(abs(wd.y).lessThan(1e-4), float(1e-4), wd.y);
+        const a0 = VFOG.lowBase.sub(cam.y).div(dy);
+        const a1 = VFOG.lowTop.sub(cam.y).div(dy);
+        const c0 = max(min(a0, a1), 0.0).toVar();
+        const c1 = min(max(a0, a1), min(dist, 16000.0));
+        const seg = max(c1.sub(c0), 0.0).div(LOW_STEPS).toVar();
+        If(seg.greaterThan(0.05), () => {
+          const th = mix(float(0.66), float(0.26), VFOG.lowK);
+          const lit = (VFOG.amb as unknown as V3).mul(1.15);
+          const sunTop = (VFOG.sun as unknown as V3).mul(0.07);
+          Loop(LOW_STEPS, ({ i }: { i: THREE.Node<'int'> }) => {
+            const p = cam.add(wd.mul(c0.add(float(i).add(jit).mul(seg))));
+            const hN = clamp(p.y.sub(VFOG.lowBase).div(VFOG.lowTop.sub(VFOG.lowBase)), 0.0, 1.0);
+            const q = p.add(VFOG.wind);
+            const shape = texture3D(noise3, q.div(1700.0)).level(float(0)).r.mul(0.72).add(texture3D(noise3, q.div(430.0).add(0.37)).level(float(0)).g.mul(0.28));
+            const prof = smoothstep(0.0, 0.28, hN).mul(float(1).sub(smoothstep(0.5, 1.0, hN)));
+            const den = smoothstep(th, th.add(0.3), shape.mul(prof.mul(0.5).add(0.62))).mul(prof);
+            const a = exp(den.mul(seg).mul(-LOW_SIGMA));
+            Lc.addAssign(lit.mul(hN.mul(0.5).add(0.55)).add(sunTop.mul(hN)).mul(Tc.mul(float(1).sub(a))));
+            Tc.mulAssign(a);
+          });
+        });
+      });
+      return vec4(Lm.add(Lh).add(Lc.mul(Tm)).sub(lobe.mul(S).mul(shade)), Tm.mul(Tc));
     });
 
     this.material.contextNode = context(this.ctx as Record<string, unknown>);
