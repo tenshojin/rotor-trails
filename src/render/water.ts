@@ -137,7 +137,11 @@ export class WaterView {
     const res = result();
     const nW = res.get('nrm') as N<'vec3'>;
     const transmit = res.get('transmit') as N<'float'>;
-    this.material.colorNode = vec4(res.get('albedo') as N<'vec3'>, 1.0);
+    // 水色主要来自水体内部的散射，不是表面的漫反射：只留三成跟着阳光走（否则峭壁的影子落在深水上是一条生硬的直线），
+    // 其余按环境光算
+    const alb = res.get('albedo') as N<'vec3'>;
+    const foamK = res.get('foam') as N<'float'>;
+    this.material.colorNode = vec4(alb.mul(foamK.mul(0.7).add(0.3)), 1.0);
     this.material.normalNode = normalize(cameraViewMatrix.mul(vec4(nW, 0.0)).xyz);
     this.material.roughnessNode = float(muddy ? 0.16 : 0.05).add(res.get('rough') as N<'float'>);
     // 折射：按波浪法线偏移屏幕坐标，取水下已画好的场景颜色（略带水色）
@@ -147,7 +151,7 @@ export class WaterView {
     // 越远越接近天色，海天之间才是一条柔和的过渡。按视线掠射的程度补上这部分反射（不看波浪法线，否则远处会闪）
     const flatNdv = clamp(cameraPosition.y.sub(positionWorld.y).div(length(positionWorld.sub(cameraPosition)).max(1.0)), 0.0, 1.0);
     const graze = pow(float(1).sub(flatNdv), 7.0);
-    this.material.emissiveNode = refr.mul(transmit).mul(mix(vec3(1.0), vec3(shallow.r, shallow.g, shallow.b).mul(1.6).add(0.2), 0.35)).add(FOG.color.mul(graze.mul(0.55)));
+    this.material.emissiveNode = refr.mul(transmit).mul(mix(vec3(1.0), vec3(shallow.r, shallow.g, shallow.b).mul(1.6).add(0.2), 0.35)).add(FOG.color.mul(graze.mul(0.55))).add(alb.mul(float(1).sub(foamK).mul(0.7)).mul(FOG.color).mul(0.85));
     this.material.opacityNode = float(1);
     // 屏幕空间反射：水面在“金属度”通道写入菲涅尔反射率（正视约 2%，掠射接近 100%），光滑表面才反射；
     // 法线通道写波浪法线。其他透明材质不写这些通道（见 post.ts keepGBuffer）。

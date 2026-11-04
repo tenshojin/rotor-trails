@@ -250,6 +250,8 @@ export class PropsView {
       z += (-n.z / l + (n.x / l) * sway) * 3;
     }
     line.reverse();
+    // 水面以下的部分不画
+    while (line.length > 1 && T.heightAt(line[line.length - 1][0], line[line.length - 1][1]) < ground + 0.3) line.pop();
     if (line.length < 4) return;
     const pos: number[] = [];
     const uvs: number[] = [];
@@ -298,8 +300,10 @@ export class PropsView {
     const edge = smoothstep(0.0, 0.32, U.x).mul(smoothstep(1.0, 0.68, U.x));
     const flow = smoothstep(0.34, 0.66, s1.mul(0.6).add(s2.mul(0.4)));
     const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.55, metalness: 0, transparent: true, depthWrite: false, side: THREE.DoubleSide });
-    m.colorNode = vec4(mix(vec3(0.62, 0.7, 0.74), vec3(0.97, 0.98, 1.0), flow), 1.0);
-    m.opacityNode = edge.mul(flow.mul(0.62).add(0.26));
+    m.colorNode = vec4(mix(vec3(0.72, 0.78, 0.82), vec3(1.0, 1.0, 1.0), flow), 1.0);
+    m.opacityNode = edge.mul(flow.mul(0.6).add(0.34));
+    // 山壁常年背阴，水花靠天光也是白的
+    m.emissiveNode = vec3(0.3, 0.33, 0.36).mul(flow.mul(0.6).add(0.4));
     this.fallMats.push(m);
     const mesh = new THREE.Mesh(g, m);
     mesh.renderOrder = 3;

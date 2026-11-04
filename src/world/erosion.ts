@@ -2,7 +2,7 @@
 // 噪声和样条做出来的山壁是光滑的曲面，雨水冲刷之后才有真实的沟壑、山脊和冲积扇。
 // 做法参照 Hans Theobald Beyer 的液滴侵蚀；随机数按地图种子固定，同一张地图每次生成的结果相同（物理和渲染用同一份）。
 
-import { Rng } from '../core/noise';
+import { Perlin2, Rng } from '../core/noise';
 
 export interface ErosionOptions {
   droplets: number;
@@ -33,6 +33,19 @@ export function erode(data: Float32Array, res: number, seed: number, o: ErosionO
   const water = (o.waterLevel ?? -1e9) / HEIGHT_UNIT;
   const h = new Float32Array(data.length);
   for (let i = 0; i < h.length; i++) h[i] = data[i] / HEIGHT_UNIT;
+  // 陡坡先加一层不规则的起伏：完全光滑的坡面上，水流只会排成一排等距的平行槽，看上去像窗帘的褶子
+  const pn = new Perlin2(seed + 3);
+  const perturb = new Float32Array(data.length);
+  for (let y = 1; y < res - 1; y++)
+    for (let x = 1; x < res - 1; x++) {
+      const i = y * res + x;
+      const s = Math.hypot(h[i + 1] - h[i - 1], h[i + res] - h[i - res]);
+      const k = Math.min(1, Math.max(0, (s - 0.012) / 0.03));
+      if (k <= 0) continue;
+      const warp = pn.noise(x / 37, y / 37) * 26;
+      perturb[i] = k * (pn.fbm((x + warp) / 44, (y - warp) / 19, 3) * 0.05 + pn.fbm((x - warp) / 11, (y + warp) / 7, 2) * 0.014);
+    }
+  for (let i = 0; i < h.length; i++) h[i] += perturb[i] * (mask ? mask[i] : 1);
   // 笔刷：侵蚀时把取走的量分摊到周围几格，否则会挖出一格宽的尖沟
   const bx: number[] = [];
   const by: number[] = [];
