@@ -54,7 +54,7 @@ export interface PropDef {
   p?: Record<string, number | string>;
 }
 
-export type TreeType = 'pine' | 'broadleaf' | 'canopy' | 'emergent' | 'palm' | 'spruce' | 'birch' | 'juniper' | 'shrub' | 'cactus';
+export type TreeType = 'pine' | 'broadleaf' | 'canopy' | 'emergent' | 'palm' | 'spruce' | 'birch' | 'juniper' | 'shrub' | 'cactus' | 'boulder';
 
 export interface VegetationRule {
   type: TreeType;

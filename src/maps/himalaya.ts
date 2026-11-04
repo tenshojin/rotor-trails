@@ -251,6 +251,8 @@ export const HIMALAYA: MapDef = {
   ],
   vegetation: [
     { type: 'pine', density: 420, scale: [0.7, 1.15], maxH: 520, maxSlope: 0.45, mask: (x, z, h) => (1 - smoothstep(380, 520, h)) * (0.5 + 0.5 * n.fbm(x / 200, z / 200, 2)) },
+    // 冰碛：谷底和山脚散落的大石块
+    { type: 'boulder', density: 2600, scale: [0.35, 2.8], maxH: 1250, maxSlope: 0.5, mask: (x, z, _h, s) => (0.25 + 0.75 * smoothstep(0.45, 0.6, 0.5 + 0.5 * n.fbm(x / 210 - 5, z / 210, 3))) * (1 - smoothstep(0.34, 0.5, s)) },
     // 灌丛成片长：一片片深色的杜松、杜鹃灌丛，中间是草甸和碎石
     { type: 'juniper', density: 900, scale: [0.6, 1.1], minH: 300, maxH: 950, maxSlope: 0.5, mask: (x, z) => smoothstep(0.42, 0.62, 0.5 + 0.5 * n2.fbm(x / 170, z / 170, 3)) },
     { type: 'shrub', density: 1500, scale: [0.6, 1.1], maxH: 1150, maxSlope: 0.55, mask: (x, z) => 0.12 + 0.88 * smoothstep(0.4, 0.6, 0.5 + 0.5 * n.fbm(x / 130 + 3, z / 130, 3)) },

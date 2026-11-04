@@ -28,9 +28,11 @@ export const TREE_SPECS: Record<TreeType, TreeSpec> = {
   juniper: { trunkH: 1.2, trunkR: 0.25, crownY: 2.4, crownR: 2.3, crownRy: 1.8, collide: true },
   shrub: { trunkH: 0.3, trunkR: 0.1, crownY: 0.9, crownR: 1.3, crownRy: 0.9, collide: false },
   cactus: { trunkH: 6.5, trunkR: 0.4, crownY: 4.5, crownR: 1.4, crownRy: 2.2, collide: true },
+  // 崖脚和河滩上散落的石块：贴在地上，不算障碍物（直升机不会飞到离地一两米）
+  boulder: { trunkH: 0.1, trunkR: 0.1, crownY: 0.4, crownR: 1.1, crownRy: 0.8, collide: false },
 };
 
-export const TREE_TYPES: TreeType[] = ['pine', 'broadleaf', 'canopy', 'emergent', 'palm', 'spruce', 'birch', 'juniper', 'shrub', 'cactus'];
+export const TREE_TYPES: TreeType[] = ['pine', 'broadleaf', 'canopy', 'emergent', 'palm', 'spruce', 'birch', 'juniper', 'shrub', 'cactus', 'boulder'];
 
 export interface TreeSet {
   count: number;

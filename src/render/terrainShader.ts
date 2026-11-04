@@ -363,10 +363,13 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     };
     const rA = relief(190.0, 0.0);
     const rB = relief(53.0, 0.41);
+    // 最细的一层（14 米平铺）：岩面上的裂隙和小棱角，只在中近距离看得出
+    const rC = relief(14.0, 0.73);
     const footK = float(1).sub(smoothstep(0.5, 3.0, length(dPx).add(length(dPy))));
-    const reliefN = rA.xyz.mul(1.15).add(rB.xyz.mul(footK.mul(0.8)));
+    const footC = float(1).sub(smoothstep(0.14, 0.9, length(dPx).add(length(dPy))));
+    const reliefN = rA.xyz.mul(1.15).add(rB.xyz.mul(footK.mul(0.8))).add(rC.xyz.mul(footC.mul(0.75)));
     nb.assign(normalize(nb.add(reliefN.mul(mix(mix(float(0.16), float(0.34), snowW), float(1.0), rockK)))));
-    const rH = rA.w.mul(0.6).add(rB.w.mul(0.4));
+    const rH = rA.w.mul(0.6).add(rB.w.mul(0.4)).add(rC.w.sub(0.42).mul(footC.mul(0.5)));
     // 凸处（山脊、岩棱）亮，凹处（沟、裂缝）暗；积雪处减弱
     const shade = float(1).sub(cavS.mul(0.26)).sub(cavL.mul(0.2)).add(rH.sub(0.42).mul(mix(float(0.1), float(0.62), rockK)));
     col.mulAssign(clamp(shade, 0.55, 1.35).mul(float(1).sub(snowW.mul(0.5))).add(snowW.mul(0.5)));

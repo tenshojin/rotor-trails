@@ -297,6 +297,8 @@ export const FJORD_MAP: MapDef = {
   vegetation: [
     { type: 'spruce', density: 2300, scale: [0.8, 1.4], minH: 2, maxH: 560, maxSlope: 0.75, mask: (x, z, h) => (1 - smoothstep(380, 560, h)) * (0.6 + 0.4 * n.fbm(x / 250, z / 250, 2)) },
     { type: 'birch', density: 620, scale: [0.8, 1.25], minH: 2, maxH: 200, maxSlope: 0.55 },
+    // 岩壁脚下的崩积石块和水边的礁石
+    { type: 'boulder', density: 2200, scale: [0.35, 2.4], maxH: 90, maxSlope: 0.62, mask: (_x, _z, h, s) => smoothstep(0.06, 0.2, s) * (1 - smoothstep(30, 90, h)) },
     { type: 'shrub', density: 200, scale: [0.6, 1.1], minH: 300, maxH: 700, maxSlope: 0.5 },
   ],
   clearings: [

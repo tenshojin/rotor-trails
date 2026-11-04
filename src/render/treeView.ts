@@ -183,6 +183,14 @@ function buildTree(type: TreeType): [THREE.BufferGeometry, THREE.BufferGeometry]
       ];
     case 'shrub':
       return [merge([blob(S.crownR, S.crownRy, 0, S.crownY, 0, 1, 0.6, 0x5a6a3a)]), merge([blob(S.crownR, S.crownRy, 0, S.crownY, 0, 0, 0.4, 0x5a6a3a)])];
+    case 'boulder': {
+      // 棱角分明的石块：几个不规则的面拼起来，半埋在地里
+      const rock = (detail: number, noise: number) => {
+        const g = merge([blob(S.crownR, S.crownRy, 0, S.crownY, 0, detail, noise, 0x8e867c), blob(S.crownR * 0.62, S.crownRy * 0.6, 0.72, S.crownY * 0.5, 0.35, detail, noise, 0x7e776e)]);
+        return g;
+      };
+      return [rock(1, 0.5), blob(S.crownR * 1.05, S.crownRy, 0, S.crownY, 0, 0, 0.35, 0x8a8278)];
+    }
     case 'cactus': {
       const body = new THREE.CapsuleGeometry(S.trunkR, S.trunkH - S.trunkR * 2, 4, 8);
       body.translate(0, S.trunkH / 2, 0);
@@ -272,6 +280,10 @@ function windPosition(U: WindUniforms, leaf: boolean): THREE.Node<'vec3'> {
   return p;
 }
 
+/** 石块的颜色：几何体是中性灰，乘上地图的岩石色 */
+const BOULDER = TREE_TYPES.indexOf('boulder');
+const rockTint = new THREE.Color();
+
 export interface TreeQuality {
   near: number;
   far: number;
@@ -312,8 +324,12 @@ export class TreeView {
     this.lastT = -10;
   }
 
-  constructor(trees: TreeSet, lib: TreeLib | null = null) {
+  constructor(trees: TreeSet, lib: TreeLib | null = null, rock = 0x8a8278) {
     this.trees = trees;
+    // 风化的石头颜色比新鲜岩面灰一些、暗一些
+    rockTint.setHex(rock);
+    const grey = (rockTint.r + rockTint.g + rockTint.b) / 3;
+    rockTint.lerp(new THREE.Color(grey, grey, grey), 0.55).multiplyScalar(1.5);
     this.modeled = lib !== null;
     for (let t = 0; t < TREE_TYPES.length; t++) this.byType.push([]);
     for (let i = 0; i < trees.count; i++) this.byType[trees.type[i]].push(i);
@@ -506,5 +522,6 @@ const _c = new THREE.Color();
 /** 每棵树固定的颜色变化（由位置哈希决定）。 */
 function treeColor(x: number, z: number, ti: number): THREE.Color {
   const v = 0.8 + hash(x, z, ti) * 0.4;
+  if (ti === BOULDER) return _c.copy(rockTint).multiplyScalar(0.75 + hash(x, z, ti) * 0.5);
   return _c.setRGB(v * (0.94 + hash(z, x, 2) * 0.12), v, v * (0.88 + hash(x, ti, z) * 0.1));
 }

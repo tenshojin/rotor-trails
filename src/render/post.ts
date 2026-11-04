@@ -12,7 +12,7 @@
 // 只能看到屏幕上可见的物体；屏幕外的信息由环境贴图补足。
 
 import * as THREE from 'three/webgpu';
-import { clamp, convertToTexture, diffuseColor, dot, float, int, length, max, min, luminance, metalness, mix, mrt, normalView, output, packNormalToRGB, pass, perspectiveDepthToViewZ, reference, renderOutput, roughness, sample, screenUV, smoothstep, unpackRGBToNormal, vec2, vec3, vec4, velocity, vibrance } from 'three/tsl';
+import { clamp, convertToTexture, screenSize, Fn, diffuseColor, dot, float, int, length, max, min, luminance, metalness, mix, mrt, normalView, output, packNormalToRGB, pass, perspectiveDepthToViewZ, reference, renderOutput, roughness, sample, screenUV, smoothstep, unpackRGBToNormal, vec2, vec3, vec4, velocity, vibrance } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
@@ -87,6 +87,7 @@ interface PostDebug {
   contrast?: number;
   vibrance?: number;
   vignette?: number;
+  sharpen?: number;
   bloom?: boolean;
   fog?: boolean;
   /** 直接显示某个通道：normal / velocity / color / fog */
@@ -175,12 +176,15 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
   }
   let aa: THREE.Node<'vec4'> = composite;
   let hdr = (): THREE.Texture | null => scenePass.getTexture('output');
+  let aaTex: THREE.TextureNode | null = null;
   if (dbg.traa !== false) {
     const t = traa(composite, depth, vel, camera);
     disposers.push(t);
     aa = t;
     // 时间抗锯齿的结果已经叠好了雾和遮蔽，就是眼睛最后看到的亮度
-    hdr = () => (t as unknown as { getTextureNode(): { value: THREE.Texture } }).getTextureNode().value;
+    aaTex = (t as unknown as { getTextureNode(): THREE.TextureNode }).getTextureNode();
+    const node = aaTex;
+    hdr = () => node.value as THREE.Texture;
   }
   let out: THREE.Node<'vec4'> = aa;
   if (cfg.motionBlur) {
@@ -189,11 +193,15 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     const vClamped = v.mul(min(float(1), float(0.035).div(max(length(v), 1e-5))));
     out = motionBlur(convertToTexture(aa), vClamped, int(cfg.quality === 'ultra' ? 12 : 8));
   }
+  // 时间抗锯齿让画面略微发软：补一道受限的锐化（结果不超出周围像素的明暗范围，边缘不会有白边）
+  const sharp = aaTex && !cfg.motionBlur ? sharpen(aaTex, dbg.sharpen ?? 0.8) : out;
   if ((cfg.quality === 'high' || cfg.quality === 'ultra') && dbg.bloom !== false) {
     // 阈值较高：只有太阳、强镜面反光、灯光会晕开（阳光下的白色表面本身也有约 3 的亮度）
     const b = bloom(out, cfg.quality === 'ultra' ? 0.22 : 0.18, 0.5, 4.0);
     disposers.push(b);
-    out = out.add(b);
+    out = sharp.add(b);
+  } else {
+    out = sharp;
   }
   if (dbg.view) {
     pipeline.outputColorTransform = false;
@@ -206,6 +214,22 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
   pipeline.outputColorTransform = false;
   pipeline.outputNode = grade(renderOutput(out), dbg);
   return { pipeline, fog: fogNode, hdr, dispose: () => disposers.forEach((d) => d.dispose()) };
+}
+
+/** 受限的反锐化：中心像素减去周围四点的平均，再限制在这五个像素的明暗范围之内 */
+function sharpen(src: THREE.TextureNode, amount: number): THREE.Node<'vec4'> {
+  return Fn(() => {
+    const px = vec2(1.0).div(screenSize);
+    const c = src.sample(screenUV).rgb.toVar();
+    const a = src.sample(screenUV.add(vec2(px.x, 0))).rgb.toVar();
+    const b = src.sample(screenUV.sub(vec2(px.x, 0))).rgb.toVar();
+    const d = src.sample(screenUV.add(vec2(0, px.y))).rgb.toVar();
+    const e = src.sample(screenUV.sub(vec2(0, px.y))).rgb.toVar();
+    const lo = min(min(min(a, b), min(d, e)), c);
+    const hi = max(max(max(a, b), max(d, e)), c);
+    const avg = a.add(b).add(d).add(e).mul(0.25);
+    return vec4(clamp(c.add(c.sub(avg).mul(amount)), lo, hi), 1.0);
+  })();
 }
 
 /**

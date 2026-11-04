@@ -284,7 +284,7 @@ export class WorldView {
     this.props = new PropsView(world, this.modelLib, detail);
     this.props.lodScale = QUALITY[this.settings.quality].terrainLod;
     this.scene.add(this.props.group);
-    this.trees = new TreeView(world.trees, treeLib);
+    this.trees = new TreeView(world.trees, treeLib, map.biome.rock);
     this.scene.add(this.trees.group);
     this.nav = new NavView(map);
     this.nav.guides = this.settings.navGuides;

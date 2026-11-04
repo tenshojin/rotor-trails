@@ -362,6 +362,8 @@ export const CANYON: MapDef = {
     // 高原上是一片片的杜松林和成丛的鼠尾草（疏密不均），谷底才有仙人掌
     { type: 'juniper', density: 620, scale: [0.7, 1.4], maxSlope: 0.3, mask: (x, z, h) => (h > 200 ? smoothstep(-0.05, 0.4, n.fbm(x / 340, z / 340, 3)) : 0.1) },
     { type: 'cactus', density: 45, scale: [0.7, 1.2], maxSlope: 0.2, mask: (_x, _z, h) => (h < 200 ? 1 : 0.15) },
+    // 崖脚的崩塌石块：只落在陡崖下面的缓坡和岩架上
+    { type: 'boulder', density: 5200, scale: [0.22, 1.9], maxSlope: 0.5, mask: (_x, _z, h, s) => (h < 295 ? (0.12 + 0.88 * smoothstep(0.01, 0.07, s)) * (1 - smoothstep(0.34, 0.5, s)) : 0) },
     { type: 'shrub', density: 1900, scale: [0.6, 1.2], maxSlope: 0.34, mask: (x, z) => smoothstep(-0.25, 0.3, n.fbm(x / 170 + 9, z / 170, 3)) },
   ],
   clearings: [

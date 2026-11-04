@@ -217,6 +217,8 @@ export const JAPAN: MapDef = {
     { type: 'broadleaf', density: 6200, scale: [0.9, 1.6], minH: 12, maxSlope: 0.55, mask: (x, z, h) => forest(x, z, h) * (h > 30 ? 1 : 0.6) },
     { type: 'broadleaf', density: 260, scale: [0.85, 1.3], minH: 10, maxSlope: 0.38, mask: (x, z) => 0.3 + 0.5 * n2.fbm(x / 300, z / 300, 2) },
     { type: 'shrub', density: 700, scale: [0.7, 1.4], minH: 3, maxSlope: 0.6, mask: (x, z, h) => 0.35 + 0.65 * forestEdge(x, z, h) },
+    // 岬角下面的礁石：一段段的，不是整圈海岸都有
+    { type: 'boulder', density: 2600, scale: [0.35, 2.2], maxH: 6, maxSlope: 0.7, mask: (x, z) => smoothstep(0.5, 0.62, 0.5 + 0.5 * n2.fbm(x / 120, z / 120, 2)) },
   ],
   clearings: [
     [-1030, 720, 170],
