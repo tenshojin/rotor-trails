@@ -70,6 +70,38 @@ function plateau(x: number, z: number): number {
   return PLATEAU + 16 * n.fbm(x / 650, z / 650, 4) + 5 * n2.fbm(x / 120, z / 120, 3);
 }
 
+/** 远景：地平线上一座座平顶的孤山和石柱（纪念碑谷那样），而不是一直平到天边 */
+const BUTTES: Array<[number, number, number, number]> = [
+  // x, z, 半径, 高度
+  [-4200, -3100, 900, 300],
+  [-5600, 400, 1300, 240],
+  [-4600, 3300, 700, 340],
+  [-1800, 5100, 1000, 260],
+  [2300, 5300, 800, 380],
+  [5200, 3400, 1200, 280],
+  [5900, -900, 900, 330],
+  [4700, -4300, 1100, 250],
+  [1100, -5600, 800, 360],
+  [-2500, -5200, 1000, 290],
+  [-3100, -4400, 330, 420],
+  [3600, 4700, 300, 440],
+  [5000, 900, 280, 400],
+];
+
+function farLand(x: number, z: number): number {
+  let h = plateau(x, z);
+  for (const [cx, cz, r, ph] of BUTTES) {
+    const a = Math.atan2(z - cz, x - cx);
+    const d = Math.hypot(x - cx, z - cz) / (r * (1 + 0.28 * n.noise(Math.cos(a) * 1.7 + cx * 0.001, Math.sin(a) * 1.7 + cz * 0.001)));
+    if (d >= 1.25) continue;
+    // 顶部平、四周是陡崖，崖脚堆着缓坡
+    const cliff = smoothstep(1.0, 0.86, d);
+    const talus = smoothstep(1.25, 0.98, d) * 0.22;
+    h = Math.max(h, PLATEAU + ph * Math.max(cliff, talus) + 7 * n2.fbm(x / 240, z / 240, 2));
+  }
+  return h;
+}
+
 /** 阶梯剖面：每级 60% 平台 + 40% 陡崖 */
 function terrace(t: number, steps: number): number {
   const u = Math.min(0.9999, Math.max(0, t)) * steps;
@@ -195,7 +227,8 @@ export const CANYON: MapDef = {
     b.paintPath(1, CANYON_MAIN, 7, 5, 0.7);
     b.paint(0, (x, z, h) => (h < 125 ? 0.6 * (1 - smoothstep(95, 125, h)) * (0.6 + 0.4 * n.noise(x / 50, z / 50)) : 0));
   },
-  farTerrain: plateau,
+  farTerrain: farLand,
+  farExtent: 1.6,
   spawn: { padId: 'C-visitor', heading: 110 },
   pads: [
     { id: 'C-visitor', name: '峡谷游客中心', pos: [-1480, 308.45, 820], size: 22, kind: 'start', style: 'ground' },

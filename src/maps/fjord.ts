@@ -56,9 +56,14 @@ function land(x: number, z: number): number {
   return -3 + (plateau(x, z) + 3) * smoothstep(0, 140, dc);
 }
 
-/** 远景：海岸以外是海，内陆是高原 */
+/** 远景：海岸以外是海，内陆的高原往东抬升成积雪的山脉 */
 function far(x: number, z: number): number {
-  return land(x, z);
+  const h = land(x, z);
+  const k = smoothstep(2100, 5600, x) * smoothstep(-300, 300, h);
+  if (k <= 0) return h;
+  const wx = x + 500 * n2.noise(x / 2400, z / 2400);
+  const crag = Math.pow(n.ridged(wx / 3600, z / 3600 + 5, 5, 2.05, 0.5, 2.0), 1.25);
+  return h + k * (500 + 1900 * crag);
 }
 
 // ---------- 关键位置 ----------
@@ -239,6 +244,7 @@ export const FJORD_MAP: MapDef = {
     b.paint(3, (x, z, h) => (h > 680 ? smoothstep(680, 760, h + 40 * n.noise(x / 150, z / 150)) : 0));
   },
   farTerrain: far,
+  farExtent: 1.7,
   spawn: { padId: 'F-mouth', heading: 0 },
   pads: [
     { id: 'F-mouth', name: '峡湾口灯塔站', pos: [-1715, 14.45, -110], size: 18, kind: 'start', style: 'ground' },

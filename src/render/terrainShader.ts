@@ -30,6 +30,7 @@ import {
   pow,
   smoothstep,
   sqrt,
+  step,
   struct,
   texture,
   uniform,
@@ -105,7 +106,10 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const muv = P.xz.div(U.mapSize).add(0.5);
     const surf = texture(U.surface, muv);
     const forest = texture(U.forest, muv).r;
-    const mac = texture(U.macro, muv);
+    // 地图外面的远景地形没有宏观图：凹凸取中性值，坡度用几何法线
+    const inMap = step(abs(muv.x.sub(0.5)), 0.5).mul(step(abs(muv.y.sub(0.5)), 0.5));
+    const mac0 = texture(U.macro, muv);
+    const mac = mix(vec4(0.5, 0.5, 1.0, slope), mac0, inMap);
     const n1 = texture(noise, P.xz.mul(0.0021)).r;
     // 三平面权重（陡坡上纹理不会被拉成竖条）
     const aw = pow(abs(n), vec3(4.0));
