@@ -192,6 +192,8 @@ export interface MapDef {
   buildTerrain(b: HeightBuilder): void;
   /** 地图外围远景地形（不参与碰撞） */
   farTerrain?(x: number, z: number): number;
+  /** 远景地形铺到多远（地图边长的倍数，缺省 1.6） */
+  farExtent?: number;
   spawn: { padId: string; heading: number };
   pads: PadDef[];
   props: PropDef[];

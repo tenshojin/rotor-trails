@@ -163,18 +163,20 @@ export const AMAZON: MapDef = {
     { type: 'canopyTower', pos: [FINAL[0] + 26, 0, FINAL[2] + 18], ground: true, p: { h: 52 } },
     { type: 'flagpole', pos: [START[0] - 20, 0, START[2] - 18], ground: true, p: { color: 'br', h: 10 } },
   ],
+  // 雨林：高大的林冠层一直长到河岸，林下是灌木和棕榈，看不到地面
   vegetation: [
     {
       type: 'canopy',
-      density: 1700,
-      scale: [0.8, 1.25],
-      minH: 2.5,
-      maxSlope: 0.5,
-      mask: (x, z) => 0.75 + 0.25 * n.fbm(x / 200, z / 200, 2),
+      density: 3400,
+      scale: [0.75, 1.3],
+      minH: 1.8,
+      maxSlope: 0.75,
+      mask: (x, z) => 0.85 + 0.15 * n.fbm(x / 200, z / 200, 2),
     },
-    { type: 'emergent', density: 32, scale: [0.85, 1.15], minH: 4, maxSlope: 0.3 },
-    { type: 'palm', density: 260, scale: [0.8, 1.3], minH: 1.5, maxH: 9, maxSlope: 0.4 },
-    { type: 'broadleaf', density: 200, scale: [0.9, 1.4], minH: 2, maxH: 12, maxSlope: 0.4 },
+    { type: 'emergent', density: 46, scale: [0.85, 1.2], minH: 4, maxSlope: 0.3 },
+    { type: 'palm', density: 520, scale: [0.8, 1.35], minH: 1.2, maxH: 12, maxSlope: 0.7 },
+    { type: 'broadleaf', density: 1500, scale: [0.9, 1.5], minH: 1.2, maxH: 40, maxSlope: 0.8 },
+    { type: 'shrub', density: 1500, scale: [1.0, 1.9], minH: 1.0, maxH: 30, maxSlope: 0.9 },
   ],
   clearings: [
     [START[0], START[2], 70],

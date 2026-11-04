@@ -55,6 +55,16 @@ function mountains(x: number, z: number): number {
   return 330 + 90 * n2.fbm(x / 450, z / 450, 3) + lowRidge * (1 - mask) + mask * 2950 * (0.32 + 0.68 * crag);
 }
 
+/** 远景：地图外面是一圈真正的高峰，从谷底望过去雪峰压在天边 */
+function farRange(x: number, z: number): number {
+  const r = Math.max(Math.abs(x), Math.abs(z));
+  const k = smoothstep(2200, 6500, r);
+  const wx = x + 700 * n2.noise(x / 2600, z / 2600);
+  const wz = z + 700 * n2.noise(x / 2600 + 7.1, z / 2600 - 2.3);
+  const crag = Math.pow(n.ridged(wx / 3100, wz / 3100, 6, 2.05, 0.5, 2.2), 1.3);
+  return mountains(x, z) * (1 - 0.6 * k) + k * (1250 + 4300 * crag);
+}
+
 /**
  * 天然地形在 (x,z) 周围 r 米内的中位高度。站点建在自然地形上（只做小范围整平），
  * 不会出现“柱子”或“深坑”。仅用于主冰川谷改造范围（谷线 900 m）以外的站点。
@@ -158,7 +168,8 @@ export const HIMALAYA: MapDef = {
     b.paint(3, (x, z, h) => smoothstep(1050, 1250, h + 120 * n.noise(x / 200, z / 200)));
     b.paint(0, (x, z, h) => (h < 700 ? 0.5 * (0.5 + 0.5 * n2.noise(x / 80, z / 80)) * (1 - smoothstep(400, 700, h)) : 0));
   },
-  farTerrain: mountains,
+  farTerrain: farRange,
+  farExtent: 3.4,
   spawn: { padId: 'H-base', heading: 60 },
   pads: [
     { id: 'H-base', name: '大本营停机坪', pos: [BASE[0], BASE[1] + 0.45, BASE[2]], size: 22, kind: 'start', style: 'ground' },
@@ -306,12 +317,12 @@ export const HIMALAYA: MapDef = {
   ],
   defaultWeather: 'clear',
   biome: {
-    sand: 0x9a8e7c,
-    grass: 0x6a7048,
-    grass2: 0x7a7a52,
-    dirt: 0x7a6a56,
-    rock: 0x6c6862,
-    rock2: 0x4a4744,
+    sand: 0x8f887a,
+    grass: 0x7a7458,
+    grass2: 0x8c8366,
+    dirt: 0x736858,
+    rock: 0x6e6c6a,
+    rock2: 0x504e4d,
     snow: 0xf4f6f8,
     strata: 0,
     beachTop: -100,

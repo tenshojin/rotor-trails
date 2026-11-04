@@ -223,8 +223,8 @@ export class TerrainView {
   private buildFar(map: MapDef): THREE.Mesh | null {
     const hf = this.hf;
     const S = hf.size;
-    const extent = S * 1.6;
-    const step = 96;
+    const extent = S * (map.farExtent ?? 1.6);
+    const step = map.farExtent ? 128 : 96;
     const n = Math.ceil((extent * 2) / step);
     const pos: number[] = [];
     const nor: number[] = [];

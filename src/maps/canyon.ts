@@ -240,9 +240,10 @@ export const CANYON: MapDef = {
     { type: 'fenceLine', pos: [-1445, 0, 784], p: { pts: '-1462,768;-1436,764;-1424,778;-1426,800', h: 1.1 } },
   ],
   vegetation: [
-    { type: 'juniper', density: 140, scale: [0.7, 1.3], maxSlope: 0.28, mask: (x, z, h) => (h > 200 ? 0.5 + 0.5 * n.fbm(x / 260, z / 260, 2) : 0.15) },
-    { type: 'cactus', density: 45, scale: [0.7, 1.2], maxSlope: 0.2 },
-    { type: 'shrub', density: 320, scale: [0.6, 1.1], maxSlope: 0.32 },
+    // 高原上是一片片的杜松林和成丛的鼠尾草（疏密不均），谷底才有仙人掌
+    { type: 'juniper', density: 620, scale: [0.7, 1.4], maxSlope: 0.3, mask: (x, z, h) => (h > 200 ? smoothstep(-0.05, 0.4, n.fbm(x / 340, z / 340, 3)) : 0.1) },
+    { type: 'cactus', density: 45, scale: [0.7, 1.2], maxSlope: 0.2, mask: (_x, _z, h) => (h < 200 ? 1 : 0.15) },
+    { type: 'shrub', density: 1900, scale: [0.6, 1.2], maxSlope: 0.34, mask: (x, z) => smoothstep(-0.25, 0.3, n.fbm(x / 170 + 9, z / 170, 3)) },
   ],
   clearings: [
     [-1500, 820, 70],

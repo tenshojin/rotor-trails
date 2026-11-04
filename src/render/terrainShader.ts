@@ -137,7 +137,8 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const rough = float(0.95).toVar();
     const snowW = float(0).toVar();
     // 贴图坐标加一点低频扭曲：照片材质的平铺格子不再是一条条直线（远看山壁上才不会出现方格）
-    const warp = vec2(texture(noise, P.xz.mul(0.0043)).r, texture(noise, P.xz.mul(0.0043).add(0.5)).r).sub(0.5).mul(26.0);
+    // （平地上扭曲要小，否则草地上会出现大理石一样的旋涡纹）
+    const warp = vec2(texture(noise, P.xz.mul(0.0043)).r, texture(noise, P.xz.mul(0.0043).add(0.5)).r).sub(0.5).mul(mix(float(3.0), float(26.0), rockW));
     const Pw = P.add(vec3(warp.x, warp.y.mul(0.6), warp.y)).toVar();
 
     if (L) {
@@ -334,6 +335,11 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     // 凸处（山脊、岩棱）亮，凹处（沟、裂缝）暗；积雪处减弱
     const shade = float(1).sub(cavS.mul(0.26)).sub(cavL.mul(0.2)).add(rH.sub(0.42).mul(mix(float(0.1), float(0.62), rockK)));
     col.mulAssign(clamp(shade, 0.55, 1.35).mul(float(1).sub(snowW.mul(0.5))).add(snowW.mul(0.5)));
+    // 几百米尺度的深浅与冷暖：同一种地表在大范围里也不是一个颜色（土壤、湿度、植被密度都在变）
+    const big = texture(noise, P.xz.mul(0.00031).add(0.2)).r;
+    const big2 = texture(noise, P.xz.mul(0.00083).add(0.6)).r;
+    const patchK = float(1).sub(rockW.mul(0.6)).mul(float(1).sub(snowW));
+    col.mulAssign(mix(vec3(1.0), mix(vec3(0.8, 0.84, 0.84), vec3(1.16, 1.12, 1.02), big.mul(0.6).add(big2.mul(0.4))), patchK));
     // 整体降低一点饱和度：照片材质向地图配色靠拢后草地偏艳，在中性色调映射下会显得发荧光
     col.assign(mix(col, vec3(dot(col, LUMW)), 0.18));
     // 森林区远处的“树冠层”：从空中看真实的森林是连成一片的树冠，而不是一棵棵树之间露出草地。
