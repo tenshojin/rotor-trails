@@ -76,7 +76,7 @@ class WaterLighting extends THREE.PhysicalLightingModel {
   direct(data: Parameters<THREE.PhysicalLightingModel['direct']>[0]): void {
     const { lightDirection, lightColor, reflectedLight } = data as unknown as { lightDirection: N<'vec3'>; lightColor: N<'vec3'>; reflectedLight: { directDiffuse: N<'vec3'>; directSpecular: N<'vec3'> } };
     const irradiance = (normalView.dot(lightDirection).clamp() as N<'float'>).mul(lightColor);
-    reflectedLight.directDiffuse.addAssign(irradiance.mul(BRDF_Lambert({ diffuseColor: diffuseColor.rgb })));
+    reflectedLight.directDiffuse.addAssign(irradiance.mul(BRDF_Lambert({ diffuseColor: diffuseColor.rgb }) as unknown as N<'vec3'>));
     reflectedLight.directSpecular.addAssign(lightColor.mul(this.glint));
   }
 }

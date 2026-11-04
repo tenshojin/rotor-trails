@@ -304,6 +304,120 @@ def street_lamp(name):
     return BK.model(name, parts)[0]
 
 
+def car(name, body_hex, van=False):
+    """停在港区的小汽车（普通家用车 / 厢式小货车）。沿 +X 为车头。"""
+    parts = []
+    body = F(f'car_{body_hex:06x}', body_hex, rough=0.28, metal=0.25)
+    dark = F('truck_dark', 0x1e2024, rough=0.5)
+    glass = F('glass_dark', 0x1c252d, rough=0.08, metal=0.5)
+    L_, W_ = (3.9, 1.65) if van else (4.3, 1.72)
+    parts.append(K.box('lower', (L_, W_, 0.62), (0, 0, 0.62), body, bevel=0.1))
+    if van:
+        parts.append(K.box('upper', (L_ - 0.5, W_ - 0.1, 0.92), (-0.2, 0, 1.36), body, bevel=0.12))
+        parts.append(BK.bx('glass', (L_ - 0.42, W_ - 0.06, 0.42), (-0.2, 0, 1.46), glass, uv=False))
+    else:
+        parts.append(K.box('upper', (2.25, W_ - 0.16, 0.56), (-0.25, 0, 1.18), body, bevel=0.14))
+        parts.append(BK.bx('glass', (2.33, W_ - 0.12, 0.34), (-0.25, 0, 1.2), glass, uv=False))
+    for sy in (-1, 1):
+        for x in (L_ * 0.31, -L_ * 0.31):
+            parts.append(K.cylinder(f'wheel{sy}{x}', 0.31, 0.2, (x, sy * (W_ / 2 - 0.08), 0.31), dark, 14, rot=(math.pi / 2, 0, 0)))
+    lamp = F('car_lamp', 0xe8e4d8, rough=0.2)
+    tail = F('car_tail', 0x8e1612, rough=0.3)
+    for sy in (-1, 1):
+        parts.append(BK.bx(f'hl{sy}', (0.04, 0.34, 0.14), (L_ / 2 + 0.01, sy * 0.56, 0.76), lamp, uv=False))
+        parts.append(BK.bx(f'tl{sy}', (0.04, 0.3, 0.16), (-L_ / 2 - 0.01, sy * 0.58, 0.76), tail, uv=False))
+    return BK.model(name, parts)[0]
+
+
+def forklift(name):
+    """叉车：黄色车身、门架、货叉。"""
+    parts = []
+    y = F('fork_yellow', 0xd8a51c, rough=0.42)
+    d = F('truck_dark', 0x1e2024, rough=0.5)
+    g = F('lamp_grey', 0x70757a, rough=0.5, metal=0.5)
+    parts.append(K.box('body', (1.9, 1.15, 0.85), (-0.2, 0, 0.72), y, bevel=0.1))
+    parts.append(BK.bx('weight', (0.55, 1.15, 0.8), (-1.15, 0, 0.72), d, uv=False))
+    for sy in (-1, 1):
+        for x, z in ((0.5, 1.75), (-0.75, 1.75)):
+            parts.append(BK.bx(f'post{sy}{x}', (0.06, 0.06, 1.2), (x, sy * 0.48, z), d, uv=False))
+    parts.append(BK.bx('roof', (1.4, 1.06, 0.06), (-0.12, 0, 2.36), d, uv=False))
+    for sy in (-1, 1):
+        parts.append(BK.bx(f'mast{sy}', (0.1, 0.09, 2.5), (1.02, sy * 0.36, 1.3), g, uv=False))
+        parts.append(BK.bx(f'fork{sy}', (1.05, 0.11, 0.05), (1.58, sy * 0.3, 0.18), g, uv=False))
+        parts.append(K.cylinder(f'w{sy}', 0.33, 0.24, (0.55, sy * 0.52, 0.33), d, 14, rot=(math.pi / 2, 0, 0)))
+        parts.append(K.cylinder(f'wr{sy}', 0.28, 0.2, (-0.8, sy * 0.52, 0.28), d, 14, rot=(math.pi / 2, 0, 0)))
+    return BK.model(name, parts)[0]
+
+
+def light_mast(name):
+    """港区高杆灯：25 米的杆子，顶上一圈投光灯。"""
+    parts = []
+    g = F('lamp_grey', 0x70757a, rough=0.5, metal=0.5)
+    d = F('shed_trim', 0x3a3e44, rough=0.55)
+    parts.append(BK.cyl('foot', 0.72, 0.9, (0, 0, 0.45), M('concrete'), 14))
+    parts.append(BK.cyl('pole', 0.3, 24.0, (0, 0, 12.6), g, 10, r2=0.13, uv=False))
+    parts.append(BK.cyl('ring', 1.1, 0.14, (0, 0, 24.5), d, 16, uv=False))
+    for i in range(6):
+        a = i * math.pi / 3
+        parts.append(K.box(f'head{i}', (0.5, 0.62, 0.3), (math.cos(a) * 0.95, math.sin(a) * 0.95, 24.25), d, bevel=0.03, rot=(0, 0, a)))
+    return BK.model(name, parts)[0]
+
+
+def pallets(name, seed=4):
+    """托盘堆：木托盘和裹着膜的货。"""
+    rnd = random.Random(seed)
+    parts = []
+    wood = F('pallet_wood', 0x9c7c52, rough=0.8)
+    goods = [F('goods_a', 0xc8c4b8, rough=0.55), F('goods_b', 0x6f8aa0, rough=0.5), F('goods_c', 0xa8804e, rough=0.7)]
+    for i in range(6):
+        x = (i % 3 - 1) * 1.35 + rnd.uniform(-0.06, 0.06)
+        y = (i // 3 - 0.5) * 1.3 + rnd.uniform(-0.06, 0.06)
+        parts.append(BK.bx(f'p{i}', (1.2, 1.2, 0.14), (x, y, 0.07), wood, uv=False))
+        h = rnd.uniform(0.6, 1.3)
+        parts.append(K.box(f'g{i}', (1.1, 1.1, h), (x, y, 0.14 + h / 2), rnd.choice(goods), bevel=0.04))
+    return BK.model(name, parts)[0]
+
+
+def bollard(name):
+    """系船柱"""
+    d = F('bollard', 0x2a2c30, rough=0.5, metal=0.4)
+    parts = [BK.cyl('b', 0.22, 0.75, (0, 0, 0.38), d, 12, r2=0.17, uv=False), BK.cyl('t', 0.3, 0.08, (0, 0, 0.78), d, 12, uv=False)]
+    return BK.model(name, parts)[0]
+
+
+def terminal(name):
+    """渡轮候船楼：两层，混凝土 + 玻璃幕墙，门前有雨棚。W 沿 X（+X 朝水面），L 沿 Y。"""
+    W, L_, H = 14.0, 34.0, 8.2
+    parts = []
+    glass = F('term_glass', 0x31424e, rough=0.1, metal=0.6)
+    alu = F('alu', 0xb9bdc2, rough=0.35, metal=0.8)
+    white = F('term_white', 0xd9d8d2, rough=0.6)
+    trim = F('term_blue', 0x2c4f78, rough=0.45)
+    parts.append(BK.bx('body', (W, L_, H), (0, 0, H / 2), M('concrete')))
+    parts.append(BK.bx('roof', (W + 0.8, L_ + 0.8, 0.5), (0, 0, H + 0.25), white, uv=False))
+    parts.append(BK.bx('band', (W + 0.84, L_ + 0.84, 0.26), (0, 0, H + 0.1), trim, uv=False))
+    # 临水一面：一二层玻璃幕墙和竖框
+    for z, h in ((2.0, 3.0), (5.9, 2.8)):
+        parts.append(BK.bx(f'gl{z}', (0.1, L_ - 3, h), (W / 2 + 0.05, 0, z), glass, uv=False))
+        for i in range(17):
+            y = -(L_ - 3) / 2 + i * (L_ - 3) / 16
+            parts.append(BK.bx(f'mu{z}{i}', (0.14, 0.09, h), (W / 2 + 0.08, y, z), alu, uv=False))
+        parts.append(BK.bx(f'tr{z}', (0.16, L_ - 3, 0.1), (W / 2 + 0.08, 0, z + h / 2), alu, uv=False))
+    # 陆侧：一排窗
+    for i in range(10):
+        y = -L_ / 2 + 2.6 + i * 3.2
+        parts.append(BK.bx(f'bw{i}', (0.08, 2.0, 1.3), (-W / 2 - 0.04, y, 5.8), glass, uv=False))
+        parts.append(BK.bx(f'bl{i}', (0.08, 2.0, 1.3), (-W / 2 - 0.04, y, 2.2), glass, uv=False))
+    # 门前雨棚与柱子
+    parts.append(BK.bx('canopy', (4.4, L_ * 0.55, 0.22), (W / 2 + 2.2, 0, 3.9), white, uv=False))
+    for y in (-8, -2.7, 2.7, 8):
+        parts.append(BK.cyl(f'col{y}', 0.14, 3.8, (W / 2 + 4.0, y, 1.9), alu, 10, uv=False))
+    # 屋顶的设备和栏杆
+    parts.append(BK.bx('ac', (3.4, 7.0, 1.2), (-1.5, 4, H + 1.1), F('shed_trim', 0x3a3e44, rough=0.55), uv=False))
+    parts.append(BK.bx('tower', (3.6, 3.6, 2.6), (2.0, -9, H + 1.6), white, uv=False))
+    return BK.model(name, parts)[0]
+
+
 def build_all():
     roots = []
     roots.append(shed('pshed_a', 'corr_blue', 'iron'))
@@ -322,4 +436,16 @@ def build_all():
     roots.append(net_pile('net_a', 0x2c4a40))
     roots.append(net_pile('net_b', 0xa8552c, seed=9))
     roots.append(street_lamp('street_lamp'))
+    roots.append(car('car_white', 0xe6e6e2))
+    roots.append(car('car_silver', 0x9aa0a6))
+    roots.append(car('car_blue', 0x2a4a72))
+    roots.append(car('car_red', 0x8c2a24))
+    roots.append(car('van_white', 0xdedfd8, van=True))
+    roots.append(car('van_grey', 0x6c7278, van=True))
+    roots.append(forklift('forklift'))
+    roots.append(light_mast('light_mast'))
+    roots.append(pallets('pallets_a'))
+    roots.append(pallets('pallets_b', seed=11))
+    roots.append(bollard('bollard'))
+    roots.append(terminal('ferry_terminal'))
     return roots

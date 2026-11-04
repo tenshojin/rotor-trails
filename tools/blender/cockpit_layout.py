@@ -90,6 +90,20 @@ HELISAFE = dict(u=-0.208, v=-0.378, w=0.172, h=0.066)
 PLACARD = dict(u=-0.372, v=-0.214, w=0.094, h=0.054,
                lines=['VHF FM RADIO', '— NOT USED BY THE', 'HANDLING PILOT', '— NOT USED DURING', 'TAKE-OFF OR LANDING'])
 
+# 音频控制面板：两排按键 + 音量旋钮
+AUDIO = dict(u=-0.445, v=-0.288, w=0.132, h=0.074, cols=5,
+             labels=['COM1', 'COM2', 'NAV', 'ADF', 'ICS', 'PA', 'SPKR', 'MKR', 'DME', 'AUX'])
+# 应答机（琥珀色液晶）
+XPDR = dict(u=-0.405, v=-0.384, w=0.196, h=0.052)
+# 断路器：两排
+CB = dict(u=-0.405, v=-0.452, cols=7, du=0.027, dv=0.032,
+          labels=['BATT', 'GEN', 'STBY', 'AVNX', 'GPS', 'COM', 'XPDR', 'HYD', 'FUEL', 'START', 'NAV LT', 'LDG LT', 'WIPER', 'ICS'])
+# 翘板开关一排 + 小时计
+ROCKERS = dict(u=0.305, v=-0.405, n=6, du=0.037, labels=['BATT', 'GEN', 'FUEL P', 'A-COL', 'PITOT', 'CAB HT'])
+HOBBS = dict(u=0.150, v=-0.405, w=0.056, h=0.026)
+# 电子飞行包（平板）：夹在左侧面板上，朝向驾驶员。center：仪表板坐标 (u, v, w)
+EFB = dict(w=0.196, h=0.142, center=(-0.432, -0.108, 0.078))
+
 # 仪表板上的印刷文字（u, v, 文字, 字高 m, 对齐）
 LABELS = [
     (-0.072, -0.012, 'NIGHT      DAY', 0.0045, 'c'),

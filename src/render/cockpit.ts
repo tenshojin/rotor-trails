@@ -8,7 +8,7 @@ import { FOG } from './atmosphere';
 import { VFOG } from './volumetricFog';
 import { loadGltf } from './gltf';
 import { STD_KEYS } from './modelLib';
-import { drawAnnunciator, drawAttitude, drawGps, drawVemdBottom, drawVemdTop, NEEDLE, type InstrumentData } from './instruments';
+import { drawAnnunciator, drawAttitude, drawEfb, drawGps, drawVemdBottom, drawVemdTop, NEEDLE, type InstrumentData } from './instruments';
 import { getNoiseTexture } from './textures';
 
 /** 驾驶员眼点（机体坐标，右侧机长座位），与 tools/blender/cockpit_layout.py 的 EYE 一致；实际视点的左右位置由设置“座舱视点居中”调整 */
@@ -34,7 +34,7 @@ interface Screen {
   ctx: CanvasRenderingContext2D;
   w: number;
   h: number;
-  kind: 'vemd1' | 'vemd2' | 'ai' | 'gps' | 'ann';
+  kind: 'vemd1' | 'vemd2' | 'ai' | 'gps' | 'ann' | 'efb';
 }
 
 const SCREEN_SIZE: Record<Screen['kind'], [number, number]> = {
@@ -43,6 +43,7 @@ const SCREEN_SIZE: Record<Screen['kind'], [number, number]> = {
   ai: [400, 484],
   gps: [512, 342],
   ann: [768, 302],
+  efb: [1024, 742],
 };
 
 const _q = new THREE.Quaternion();
@@ -306,6 +307,9 @@ export class Cockpit {
       else if (s.kind === 'ann') {
         if (!slow) continue;
         drawAnnunciator(s.ctx, d, s.w, s.h, t);
+      } else if (s.kind === 'efb') {
+        if (!slow) continue;
+        drawEfb(s.ctx, d, this.minimap, this.mapRange, s.w, s.h);
       }
       s.tex.needsUpdate = true;
     }

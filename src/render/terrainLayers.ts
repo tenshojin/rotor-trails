@@ -7,16 +7,16 @@ import type { BiomeDef, MapId } from '../maps/types';
 
 export const SLOTS = 8;
 
-const DEFAULT = ['aerial_grass_rock', 'rocky_terrain_02', 'forest_ground_04', 'coast_sand_01', 'brown_mud_02', 'rock_face', 'mossy_rock', 'snow_field_aerial'];
+const DEFAULT = ['aerial_grass_rock', 'rocky_terrain_02', 'forest_ground_04', 'coast_sand_01', 'brown_mud_02', 'cliff_side', 'mossy_rock', 'snow_field_aerial'];
 const BY_MAP: Partial<Record<MapId, string[]>> = {
   canyon: ['dry_ground_01', 'cracked_red_ground', 'gravelly_sand', 'gravelly_sand', 'cracked_red_ground', 'cliff_side', 'rock_face', 'snow_field_aerial'],
-  amazon: ['rocky_terrain_02', 'aerial_grass_rock', 'forest_leaves_02', 'brown_mud_02', 'red_laterite_soil_stones', 'rock_face', 'mossy_rock', 'snow_field_aerial'],
-  fjord: ['rocky_terrain_02', 'aerial_grass_rock', 'forest_ground_04', 'gravelly_sand', 'brown_mud_02', 'rock_face', 'mossy_rock', 'snow_field_aerial'],
-  himalaya: ['rocky_terrain_02', 'aerial_rocks_02', 'forest_ground_04', 'gravelly_sand', 'gravelly_sand', 'rock_face', 'aerial_rocks_02', 'snow_field_aerial'],
+  amazon: ['rocky_terrain_02', 'aerial_grass_rock', 'forest_leaves_02', 'brown_mud_02', 'red_laterite_soil_stones', 'cliff_side', 'mossy_rock', 'snow_field_aerial'],
+  fjord: ['rocky_terrain_02', 'aerial_grass_rock', 'forest_ground_04', 'gravelly_sand', 'brown_mud_02', 'cliff_side', 'rock_face', 'snow_field_aerial'],
+  himalaya: ['rocky_terrain_02', 'aerial_rocks_02', 'forest_ground_04', 'gravelly_sand', 'gravelly_sand', 'cliff_side', 'aerial_rocks_02', 'snow_field_aerial'],
 };
 
 /** 各层向地图原有配色靠拢的程度（保留照片的明暗细节，色相取地图配色） */
-const TINT_K = [0.72, 0.6, 0.6, 0.6, 0.55, 0.5, 0.42, 0.55];
+const TINT_K = [0.72, 0.6, 0.6, 0.6, 0.55, 0.86, 0.7, 0.55];
 
 export interface TerrainLayers {
   color: THREE.DataArrayTexture;

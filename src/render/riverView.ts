@@ -9,6 +9,8 @@ import {
   clamp,
   dot,
   float,
+  fwidth,
+  length,
   max,
   mix,
   normalize,
@@ -129,7 +131,11 @@ export class RiverView {
     const g1 = grad(vec2(p.x.mul(0.035), p.y.sub(t.mul(spd)).mul(0.0085)), 0.004).mul(0.035);
     const g2 = grad(vec2(p.x.mul(0.11).add(0.3), p.y.sub(t.mul(spd).mul(1.4)).mul(0.021)), 0.004).mul(0.11);
     const g3 = grad(vec2(p.x.mul(0.34).add(0.7), p.y.sub(t.mul(spd).mul(1.8)).mul(0.075)), 0.006).mul(0.34);
-    const gl = g1.mul(1.0).add(g2.mul(0.55)).add(g3.mul(0.2)).mul(rapid.mul(1.3).add(0.3));
+    // 比像素还细的水纹只会变成一片噪点：一个像素盖住的水面越大，细纹淡得越多
+    const foot = length(fwidth(p));
+    const near2 = float(1).sub(smoothstep(0.25, 1.1, foot));
+    const near3 = float(1).sub(smoothstep(0.08, 0.4, foot));
+    const gl = g1.add(g2.mul(near2.mul(0.34))).add(g3.mul(near3.mul(0.1))).mul(rapid.mul(0.9).add(0.2));
     // 河面局部坐标 → 世界：y 分量沿水流方向，x 分量横向
     const gw = vec2(fl.x.mul(gl.y).sub(fl.y.mul(gl.x)), fl.y.mul(gl.y).add(fl.x.mul(gl.x)));
     const nW = normalize(vec3(gw.x.negate(), 1.0, gw.y.negate()));

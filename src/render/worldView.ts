@@ -31,7 +31,7 @@ import { clearSunMap, setSunMap } from './sunMap';
 import { sunFor, type TimeOfDay } from './timeOfDay';
 import { WET, WINDOW_LIGHT } from './wetness';
 import { updateCloudShadowMap } from './cloudShadowMap';
-import { makeTerrainMacroTexture } from './terrainMacro';
+import { loadRockRelief, makeTerrainMacroTexture } from './terrainMacro';
 import { TreeView, loadTreeLib } from './treeView';
 import { WaterView } from './water';
 import { CloudLayer, Lightning, RainFx } from './weatherFx';
@@ -245,6 +245,7 @@ export class WorldView {
     const groundTex = makeGroundHeightTexture(world.terrain, map.waterLevel);
     const macroTex = makeTerrainMacroTexture(world.terrain);
     this.mapTextures.push(surfaceTex, forestTex, groundTex, macroTex);
+    await loadRockRelief();
     // 水面倒影飞出画面后接着走的地形图
     const field = makeReflectField(map, world.terrain, world.trees, world.surface, macroTex.image.data as Uint8Array, forestTex.image.data as Uint8Array);
     this.mapTextures.push(field.height, field.color);

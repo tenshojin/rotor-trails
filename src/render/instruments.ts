@@ -370,6 +370,131 @@ export function drawGps(g: CanvasRenderingContext2D, d: InstrumentData, minimap:
   g.fillText(`${range >= 1000 ? range / 1000 + 'km' : range + 'm'}`, W * 0.02, H * 0.95);
 }
 
+// ---------------------------------------------------------------- 电子飞行包（平板）
+
+/** 平板上的移动地图：北向上的地形图，比面板上的导航仪看得远、看得全 */
+export function drawEfb(g: CanvasRenderingContext2D, d: InstrumentData, minimap: HTMLCanvasElement | null, range: number, W: number, H: number): void {
+  bg(g, W, H, '#0e1d2b');
+  const barH = H * 0.095;
+  const cx = W * 0.5;
+  const cy = barH + (H - barH) * 0.5;
+  const R = Math.max(range * 0.8, 1000);
+  const scale = (H - barH) * 0.5 / R;
+  g.save();
+  g.beginPath();
+  g.rect(0, barH, W, H - barH);
+  g.clip();
+  const P = (x: number, z: number): [number, number] => [cx + (x - d.heliX) * scale, cy + (z - d.heliZ) * scale];
+  if (minimap) {
+    const [x0, y0] = P(-d.mapSize / 2, -d.mapSize / 2);
+    g.imageSmoothingEnabled = true;
+    g.drawImage(minimap, x0, y0, d.mapSize * scale, d.mapSize * scale);
+    // 地图外面
+    g.strokeStyle = 'rgba(30,40,50,.7)';
+    g.lineWidth = 2;
+    g.strokeRect(x0, y0, d.mapSize * scale, d.mapSize * scale);
+  }
+  // 经纬网
+  g.strokeStyle = 'rgba(255,255,255,.22)';
+  g.lineWidth = 1;
+  const grid = 500;
+  for (let x = Math.ceil((d.heliX - R * 2) / grid) * grid; x < d.heliX + R * 2; x += grid) {
+    const px = P(x, 0)[0];
+    g.beginPath();
+    g.moveTo(px, barH);
+    g.lineTo(px, H);
+    g.stroke();
+  }
+  for (let z = Math.ceil((d.heliZ - R * 2) / grid) * grid; z < d.heliZ + R * 2; z += grid) {
+    const py = P(0, z)[1];
+    g.beginPath();
+    g.moveTo(0, py);
+    g.lineTo(W, py);
+    g.stroke();
+  }
+  // 航线
+  if (d.route.length > 1) {
+    g.strokeStyle = '#d316d8';
+    g.lineWidth = W * 0.0055;
+    g.lineJoin = 'round';
+    g.beginPath();
+    d.route.forEach(([x, z], i) => {
+      const [px, pz] = P(x, z);
+      if (i === 0) g.moveTo(px, pz);
+      else g.lineTo(px, pz);
+    });
+    g.stroke();
+  }
+  for (const o of d.objectives) {
+    const [px, pz] = P(o.x, o.z);
+    g.fillStyle = o.main ? '#11b866' : '#8b4fd8';
+    g.strokeStyle = '#fff';
+    g.lineWidth = W * 0.002;
+    g.beginPath();
+    g.arc(px, pz, W * 0.0115, 0, Math.PI * 2);
+    g.fill();
+    g.stroke();
+  }
+  // 距离圈
+  g.strokeStyle = 'rgba(255,255,255,.55)';
+  g.lineWidth = W * 0.0016;
+  g.setLineDash([W * 0.008, W * 0.008]);
+  for (const k of [0.5, 1]) {
+    g.beginPath();
+    g.arc(cx, cy, R * k * scale, 0, Math.PI * 2);
+    g.stroke();
+  }
+  g.setLineDash([]);
+  // 本机：朝着航向
+  g.translate(cx, cy);
+  g.rotate((d.heading * Math.PI) / 180);
+  g.strokeStyle = '#ffe14a';
+  g.lineWidth = W * 0.003;
+  g.beginPath();
+  g.moveTo(0, 0);
+  g.lineTo(0, -H * 0.2);
+  g.stroke();
+  g.fillStyle = '#ffffff';
+  g.strokeStyle = '#111';
+  g.lineWidth = W * 0.0028;
+  g.beginPath();
+  g.moveTo(0, -W * 0.03);
+  g.lineTo(W * 0.021, W * 0.022);
+  g.lineTo(0, W * 0.011);
+  g.lineTo(-W * 0.021, W * 0.022);
+  g.closePath();
+  g.fill();
+  g.stroke();
+  g.restore();
+  // 顶栏
+  g.fillStyle = '#10151b';
+  g.fillRect(0, 0, W, barH);
+  const cell = (i: number, name: string, value: string, color = '#ffffff') => {
+    const x = W * (0.012 + i * 0.198);
+    g.textAlign = 'left';
+    g.textBaseline = 'alphabetic';
+    g.fillStyle = '#7f8c98';
+    g.font = `${Math.round(barH * 0.28)}px ${FONT}`;
+    g.fillText(name, x, barH * 0.36);
+    g.fillStyle = color;
+    g.font = `bold ${Math.round(barH * 0.46)}px ${FONT}`;
+    g.fillText(value, x, barH * 0.86);
+  };
+  cell(0, 'GS kt', `${Math.round(d.groundSpeed * 1.9438)}`);
+  cell(1, 'ALT ft', `${Math.round((d.altitudeMSL * 3.2808) / 10) * 10}`);
+  cell(2, 'TRK', `${String(Math.round(d.heading) % 360).padStart(3, '0')}°`);
+  cell(3, 'DIST', d.navDistance === null ? '---' : d.navDistance > 1000 ? `${(d.navDistance / 1852).toFixed(1)} NM` : `${Math.round(d.navDistance)} m`, '#e36bff');
+  cell(4, 'NEXT', d.navLabel.slice(0, 7) || '---', '#e36bff');
+  // 比例尺
+  g.fillStyle = 'rgba(16,21,27,.78)';
+  g.fillRect(W * 0.012, H * 0.92, W * 0.2, H * 0.058);
+  g.fillStyle = '#fff';
+  g.font = `${Math.round(H * 0.034)}px ${FONT}`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(`${(R / 1000).toFixed(1)} km`, W * 0.112, H * 0.949);
+}
+
 // ---------------------------------------------------------------- 告警灯板
 
 const ANN_LABELS = ['GOV', 'ENG P', 'FUEL P', 'GEN', 'BATT', 'HORN', 'TQ LIM', 'NR LOW', 'XMSN', 'HYD', 'PITOT', 'LOW FUEL', 'DAMAGE', 'TERRAIN', 'BOOST', 'SHIELD', 'HOVER', 'CARGO', 'ENG CHIP', 'MGB CHIP', 'TGB CHIP', 'FIRE', 'SAND', 'AUX'];

@@ -76,7 +76,7 @@ def mats():
     M['lamp_y'] = K.material('cp_lamp_amber', 0xffb020, rough=0.2, emit=0xffa018, emit_strength=0.6)
     M['glass'] = K.material('glass_clear', 0xffffff, rough=0.02, alpha=0.06)
     M['glass_roof'] = K.material('glass_roof', 0x2aa69e, rough=0.02, alpha=0.42)  # 照片里顶窗是青绿色
-    for s in ('vemd1', 'vemd2', 'ai', 'gps', 'ann'):
+    for s in ('vemd1', 'vemd2', 'ai', 'gps', 'ann', 'efb'):
         M['scr_' + s] = K.material('scr_' + s, 0x05070a, rough=0.15, emit=0x0b1420, emit_strength=1.0)
 
 
@@ -659,6 +659,71 @@ def build_units():
         K.map_verts(bat, lambda c, tv=tv: tuple(PW(SW['u'], tv, 0.011) + Matrix.Rotation(math.radians(-70), 3, PU) @ (PU * c[0] + PN * c[1] + PV * (c[2] + 0.009) * 1.0) - PV * 0.0))
         S(bat)
     S(lathe('sw_lamp', [(0.0, 0.007), (0.003, 0.0065), (0.0042, 0.004), (0.0045, 0.0)], (SW['u'], SW['lamp']), 0.007, M['lamp_y'], seg=16))
+
+
+def build_extras():
+    """左侧和下方的设备：音频面板、应答机、断路器、翘板开关、小时计、电子飞行包。"""
+    A2 = L.AUDIO
+    S(panel_box('audio_body', A2['u'], A2['v'], A2['w'], A2['h'], 0.004, 0.016, M['panel'], bevel=0.002))
+    for i in range(len(A2['labels'])):
+        cu = A2['u'] - 0.046 + (i % A2['cols']) * 0.0205
+        cv = A2['v'] + 0.009 - (i // A2['cols']) * 0.029
+        S(panel_box(f'audio_btn{i}', cu, cv, 0.0165, 0.012, 0.016, 0.0195, M['black'], bevel=0.001))
+        S(panel_box(f'audio_led{i}', cu, cv + 0.0042, 0.006, 0.0012, 0.0195, 0.0198, M['lamp_y'] if i in (0, 4) else M['dmetal']))
+    S(lathe('audio_knob', [(0.0, 0.012), (0.0062, 0.0115), (0.0072, 0.003), (0.0078, 0.0)], (A2['u'] + 0.052, A2['v'] - 0.014), 0.016, M['knob'], seg=20))
+    S(lathe('audio_knob2', [(0.0, 0.009), (0.0048, 0.0085), (0.0055, 0.0)], (A2['u'] + 0.052, A2['v'] + 0.016), 0.016, M['knob'], seg=18))
+
+    X = L.XPDR
+    S(panel_box('xpdr_body', X['u'], X['v'], X['w'], X['h'], 0.004, 0.020, M['panel'], bevel=0.002))
+    S(lathe('xpdr_knob', [(0.0, 0.010), (0.0072, 0.0095), (0.0082, 0.0)], (X['u'] + 0.076, X['v'] + 0.004), 0.020, M['knob'], seg=22))
+    for i in range(5):
+        S(panel_box(f'xpdr_btn{i}', X['u'] - 0.044 + i * 0.022, X['v'] - 0.0165, 0.016, 0.0075, 0.020, 0.0225, M['black'], bevel=0.0008))
+
+    Cb = L.CB
+    for i in range(len(Cb['labels'])):
+        cu = Cb['u'] - 0.081 + (i % Cb['cols']) * Cb['du']
+        cv = Cb['v'] + 0.016 - (i // Cb['cols']) * Cb['dv']
+        S(lathe(f'cb_collar{i}', [(0.0031, 0.0026), (0.0060, 0.0024), (0.0066, 0.0)], (cu, cv), 0.004, M['needle'], seg=14))
+        S(lathe(f'cb_btn{i}', [(0.0, 0.0118), (0.0026, 0.0114), (0.0034, 0.0098), (0.0034, 0.0)], (cu, cv), 0.004, M['knob'], seg=12))
+
+    Ro = L.ROCKERS
+    for i in range(Ro['n']):
+        cu = Ro['u'] - Ro['du'] * (Ro['n'] - 1) / 2 + i * Ro['du']
+        S(panel_box(f'rk_frame{i}', cu, Ro['v'], 0.020, 0.040, 0.004, 0.0078, M['black'], bevel=0.0012))
+        up = i < 3
+        S(panel_box(f'rk_hi{i}', cu, Ro['v'] + 0.0095, 0.015, 0.0165, 0.0078, 0.0132 if up else 0.0092, M['knob'], bevel=0.001))
+        S(panel_box(f'rk_lo{i}', cu, Ro['v'] - 0.0095, 0.015, 0.0165, 0.0078, 0.0092 if up else 0.0132, M['knob'], bevel=0.001))
+        S(panel_box(f'rk_mark{i}', cu, Ro['v'] + 0.0105, 0.0085, 0.0018, 0.0132 if up else 0.0092, (0.0132 if up else 0.0092) + 0.0003, M['needle']))
+
+    Hb = L.HOBBS
+    S(panel_box('hobbs', Hb['u'], Hb['v'], Hb['w'] + 0.008, Hb['h'] + 0.008, 0.004, 0.0052, M['panel']))
+
+    # 电子飞行包：平板夹在球头支架上，屏幕朝向驾驶员
+    E = L.EFB
+    c = PW(*E['center'])
+    n = (Vector(L.EYE) - c).normalized()
+    x = Vector((0, 0, 1)).cross(n).normalized()
+    y = n.cross(x)
+    fr = Q.frame_at(c, x, y, n)
+    w_, h_ = E['w'], E['h']
+    S(on_frame(fr, K.box('efb_body', (w_ + 0.014, h_ + 0.014, 0.0085), (0, 0, 0), M['black'], bevel=0.0035, segs=3)))
+    S(on_frame(fr @ Matrix.Translation(Vector((0, 0, -0.008))), K.box('efb_case', (w_ + 0.024, h_ + 0.024, 0.0095), (0, 0, 0), M['rubber'], bevel=0.0048, segs=3)))
+    verts = [fr @ Vector((sx * w_ / 2, sy * h_ / 2, 0.0046)) for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    q = K.mesh_obj('scr_efb', verts, [(0, 1, 2, 3)], M['scr_efb'], smooth=0)
+    uv = K.uv_layer(q)
+    for li, t in zip(range(4), [(0, 0), (1, 0), (1, 1), (0, 1)]):
+        uv.data[li].uv = t
+    D(q, role='screen')
+    # 夹子（上下两个）与支架
+    for sy in (-1, 1):
+        S(on_frame(fr @ Matrix.Translation(Vector((0, sy * (h_ / 2 + 0.012), -0.002))), K.box(f'efb_clamp{sy}', (0.052, 0.012, 0.020), (0, 0, 0), M['rubber'], bevel=0.003)))
+    back = fr @ Vector((0, 0, -0.016))
+    base = PW(E['center'][0] + 0.012, E['center'][1] - 0.012, 0.004)
+    mid = (back + base) / 2
+    S(K.tube_path('efb_arm', [back, mid, base], 0.0085, M['dmetal'], seg=12))
+    S(K.sphere('efb_ball1', 0.0125, back, M['rubber'], seg=16, rings=10))
+    S(K.sphere('efb_ball2', 0.0125, base + PN * 0.008, M['rubber'], seg=16, rings=10))
+    S(lathe('efb_foot', [(0.0, 0.006), (0.016, 0.0055), (0.019, 0.0)], (E['center'][0] + 0.012, E['center'][1] - 0.012), 0.004, M['dmetal'], seg=20))
 
 
 # ------------------------------------------------------------------ 遮光罩
@@ -1500,6 +1565,7 @@ def build_rear_cabin(bvh):
 # ------------------------------------------------------------------ 主流程
 build_panel()
 build_units()
+build_extras()
 build_glare()
 build_pedestal()
 ref, BVH = inner_bvh(0.032)

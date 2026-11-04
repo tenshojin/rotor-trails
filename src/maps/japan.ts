@@ -129,7 +129,7 @@ export const JAPAN: MapDef = {
     b.flatten(1000, 470, 30, 7.5, 25);
     b.paint(0, (_x, _z, h) => (h < 2.6 && h > -1.5 ? 1 - smoothstep(1.6, 2.6, h) : 0));
     // 港区水泥地面（地表掩码 A 通道，见 terrainShader）
-    b.paint(3, (x, z) => smoothstep(-1138, -1128, x) * smoothstep(560, 572, z) * (1 - smoothstep(1188, 1200, z)) * (x < QUAY_X + 4 ? 1 : 0));
+    b.paint(3, (x, z) => smoothstep(-1126, -1120, x) * smoothstep(560, 572, z) * (1 - smoothstep(1188, 1200, z)) * (x < QUAY_X + 4 ? 1 : 0));
     b.paintPath(1, [
       [-1140, 600],
       [-1120, 870],
@@ -156,6 +156,7 @@ export const JAPAN: MapDef = {
     // 港口
     { type: 'quay', pos: [QUAY_X, 2.5, 875], p: { len: 640 } },
     { type: 'portYard', pos: [QUAY_X, 2.5, 875], p: { len: 620, n: 26 } },
+    { type: 'portApron', pos: [QUAY_X, 2.5, 875] },
     { type: 'warehouse', pos: [-1010, 2.5, 640], rotY: 0, p: { w: 22, l: 40, h: 10, model: 'pshed_a' } },
     { type: 'warehouse', pos: [-1080, 2.5, 700], rotY: 0, p: { w: 20, l: 30, h: 8, model: 'pshed_d' } },
     { type: 'warehouse', pos: [-1088, 2.5, 640], rotY: 0, p: { w: 20, l: 30, h: 8, model: 'pshed_c' } },

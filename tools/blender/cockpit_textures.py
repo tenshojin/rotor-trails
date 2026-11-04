@@ -342,6 +342,46 @@ def build_decal():
     rect(d, H['u'] - 0.012, H['v'] + 0.006, 0.100, 0.020, (70, 200, 110), radius=0.001)
     label(d, H['u'] - 0.012, H['v'] + 0.006, 'TRACKING   GPS 3D', 0.0040, col=(20, 70, 35), weight='Regular')
     label(d, H['u'] - 0.060, H['v'] + 0.024, 'FLIGHT TRACKER', 0.0024)
+    # 音频面板
+    A2 = L.AUDIO
+    rect(d, A2['u'], A2['v'], A2['w'], A2['h'], (24, 24, 26), radius=0.003)
+    label(d, A2['u'] - 0.052, A2['v'] + 0.030, 'AUDIO', 0.0030)
+    for i, s in enumerate(A2['labels']):
+        cu = A2['u'] - 0.046 + (i % A2['cols']) * 0.0205
+        cv = A2['v'] + 0.009 - (i // A2['cols']) * 0.029
+        label(d, cu, cv + 0.0115, s, 0.0023, col=(200, 200, 194))
+    label(d, A2['u'] + 0.052, A2['v'] - 0.030, 'VOL', 0.0024)
+    # 应答机
+    X = L.XPDR
+    rect(d, X['u'], X['v'], X['w'], X['h'], (23, 23, 25), radius=0.003)
+    rect(d, X['u'] - 0.010, X['v'] + 0.004, 0.106, 0.026, (24, 14, 6), radius=0.001)
+    label(d, X['u'] - 0.030, X['v'] + 0.004, '7000', 0.0120, col=(255, 158, 40), weight='Regular')
+    label(d, X['u'] + 0.024, X['v'] + 0.009, 'ALT', 0.0040, col=(255, 158, 40), weight='Regular')
+    label(d, X['u'] + 0.024, X['v'] - 0.002, 'FL012', 0.0036, col=(255, 158, 40), weight='Regular')
+    label(d, X['u'] - 0.080, X['v'] + 0.019, 'XPDR', 0.0028)
+    for i, s in enumerate(['IDT', 'VFR', 'FUNC', 'CRSR', 'CLR']):
+        label(d, X['u'] - 0.044 + i * 0.022, X['v'] - 0.0235, s, 0.0021, col=(180, 180, 174))
+    # 断路器：每个一个标签和一圈白环
+    Cb = L.CB
+    for i, s in enumerate(Cb['labels']):
+        cu = Cb['u'] - 0.081 + (i % Cb['cols']) * Cb['du']
+        cv = Cb['v'] + 0.016 - (i // Cb['cols']) * Cb['dv']
+        label(d, cu, cv + 0.012, s, 0.0022, col=(214, 214, 208))
+    label(d, Cb['u'], Cb['v'] + 0.043, 'CIRCUIT BREAKERS', 0.0028, col=(190, 190, 184))
+    # 翘板开关
+    Ro = L.ROCKERS
+    for i, s in enumerate(Ro['labels']):
+        label(d, Ro['u'] - Ro['du'] * (Ro['n'] - 1) / 2 + i * Ro['du'], Ro['v'] + 0.031, s, 0.0028)
+    # 小时计
+    Hb = L.HOBBS
+    rect(d, Hb['u'], Hb['v'], Hb['w'], Hb['h'], (10, 10, 11), radius=0.001)
+    label(d, Hb['u'], Hb['v'], '0 8 4 1 . 6', 0.0072, col=(226, 226, 220), weight='Regular')
+    label(d, Hb['u'], Hb['v'] + 0.021, 'HOURS', 0.0026)
+    # 打码机标签（白字黑底的小胶条）：真飞机上到处都是
+    for (u, v, s) in [(-0.262, -0.112, 'CLOCK'), (-0.252, -0.238, 'STBY HDG'), (0.182, -0.122, 'IAS'), (0.372, -0.122, 'ALT'), (0.190, -0.327, 'TURN'), (0.378, -0.327, 'VS')]:
+        w_ = 0.0052 * len(s) * 0.7 + 0.006
+        rect(d, u, v, w_, 0.0075, (8, 8, 9), radius=0.0006)
+        label(d, u, v, s, 0.0036, col=(226, 226, 220), weight='Regular')
     pl = L.PLACARD
     rect(d, pl['u'], pl['v'], pl['w'], pl['h'], (236, 236, 232), radius=0.001)
     for i, s in enumerate(pl['lines']):

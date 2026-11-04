@@ -237,8 +237,8 @@ function sharpen(src: THREE.TextureNode, amount: number): THREE.Node<'vec4'> {
  * 高光略暖 / 暗部略冷的分离色调，以及很轻的暗角——让画面通透而不发灰，又不至于像滤镜。
  */
 function grade(c: THREE.Node<'vec4'>, dbg: PostDebug): THREE.Node<'vec4'> {
-  const contrast = dbg.contrast ?? 1.08;
-  const vib = dbg.vibrance ?? 0.12;
+  const contrast = dbg.contrast ?? 1.2;
+  const vib = dbg.vibrance ?? 0.2;
   const rgb0 = clamp(c.rgb, 0.0, 1.0);
   // S 曲线：以 0.5 为中点的对比度，再与原值按 contrast 混合，避免暗部死黑
   const s = rgb0.sub(0.5).mul(contrast).add(0.5);
@@ -249,6 +249,6 @@ function grade(c: THREE.Node<'vec4'>, dbg: PostDebug): THREE.Node<'vec4'> {
   rgb = rgb.add(mix(vec3(-0.008, 0.0, 0.014), vec3(0.012, 0.004, -0.01), smoothstep(0.15, 0.85, l)));
   // 暗角
   const d = screenUV.sub(0.5).mul(vec2(1.0, 0.82));
-  rgb = rgb.mul(float(1).sub(dot(d, d).mul(dbg.vignette ?? 0.28)));
+  rgb = rgb.mul(float(1).sub(dot(d, d).mul(dbg.vignette ?? 0.32)));
   return vec4(clamp(rgb, 0.0, 1.0), c.a);
 }

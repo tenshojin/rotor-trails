@@ -389,6 +389,80 @@ export const japanProps: Record<string, PropFn> = {
       B.endModel();
     }
   },
+  portApron(B, _d, rng) {
+    // 港区地面上的东西：车道、标线、停车场、集装箱堆场、高杆灯、系船柱。局部 +X 朝水面，X = 0 是岸壁，Z 沿岸壁。
+    const Y = 0.035;
+    const WHITE = 0xc9c8c0;
+    const YEL = 0xc69a2a;
+    const ASPHALT = 0x2a2b2d;
+    const lane = (x0: number, x1: number, z0: number, z1: number, color: number) => B.flat((x0 + x1) / 2, Y, (z0 + z1) / 2, Math.abs(x1 - x0), Math.abs(z1 - z0), color, 'rough');
+    const line = (x0: number, z0: number, x1: number, z1: number, w: number, color: number) => {
+      const len = Math.hypot(x1 - x0, z1 - z0);
+      B.flat((x0 + x1) / 2, Y + 0.012, (z0 + z1) / 2, w, len, color, 'rough', Math.atan2(x1 - x0, z1 - z0));
+    };
+    const dash = (x0: number, z0: number, x1: number, z1: number, on: number, off: number, w: number, color: number) => {
+      const len = Math.hypot(x1 - x0, z1 - z0);
+      const ux = (x1 - x0) / len;
+      const uz = (z1 - z0) / len;
+      for (let s = 0; s + on < len; s += on + off) line(x0 + ux * s, z0 + uz * s, x0 + ux * (s + on), z0 + uz * (s + on), w, color);
+    };
+    // 岸壁边的黄线：车别开到海里
+    line(-3.6, -300, -3.6, 310, 0.3, YEL);
+    line(-27, -300, -27, 310, 0.18, YEL);
+    // 主车道（沿岸）
+    lane(-58, -38, -306, 316, ASPHALT);
+    dash(-48, -304, -48, 314, 6, 6, 0.16, WHITE);
+    line(-57.2, -306, -57.2, 316, 0.16, WHITE);
+    line(-38.8, -306, -38.8, 316, 0.16, WHITE);
+    // 横向的路：连到后面的村子
+    lane(-196, -58, -44, -26, ASPHALT);
+    dash(-192, -35, -60, -35, 6, 6, 0.16, WHITE);
+    line(-196, -43.2, -58, -43.2, 0.16, WHITE);
+    line(-196, -26.8, -58, -26.8, 0.16, WHITE);
+    // 斑马线
+    for (let i = 0; i < 9; i++) B.flat(-54 + i * 1.8 - 0.4, Y + 0.012, -21, 0.9, 4.2, WHITE, 'rough');
+    for (let i = 0; i < 8; i++) B.flat(-61, Y + 0.012, -42 + i * 2 , 4.2, 1.0, WHITE, 'rough');
+    // 停车场：一排白线，车头朝路
+    const lot = (x: number, z0: number, n: number, dir: number) => {
+      for (let i = 0; i <= n; i++) line(x, z0 + i * 2.6, x + dir * 5.6, z0 + i * 2.6, 0.14, WHITE);
+      line(x + dir * 5.6, z0, x + dir * 5.6, z0 + n * 2.6, 0.14, WHITE);
+      const cars = ['car_white', 'car_silver', 'van_white', 'car_blue', 'car_white', 'van_grey', 'car_red', 'kei_truck'];
+      for (let i = 0; i < n; i++) {
+        if (rng.range(0, 1) < 0.28) continue;
+        B.beginModel(cars[rng.int(0, cars.length - 1)], x + dir * 2.8, 0, z0 + i * 2.6 + 1.3, dir > 0 ? Math.PI + rng.range(-0.03, 0.03) : rng.range(-0.03, 0.03));
+        B.endModel();
+      }
+    };
+    lot(-62, 14, 22, -1);
+    lot(-82, 14, 22, 1);
+    lot(-62, -90, 14, -1);
+    // 集装箱堆场：一列列堆高，留出叉车通道
+    for (let col = 0; col < 5; col++) {
+      for (let row = 0; row < 6; row++) {
+        const x = -112 + col * 3.1;
+        const z = 90 + row * 7.2 + (col % 2 ? 0.3 : 0);
+        const lv = rng.int(1, 3);
+        for (let k = 0; k < lv; k++) {
+          B.beginModel(`container_${rng.int(0, 3)}`, x + rng.range(-0.05, 0.05), k * 2.6, z + rng.range(-0.06, 0.06));
+          B.endModel();
+        }
+      }
+    }
+    B.colliderBox(-105.8, 3.9, 108, 8.5, 3.9, 22);
+    B.beginModel('forklift', -101, 0, 86, 0.6).endModel();
+    B.beginModel('pallets_a', -96, 0, 110, 0.1).endModel();
+    B.beginModel('pallets_b', -96, 0, 124, -0.2).endModel();
+    B.beginModel('pallets_a', -30, 0, 34, 1.5).endModel();
+    B.beginModel('pallets_b', -30, 0, -80, 0.4).endModel();
+    B.beginModel('forklift', -24, 0, -60, 2.2).endModel();
+    // 高杆灯
+    for (const [x, z] of [[-62, -130], [-62, 0], [-62, 150], [-120, -60], [-120, 70], [-178, 30]]) B.beginModel('light_mast', x, 0, z).endModel();
+    // 系船柱
+    for (let z = -296; z < 310; z += 18) B.beginModel('bollard', -1.3, 0, z).endModel();
+    // 候船楼：门前是一块铺装和三根旗杆
+    B.beginModel('ferry_terminal', -21, 0, 44).endModel();
+    B.colliderBox(-21, 4.4, 44, 7.5, 4.4, 17.5);
+  },
   boat(B, d, rng) {
     const l = Number(d.p?.l ?? rng.range(10, 16));
     const w = l * 0.32;

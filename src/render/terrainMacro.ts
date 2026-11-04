@@ -159,6 +159,38 @@ function vnoise(u: number, v: number, period: number, seed: number): number {
 
 let relief: THREE.DataTexture | null = null;
 
+/** 加载岩石浮雕图（tools/prep_relief.py 烘焙）。地形和岩石道具建材质之前调用 */
+export async function loadRockRelief(): Promise<void> {
+  if (relief) return;
+  try {
+    const r = await fetch(new URL('textures/rock_relief.webp', document.baseURI).href);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const bmp = await createImageBitmap(await r.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none', imageOrientation: 'none' });
+    const cv = document.createElement('canvas');
+    cv.width = bmp.width;
+    cv.height = bmp.height;
+    const g = cv.getContext('2d', { willReadFrequently: true })!;
+    g.drawImage(bmp, 0, 0);
+    const data = new Uint8Array(g.getImageData(0, 0, bmp.width, bmp.height).data.buffer);
+    relief = reliefTexture(data, bmp.width);
+    bmp.close();
+  } catch (e) {
+    console.warn('岩石浮雕图加载失败，改用程序生成：', e);
+  }
+}
+
+function reliefTexture(data: Uint8Array, n: number): THREE.DataTexture {
+  const t = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
+  t.colorSpace = THREE.NoColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.anisotropy = 8;
+  t.needsUpdate = true;
+  return t;
+}
+
 export function getRockReliefTexture(): THREE.DataTexture {
   if (relief) return relief;
   const N = 512;
@@ -200,16 +232,9 @@ export function getRockReliefTexture(): THREE.DataTexture {
       data[i] = Math.round((-dx * l * 0.5 + 0.5) * 255);
       data[i + 1] = Math.round((-dy * l * 0.5 + 0.5) * 255);
       data[i + 2] = Math.round(((H[y * N + x] - lo) / (hi - lo)) * 255);
-      data[i + 3] = 255;
+      data[i + 3] = 0;
     }
   }
-  relief = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
-  relief.colorSpace = THREE.NoColorSpace;
-  relief.wrapS = relief.wrapT = THREE.RepeatWrapping;
-  relief.magFilter = THREE.LinearFilter;
-  relief.minFilter = THREE.LinearMipmapLinearFilter;
-  relief.generateMipmaps = true;
-  relief.anisotropy = 8;
-  relief.needsUpdate = true;
+  relief = reliefTexture(data, N);
   return relief;
 }
