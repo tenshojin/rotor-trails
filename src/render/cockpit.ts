@@ -3,7 +3,7 @@
 // 窗玻璃使用带雨滴/水流效果的材质。模型加载失败时座舱内部为空，游戏照常可玩。
 
 import * as THREE from 'three/webgpu';
-import { abs, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, clamp, dot, float, materialColor, max, mix, modelWorldMatrix, modelWorldMatrixInverse, normalGeometry, normalize, positionGeometry, positionWorld, pow, reflect, select, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4, viewportSharedTexture } from 'three/tsl';
+import { abs, atan, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, clamp, dot, float, materialColor, max, mix, modelWorldMatrix, modelWorldMatrixInverse, normalGeometry, normalize, positionGeometry, positionWorld, pow, reflect, select, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4, viewportSharedTexture } from 'three/tsl';
 import { FOG } from './atmosphere';
 import { VFOG } from './volumetricFog';
 import { loadGltf } from './gltf';
@@ -22,6 +22,11 @@ const DEG = Math.PI / 180;
 const GLARE_Y = 0.17;
 const GLARE_X = 0.62;
 const GLARE_Z: [number, number] = [-2.05, -1.5];
+/** 雨刷：转轴（机体坐标里风挡下沿附近的目标点，从眼点打一条射线落到玻璃上）、臂长、摆动范围（弧度，0 = 竖直） */
+const WIPER_AIM: Array<[number, number, number]> = [[0.5, 0.0, -2.1], [-0.34, 0.0, -2.1]];
+const WIPER_LEN = 0.56;
+const WIPER_REST = 1.3;
+const WIPER_SWEEP = 1.5;
 
 /** 舱内补光：四面是窗的机舱里，天空和地面的光在内饰之间来回反射，背光的角落也不会全黑。
  * 环境贴图只算得到“这一点看得见多少天空”，算不到这部分反射，所以另加一项（颜色和亮度由 WorldView 按天空每帧设置）。 */
@@ -57,7 +62,11 @@ const _q = new THREE.Quaternion();
 
 export class Cockpit {
   readonly root = new THREE.Group();
-  readonly glassUniforms = { uRain: uniform(0), uTime: uniform(0), uFlow: uniform(0), uShield: uniform(0) };
+  readonly glassUniforms = { uRain: uniform(0), uTime: uniform(0), uFlow: uniform(0), uShield: uniform(0), uWipe: uniform(new THREE.Vector3(0, 0, 0)), uWipeOn: uniform(0) };
+  /** 两支雨刷（转轴绕玻璃法线转） */
+  private wipers: Array<{ pivot: THREE.Group; x: number; y: number; side: number }> = [];
+  private wipeT = 0;
+  private lastGlassT = 0;
   /** 模型加载完成（失败也会 resolve，loaded 为 false） */
   readonly ready: Promise<void>;
   loaded = false;
@@ -158,7 +167,64 @@ export class Cockpit {
     });
     this.setPilotOffset(this.pilotDx);
     this.root.add(scene);
+    this.buildWipers(scene);
     this.loaded = true;
+  }
+
+  /** 风挡外面的雨刷：转轴落在玻璃上（射线找交点），臂和刮片贴着玻璃转 */
+  private buildWipers(scene: THREE.Object3D): void {
+    scene.updateMatrixWorld(true);
+    const glass: THREE.Mesh[] = [];
+    scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && m.name.startsWith('glass_') && !m.name.startsWith('glass_roof')) glass.push(m);
+    });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x14161a, roughness: 0.5, metalness: 0.4 });
+    this.mats.add(dark);
+    const armG = new THREE.BoxGeometry(0.011, WIPER_LEN * 0.92, 0.008);
+    armG.translate(0, (WIPER_LEN * 0.92) / 2, 0.012);
+    const bladeG = new THREE.BoxGeometry(0.009, WIPER_LEN * 0.82, 0.016);
+    bladeG.translate(0, WIPER_LEN * 0.56, 0.006);
+    const hubG = new THREE.CylinderGeometry(0.016, 0.018, 0.02, 12);
+    hubG.rotateX(Math.PI / 2);
+    this.geos.add(armG).add(bladeG).add(hubG);
+    const ray = new THREE.Raycaster();
+    ray.layers.enableAll();
+    const eye = EYE.clone();
+    WIPER_AIM.forEach(([x, y, z], i) => {
+      const dir = new THREE.Vector3(x, y, z).sub(eye).normalize();
+      ray.set(eye, dir);
+      const hit = ray.intersectObjects(glass, false)[0];
+      if (!hit) return;
+      const n = (hit.normal ?? dir.clone().negate()).clone();
+      if (n.dot(dir) < 0) n.negate(); // 朝外
+      const pivot = new THREE.Group();
+      pivot.position.copy(hit.point).addScaledVector(n, 0.006);
+      // 局部 y 大致朝上、z 朝外（玻璃的法线）
+      const up = new THREE.Vector3(0, 1, 0).addScaledVector(n, -n.y).normalize();
+      const right = new THREE.Vector3().crossVectors(up, n).normalize();
+      pivot.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, up, n));
+      const spin = new THREE.Group();
+      for (const g of [armG, bladeG, hubG]) {
+        const m = new THREE.Mesh(g, dark);
+        m.layers.mask = 1 << 2;
+        m.castShadow = true;
+        spin.add(m);
+      }
+      pivot.add(spin);
+      this.root.add(pivot);
+      this.wipers.push({ pivot: spin, x: hit.point.x, y: hit.point.y, side: i === 0 ? 1 : 1 });
+    });
+    const u = this.glassUniforms.uWipe.value as THREE.Vector3;
+    u.x = this.wipers[0]?.x ?? 0;
+    u.y = this.wipers[1]?.x ?? 0;
+    u.z = this.wipers[0]?.y ?? 0;
+    this.setWiperAngle(WIPER_REST);
+  }
+
+  /** a：刮片离竖直方向的角度，正 = 往左舷一侧 */
+  private setWiperAngle(a: number): void {
+    for (const w of this.wipers) w.pivot.rotation.z = a;
   }
 
   private interiorMaterial(src: THREE.MeshStandardMaterial, ao: THREE.Texture | null): THREE.MeshStandardNodeMaterial {
@@ -238,7 +304,16 @@ export class Cockpit {
     const drops = float(1).sub(smoothstep(0.05, 0.16, cells)).mul(step(0.45, texture(noise, ruv.mul(0.031)).r));
     const fuv = vec2(p.x.mul(14.0), p.y.mul(4.0).add(GU.uTime.mul(GU.uFlow.mul(1.6).add(0.15))));
     const streak = smoothstep(0.82, 0.95, texture(noise, fuv.mul(vec2(0.08, 0.02))).g).mul(smoothstep(0.2, 1.0, GU.uFlow.add(0.3)));
-    const w = clamp(drops.mul(0.85).add(streak.mul(0.6)).mul(GU.uRain), 0.0, 1.0);
+    // 雨刷刮过的扇形：水膜一直很薄，两次刮之间只来得及长出一点点水珠
+    const wipeArea = (px: THREE.Node<'float'>) => {
+      const dx = lp.x.sub(px);
+      const dy = lp.y.sub(GU.uWipe.z).mul(1.3); // 风挡是斜的：高度差比沿玻璃的距离小
+      const r = dx.mul(dx).add(dy.mul(dy)).sqrt();
+      const a = atan(dx, dy);
+      return smoothstep(0.09, 0.14, r).mul(float(1).sub(smoothstep(WIPER_LEN * 0.96, WIPER_LEN * 1.02, r))).mul(smoothstep(WIPER_REST - WIPER_SWEEP - 0.04, WIPER_REST - WIPER_SWEEP + 0.03, a)).mul(float(1).sub(smoothstep(WIPER_REST - 0.03, WIPER_REST + 0.04, a)));
+    };
+    const wiped = max(wipeArea(GU.uWipe.x), wipeArea(GU.uWipe.y)).mul(GU.uWipeOn).mul(0.82);
+    const w = clamp(drops.mul(0.85).add(streak.mul(0.6)).mul(GU.uRain).mul(float(1).sub(wiped)), 0.0, 1.0);
     const c = mix(mix(vec3(base.r, base.g, base.b), vec3(0.85, 0.9, 0.95), w), vec3(0.3, 0.7, 1.0), GU.uShield.mul(0.6));
     mat.colorNode = vec4(c, 1.0);
     // 玻璃上的灰尘与擦拭痕：平时几乎看不见，迎着太阳时被照亮成一片眩光（清晨、黄昏最明显）
@@ -315,6 +390,17 @@ export class Cockpit {
     for (const s of this.screens) s.mat.color.setScalar(b);
     this.glassUniforms.uTime.value = t;
     this.glassUniforms.uRain.value = rain;
+    // 雨大开快档，小雨慢档；不下雨时停回原位
+    const on = rain > 0.04;
+    const dt = Math.min(0.1, Math.max(0, t - this.lastGlassT));
+    this.lastGlassT = t;
+    if (on || this.wipeT > 0.02) {
+      this.wipeT = (this.wipeT + dt * (rain > 0.5 ? 1.15 : 0.7)) % 1;
+      if (!on && this.wipeT < 0.03) this.wipeT = 0;
+    }
+    const s = 0.5 - 0.5 * Math.cos(this.wipeT * Math.PI * 2);
+    this.setWiperAngle(WIPER_REST - WIPER_SWEEP * s);
+    this.glassUniforms.uWipeOn.value = rain > 0.04 ? 1 : 0;
     this.glassUniforms.uFlow.value = Math.min(1, airspeed / 35);
     this.glassUniforms.uShield.value = shield;
   }
