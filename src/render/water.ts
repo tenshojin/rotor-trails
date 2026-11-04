@@ -4,24 +4,32 @@
 //   · 按水深着色、岸边泡沫带（向岸推进的泡沫线）、雨点涟漪；河流（亚马孙）是泥水：反射弱、浪小；
 //   · 倒影：沿反射方向在屏幕上步进，碰到画面里的山、树、房子就取那里的颜色（水面本身是平的，这样做又便宜又准）；
 //     碰不到的地方才退回环境贴图里的天空。峡湾里的山影、河面上的林影都来自这里；
+//   · 太阳的碎金：不用普通的高光（远处是一团光斑）。按“这一点的小波面要倾斜多少才能把太阳反射进眼睛”和海面波面坡度的
+//     统计分布（Cox-Munk）算：画得出来的波浪直接比较，比像素还细的波浪按概率算，所以近处是一粒粒闪光，远处是一条光带；
 //   · 水面写入深度（屏幕空间反射 / 环境光遮蔽 / 时间抗锯齿都能正确作用在水面上），
 //     “透明”改为折射采样：取水面之下已画好的场景颜色（按波浪法线偏移），浅水通透、深水被水色吸收。
 
 import * as THREE from 'three/webgpu';
 import {
+  BRDF_Lambert,
   cameraPosition,
   cameraViewMatrix,
   clamp,
   cos,
+  diffuseColor,
   dot,
+  exp,
   float,
   Fn,
   fwidth,
   If,
   length,
+  max,
+  min,
   mix,
   mrt,
   normalize,
+  normalView,
   packNormalToRGB,
   positionView,
   positionWorld,
@@ -42,6 +50,7 @@ import { HELI } from '../config/flight';
 import type { MapDef } from '../maps/types';
 import { FOG } from './atmosphere';
 import { sceneDepthNode, screenMirror } from './mirror';
+import type { ReflectField } from './reflectMap';
 import { getNoiseTexture } from './textures';
 
 type N<T extends string> = THREE.Node<T>;
@@ -50,7 +59,27 @@ type N<T extends string> = THREE.Node<T>;
 const WL = [61.0, 37.3, 23.1, 14.2, 8.9, 5.7, 4.1, 2.9];
 const AN = [0.05, 0.47, -0.38, 0.83, -0.71, 0.29, -1.05, 1.18];
 const AM = [0.42, 0.27, 0.17, 0.1, 0.065, 0.04, 0.028, 0.02];
-const WaterOut = struct({ albedo: 'vec3', transmit: 'float', nrm: 'vec3', rough: 'float', foam: 'float' });
+const WaterOut = struct({ albedo: 'vec3', transmit: 'float', nrm: 'vec3', rough: 'float', foam: 'float', glint: 'float' });
+
+/** 各组波的坡度方差（1/2 · (振幅 · 波数)²）的总和：把“画出来的波有多大一部分”换算成比例 */
+const SLOPE_ALL = WL.reduce((s, w, i) => s + (AM[i] * 2 * Math.PI / w) ** 2, 0);
+
+/**
+ * 水面的光照：太阳的漫反射照常算（白沫、水里的散射），高光换成碎金（glint）。
+ * lightColor 里已经乘过山影、云影和分层阴影，所以影子里没有碎金。
+ */
+class WaterLighting extends THREE.PhysicalLightingModel {
+  constructor(private readonly glint: N<'float'>) {
+    super();
+  }
+
+  direct(data: Parameters<THREE.PhysicalLightingModel['direct']>[0]): void {
+    const { lightDirection, lightColor, reflectedLight } = data as unknown as { lightDirection: N<'vec3'>; lightColor: N<'vec3'>; reflectedLight: { directDiffuse: N<'vec3'>; directSpecular: N<'vec3'> } };
+    const irradiance = (normalView.dot(lightDirection).clamp() as N<'float'>).mul(lightColor);
+    reflectedLight.directDiffuse.addAssign(irradiance.mul(BRDF_Lambert({ diffuseColor: diffuseColor.rgb })));
+    reflectedLight.directSpecular.addAssign(lightColor.mul(this.glint));
+  }
+}
 
 export class WaterView {
   readonly mesh: THREE.Mesh;
@@ -66,7 +95,7 @@ export class WaterView {
     wash: uniform(new THREE.Vector4(0, 0, 0, HELI.rotorRadius)),
   };
 
-  constructor(map: MapDef, depthTex: THREE.Texture, reversedDepth = true) {
+  constructor(map: MapDef, depthTex: THREE.Texture, reversedDepth = true, field: ReflectField | null = null) {
     const level = map.waterLevel ?? 0;
     // 水面一直铺到地平线（跟着相机走，波浪按世界坐标算，所以看不出移动）：
     // 否则水面在地图外几公里就到头了，再往外是一条灰色的天空底边
@@ -101,6 +130,8 @@ export class WaterView {
       // 浪的大小：随风变大，浅水、河流变小
       const amp = U.wave.mul(0.9).add(0.22).mul(1 - 0.65 * muddy).mul(smoothstep(0.0, 0.3, wDepth).mul(0.6).add(0.4));
       const g = vec2(0).toVar();
+      // 画得出来的波占全部波坡度的多少（剩下的比像素还细，只能按概率算）
+      const drawn = float(0).toVar();
       // 阵风吹过的地方小浪更碎、更暗（水面上一片片的“猫爪”），这是开阔水面最耐看的纹理
       const paw = smoothstep(0.34, 0.7, texture(noise, p.mul(0.0011).add(wd.mul(t).mul(0.0035))).r.mul(0.7).add(texture(noise, p.mul(0.0043).add(wd.mul(t).mul(0.006))).g.mul(0.3))).mul(1.05).add(0.45).toVar();
       for (let i = 0; i < 8; i++) {
@@ -112,6 +143,7 @@ export class WaterView {
         // 相位里加一点低频噪声，打散整齐的波峰线
         const ph = dot(d, p).mul(k).sub(t.mul(Math.sqrt(9.81 * k))).add(i * 1.7).add(texture(noise, p.mul(0.0037).add(i * 0.13)).r.mul(6.0));
         g.addAssign(d.mul(cos(ph).mul(AM[i] * k)).mul(fade).mul(i >= 3 ? paw : float(1)));
+        drawn.addAssign(fade.mul(fade).mul((AM[i] * k) ** 2 / SLOPE_ALL));
       }
       g.mulAssign(amp);
       // 近处的滚动噪声细节与雨点涟漪（远处细节小于像素时只会闪烁，按距离与像素尺寸淡出）
@@ -127,6 +159,24 @@ export class WaterView {
       const g2 = noiseGrad(p.sub(o2.mul(2.0)).mul(0.11).add(0.31), 0.004).mul(0.11);
       g.addAssign(g1.mul(0.9).add(g2.mul(0.45)).mul(U.wave.add(0.5)).mul(det));
       g.addAssign(noiseGrad(p.mul(0.7).add(vec2(t.mul(0.37), t.mul(-0.53))), 0.01).mul(0.12).mul(U.rain).mul(det));
+      // 太阳的碎金。Hh：把太阳反射进眼睛的小波面的法线，need：那个小波面的坡度
+      const Vv = normalize(cameraPosition.sub(positionWorld)).toVar();
+      const Hh = normalize(Vv.add(FOG.sunDir)).toVar();
+      const need = vec2(Hh.x.negate(), Hh.z.negate()).div(max(Hh.y, 0.05));
+      // 风速 → 海面波面坡度的方差（Cox-Munk，每个方向一半）
+      const s2 = U.wave.mul(14.0 * 0.00512).add(0.003).mul(0.5).mul(1 - 0.65 * muddy).mul(paw.mul(0.5).add(0.5)).toVar();
+      // 细到只剩闪烁的小波：两层反向滚动的噪声，一明一灭
+      const micro = vec2(
+        texture(noise, p.mul(0.019).add(wd.mul(t).mul(0.021))).a.sub(texture(noise, p.mul(0.027).sub(wd.mul(t).mul(0.033)).add(0.4)).a),
+        texture(noise, p.mul(0.023).add(vec2(wd.y, wd.x).mul(t).mul(0.026)).add(0.7)).a.sub(texture(noise, p.mul(0.031).sub(vec2(wd.y, wd.x).mul(t).mul(0.037)).add(0.2)).a),
+      ).mul(float(1).sub(smoothstep(0.06, 0.5, foot)).mul(0.62)).mul(s2.sqrt().mul(3.0));
+      const dS = need.sub(g).sub(micro);
+      const sg = max(s2.mul(float(1).sub(drawn.mul(amp.mul(amp).min(1.0)))), 0.0009).add(foot.mul(foot).mul(0.0002)).toVar();
+      const VoH = clamp(dot(Vv, Hh), 0.0, 1.0);
+      const fG = float(0.02).add(float(0.98).mul(pow(float(1).sub(VoH), 5.0)));
+      const P = exp(dot(dS, dS).div(sg.mul(-2.0))).div(sg.mul(2 * Math.PI));
+      const cB = Hh.y.mul(Hh.y);
+      const glint = min(fG.mul(P).div(max(Vv.y, 0.04).mul(cB).mul(cB).mul(4.0)), 42.0).toVar();
       // 旋翼下洗：桨盘正下方的水面被压平，四周是一圈向外跑的急促碎浪和白沫
       const washFoam = float(0).toVar();
       If(U.wash.z.greaterThan(0.01), () => {
@@ -157,7 +207,7 @@ export class WaterView {
       // 粗糙度随距离变大：远处的小波浪细到像素以下，看到的是无数小镜面的平均——天空的倒影是一片柔和的渐变，
       // 只有太阳方向有一条宽宽的闪光带，而不是像镜子一样映出一块块云
       const rough = smoothstep(40.0, 1400.0, wDist).mul(U.wave.mul(0.16).add(0.24)).add(foam.mul(0.6)).add(U.rain.mul(0.06));
-      return WaterOut(albedo.mul(opacity), transmit, nW, rough, foam);
+      return WaterOut(albedo.mul(opacity), transmit, nW, rough, foam, glint.mul(float(1).sub(foam)));
     });
     const res = result();
     const nW = res.get('nrm') as N<'vec3'>;
@@ -179,15 +229,21 @@ export class WaterView {
     const graze = pow(float(1).sub(flatNdv), 7.0);
     const foamN = res.get('foam') as N<'float'>;
     const depthNode = sceneDepthNode(reversedDepth);
-    const refl = screenMirror(nW, foamN, depthNode, this.ssr).toVar();
+    // 比像素还细的波把倒影上下拉开：越远、风越大拉得越长（离得近时波浪本身就把倒影揉碎了）
+    const spread = smoothstep(20.0, 1100.0, length(positionWorld.sub(cameraPosition))).mul(0.05).add(0.002).mul(this.u.wave.add(0.35));
+    const refl = screenMirror(nW, foamN, depthNode, this.ssr, field, spread).toVar();
     const nReflV = normalize(cameraViewMatrix.mul(vec4(normalize(mix(nW, vec3(0.0, 1.0, 0.0), 0.5)), 0.0)).xyz);
     const ndvR = clamp(dot(nReflV, normalize(positionView).negate()), 0.0, 1.0);
     const fresR = float(0.02).add(float(0.98).mul(pow(float(1).sub(ndvR), 5.0)));
-    // 被山、树挡住的方向没有天光也没有太阳的反光，换成倒影
-    this.material.specularIntensityNode = float(1).sub(refl.a);
+    // 被山、树挡住的方向没有天光也没有太阳的反光，换成倒影；映的是天空时水色不变，只是环境贴图换成画面里真实的天（带云）
+    const reflK = refl.a.abs().toVar();
+    const hitK = refl.a.max(0.0);
+    this.material.specularIntensityNode = float(1).sub(reflK);
     this.material.emissiveNode = refr.mul(transmit).mul(mix(vec3(1.0), vec3(shallow.r, shallow.g, shallow.b).mul(1.6).add(0.2), 0.35)).add(FOG.color.mul(graze.mul(0.55))).add(alb.mul(float(1).sub(foamK).mul(0.7)).mul(FOG.color).mul(0.85));
-    this.material.emissiveNode = (this.material.emissiveNode as N<'vec3'>).mul(float(1).sub(refl.a.mul(0.75))).add(refl.rgb.mul(fresR.mul(refl.a).mul(1 - 0.25 * muddy)));
+    this.material.emissiveNode = (this.material.emissiveNode as N<'vec3'>).mul(float(1).sub(hitK.mul(0.75))).add(refl.rgb.mul(fresR.mul(reflK).mul(1 - 0.25 * muddy)));
     this.material.opacityNode = float(1);
+    const lit = new WaterLighting(res.get('glint') as N<'float'>);
+    (this.material as unknown as { setupLightingModel(): THREE.PhysicalLightingModel }).setupLightingModel = () => lit;
     // 屏幕空间反射：水面在“金属度”通道写入菲涅尔反射率（正视约 2%，掠射接近 100%），光滑表面才反射；
     // 法线通道写波浪法线。其他透明材质不写这些通道（见 post.ts keepGBuffer）。
     const nView = normalize(cameraViewMatrix.mul(vec4(nW, 0.0)).xyz);

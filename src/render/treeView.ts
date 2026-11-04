@@ -3,8 +3,9 @@
 // 低画质只缩短远景距离，碰撞相关的近处树木始终可见。
 
 import * as THREE from 'three/webgpu';
-import { cameraPosition, dFdx, dFdy, dot, length, log2, max, normalize, normalLocal, normalViewGeometry, positionGeometry, positionLocal, positionWorld, pow, sin, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
-import { FOG } from './atmosphere';
+import { cameraPosition, dFdx, dFdy, dot, float, length, log2, max, normalize, normalLocal, normalViewGeometry, positionGeometry, positionLocal, positionWorld, pow, sin, smoothstep, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
+import { HELI } from '../config/flight';
+import { FOG, WASH } from './atmosphere';
 import { terrainSun } from './sunMap';
 import { VFOG } from './volumetricFog';
 import { loadGltf } from './gltf';
@@ -273,8 +274,14 @@ function windPosition(U: WindUniforms, leaf: boolean): THREE.Node<'vec3'> {
   const osc = sin(U.uTime.mul(1.6).add(ph)).mul(0.6).add(sin(U.uTime.mul(3.7).add(ph.mul(2.3))).mul(0.25));
   const wv = U.uWind.mul(osc.mul(0.45).add(0.55)).mul(U.uGust.add(1.0));
   let p: THREE.Node<'vec3'> = positionLocal.add(vec3(wv.x, 0.0, wv.y).mul(bend));
+  // 旋翼下洗：低飞掠过树梢时，桨盘下面的树冠被压得向外弯，一下一下地回弹
+  const dv = positionLocal.xz.sub(WASH.xy);
+  const dr = length(dv).max(0.01);
+  const washK = float(1).sub(smoothstep(0.7, 3.6, dr.div(HELI.rotorRadius))).mul(WASH.w).toVar();
+  const pulse = sin(U.uTime.mul(4.6).add(dr.mul(0.5)).add(ph)).mul(0.38).add(0.62);
+  p = p.add(vec3(dv.x.div(dr), -0.4, dv.y.div(dr)).mul(washK.mul(pulse).mul(bend).mul(2.6)));
   if (leaf) {
-    const flutter = sin(U.uTime.mul(5.3).add(dot(positionGeometry, vec3(2.1, 1.7, 2.9))).add(ph)).mul(0.035).mul(length(U.uWind).mul(2.0).add(0.3));
+    const flutter = sin(U.uTime.mul(5.3).add(dot(positionGeometry, vec3(2.1, 1.7, 2.9))).add(ph)).mul(0.035).mul(length(U.uWind).mul(2.0).add(0.3).add(washK.mul(3.5)));
     p = p.add(normalLocal.mul(flutter));
   }
   return p;

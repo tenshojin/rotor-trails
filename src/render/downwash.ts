@@ -9,7 +9,7 @@ import { HELI } from '../config/flight';
 import { smoothstep } from '../core/math';
 import type { MapDef } from '../maps/types';
 import type { GameSession } from '../sim/session';
-import { FOG } from './atmosphere';
+import { FOG, WASH } from './atmosphere';
 import { getSmokeTexture } from './navView';
 import { VFOG } from './volumetricFog';
 
@@ -19,6 +19,9 @@ const RATE = 40;
 /** 桨毂离地多高以内开始起雾 / 完全起雾（米） */
 const H_START = 26;
 const H_FULL = 6;
+/** 桨毂离地多高以内树梢开始被吹动 / 吹得最厉害（树有十几米高，比草更早起效） */
+const H_TREE_START = 46;
+const H_TREE_FULL = 16;
 
 /** 各地图的地表有多容易被吹起来（裸露的沙土 1，草地、苔原小一些） */
 const LOOSE: Record<string, number> = { japan: 0.42, fjord: 0.3, canyon: 1, himalaya: 0.75, amazon: 0.3 };
@@ -102,6 +105,7 @@ export class DownwashView {
     this.state.water = onWater ? k : 0;
     this.state.x = _hub.x;
     this.state.z = _hub.z;
+    WASH.value.set(_hub.x, _hub.z, onWater ? 0 : (1 - smoothstep(H_FULL + 3, H_START + 8, h)) * smoothstep(0.5, 0.9, rpm), onWater ? 0 : (1 - smoothstep(H_TREE_FULL, H_TREE_START, h)) * smoothstep(0.5, 0.9, rpm));
 
     // 地面种类：水面 → 水雾；积雪线以上 → 雪沫；停机坪上 → 几乎没有；其他 → 尘土
     let loose = onWater ? 1 : this.loose;
@@ -181,6 +185,7 @@ export class DownwashView {
   }
 
   dispose(): void {
+    WASH.value.set(0, 0, 0, 0);
     for (const p of this.puffs) p.mat.dispose();
   }
 }

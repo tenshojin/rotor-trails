@@ -25,6 +25,7 @@ import {
 import type { RiverDef } from '../maps/types';
 import { FOG } from './atmosphere';
 import { sceneDepthNode, screenMirror } from './mirror';
+import type { ReflectField } from './reflectMap';
 import { getNoiseTexture } from './textures';
 
 type N<T extends string> = THREE.Node<T>;
@@ -88,7 +89,7 @@ export class RiverView {
   private readonly mats: THREE.Material[] = [];
   private readonly geos: THREE.BufferGeometry[] = [];
 
-  constructor(rivers: RiverDef[], reversedDepth: boolean) {
+  constructor(rivers: RiverDef[], reversedDepth: boolean, private readonly field: ReflectField | null = null) {
     const depthNode = sceneDepthNode(reversedDepth);
     for (const r of rivers) {
       const g = ribbon(r);
@@ -111,40 +112,47 @@ export class RiverView {
     const t = this.time;
     const q = uv();
     const hw = attribute<'float'>('hw', 'float');
-    const rapid = attribute<'float'>('rapid', 'float');
+    const steep = attribute<'float'>('rapid', 'float');
     const fl = attribute<'vec2'>('flow', 'vec2');
     // 河面坐标（米）：x 横向，y 沿水流；水流速度在急流处更快
     const p = vec2(q.x.mul(hw), q.y);
+    // 急流是一段一段的：坡再陡，也是几十米翻白水、几十米平水交替，不是整条河都在沸腾
+    const reach = smoothstep(0.44, 0.62, texture(noise, vec2(p.y.mul(0.0023), 0.37)).r.mul(0.7).add(texture(noise, vec2(p.y.mul(0.0071), 0.71)).g.mul(0.3)));
+    const rapid = steep.mul(reach.mul(0.88).add(0.12)).toVar();
     const spd = rapid.mul(2.2).add(1).mul(r.speed);
     const grad = (uvN: N<'vec2'>, e: number) => {
       const hx = texture(noise, uvN.add(vec2(e, 0))).g.sub(texture(noise, uvN.sub(vec2(e, 0))).g);
       const hy = texture(noise, uvN.add(vec2(0, e))).g.sub(texture(noise, uvN.sub(vec2(0, e))).g);
       return vec2(hx, hy).div(2 * e);
     };
-    const g1 = grad(vec2(p.x.mul(0.05), p.y.sub(t.mul(spd)).mul(0.022)), 0.004).mul(0.05);
-    const g2 = grad(vec2(p.x.mul(0.15).add(0.3), p.y.sub(t.mul(spd).mul(1.4)).mul(0.07)), 0.004).mul(0.15);
-    const g3 = grad(vec2(p.x.mul(0.42).add(0.7), p.y.sub(t.mul(spd).mul(1.8)).mul(0.2)), 0.006).mul(0.42);
-    const gl = g1.mul(1.0).add(g2.mul(0.6)).add(g3.mul(0.3)).mul(rapid.mul(1.6).add(0.34));
+    // 水纹顺着水流拉长（横向的尺度比纵向小得多），看上去是一条条流线，而不是一片片鳞
+    const g1 = grad(vec2(p.x.mul(0.035), p.y.sub(t.mul(spd)).mul(0.0085)), 0.004).mul(0.035);
+    const g2 = grad(vec2(p.x.mul(0.11).add(0.3), p.y.sub(t.mul(spd).mul(1.4)).mul(0.021)), 0.004).mul(0.11);
+    const g3 = grad(vec2(p.x.mul(0.34).add(0.7), p.y.sub(t.mul(spd).mul(1.8)).mul(0.075)), 0.006).mul(0.34);
+    const gl = g1.mul(1.0).add(g2.mul(0.55)).add(g3.mul(0.2)).mul(rapid.mul(1.3).add(0.3));
     // 河面局部坐标 → 世界：y 分量沿水流方向，x 分量横向
     const gw = vec2(fl.x.mul(gl.y).sub(fl.y.mul(gl.x)), fl.y.mul(gl.y).add(fl.x.mul(gl.x)));
     const nW = normalize(vec3(gw.x.negate(), 1.0, gw.y.negate()));
     // 白沫：急流里的一条条白水，和岸边的一线泡沫
-    const fN = texture(noise, vec2(p.x.mul(0.11), p.y.sub(t.mul(spd).mul(1.2)).mul(0.035))).g.mul(0.6).add(texture(noise, vec2(p.x.mul(0.33).add(0.4), p.y.sub(t.mul(spd).mul(1.5)).mul(0.1))).r.mul(0.4));
-    const foam = clamp(smoothstep(float(0.72).sub(rapid.mul(0.34)), float(0.86).sub(rapid.mul(0.2)), fN).mul(rapid.mul(0.86).add(0.05)), 0.0, 1.0).toVar();
+    const fN = texture(noise, vec2(p.x.mul(0.055), p.y.sub(t.mul(spd).mul(1.2)).mul(0.011))).g.mul(0.58).add(texture(noise, vec2(p.x.mul(0.2).add(0.4), p.y.sub(t.mul(spd).mul(1.5)).mul(0.036))).r.mul(0.42));
+    const foam = clamp(smoothstep(float(0.71).sub(rapid.mul(0.2)), float(0.8).sub(rapid.mul(0.13)), fN).mul(rapid.mul(0.82).add(0.02)), 0.0, 1.0).toVar();
     const edge = smoothstep(0.1, 1.0, abs(q.x));
-    const alb = mix(vec3(deep.r, deep.g, deep.b), vec3(shallow.r, shallow.g, shallow.b), edge);
+    // 水深、含沙量一段一段地变：河心偏深，泥沙带顺水流拉长
+    const plume = texture(noise, vec2(p.x.mul(0.016), p.y.mul(0.0028))).r.mul(0.42).add(0.79);
+    const alb = mix(vec3(deep.r, deep.g, deep.b), vec3(shallow.r, shallow.g, shallow.b), edge).mul(plume);
     const body = mix(alb, vec3(0.9, 0.93, 0.94), foam.mul(0.85));
     mat.colorNode = vec4(body.mul(foam.mul(0.7).add(0.3)), 1.0);
     mat.normalNode = normalize(cameraViewMatrix.mul(vec4(nW, 0.0)).xyz);
     mat.roughnessNode = float(0.12).add(foam.mul(0.6)).add(rapid.mul(0.08));
-    const refl = screenMirror(nW, foam, depthNode, this.ssr).toVar();
+    const refl = screenMirror(nW, foam, depthNode, this.ssr, this.field, float(0.012)).toVar();
     const nV = normalize(cameraViewMatrix.mul(vec4(normalize(mix(nW, vec3(0.0, 1.0, 0.0), 0.5)), 0.0)).xyz);
     const ndv = clamp(dot(nV, normalize(positionView).negate()), 0.0, 1.0);
     const fres = float(0.02).add(float(0.98).mul(pow(float(1).sub(ndv), 5.0)));
-    mat.specularIntensityNode = float(1).sub(refl.a);
+    const reflK = refl.a.abs().toVar();
+    mat.specularIntensityNode = float(1).sub(reflK);
     // 水体内部散射的颜色主要来自天光，不怎么跟着阳光走（和海面一样）
-    const skyLight = FOG.color.mul(0.55);
-    mat.emissiveNode = body.mul(skyLight).mul(max(float(1).sub(fres), 0.0)).add(refl.rgb.mul(fres.mul(refl.a)));
+    const skyLight = FOG.color.mul(0.42);
+    mat.emissiveNode = body.mul(skyLight).mul(max(float(1).sub(fres), 0.0)).add(refl.rgb.mul(fres.mul(reflK)));
     return mat;
   }
 

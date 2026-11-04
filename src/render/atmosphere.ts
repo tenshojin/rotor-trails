@@ -7,6 +7,9 @@
 import * as THREE from 'three/webgpu';
 import { cameraPosition, clamp, dot, exp, float, fog, Fn, length, max, mix, positionWorld, pow, select, uniform, vec4 } from 'three/tsl';
 
+/** 旋翼下洗：x、z（桨毂的位置）、贴地的强度、树梢的强度（0..1）。草和树的顶点着色器用它（见 render/downwash.ts） */
+export const WASH = uniform(new THREE.Vector4(0, 0, 0, 0));
+
 export const FOG = {
   color: uniform(new THREE.Color(0xb0c0d0)),
   sunColor: uniform(new THREE.Color(1, 1, 1)),

@@ -10,6 +10,7 @@ import {
   clamp,
   float,
   length,
+  max,
   mix,
   normalViewGeometry,
   positionGeometry,
@@ -23,7 +24,9 @@ import {
   vec3,
   vec4,
 } from 'three/tsl';
+import { HELI } from '../config/flight';
 import type { WorldData } from '../world/worldgen';
+import { WASH } from './atmosphere';
 import { getNoiseTexture } from './textures';
 
 const TILE = 16;
@@ -142,7 +145,16 @@ export class GroundCover {
     const hgt = positionGeometry.y;
     const wx = positionLocal.x.mul(0.31).add(positionLocal.z.mul(0.23));
     const sway = sin(this.time.mul(1.9).add(wx)).mul(0.05).add(sin(this.time.mul(4.3).add(wx.mul(2.1))).mul(0.02));
-    m.positionNode = positionLocal.add(vec3(sway, 0.0, sway.mul(0.7)).mul(hgt));
+    // 旋翼下洗：气流打到地面后向四周散开，把草一圈圈压倒，一阵一阵往外跑，草尖还在急促地抖
+    const wv = positionLocal.xz.sub(WASH.xy);
+    const wd = length(wv).max(0.01);
+    const wdir = wv.div(wd);
+    const rn = wd.div(HELI.rotorRadius);
+    const wk = smoothstep(0.15, 0.7, rn).mul(float(1).sub(smoothstep(1.7, 4.2, rn))).mul(WASH.z);
+    const puff = max(sin(wd.mul(0.85).sub(this.time.mul(7.5)).add(wx.mul(0.7))).mul(0.42).add(0.62), 0.0);
+    const shake = sin(this.time.mul(24.0).add(wx.mul(3.1))).mul(0.16);
+    const lay = wk.mul(puff.add(shake)).mul(hgt).toVar();
+    m.positionNode = positionLocal.add(vec3(sway, 0.0, sway.mul(0.7)).mul(hgt)).add(vec3(wdir.x.mul(2.1), float(-0.8), wdir.y.mul(2.1)).mul(lay));
     this.mat = m;
     const n = SIDE * SIDE * PER;
     this.mesh = new THREE.InstancedMesh(this.geo, m, n);

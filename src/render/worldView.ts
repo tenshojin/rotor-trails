@@ -23,6 +23,7 @@ import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrai
 import { makeForestTexture, makeGroundHeightTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
 import { fogMaps, VFOG } from './volumetricFog';
 import { DownwashView } from './downwash';
+import { makeReflectField } from './reflectMap';
 import { GroundCover } from './groundCover';
 import { RiverView } from './riverView';
 import { EyeAdapt } from './eyeAdapt';
@@ -244,6 +245,9 @@ export class WorldView {
     const groundTex = makeGroundHeightTexture(world.terrain, map.waterLevel);
     const macroTex = makeTerrainMacroTexture(world.terrain);
     this.mapTextures.push(surfaceTex, forestTex, groundTex, macroTex);
+    // 水面倒影飞出画面后接着走的地形图
+    const field = makeReflectField(map, world.terrain, world.trees, world.surface, macroTex.image.data as Uint8Array, forestTex.image.data as Uint8Array);
+    this.mapTextures.push(field.height, field.color);
     fogMaps.height = groundTex;
     fogMaps.forest = forestTex;
     VFOG.mapSize.value = map.size;
@@ -273,7 +277,7 @@ export class WorldView {
     if (map.waterLevel !== null) {
       const depth = makeWaterDepthTexture(world.terrain, map.waterLevel);
       this.mapTextures.push(depth);
-      this.water = new WaterView(map, depth, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true);
+      this.water = new WaterView(map, depth, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true, field);
       this.scene.add(this.water.mesh);
     }
     progress?.(0.88, '构建建筑与植被');
@@ -294,7 +298,7 @@ export class WorldView {
     this.grass = new GroundCover(world, forestTex);
     this.scene.add(this.grass.group);
     if (map.rivers) {
-      this.rivers = new RiverView(map.rivers, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true);
+      this.rivers = new RiverView(map.rivers, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true, field);
       this.scene.add(this.rivers.group);
     }
     this.clouds = new CloudLayer(map.size);
