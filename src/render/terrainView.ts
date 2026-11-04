@@ -42,6 +42,7 @@ export function makeTerrainUniforms(map: MapDef, surfaceTex: THREE.Texture, fore
     strataC: col(strata[2]),
     strataD: col(strata[3] ?? strata[0]),
     strata: B.strata,
+    paved: !!map.pavedMask,
     beachTop: B.beachTop,
     snowLine: B.snowLine,
     rockSlope: B.rockSlope,

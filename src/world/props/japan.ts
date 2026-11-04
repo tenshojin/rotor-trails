@@ -336,38 +336,58 @@ export const japanProps: Record<string, PropFn> = {
     const l = Number(d.p?.l ?? 34);
     const h = Number(d.p?.h ?? 9);
     const col = Number(d.p?.color ?? 0x7f8b96);
+    B.beginModel(String(d.p?.model ?? 'pshed_a'), 0, 0, 0, 0, w / 22, h / 9, l / 40);
     B.box(0, h / 2, 0, w, h, l, col, { mat: 'metal', jitter: 0.04 });
     B.gable(0, h, 0, l, w, 2.4, 0.4, 0x5d6670, { mat: 'metal' }, Math.PI / 2);
-    for (let i = -1; i <= 1; i++) B.box(w / 2 + 0.05, h * 0.4, i * l * 0.3, 0.1, h * 0.7, 6, 0x4a525a, { mat: 'metal', solid: false });
+    B.endModel();
     B.footprint(Math.hypot(w, l) / 2 + 2);
   },
-  crane(B, d) {
-    // 港口龙门吊：两组门腿 + 横梁 + 伸向海面的悬臂
-    const h = Number(d.p?.h ?? 32);
-    const span = 18;
-    const red = 0xc0392b;
-    const white = 0xe8e8e8;
-    for (const sz of [-6, 6]) {
-      for (const sx of [-span / 2, span / 2]) B.box(sx, h / 2, sz, 1.4, h, 1.4, sz < 0 ? red : white, { mat: 'metal' });
-      B.box(0, h * 0.35, sz, span, 1.0, 1.0, red, { mat: 'metal', solid: false });
-    }
-    B.box(0, h + 1, 0, span + 4, 2, 14, red, { mat: 'metal' });
-    B.box(span / 2 + 22, h + 1.2, 0, 44, 1.6, 3, white, { mat: 'metal' });
-    B.box(-span / 2 - 8, h + 1.2, 0, 16, 1.6, 3, white, { mat: 'metal' });
-    B.box(-span / 2 - 14, h - 1.5, 0, 4, 5, 4, 0x555555, { mat: 'metal' });
-    B.box(span / 2 + 10, h - 2.5, 0, 3, 3, 3, 0x333333, { mat: 'metal', solid: false });
-    B.beam([span / 2 + 10, h, 0], [span / 2 + 10, h - 12, 0], 0.08, 0x222222, { solid: false });
-    B.anchor('blink', span / 2 + 44, h + 2.5, 0, 0, { color: 'red', period: 1.5 });
-    B.footprint(26);
+  crane(B) {
+    // 港口悬臂吊：立柱 + 机房 + 桁架悬臂（碰撞体只取立柱和悬臂的外包）
+    B.beginModel('jib_crane');
+    B.cyl(0, 7.5, 0, 1.1, 0.9, 15, 0x2f5f8f, 12, { mat: 'metal' });
+    B.box(-1.2, 15.8, 0, 8, 3, 3.4, 0xdedfdc, { mat: 'metal' });
+    B.box(13.8, 21, 0, 25, 1.6, 2, 0x2f5f8f, { mat: 'metal' });
+    B.endModel();
+    B.anchor('blink', 26.5, 26.2, 0, 0, { color: 'red', period: 1.5 });
+    B.footprint(6);
   },
   pier(B, d) {
-    // 码头：沿 +X 伸出的栈桥
+    // 码头：沿 +X 伸出的栈桥，每段一个模型（模型缺失时退回一块长板）
     const len = Number(d.p?.len ?? 80);
     const w = Number(d.p?.w ?? 10);
     const deck = Number(d.p?.deck ?? 2.5);
-    B.box(len / 2, deck - 0.4, 0, len, 0.8, w, 0x8a857c, { mat: 'rough' });
-    for (let x = 6; x < len; x += 10) for (const sz of [-w / 2 + 0.6, w / 2 - 0.6]) B.cyl(x, deck / 2 - 3, sz, 0.35, 0.35, deck + 6, 0x5a5550, 6, { solid: false });
-    for (let x = 4; x < len; x += 12) B.cyl(x, deck + 0.4, w / 2 - 0.4, 0.25, 0.25, 0.8, 0x333333, 6, { solid: false });
+    const n = Math.max(1, Math.round(len / 20));
+    const sl = len / n;
+    for (let i = 0; i < n; i++) {
+      const x = (i + 0.5) * sl;
+      B.beginModel('pier_seg', x, deck, 0, 0, sl / 20, 1, w / 10);
+      B.box(x, deck - 0.4, 0, sl, 0.8, w, 0x8a857c, { mat: 'rough' });
+      for (const sz of [-w / 2 + 0.6, w / 2 - 0.6]) B.cyl(x, deck / 2 - 3, sz, 0.35, 0.35, deck + 6, 0x5a5550, 6, { solid: false });
+      B.endModel();
+    }
+  },
+  quay(B, d) {
+    // 岸壁：沿 Z 排开的一段段模型，原点在岸壁外沿
+    const len = Number(d.p?.len ?? 200);
+    const n = Math.round(len / 40);
+    for (let i = 0; i < n; i++) {
+      B.beginModel('quay_seg', 0, 0, (i - (n - 1) / 2) * 40);
+      B.endModel();
+    }
+  },
+  portYard(B, d, rng) {
+    // 港区的零碎：沿岸路灯、停着的小货车、鱼箱和渔网堆；局部 +X 朝水面，范围 Z ±len/2
+    const len = Number(d.p?.len ?? 200);
+    for (let z = -len / 2 + 20; z < len / 2; z += 58) B.beginModel('street_lamp', -16, 0, z, Math.PI).endModel();
+    const n = Number(d.p?.n ?? 16);
+    const models = ['fish_boxes', 'fish_boxes', 'net_a', 'net_b', 'kei_truck'];
+    for (let i = 0; i < n; i++) {
+      const z = rng.range(-len / 2, len / 2);
+      const x = rng.range(-30, -11);
+      B.beginModel(models[i % models.length], x, 0, z, rng.range(0, 6.28));
+      B.endModel();
+    }
   },
   boat(B, d, rng) {
     const l = Number(d.p?.l ?? rng.range(10, 16));
@@ -386,12 +406,12 @@ export const japanProps: Record<string, PropFn> = {
   ferry(B) {
     const l = 46;
     const w = 11;
+    B.beginModel('ferry_jp');
     B.box(0, 1.5, 0, l, 5, w, 0xf0f0f0, { jitter: 0.03 });
-    B.box(0, -0.6, 0, l - 1, 1.2, w - 0.6, 0x2a4a8a, { solid: false });
     B.box(-4, 5.5, 0, l * 0.6, 3, w - 1.5, 0xf4f4f4, {});
-    B.box(-4, 5.9, 0, l * 0.6 + 0.1, 1, w - 1.4, 0x22303c, { mat: 'glass', solid: false });
     B.box(2, 8.5, 0, 10, 3, w - 3, 0xf4f4f4, {});
     B.cyl(-10, 9.5, 0, 1.2, 1.4, 4, 0xc0392b, 10, {});
+    B.endModel();
     B.footprint(24);
   },
   lighthouse(B, _d, _rng, ctx) {
@@ -540,24 +560,58 @@ export const japanProps: Record<string, PropFn> = {
     const h = Number(d.p?.h ?? 40);
     const r = Number(d.p?.r ?? 9);
     const col = Number(d.p?.color ?? 0x6e665c);
-    // 由几段竖向拉长、彼此重叠的岩块组成的海蚀柱
-    const parts = Math.max(2, Math.ceil((h + 6) / (r * 1.4)));
-    let rr = r;
-    for (let i = 0; i < parts; i++) {
-      const y = -6 + ((h + 6) * (i + 0.5)) / parts;
-      B.sphere(rng.range(-0.8, 0.8), y, rng.range(-0.8, 0.8), rr, col, { mat: 'rock', sy: ((h + 6) / parts / rr) * 0.75, noise: 0.28, seg: 11, solid: false });
-      rr *= rng.range(0.9, 0.98);
+    // 海蚀柱：下粗上细的不规则岩柱，一圈圈截面沿高度错开、时宽时窄（岩层被海浪掏蚀的样子），顶上长着松树和草
+    const seg = 14;
+    const rings = 10;
+    const pts: Array<Array<[number, number, number]>> = [];
+    const lean = rng.range(0.03, 0.09);
+    const ang = rng.range(0, 6.28);
+    for (let j = 0; j <= rings; j++) {
+      const t = j / rings;
+      const y = -6 + (h + 6) * t;
+      const ledge = 1 + 0.16 * Math.sin(j * 2.1 + ang) + (j % 3 === 0 ? -0.1 : 0.05);
+      const rr = r * (1.28 - 0.62 * t) * ledge * (t > 0.92 ? 0.82 : 1);
+      const ox = Math.cos(ang) * lean * y + rng.range(-0.5, 0.5);
+      const oz = Math.sin(ang) * lean * y + rng.range(-0.5, 0.5);
+      const ring: Array<[number, number, number]> = [];
+      for (let i = 0; i < seg; i++) {
+        const a = (i / seg) * Math.PI * 2;
+        const k = 1 + 0.22 * Math.sin(a * 3 + j * 0.7 + ang) + 0.1 * Math.sin(a * 7 - j);
+        ring.push([ox + Math.cos(a) * rr * k, y, oz + Math.sin(a) * rr * k]);
+      }
+      pts.push(ring);
     }
-    B.sphere(0, h - rr * 0.1, 0, rr * 0.95, 0x4f6a3a, { sy: 0.35, noise: 0.35, seg: 9, solid: false });
+    const tris: number[] = [];
+    for (let j = 0; j < rings; j++)
+      for (let i = 0; i < seg; i++) {
+        const a = pts[j][i];
+        const b = pts[j][(i + 1) % seg];
+        const c = pts[j + 1][(i + 1) % seg];
+        const e = pts[j + 1][i];
+        tris.push(...a, ...e, ...c, ...a, ...c, ...b);
+      }
+    const top = pts[rings];
+    const cx = top.reduce((s, p) => s + p[0], 0) / seg;
+    const cz = top.reduce((s, p) => s + p[2], 0) / seg;
+    for (let i = 0; i < seg; i++) tris.push(cx, h + 1, cz, ...top[(i + 1) % seg], ...top[i]);
+    B.mesh(tris, col, 'rock', 0.1);
+    B.sphere(cx, h + 0.4, cz, r * 0.62, 0x4f6a3a, { sy: 0.32, noise: 0.35, seg: 9, solid: false });
     B.addColliderCyl(0, (h - 6) / 2, 0, (h + 6) / 2, r * 0.92);
     B.footprint(r + 2);
   },
   breakwater(B, d) {
+    // 防波堤：混凝土堤身，外侧堆消波块，堤头一座小灯塔
     const len = Number(d.p?.len ?? 120);
     B.box(len / 2, 0.5, 0, len, 5, 6, 0x9a958c, { mat: 'rough' });
-    for (let x = 4; x < len; x += 5) B.sphere(x, 1.5, 3.5, 1.6, 0xb8b4aa, { mat: 'rock', noise: 0.2, seg: 6, solid: false });
-    B.box(len + 2, 3, 0, 3, 6, 3, 0xc0392b, {});
-    B.anchor('blink', len + 2, 6.5, 0, 0, { color: 'red', period: 3 });
+    B.box(len / 2, 3.2, -2.1, len, 0.9, 0.9, 0x9a958c, { mat: 'rough', solid: false });
+    for (let x = 20; x < len; x += 40) {
+      B.beginModel('tetrapods', x, -0.5, 7.5, Math.PI);
+      B.endModel();
+    }
+    B.beginModel(String(d.p?.light ?? 'hlight_r'), len + 2, 3, 0);
+    B.cyl(len + 2, 6, 0, 1.2, 0.8, 7, 0xc0392b, 10, {});
+    B.endModel();
+    B.anchor('blink', len + 2, 12.4, 0, 0, { color: String(d.p?.light ?? 'hlight_r') === 'hlight_r' ? 'red' : 'green', period: 3 });
   },
 };
 

@@ -14,6 +14,7 @@ import bkit as K  # noqa: E402
 import bldkit as BK  # noqa: E402
 import jhouse as JH  # noqa: E402
 import jlandmarks as JL  # noqa: E402
+import jport as JP  # noqa: E402
 
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 OUT = argv[0] if argv else 'public/models/props_japan.glb'
@@ -222,6 +223,7 @@ ROOTS.append(JL.lighthouse())
 ROOTS.append(JL.joyato())
 for i, c in enumerate(HULL_COLORS):
     boat(f'boat_{i}', c)
+ROOTS += JP.build_all()
 
 # 每个模型沿 X 方向排开（仅用于预览；导出的子网格相对各自的根节点）
 for i, r in enumerate(ROOTS):

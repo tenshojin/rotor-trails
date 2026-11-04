@@ -68,6 +68,8 @@ export interface TerrainUniforms {
   strataC: THREE.Color;
   strataD: THREE.Color;
   strata: number;
+  /** 地表掩码 A 通道是水泥地（否则是积雪） */
+  paved: boolean;
   beachTop: number;
   snowLine: number;
   rockSlope: number;
@@ -254,7 +256,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       col.mulAssign(n2.mul(0.16).add(0.92));
       // 积雪：按带细节的法线判断“朝上的程度”——雪积在岩石的平台、凹处，边缘跟着岩石纹理走
       const flatK = nb.y.add(n3.sub(0.5).mul(0.14));
-      const sW = max(snowAlt.mul(smoothstep(0.52, 0.74, flatK)), surf.a.mul(smoothstep(0.34, 0.58, flatK))).toVar();
+      const sW = max(snowAlt.mul(smoothstep(0.52, 0.74, flatK)), U.paved ? float(0) : surf.a.mul(smoothstep(0.34, 0.58, flatK))).toVar();
       If(sW.greaterThan(0.01), () => {
         const sc = vec3(0).toVar();
         const so = vec3(0).toVar();
@@ -269,7 +271,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       snowW.assign(sW);
     } else {
       // 程序化配色 + 噪声凹凸
-      const sw = max(snowAlt.mul(float(1).sub(smoothstep(0.42, 0.62, slope))), surf.a.mul(float(1).sub(smoothstep(0.55, 0.8, slope))));
+      const sw = max(snowAlt.mul(float(1).sub(smoothstep(0.42, 0.62, slope))), U.paved ? float(0) : surf.a.mul(float(1).sub(smoothstep(0.55, 0.8, slope))));
       const c = mix(c3(U.grass), c3(U.grass2), g2).toVar();
       c.assign(mix(c, c3(U.forestFloor), fo));
       c.assign(mix(c, c3(U.sand), sandW));
@@ -293,6 +295,20 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       const det = dot(dPx, r1);
       const grad = r1.mul(dhx).add(rr2.mul(dhy)).mul(det.sign());
       nb.assign(normalize(n.mul(abs(det)).sub(grad.mul(bump.mul(1.2)))));
+    }
+    if (U.paved) {
+      // 港区水泥地：一块块浇筑的板（缝）、油污和轮胎碾过的深浅、退色的车道线
+      const pk = surf.a.toVar();
+      If(pk.greaterThan(0.01), () => {
+        const stain = n3.mul(0.55).add(texture(noise, P.xz.mul(0.013).add(0.3)).r.mul(0.45));
+        const conc = mix(vec3(0.3, 0.295, 0.28), vec3(0.42, 0.415, 0.395), stain).mul(n2.mul(0.16).add(0.92));
+        const jx = abs(fract(P.x.div(9.0)).sub(0.5));
+        const jz = abs(fract(P.z.div(12.0)).sub(0.5));
+        const joint = smoothstep(0.492, 0.498, max(jx, jz));
+        col.assign(mix(col, conc.mul(float(1).sub(joint.mul(0.45))), pk));
+        rough.assign(mix(rough, 0.86, pk));
+        nb.assign(normalize(mix(nb, n, pk)));
+      });
     }
     // 宏观地貌：岩壁加上三平面投影的脊状浮雕（两个尺度），平缓的地面只加一点起伏；明暗再跟着真实的沟谷与山脊走
     const cavS = mac.r.mul(2.0).sub(1.0);

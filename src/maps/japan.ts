@@ -6,6 +6,8 @@ import { makeWeather } from '../sim/weather';
 import type { MapDef } from './types';
 
 const SEED = 2101;
+/** 港口岸壁的 X 坐标 */
+const QUAY_X = -925;
 const n = new Perlin2(SEED);
 const n2 = new Perlin2(SEED + 7);
 const n3 = new Perlin2(SEED + 13);
@@ -108,10 +110,17 @@ export const JAPAN: MapDef = {
   altitudeOffset: 0,
   waterLevel: 0,
   erosion: 150000,
+  pavedMask: true,
   buildTerrain(b) {
     b.fill(terrain);
     // 港口填海区与堤岸
-    b.flattenRect(-1030, 870, 105, 330, 0, 2.5, 18);
+    b.flattenRect(-1034, 875, 112, 330, 0, 2.5, 18);
+    // 港内水域：岸壁外侧是竖直的码头墙，水深约 7 m
+    b.map((h, x, z) => {
+      if (x <= QUAY_X - 4 || x > QUAY_X + 200 || z < 500 || z > 1250) return h;
+      const k = (1 - smoothstep(QUAY_X + 80, QUAY_X + 200, x)) * smoothstep(505, 560, z) * (1 - smoothstep(1190, 1245, z));
+      return h + (Math.min(h, -7) - h) * k;
+    });
     // 观测站与停机坪周边
     b.flatten(-150, -462, 30, 46, 25);
     b.flatten(735, 300, 34, 128, 40);
@@ -119,6 +128,8 @@ export const JAPAN: MapDef = {
     b.flatten(-950, -1000, 22, 14, 25);
     b.flatten(1000, 470, 30, 7.5, 25);
     b.paint(0, (_x, _z, h) => (h < 2.6 && h > -1.5 ? 1 - smoothstep(1.6, 2.6, h) : 0));
+    // 港区水泥地面（地表掩码 A 通道，见 terrainShader）
+    b.paint(3, (x, z) => smoothstep(-1138, -1128, x) * smoothstep(560, 572, z) * (1 - smoothstep(1188, 1200, z)) * (x < QUAY_X + 4 ? 1 : 0));
     b.paintPath(1, [
       [-1140, 600],
       [-1120, 870],
@@ -143,15 +154,19 @@ export const JAPAN: MapDef = {
   ],
   props: [
     // 港口
-    { type: 'warehouse', pos: [-1010, 2.5, 640], rotY: 0, p: { w: 22, l: 40, h: 10, color: 0x6f8aa0 } },
-    { type: 'warehouse', pos: [-1080, 2.5, 700], rotY: 0, p: { w: 20, l: 30, h: 8, color: 0x9a7a62 } },
-    { type: 'warehouse', pos: [-1010, 2.5, 1110], rotY: 0, p: { w: 24, l: 44, h: 11, color: 0x7f8b96 } },
-    { type: 'warehouse', pos: [-1085, 2.5, 1160], rotY: 0, p: { w: 18, l: 26, h: 8, color: 0xb0a890 } },
-    { type: 'crane', pos: [-945, 2.5, 1180], rotY: 0 },
-    { type: 'crane', pos: [-945, 2.5, 1010], rotY: 0, p: { h: 30 } },
-    { type: 'containerStack', pos: [-1050, 2.5, 780], rotY: 0, p: { n: 8 } },
-    { type: 'containerStack', pos: [-1040, 2.5, 980], rotY: Math.PI / 2, p: { n: 7 } },
-    { type: 'containerStack', pos: [-1100, 2.5, 1020], rotY: 0, p: { n: 6 } },
+    { type: 'quay', pos: [QUAY_X, 2.5, 875], p: { len: 640 } },
+    { type: 'portYard', pos: [QUAY_X, 2.5, 875], p: { len: 620, n: 26 } },
+    { type: 'warehouse', pos: [-1010, 2.5, 640], rotY: 0, p: { w: 22, l: 40, h: 10, model: 'pshed_a' } },
+    { type: 'warehouse', pos: [-1080, 2.5, 700], rotY: 0, p: { w: 20, l: 30, h: 8, model: 'pshed_d' } },
+    { type: 'warehouse', pos: [-1010, 2.5, 730], rotY: 0, p: { w: 22, l: 36, h: 9, model: 'pshed_c' } },
+    { type: 'warehouse', pos: [-1085, 2.5, 760], rotY: 0, p: { w: 18, l: 26, h: 8, model: 'pshed_b' } },
+    { type: 'warehouse', pos: [-1010, 2.5, 1110], rotY: 0, p: { w: 24, l: 44, h: 11, model: 'pshed_b' } },
+    { type: 'warehouse', pos: [-1085, 2.5, 1160], rotY: 0, p: { w: 18, l: 26, h: 8, model: 'pshed_a' } },
+    { type: 'warehouse', pos: [-1010, 2.5, 1010], rotY: 0, p: { w: 22, l: 34, h: 9, model: 'pshed_d' } },
+    { type: 'warehouse', pos: [-1090, 2.5, 1060], rotY: 0, p: { w: 20, l: 30, h: 8, model: 'pshed_c' } },
+    { type: 'crane', pos: [-938, 2.5, 790], rotY: 0 },
+    { type: 'crane', pos: [-938, 2.5, 1000], rotY: 0.2 },
+    { type: 'containerStack', pos: [-1000, 2.5, 950], rotY: Math.PI / 2, p: { n: 4 } },
     { type: 'pier', pos: [-928, 0, 690], p: { len: 95, w: 9 } },
     { type: 'pier', pos: [-928, 0, 880], p: { len: 110, w: 12 } },
     { type: 'pier', pos: [-928, 0, 1070], p: { len: 90, w: 9 } },
@@ -161,10 +176,11 @@ export const JAPAN: MapDef = {
     { type: 'boat', pos: [-760, 0, 1210], rotY: 1.2 },
     { type: 'boat', pos: [-610, 0, 820], rotY: 2.4 },
     { type: 'ferry', pos: [-850, 0, 920], rotY: 0 },
-    { type: 'breakwater', pos: [-900, 0, 1260], rotY: -0.25, p: { len: 150 } },
+    { type: 'breakwater', pos: [-905, 0, 1250], rotY: -0.25, p: { len: 170, light: 'hlight_r' } },
+    { type: 'breakwater', pos: [-905, 0, 505], rotY: 0.3, p: { len: 150, light: 'hlight_g' } },
     { type: 'flagpole', pos: [-1000, 0, 860], ground: true, p: { color: 'jp' } },
-    { type: 'tank', pos: [-1115, 2.5, 640], p: { r: 7, h: 10 } },
-    { type: 'tank', pos: [-1115, 2.5, 600], p: { r: 6, h: 9 } },
+    { type: 'tank', pos: [-1110, 2.5, 625], p: { r: 7, h: 10 } },
+    { type: 'tank', pos: [-1110, 2.5, 595], p: { r: 6, h: 9 } },
     // 城镇与地标
     { type: 'jvillage', pos: [-1215, 0, 790], ground: true, p: { r: 105, n: 16 } },
     { type: 'jvillage', pos: [-1240, 0, 1060], ground: true, p: { r: 120, n: 20 } },

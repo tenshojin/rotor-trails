@@ -185,6 +185,8 @@ export interface MapDef {
   seed: number;
   altitudeOffset: number;
   waterLevel: number | null;
+  /** 地表掩码 A 通道画的是水泥地（港区），不是积雪 */
+  pavedMask?: boolean;
   /** 水力侵蚀的雨滴数（见 world/erosion.ts）；缺省不做 */
   erosion?: number;
   buildTerrain(b: HeightBuilder): void;
