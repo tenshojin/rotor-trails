@@ -12,6 +12,7 @@ from mathutils import Vector
 sys.path.insert(0, os.path.dirname(__file__))
 import bkit as K  # noqa: E402
 import bldkit as BK  # noqa: E402
+import common_props as CP  # noqa: E402
 import jhouse as JH  # noqa: E402
 import jlandmarks as JL  # noqa: E402
 import jport as JP  # noqa: E402
@@ -244,5 +245,6 @@ if PREVIEW:
         for c in [r] + list(r.children):
             c.hide_render = False
 
+ROOTS += CP.build_all()
 BK.export(OUT, ROOTS)
 print('EXPORTED', OUT, len(ROOTS), 'models')

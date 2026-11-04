@@ -222,7 +222,7 @@ export const FJORD_MAP: MapDef = {
       return v;
     });
     // 悬崖农场平台、村落与峡湾尽头的冲积平原
-    b.flatten(FARM[0] + FARM_N[0] * 10, FARM[2] + FARM_N[1] * 10, 52, FARM[1], 30);
+    b.flatten(FARM[0] + FARM_N[0] * 10, FARM[2] + FARM_N[1] * 10, 44, FARM[1], 85);
     b.flatten(VILLAGE[0] - V_N[0] * 15, VILLAGE[2] - V_N[1] * 15, 72, VILLAGE[1], 45);
     // 峡湾尽头：河流冲出来的平原把水面挡住，岸线自然弯曲，往里缓缓抬高
     b.map((h, x, z) => {
@@ -267,8 +267,8 @@ export const FJORD_MAP: MapDef = {
     { type: 'antenna', pos: [FARM[0] + FARM_N[0] * 44 + FARM_N[1] * 26, 0, FARM[2] + FARM_N[1] * 44 - FARM_N[0] * 26], ground: true, p: { h: 14 } },
   ],
   vegetation: [
-    { type: 'spruce', density: 950, scale: [0.8, 1.35], minH: 2, maxH: 560, maxSlope: 0.7, mask: (x, z, h) => (1 - smoothstep(380, 560, h)) * (0.6 + 0.4 * n.fbm(x / 250, z / 250, 2)) },
-    { type: 'birch', density: 260, scale: [0.8, 1.2], minH: 2, maxH: 160, maxSlope: 0.5 },
+    { type: 'spruce', density: 2300, scale: [0.8, 1.4], minH: 2, maxH: 560, maxSlope: 0.75, mask: (x, z, h) => (1 - smoothstep(380, 560, h)) * (0.6 + 0.4 * n.fbm(x / 250, z / 250, 2)) },
+    { type: 'birch', density: 620, scale: [0.8, 1.25], minH: 2, maxH: 200, maxSlope: 0.55 },
     { type: 'shrub', density: 200, scale: [0.6, 1.1], minH: 300, maxH: 700, maxSlope: 0.5 },
   ],
   clearings: [

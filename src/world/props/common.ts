@@ -160,10 +160,12 @@ export const commonProps: Record<string, PropFn> = {
     const l = Number(d.p?.l ?? 30);
     const h = Number(d.p?.h ?? 9);
     const col = Number(d.p?.color ?? 0x8f969c);
+    B.beginModel(String(d.p?.model ?? 'hangar_a'), 0, 0, 0, 0, w / 24, h / 9, l / 30);
     B.box(0, h / 2, 0, w, h, l, col, { mat: 'metal' });
     B.cyl(0, h, 0, w / 2, w / 2, l, col, 12, { solid: false, mat: 'metal' });
-    B.colliderBox(0, h + w * 0.18, 0, w * 0.4, w * 0.18, l / 2);
     B.box(0, h * 0.42, -l / 2 - 0.05, w * 0.8, h * 0.84, 0.1, 0x55595e, { mat: 'metal', solid: false });
+    B.endModel();
+    B.colliderBox(0, h + w * 0.18, 0, w * 0.4, w * 0.18, l / 2);
     B.footprint(Math.hypot(w, l) / 2 + 2);
   },
   shed(B, d) {
@@ -186,15 +188,20 @@ export const commonProps: Record<string, PropFn> = {
     for (let i = 0; i < n; i++) {
       const row = i % 4;
       const lvl = Math.floor(i / 4);
-      B.box((row - 1.5) * 2.6, 1.3 + lvl * 2.6, 0, 2.44, 2.6, 6.06, rng.pick(cols), { mat: 'metal', jitter: 0.1 });
+      const x = (row - 1.5) * 2.6;
+      B.beginModel(`container_${rng.int(0, 3)}`, x, lvl * 2.6, 0);
+      B.box(x, 1.3 + lvl * 2.6, 0, 2.44, 2.6, 6.06, rng.pick(cols), { mat: 'metal', jitter: 0.1 });
+      B.endModel();
     }
     B.footprint(7);
   },
   tank(B, d) {
     const r = Number(d.p?.r ?? 5);
     const h = Number(d.p?.h ?? 8);
+    B.beginModel('tank_a', 0, 0, 0, 0, r / 5, h / 8, r / 5);
     B.cyl(0, h / 2, 0, r, r, h, Number(d.p?.color ?? 0xd8d8d0), 18, { mat: 'metal' });
     B.cyl(0, h + 0.6, 0, r, r * 0.3, 1.2, 0xb0b0a8, 18, { mat: 'metal', solid: false });
+    B.endModel();
     B.footprint(r + 2);
   },
   antenna(B, d) {

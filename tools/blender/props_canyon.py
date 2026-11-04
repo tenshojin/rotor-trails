@@ -12,6 +12,7 @@ from mathutils import Vector
 sys.path.insert(0, os.path.dirname(__file__))
 import bkit as K  # noqa: E402
 import bldkit as BK  # noqa: E402
+import common_props as CP  # noqa: E402
 
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 OUT = argv[0] if argv else 'public/models/props_canyon.glb'
@@ -340,5 +341,6 @@ if PREVIEW:
             c.hide_render = False
     bpy.data.objects.remove(bpy.data.objects['ground'])
 
+ROOTS += CP.build_all()
 BK.export(OUT, ROOTS)
 print('EXPORTED', OUT, len(ROOTS), 'models')
