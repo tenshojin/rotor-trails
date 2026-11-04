@@ -71,6 +71,8 @@ export interface TerrainUniforms {
   rock2: THREE.Color;
   snow: THREE.Color;
   forestFloor: THREE.Color;
+  /** 地图边缘一圈的平均树冠覆盖度：地图外面的远景按这个接着铺 */
+  forestFar: number;
   strataA: THREE.Color;
   strataB: THREE.Color;
   strataC: THREE.Color;
@@ -116,7 +118,11 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const muv = P.xz.div(U.mapSize).add(0.5);
     const surf = texture(U.surface, muv);
     const forestMap = texture(U.forest, muv);
-    const forest = forestMap.r;
+    // 地图外面没有树冠图（贴图会把边上那一格一直拉出去，成了一道道放射的条纹）：
+    // 按边缘的平均覆盖度铺一层，大块地疏密起伏，和地图里的林子看不出分界
+    const outK = smoothstep(-0.012, 0.03, max(abs(muv.x.sub(0.5)), abs(muv.y.sub(0.5))).sub(0.5));
+    const farForest = clamp(texture(noise, P.xz.mul(0.00031)).r.sub(0.5).mul(1.6 * (1 - 0.8 * U.forestFar)).add(U.forestFar), 0.0, 1.0);
+    const forest = mix(forestMap.r, farForest, outK).toVar();
     // 地图外面的远景地形没有宏观图：凹凸取中性值，坡度用几何法线
     const inMap = step(abs(muv.x.sub(0.5)), 0.5).mul(step(abs(muv.y.sub(0.5)), 0.5));
     const mac0 = texture(U.macro, muv);
@@ -437,7 +443,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       const dome = clamp(float(1).sub(f1.mul(f1).mul(1.7)), 0.0, 1.0);
       const hue = mx_noise_float(P.xz.mul(0.012)).mul(0.5).add(0.5);
       const fine = mx_noise_float(P.xz.mul(0.35)).mul(0.5).add(0.5);
-      const canopy = mix(vec3(0.045, 0.085, 0.04), vec3(0.085, 0.13, 0.045), hue).mul(dome.mul(0.75).add(0.35)).mul(fine.mul(0.3).add(0.85));
+      const canopy = mix(vec3(0.052, 0.104, 0.046), vec3(0.1, 0.16, 0.052), hue).mul(dome.mul(0.75).add(0.35)).mul(fine.mul(0.3).add(0.85));
       col.assign(mix(col, canopy, canopyK));
       // 树冠起伏的法线（用 Worley 距离在 x / z 方向的差分）
       const e = 0.6;

@@ -472,7 +472,8 @@ export class TreeView {
         const boost = max(0.0, log2(max(dot(ddx, ddx), dot(ddy, ddy))).mul(0.5)).mul(0.25).add(1.0);
         const c = texture(map, uv());
         const albedo = c.rgb.mul(vec3(src.color.r, src.color.g, src.color.b));
-        m.colorNode = vec4(albedo, c.a.mul(boost));
+        // 透明度取粗一级的贴图：一两个像素大的叶子不再切成一颗颗碎点，树冠边缘是成团的
+        m.colorNode = vec4(albedo, texture(map, uv()).bias(float(0.8)).a.mul(boost));
         // 叶片是半透明的：迎着太阳看时被照透（发亮的黄绿色）；树冠里的暗处也有叶片之间反射的绿光，不是黑洞
         const back = pow(max(dot(normalize(positionWorld.sub(cameraPosition)), FOG.sunDir), 0.0), 3.0);
         // （阳光那部分要乘山影：在山的影子里叶片没有被照透，否则一棵棵树在暗处发光）

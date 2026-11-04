@@ -19,6 +19,23 @@ function col(hex: number): THREE.Color {
   return new THREE.Color().setHex(hex);
 }
 
+/** 树冠图边缘一圈的平均值 */
+function edgeForest(t: THREE.Texture): number {
+  const img = t.image as { data: Uint8Array; width: number; height: number };
+  const n = img.width;
+  const m = img.height;
+  const w = 14;
+  let sum = 0;
+  let cnt = 0;
+  for (let y = 0; y < m; y++)
+    for (let x = 0; x < n; x++) {
+      if (x >= w && x < n - w && y >= w && y < m - w) continue;
+      sum += img.data[(y * n + x) * 4];
+      cnt++;
+    }
+  return sum / cnt / 255;
+}
+
 export function makeTerrainUniforms(map: MapDef, surfaceTex: THREE.Texture, forestTex: THREE.Texture, macroTex: THREE.Texture, layers: TerrainLayers | null = null): TerrainUniforms {
   const B: BiomeDef = map.biome;
   const strata = B.strataColors ?? [B.rock, B.rock2, B.dirt, B.sand];
@@ -39,6 +56,7 @@ export function makeTerrainUniforms(map: MapDef, surfaceTex: THREE.Texture, fore
     rock2: col(B.rock2),
     snow: col(B.snow),
     forestFloor: col(B.forestFloor),
+    forestFar: edgeForest(forestTex),
     strataA: col(strata[0]),
     strataB: col(strata[1]),
     strataC: col(strata[2]),
