@@ -231,7 +231,7 @@ export class TerrainView {
    */
   private buildFar(map: MapDef): THREE.Mesh | null {
     const hf = this.hf;
-    const extent = hf.size * (map.farExtent ?? 1.6);
+    const extent = hf.size * (map.farExtent ?? 6);
     const heightAt = (x: number, z: number) => {
       const cx = Math.max(-hf.half, Math.min(hf.half, x));
       const cz = Math.max(-hf.half, Math.min(hf.half, z));
@@ -250,7 +250,8 @@ export class TerrainView {
     let x = hf.half;
     while (x < extent) {
       x += d;
-      d *= rich ? 1.02 : 1.05;
+      // 离地图两三公里以内细一些，再往外是几乎看不清的远山和地平线
+      d *= x < hf.half + 2600 ? (rich ? 1.02 : 1.05) : 1.07;
       outer.push(x);
     }
     const xs = [...outer.map((v) => -v).reverse(), ...inner, ...outer];

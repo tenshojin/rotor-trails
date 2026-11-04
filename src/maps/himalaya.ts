@@ -222,7 +222,7 @@ export const HIMALAYA: MapDef = {
     b.paint(0, (x, z, h) => (h < 700 ? 0.5 * (0.5 + 0.5 * n2.noise(x / 80, z / 80)) * (1 - smoothstep(400, 700, h)) : 0));
   },
   farTerrain: farRange,
-  farExtent: 3.4,
+  farExtent: 5,
   spawn: { padId: 'H-base', heading: 60 },
   pads: [
     { id: 'H-base', name: '大本营停机坪', pos: [BASE[0], BASE[1] + 0.45, BASE[2]], size: 22, kind: 'start', style: 'ground' },

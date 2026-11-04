@@ -314,7 +314,7 @@ export const CANYON: MapDef = {
     b.paint(0, (x, z, h) => (h < 125 ? 0.6 * (1 - smoothstep(95, 125, h)) * (0.6 + 0.4 * n.noise(x / 50, z / 50)) : 0));
   },
   farTerrain: farLand,
-  farExtent: 1.6,
+  farExtent: 5,
   spawn: { padId: 'C-visitor', heading: 110 },
   pads: [
     { id: 'C-visitor', name: '峡谷游客中心', pos: [-1480, 308.45, 820], size: 22, kind: 'start', style: 'ground' },

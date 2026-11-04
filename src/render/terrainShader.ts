@@ -413,9 +413,15 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const patchK = float(1).sub(rockW.mul(0.6)).mul(float(1).sub(snowW));
     col.mulAssign(mix(vec3(1.0), mix(vec3(0.8, 0.84, 0.84), vec3(1.16, 1.12, 1.02), big.mul(0.6).add(big2.mul(0.4))), patchK));
     // 水系：雨水汇到的沟。荒漠里是一条条浅色的干河道，别处是沿沟更密更绿的植被
-    const fl = forestMap.g.mul(inMap);
+    // 地图外面的远景没有水系图：取噪声的等值线，弯弯曲曲的像一条条沟
+    const farFl = float(1).sub(smoothstep(0.0, 0.022, abs(texture(noise, P.xz.mul(0.00041)).r.add(n2.sub(0.5).mul(0.06)).sub(0.5)))).mul(smoothstep(0.42, 0.62, texture(noise, P.xz.mul(0.00019).add(0.3)).g)).mul(0.34);
+    const fl = mix(farFl, forestMap.g, inMap);
     const washK = smoothstep(0.1, 0.5, fl.add(n3.sub(0.5).mul(0.2))).mul(float(1).sub(rockW)).mul(float(1).sub(snowW)).mul(float(1).sub(surf.a)).toVar();
-    if (U.wash) col.assign(mix(col, c3(U.wash).mul(n2.mul(0.3).add(0.85)), washK.mul(0.62)));
+    if (U.wash) {
+      col.assign(mix(col, c3(U.wash).mul(n2.mul(0.3).add(0.85)), washK.mul(0.62)));
+      // 远景的荒漠上看不见一丛丛灌木了，用深色的小斑点代替
+      col.mulAssign(float(1).sub(smoothstep(0.62, 0.82, texture(noise, P.xz.mul(0.0119)).a).mul(float(1).sub(inMap)).mul(0.3)));
+    }
     else col.mulAssign(mix(vec3(1.0), vec3(0.66, 0.8, 0.58), washK.mul(float(1).sub(forest)).mul(0.85)));
     // 整体降低一点饱和度：照片材质向地图配色靠拢后草地偏艳，在中性色调映射下会显得发荧光
     col.assign(mix(col, vec3(dot(col, LUMW)), 0.18));

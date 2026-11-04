@@ -45,7 +45,9 @@ function coastX(z: number): number {
     }
     x = COAST[i][1];
   }
-  return x + 70 * n.fbm(z / 320, 4.2, 3) + 45 * n2.fbm(z / 110, 1.7, 2);
+  // 地图外面海岸线也不是一条直线（从高处能一直看到几十公里外）
+  const beyond = smoothstep(2200, 3400, Math.abs(z));
+  return x + 70 * n.fbm(z / 320, 4.2, 3) + 45 * n2.fbm(z / 110, 1.7, 2) + beyond * (420 * Math.sin(z / 1500 + 1) + 210 * Math.sin(z / 620));
 }
 
 function island(x: number, z: number, cx: number, cz: number, rx: number, rz: number, rot: number, peak: number, sharp = 1.5, wobble = 0.22): number {
