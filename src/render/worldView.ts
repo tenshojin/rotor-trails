@@ -45,7 +45,7 @@ export interface FrameInfo {
   alpha: number;
 }
 
-const _cabinGlow = new THREE.Color(0.0072, 0.0052, 0.0038);
+const _cabinGlow = new THREE.Color(0.018, 0.0132, 0.0102);
 const _cloudGrey = new THREE.Color(0.86, 0.88, 0.9);
 const _cabinWarm = new THREE.Color(1.0, 0.9, 0.76);
 const _pos = new THREE.Vector3();
@@ -284,7 +284,7 @@ export class WorldView {
     this.sky = new SkyDome(sunAz, sunEl, map.biome.fogTint, map.biome.grass, this.tod === 'night');
     this.eye.setMax(this.tod === 'night' ? 3.6 : EYE_DEFAULT.max);
     if (this.tod === 'night') {
-      const l = new THREE.SpotLight(0xfff0dc, 0, 900, 0.2, 0.7, 1.7);
+      const l = new THREE.SpotLight(0xfff0dc, 0, 900, 0.24, 1, 1.7);
       l.castShadow = false;
       this.scene.add(l, l.target);
       this.landing = l;
@@ -517,7 +517,7 @@ export class WorldView {
         this.landing.position.set(0, -0.9, -2.2).applyQuaternion(_quat).add(_pos);
         this.landing.target.position.set(0, -0.3, -1).applyQuaternion(_quat).multiplyScalar(30).add(this.landing.position);
         this.landing.target.updateMatrixWorld();
-        this.landing.intensity = 2600;
+        this.landing.intensity = 1100;
       }
     } else if (idle) {
       cam.position.copy(idle.pos);
@@ -542,7 +542,8 @@ export class WorldView {
       this.sun.setSunDirection(this.sky.sunDir);
       this.hemi.color.copy(C.hemiSky);
       this.hemi.groundColor.copy(C.hemiGround);
-      this.hemi.intensity = C.hemiIntensity * 0.65;
+      // 月光照不到的山谷不能是一片死黑：夜空的散射光要够看清地形的轮廓
+      this.hemi.intensity = C.hemiIntensity * 0.65 * (this.tod === 'night' ? 24 : 1);
       // 雾：能见度 → 指数平方雾密度（随高度变稀，见 atmosphere.ts）；进入低云层时另加均匀浓雾
       this.inCloud = 0;
       if (w.lowCloud > 0.05) {
@@ -560,6 +561,8 @@ export class WorldView {
       FOG.baseY.value = this.fogBaseY;
       // 体积雾（光束）：贴地薄雾的浓度随能见度与降雨变化，湿润的地图更浓；雾团随风飘动
       VFOG.sun.value.copy(C.sun).multiplyScalar(C.sunIntensity);
+      // 月光照得亮地面（曝光开得大），但照不出光柱：夜里按太阳那样算，云底下全是一道道亮条
+      VFOG.beam.value = this.tod === 'night' ? 0.08 : 1;
       VFOG.amb.value.copy(FOG.color.value).multiplyScalar(0.9);
       // 舱内补光：地平线一带的天光，混一半内饰反射出来的暖色（否则座舱背光处全是天空的蓝）
       CABIN_FILL.value.copy(FOG.color.value).lerp(_cabinWarm, 0.55).multiplyScalar(0.42 * (1 - 0.35 * w.overcast));
@@ -570,7 +573,7 @@ export class WorldView {
       const todMist = this.tod === 'dawn' ? 1.9 : this.tod === 'dusk' ? 1.3 : this.tod === 'night' ? 1.25 : 1;
       VFOG.mist.value = Math.min(0.012, Math.max(0.0005, 8 / Math.max(300, w.visibility)) * (world.map.biome.mist ?? 1) * (1 + 0.6 * w.rain) * todMist);
       VFOG.mistH.value = (40 + 30 * w.rain) * (this.tod === 'dawn' ? 1.3 : 1);
-      VFOG.haze.value = Math.min(1e-4, 0.25 / Math.max(300, w.visibility)) * (0.6 + 0.4 * (world.map.biome.mist ?? 1)) * (this.tod === 'day' ? 1 : 1.7);
+      VFOG.haze.value = Math.min(1e-4, 0.25 / Math.max(300, w.visibility)) * (0.6 + 0.4 * (world.map.biome.mist ?? 1)) * (this.tod === 'day' ? 1 : this.tod === 'night' ? 0.6 : 1.7);
       VFOG.shade.value = 1 - Math.min(1, w.overcast * 1.4);
       WINDOW_LIGHT.value = Math.max(this.tod === 'dusk' || this.tod === 'night' ? 1 : this.tod === 'dawn' ? 0.35 : 0, Math.max(0, (w.overcast - 0.6) / 0.4) * 0.45);
       const lampK = this.tod === 'night' ? 1 : this.tod === 'dusk' ? 0.42 : this.tod === 'dawn' ? 0.2 : 0;

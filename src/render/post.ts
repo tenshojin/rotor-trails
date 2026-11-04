@@ -110,7 +110,7 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     scenePass.setMRT(mrt({ output }));
     // FXAA 要在色调映射与色彩空间转换之后做
     pipeline.outputColorTransform = false;
-    pipeline.outputNode = fxaa(grade(renderOutput(scenePass), dbg));
+    pipeline.outputNode = fxaa(grade(renderOutput(scenePass), dbg, float(1)));
     return { pipeline, fog: null, hdr: () => scenePass.getTexture('output'), dispose: () => disposers.forEach((d) => d.dispose()) };
   }
   // 多渲染目标：WebGPU 默认每像素最多 32 字节，所以金属度放进法线纹理的 A 通道、粗糙度放进漫反射纹理的 A 通道
@@ -217,7 +217,7 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
   }
   // 色调映射 + 色彩空间转换之后再调色（在显示空间里调对比度、饱和度更直观）
   pipeline.outputColorTransform = false;
-  pipeline.outputNode = grade(renderOutput(out), dbg);
+  pipeline.outputNode = grade(renderOutput(out), dbg, outside);
   return { pipeline, fog: fogNode, hdr, dispose: () => disposers.forEach((d) => d.dispose()) };
 }
 
@@ -241,16 +241,18 @@ function sharpen(src: THREE.TextureNode, amount: number): THREE.Node<'vec4'> {
  * 调色（显示空间）：轻微 S 曲线提对比、按饱和程度加“自然饱和度”（已经很艳的颜色加得少）、
  * 高光略暖 / 暗部略冷的分离色调，以及很轻的暗角——让画面通透而不发灰，又不至于像滤镜。
  */
-function grade(c: THREE.Node<'vec4'>, dbg: PostDebug): THREE.Node<'vec4'> {
+function grade(c: THREE.Node<'vec4'>, dbg: PostDebug, outside: THREE.Node<'float'>): THREE.Node<'vec4'> {
   const contrast = dbg.contrast ?? 1.2;
   const vib = dbg.vibrance ?? 0.2;
   const rgb0 = clamp(c.rgb, 0.0, 1.0);
   // S 曲线：以 0.5 为中点的对比度，再与原值按 contrast 混合，避免暗部死黑
   const s = rgb0.sub(0.5).mul(contrast).add(0.5);
   const curved = mix(rgb0, smoothstep(0.0, 1.0, rgb0), contrast - 1.0).add(s.sub(rgb0).mul(0.5));
-  let rgb: THREE.Node<'vec3'> = vibrance(clamp(curved, 0.0, 1.0), float(vib));
+  // （夜里画面本来就暗，S 曲线再压一道，山谷就成了死黑）
+  let rgb: THREE.Node<'vec3'> = vibrance(clamp(mix(curved, rgb0, SCOTOPIC.mul(0.75)), 0.0, 1.0), float(vib));
   const l = luminance(rgb);
-  rgb = mix(rgb, vec3(l).mul(vec3(0.84, 0.94, 1.16)), float(1).sub(smoothstep(0.08, 0.42, l)).mul(SCOTOPIC).mul(0.68));
+  // （舱内的仪表灯就在眼前，颜色看得清）
+  rgb = mix(rgb, vec3(l).mul(vec3(0.84, 0.94, 1.16)), float(1).sub(smoothstep(0.08, 0.42, l)).mul(SCOTOPIC).mul(outside).mul(0.68));
   // 分离色调：高光偏暖、暗部偏冷（幅度很小）
   rgb = rgb.add(mix(vec3(-0.008, 0.0, 0.014), vec3(0.012, 0.004, -0.01), smoothstep(0.15, 0.85, l)));
   // 暗角

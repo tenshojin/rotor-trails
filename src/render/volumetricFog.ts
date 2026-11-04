@@ -33,6 +33,8 @@ export const VFOG = {
   hazeH: uniform(1500),
   /** 阳光（颜色 × 强度，与太阳方向光一致） */
   sun: uniform(new THREE.Color(3, 3, 3)),
+  /** 光束的强度（夜里月光的光束弱得多） */
+  beam: uniform(1),
   /** 天空光（薄雾被天空照亮的颜色） */
   amb: uniform(new THREE.Color(0.5, 0.6, 0.7)),
   /** 雾团随风飘动的偏移（米） */
@@ -213,8 +215,8 @@ export class VolumetricFogNode extends THREE.Node {
       const cam = this.camPos;
       const cosT = dot(wd, FOG.sunDir);
       // 雾滴、气溶胶以前向散射为主（g ≈ 0.7）：迎着太阳时光束最亮
-      const sunL = VFOG.sun.mul(mix(hg(cosT, 0.72), float(1 / (4 * Math.PI)), 0.15));
-      const sunH = VFOG.sun.mul(mix(hg(cosT, 0.76), float(1 / (4 * Math.PI)), 0.1));
+      const sunL = VFOG.sun.mul(VFOG.beam).mul(mix(hg(cosT, 0.72), float(1 / (4 * Math.PI)), 0.15));
+      const sunH = VFOG.sun.mul(VFOG.beam).mul(mix(hg(cosT, 0.76), float(1 / (4 * Math.PI)), 0.1));
       const hazeAt = (p: V3): F1 => VFOG.haze.mul(exp(max(p.y.sub(FOG.baseY), 0.0).div(VFOG.hazeH).negate()));
       const jit = interleavedGradientNoise(screenCoordinate.add(this.frameN.mul(5.588238)));
       // 解析雾（atmosphere.ts）的光学厚度 τ(t) = D2·t²：D 按视线两端的平均高度

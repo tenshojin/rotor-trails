@@ -40,7 +40,7 @@ function gather(world: WorldData): Lamp[] {
     const n = Math.max(3, Math.round(p.size / 7));
     for (let i = 0; i <= n; i++) {
       const t = -e + (2 * e * i) / n;
-      for (const [x, z] of [[t, -e], [t, e], [-e, t], [e, t]] as Array<[number, number]>) out.push({ pos: [p.pos[0] + x, p.pos[1] + 0.35, p.pos[2] + z], size: 0.9, color: PAD, pool: 0 });
+      for (const [x, z] of [[t, -e], [t, e], [-e, t], [e, t]] as Array<[number, number]>) out.push({ pos: [p.pos[0] + x, p.pos[1] + 0.35, p.pos[2] + z], size: 0.55, color: PAD, pool: 0 });
     }
   }
   return out;

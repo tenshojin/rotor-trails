@@ -249,7 +249,7 @@ export class Cockpit {
       if (src.name === 'cp_gauges' || src.name === 'cp_gauge_overlay' || src.name === 'cp_panelfront') {
         const tex = texture(src.map!, uv()).rgb;
         const lit = smoothstep(0.3, 0.75, dot(tex, vec3(0.3, 0.55, 0.15)));
-        glow = glow.add(tex.mul(vec3(1.0, 0.8, 0.56)).mul(lit).mul(CABIN_NIGHT).mul(src.name === 'cp_panelfront' ? 0.22 : 1.5));
+        glow = glow.add(tex.mul(vec3(1.0, 0.8, 0.56)).mul(lit).mul(CABIN_NIGHT).mul(src.name === 'cp_panelfront' ? 0.34 : 2.4));
       }
       nm.emissiveNode = glow;
     }
@@ -388,7 +388,7 @@ export class Cockpit {
   updateGlass(t: number, rain: number, airspeed: number, shield: number, exposure = 1): void {
     // 天黑以后屏幕调暗（白天要盖过阳光，夜里那个亮度会把眼睛晃花）。屏幕也经过曝光，夜里曝光开得大，要除回来
     const k = CABIN_NIGHT.value as number;
-    const b = 0.9 + (0.34 / Math.max(1, exposure) - 0.9) * k;
+    const b = 0.9 + (0.5 / Math.max(1, exposure) - 0.9) * k;
     for (const s of this.screens) s.mat.color.setScalar(b);
     this.glassUniforms.uTime.value = t;
     this.glassUniforms.uRain.value = rain;

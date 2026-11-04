@@ -237,7 +237,7 @@ function skyColorNode(U: SkyU, noise: THREE.Texture, cloudTex: THREE.TextureNode
     const moonFace = texture(noise, d.xz.mul(26.0)).r.mul(0.5).add(0.62);
     const discK = mix(float(38.0), moonFace.mul(11.0), U.night);
     const glowK = mix(float(1.2), float(0.09), U.night);
-    const wideK = mix(float(0.12), float(0.05), U.night);
+    const wideK = mix(float(0.12), float(0.018), U.night);
     col.addAssign(U.sunColor.mul(disc.mul(discK).mul(U.disc).add(pow(sd, 400.0).mul(glowK).mul(U.disc)).add(pow(sd, 24.0).mul(wideK))).mul(U.sunVis));
     // 高空卷云：万米高空的冰晶云，一缕一缕顺着高空风拉长，薄到能透出蓝天，在积云之上给天空添一层纵深
     const ciuv = d.xz.div(hh.add(0.08));
