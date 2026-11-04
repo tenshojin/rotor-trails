@@ -241,7 +241,8 @@ export function dryWall(B: PropBuilder, ctx: PropCtx, pts: Array<[number, number
       const g0 = T.heightAt(x0, z0);
       const g1 = T.heightAt(x1, z1);
       if (ctx.waterLevel !== null && Math.min(g0, g1) < ctx.waterLevel + 0.2) continue;
-      if (T.slopeAt(mx, mz) > 0.6) continue;
+      // 陡坡上没有人砌田埂（坡度值 = 1 - 法线的 y 分量，0.12 约为 28°）
+      if (T.slopeAt(mx, mz) > 0.12) continue;
       const t = (thick / 2) * (0.92 + 0.16 * hash01(mx, mz, 2));
       const tt = t * 0.72;
       const y0b = g0 - 0.35;
