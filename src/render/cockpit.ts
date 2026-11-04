@@ -183,7 +183,7 @@ export class Cockpit {
       if (src.name === 'cp_gauges' || src.name === 'cp_gauge_overlay' || src.name === 'cp_panelfront') {
         const tex = texture(src.map!, uv()).rgb;
         const lit = smoothstep(0.3, 0.75, dot(tex, vec3(0.3, 0.55, 0.15)));
-        glow = glow.add(tex.mul(vec3(1.0, 0.8, 0.56)).mul(lit).mul(CABIN_NIGHT).mul(src.name === 'cp_panelfront' ? 0.13 : 0.6));
+        glow = glow.add(tex.mul(vec3(1.0, 0.8, 0.56)).mul(lit).mul(CABIN_NIGHT).mul(src.name === 'cp_panelfront' ? 0.22 : 1.5));
       }
       nm.emissiveNode = glow;
     }

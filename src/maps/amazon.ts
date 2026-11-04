@@ -1,7 +1,7 @@
 // 地图三：巴西亚马孙雨林。茂密树冠、宽阔主河道、狭窄支流、牛轭湖、河边营地、林间空地、暴雨。
 
 import { Perlin2 } from '../core/noise';
-import { smoothstep } from '../core/math';
+import { headingOf, smoothstep } from '../core/math';
 import { makeWeather } from '../sim/weather';
 import type { Vec2 } from '../sim/terrain';
 import { PathSampler } from './routeUtil';
@@ -83,6 +83,8 @@ const S_B = TP.arcOf(400, -700);
 const CLEAR_B = bank(TP, tribHalf, S_B, 1, 55, 0);
 const FINAL: V3 = [1560, 0, -820];
 const START = bank(RP, riverHalf, RP.arcOf(-1750, 520), -1, 40, 0);
+/** 基地机头朝河：一起飞就是河面上的倒影 */
+const RIVER_AT_START = RP.at(RP.arcOf(-1750, 520));
 
 // ---------- 航点 ----------
 const CRUISE = 110;
@@ -136,12 +138,14 @@ export const AMAZON: MapDef = {
     river(TRIB, tribHalf, 4, 14);
     river(OXBOW, () => 42, 5, 16);
     river(CREEK, () => 18, 3, 12);
+    // 河岸基地：把坡削成一片临河的空地（只往下削，不把河填上）
+    b.flatten(START[0], START[2], 62, 5.0, 60, 'min');
     // 沙洲与河岸
     b.paint(0, (x, z, h) => (h > -0.5 && h < 2.5 ? 1 - smoothstep(1.2, 2.5, h) : 0));
     b.paint(0, (x, z, h) => (h > 2 && h < 8 ? 0.35 * (1 - smoothstep(4, 8, h)) * (0.5 + 0.5 * n.noise(x / 40, z / 40)) : 0));
   },
   farTerrain: base,
-  spawn: { padId: 'A-base', heading: 80 },
+  spawn: { padId: 'A-base', heading: Math.round(headingOf(RIVER_AT_START[0] - START[0], RIVER_AT_START[1] - START[2])) },
   pads: [
     { id: 'A-base', name: '河岸基地', pos: [START[0], 5.45, START[2]], size: 20, kind: 'start', style: 'ground' },
     { id: 'A-camp', name: '河湾科考营地', pos: [CAMP_A[0], 4.45, CAMP_A[2]], size: 18, kind: 'delivery', style: 'ground' },
