@@ -62,6 +62,8 @@ export class WorldView {
   private postKey = '';
   private warm = false;
   private envSize = 0;
+  /** 已经画了多少帧 */
+  frames = 0;
   /** renderer.init() 完成后才能渲染 */
   private ready = false;
   private gbT = -10;
@@ -349,6 +351,11 @@ export class WorldView {
     this.warm = on;
   }
 
+  /** 等显卡把已提交的工作（包括着色器编译）都做完；WebGL2 后端没有这个接口，直接返回 */
+  async gpuIdle(): Promise<void> {
+    await (this.renderer.backend as unknown as { device?: GPUDevice }).device?.queue.onSubmittedWorkDone();
+  }
+
   private forceAllVisible(): () => void {
     const undo: Array<[THREE.Object3D, boolean, boolean]> = [];
     this.scene.traverse((o) => {
@@ -478,6 +485,7 @@ export class WorldView {
     if (this.post) this.post.pipeline.render();
     else this.renderer.render(this.scene, cam);
     undoWarm?.();
+    this.frames++;
     this.frameStats.calls = this.renderer.info.render.drawCalls;
     this.frameStats.tris = this.renderer.info.render.triangles;
     if (this.trackGpu && !this.gpuBusy) {

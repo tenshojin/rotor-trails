@@ -305,24 +305,18 @@ export class App {
     );
   }
 
-  /** 等渲染管线全部编译完：连续几帧都流畅了才算完（后台标签页里 rAF 不走，靠定时器兜底，最多等一分钟） */
+  /**
+   * 等渲染管线全部编译完：强制全画几帧（第一帧就把所有管线提交了，体积雾等到阴影贴图建好才重建，所以多画几帧），
+   * 再等显卡把队列跑完。按帧数而不是帧时间判断，慢显卡上也不会白等；用定时器轮询，后台标签页里也能走完。
+   */
   private async warmUp(): Promise<void> {
-    this.view.setWarm(true);
+    const v = this.view;
+    v.setWarm(true);
     const t0 = performance.now();
-    let last = t0;
-    let calm = 0;
-    let n = 0;
-    while (calm < 3 && performance.now() - t0 < 60000) {
-      await new Promise((r) => {
-        requestAnimationFrame(r);
-        setTimeout(r, 1000);
-      });
-      const now = performance.now();
-      n++;
-      calm = n > 2 && now - last < 250 ? calm + 1 : 0;
-      last = now;
-    }
-    this.view.setWarm(false);
+    const target = v.frames + 6;
+    while (v.frames < target && performance.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 30));
+    v.setWarm(false);
+    await v.gpuIdle();
   }
 
   beginFlight(): void {
