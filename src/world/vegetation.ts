@@ -109,6 +109,8 @@ export function scatterTrees(map: MapDef, terrain: Heightfield, surface: Uint8Ar
         const ix = Math.round((x + terrain.half) / terrain.cell);
         const iz = Math.round((z + terrain.half) / terrain.cell);
         if (surface[(iz * res + ix) * 4 + 2] > 110) continue;
+        // A 通道：积雪（或港区的水泥地）上也不长
+        if (surface[(iz * res + ix) * 4 + 3] > 90) continue;
         const w = rule.mask ? rule.mask(x, z, h, slope) : 1;
         if (w <= 0 || rng.float() > w) continue;
         const s = rule.scale[0] + (rule.scale[1] - rule.scale[0]) * rng.float();
