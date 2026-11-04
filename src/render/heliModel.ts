@@ -185,7 +185,7 @@ export class HeliModel {
       const r = length(uv().sub(0.5)).mul(2.0);
       const rim = smoothstep(0.9, 0.97, r).mul(float(1).sub(smoothstep(0.97, 1.0, r)));
       const body = smoothstep(0.08, 0.14, r).mul(mix(0.2, 0.12, smoothstep(0.14, 0.9, r))).mul(float(1).sub(smoothstep(0.95, 1.0, r)));
-      this.discMat.colorNode = mix(vec3(0.012, 0.012, 0.014), vec3(0.79, 0.79, 0.79), rim);
+      this.discMat.colorNode = mix(vec3(0.012, 0.012, 0.014), vec3(0.79, 0.79, 0.79), rim.mul(this.rimK.mul(28.0).min(1.0)));
       // 桨尖一圈只略微显出（太亮的话从座舱里看，晴空上会横着一道白色弧线）
       this.discMat.opacityNode = body.add(rim.mul(this.rimK)).mul(materialOpacity);
     }
