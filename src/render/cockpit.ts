@@ -3,7 +3,7 @@
 // 窗玻璃使用带雨滴/水流效果的材质。模型加载失败时座舱内部为空，游戏照常可玩。
 
 import * as THREE from 'three/webgpu';
-import { abs, cameraPosition, clamp, dot, float, materialColor, max, mix, normalGeometry, normalize, positionGeometry, positionWorld, pow, select, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
+import { abs, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, clamp, dot, float, materialColor, max, mix, modelWorldMatrix, modelWorldMatrixInverse, normalGeometry, normalize, positionGeometry, positionWorld, pow, reflect, select, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4, viewportSharedTexture } from 'three/tsl';
 import { FOG } from './atmosphere';
 import { VFOG } from './volumetricFog';
 import { loadGltf } from './gltf';
@@ -18,10 +18,16 @@ const MODEL_URL = 'models/cockpit.glb';
 /** Blender 烘焙的环境光遮蔽（使用模型的第二套 UV） */
 const AO_URL = 'models/cockpit_ao.jpg';
 const DEG = Math.PI / 180;
+/** 遮光罩顶面（机体坐标）：高度、范围。风挡里映出来的主要就是它 */
+const GLARE_Y = 0.17;
+const GLARE_X = 0.62;
+const GLARE_Z: [number, number] = [-2.05, -1.5];
 
 /** 舱内补光：四面是窗的机舱里，天空和地面的光在内饰之间来回反射，背光的角落也不会全黑。
  * 环境贴图只算得到“这一点看得见多少天空”，算不到这部分反射，所以另加一项（颜色和亮度由 WorldView 按天空每帧设置）。 */
 export const CABIN_FILL = uniform(new THREE.Color(0, 0, 0));
+/** 仪表背光 0..1：天黑以后表盘刻度、面板字样从里面亮起来，屏幕调暗 */
+export const CABIN_NIGHT = uniform(0);
 
 interface Needle {
   obj: THREE.Object3D;
@@ -35,6 +41,7 @@ interface Screen {
   w: number;
   h: number;
   kind: 'vemd1' | 'vemd2' | 'ai' | 'gps' | 'ann' | 'efb';
+  mat: THREE.MeshBasicMaterial;
 }
 
 const SCREEN_SIZE: Record<Screen['kind'], [number, number]> = {
@@ -170,7 +177,15 @@ export class Cockpit {
     const dark = src.emissive.r + src.emissive.g + src.emissive.b === 0;
     if (dark && !src.name.startsWith('cp_paint') && src.metalness < 0.9) {
       const occl = ao ? texture(ao, uv(1)).r : float(0.65);
-      nm.emissiveNode = (materialColor as unknown as THREE.Node<'vec4'>).rgb.mul(CABIN_FILL).mul(occl).mul(1 - src.metalness);
+      const col = (materialColor as unknown as THREE.Node<'vec4'>).rgb;
+      let glow: THREE.Node<'vec3'> = col.mul(CABIN_FILL).mul(occl).mul(1 - src.metalness);
+      // 表盘刻度、面板字样（贴图里亮的部分）：夜里从里面亮起来，略带暖色
+      if (src.name === 'cp_gauges' || src.name === 'cp_gauge_overlay' || src.name === 'cp_panelfront') {
+        const tex = texture(src.map!, uv()).rgb;
+        const lit = smoothstep(0.3, 0.75, dot(tex, vec3(0.3, 0.55, 0.15)));
+        glow = glow.add(tex.mul(vec3(1.0, 0.8, 0.56)).mul(lit).mul(CABIN_NIGHT).mul(src.name === 'cp_panelfront' ? 0.13 : 0.6));
+      }
+      nm.emissiveNode = glow;
     }
     return nm;
   }
@@ -196,7 +211,7 @@ export class Cockpit {
     m.receiveShadow = false;
     this.mats.add(mat);
     this.textures.push(tex);
-    this.screens.push({ tex, ctx, w, h, kind });
+    this.screens.push({ tex, ctx, w, h, kind, mat });
   }
 
   private makeGlassMaterial(roof: boolean): THREE.MeshStandardNodeMaterial {
@@ -230,8 +245,33 @@ export class Cockpit {
     const dust = smoothstep(0.45, 0.85, texture(noise, p.mul(1.7)).r).mul(0.55).add(smoothstep(0.62, 0.95, texture(noise, p.mul(6.0).add(0.3)).g).mul(0.35));
     const vdir = normalize(positionWorld.sub(cameraPosition));
     const sunK = pow(max(dot(vdir, FOG.sunDir), 0.0), 10.0);
-    mat.emissiveNode = VFOG.sun.mul(dust.mul(sunK.mul(0.12).add(0.004)));
-    mat.opacityNode = clamp(w.mul(0.38).add(opacity).add(dust.mul(0.03)), 0.0, 1.0).add(GU.uShield.mul(0.08));
+    const glare = VFOG.sun.mul(dust.mul(sunK.mul(0.12).add(0.004)));
+    const alpha = clamp(w.mul(0.38).add(opacity).add(dust.mul(0.03)), 0.0, 1.0).add(GU.uShield.mul(0.08)).toVar();
+    mat.opacityNode = alpha;
+    if (roof) {
+      mat.emissiveNode = glare;
+      return mat;
+    }
+    // 风挡内侧的倒影：坐在舱里透过玻璃往外看，下半截总叠着一层遮光罩顶面的影子，天暗、外面是深色的山时最明显。
+    // 反射光线落在遮光罩这个平面上，到画面里取那一点的颜色（平面是已知的，一次采样就够）
+    const camL = modelWorldMatrixInverse.mul(vec4(cameraPosition, 1.0)).xyz;
+    const vL = normalize(positionGeometry.sub(camL)).toVar();
+    const nG = normalize(normalGeometry).toVar();
+    const nF = select(dot(nG, vL).greaterThan(0.0), nG.negate(), nG);
+    const rL = reflect(vL, nF).toVar();
+    const tq = float(GLARE_Y).sub(positionGeometry.y).div(rL.y.min(-0.02));
+    const q = positionGeometry.add(rL.mul(tq)).toVar();
+    const cq = cameraProjectionMatrix.mul(cameraViewMatrix.mul(modelWorldMatrix.mul(vec4(q, 1.0)))).toVar();
+    const uvq = vec2(cq.x.div(cq.w).mul(0.5).add(0.5), float(0.5).sub(cq.y.div(cq.w).mul(0.5)));
+    const inside = step(rL.y, -0.02)
+      .mul(float(1).sub(smoothstep(GLARE_X - 0.14, GLARE_X, abs(q.x))))
+      .mul(smoothstep(GLARE_Z[0], GLARE_Z[0] + 0.1, q.z))
+      .mul(float(1).sub(smoothstep(GLARE_Z[1] - 0.08, GLARE_Z[1], q.z)));
+    const ndv = clamp(dot(nF, vL).negate(), 0.0, 1.0);
+    const fres = float(0.05).add(float(0.95).mul(pow(float(1).sub(ndv), 5.0)));
+    const seen = viewportSharedTexture(clamp(uvq, 0.002, 0.998)).rgb;
+    // 玻璃按 alpha 混合：想叠加上 seen × 菲涅尔，发光项要除以 alpha
+    mat.emissiveNode = glare.add(seen.mul(fres).mul(inside).mul(1.35).div(alpha));
     return mat;
   }
 
@@ -268,7 +308,11 @@ export class Cockpit {
     }
   }
 
-  updateGlass(t: number, rain: number, airspeed: number, shield: number): void {
+  updateGlass(t: number, rain: number, airspeed: number, shield: number, exposure = 1): void {
+    // 天黑以后屏幕调暗（白天要盖过阳光，夜里那个亮度会把眼睛晃花）。屏幕也经过曝光，夜里曝光开得大，要除回来
+    const k = CABIN_NIGHT.value as number;
+    const b = 0.9 + (0.34 / Math.max(1, exposure) - 0.9) * k;
+    for (const s of this.screens) s.mat.color.setScalar(b);
     this.glassUniforms.uTime.value = t;
     this.glassUniforms.uRain.value = rain;
     this.glassUniforms.uFlow.value = Math.min(1, airspeed / 35);

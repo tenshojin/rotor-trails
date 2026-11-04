@@ -43,6 +43,8 @@ export class HeliModel {
   private disc: THREE.Mesh;
   private discMat: THREE.MeshBasicNodeMaterial;
   private readonly rimK = uniform(0.035);
+  /** 夜里曝光开得大，桨尖的圆环会变成天上的一道弧线：调暗（0 = 没有） */
+  rimDim = 1;
   private inCockpit = true;
   private bladeMat: THREE.MeshStandardMaterial;
   private tailDisc: THREE.Mesh;
@@ -280,7 +282,7 @@ export class HeliModel {
     if (!this.extLoaded) this.exterior.visible = !cockpit;
     this.inCockpit = cockpit;
     // 从座舱里看，桨尖那一圈在暗的山壁前会变成一道横着的亮线；肉眼其实看不到它
-    this.rimK.value = cockpit ? 0.004 : 0.035;
+    this.rimK.value = (cockpit ? 0.004 : 0.035) * this.rimDim;
     // 两侧航行灯和顶上的防撞灯离眼睛不到两米，从座舱里看会变成一大团光（真实的灯是朝外照的）；尾灯离得远，留着
     this.navLights[0].visible = !cockpit;
     this.navLights[1].visible = !cockpit;

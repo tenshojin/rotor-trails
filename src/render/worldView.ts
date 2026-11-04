@@ -8,7 +8,7 @@ import type { WorldData } from '../world/worldgen';
 import type { WeatherParams } from '../sim/weather';
 import { QUALITY, type Settings } from '../game/settings';
 import { CameraRig } from './cameraRig';
-import { CABIN_FILL, Cockpit, EYE } from './cockpit';
+import { CABIN_FILL, CABIN_NIGHT, Cockpit, EYE } from './cockpit';
 import { HeliModel } from './heliModel';
 import { loadModelLib, MODEL_FILES, type ModelLib } from './modelLib';
 import { loadDetailTextures } from './detailTextures';
@@ -23,10 +23,11 @@ import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrai
 import { makeForestTexture, makeGroundHeightTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
 import { fogMaps, VFOG } from './volumetricFog';
 import { DownwashView } from './downwash';
+import { NightLights } from './nightLights';
 import { makeReflectField } from './reflectMap';
 import { GroundCover } from './groundCover';
 import { RiverView } from './riverView';
-import { EyeAdapt } from './eyeAdapt';
+import { EYE_DEFAULT, EyeAdapt } from './eyeAdapt';
 import { clearSunMap, setSunMap } from './sunMap';
 import { sunFor, type TimeOfDay } from './timeOfDay';
 import { WET, WINDOW_LIGHT } from './wetness';
@@ -43,6 +44,7 @@ export interface FrameInfo {
   alpha: number;
 }
 
+const _cabinGlow = new THREE.Color(0.0072, 0.0052, 0.0038);
 const _cloudGrey = new THREE.Color(0.86, 0.88, 0.9);
 const _cabinWarm = new THREE.Color(1.0, 0.9, 0.76);
 const _pos = new THREE.Vector3();
@@ -104,6 +106,9 @@ export class WorldView {
   /** 人眼适应（自动曝光） */
   readonly eye = new EyeAdapt();
   private wash: DownwashView | null = null;
+  private lamps: NightLights | null = null;
+  /** 着陆灯（夜晚才放进场景：多一盏灯所有材质都要重新编译） */
+  private landing: THREE.SpotLight | null = null;
   private rivers: RiverView | null = null;
   private grass: GroundCover | null = null;
   flash = 0;
@@ -204,6 +209,7 @@ export class WorldView {
       const [az, el] = sunFor(this.world.map, tod);
       this.eye.snap();
       this.sky.setSun(az, el);
+      this.sky.setNight(tod === 'night');
     }
     // 太阳很低时远处的山也会把影子投进谷里：阴影框往太阳方向多留一些距离
     this.sun.csm.lightMargin = this.sky ? 400 + 1800 * (1 - this.sky.dayK) : 400;
@@ -260,7 +266,14 @@ export class WorldView {
     this.terrain = new TerrainView(map, world.terrain, this.terrainUniforms);
     this.scene.add(this.terrain.group);
     const [sunAz, sunEl] = sunFor(map, this.tod);
-    this.sky = new SkyDome(sunAz, sunEl, map.biome.fogTint, map.biome.grass);
+    this.sky = new SkyDome(sunAz, sunEl, map.biome.fogTint, map.biome.grass, this.tod === 'night');
+    this.eye.setMax(this.tod === 'night' ? 3.6 : EYE_DEFAULT.max);
+    if (this.tod === 'night') {
+      const l = new THREE.SpotLight(0xfff0dc, 0, 900, 0.2, 0.7, 1.7);
+      l.castShadow = false;
+      this.scene.add(l, l.target);
+      this.landing = l;
+    }
     this.sun.csm.lightMargin = 400 + 1800 * (1 - this.sky.dayK);
     setSunMap(world.terrain, this.sky.sunDir);
     this.eye.snap();
@@ -296,6 +309,8 @@ export class WorldView {
     this.scene.add(this.nav.group);
     this.wash = new DownwashView(map);
     this.scene.add(this.wash.group);
+    this.lamps = new NightLights(world);
+    this.scene.add(this.lamps.group);
     this.grass = new GroundCover(world, forestTex);
     this.scene.add(this.grass.group);
     if (map.rivers) {
@@ -326,6 +341,9 @@ export class WorldView {
     rm(this.trees?.group);
     rm(this.nav?.group);
     rm(this.wash?.group);
+    rm(this.lamps?.group);
+    rm(this.landing?.target);
+    rm(this.landing ?? undefined);
     rm(this.rivers?.group);
     rm(this.grass?.group);
     rm(this.clouds?.group);
@@ -341,6 +359,10 @@ export class WorldView {
     this.nav?.dispose();
     this.wash?.dispose();
     this.wash = null;
+    this.lamps?.dispose();
+    this.lamps = null;
+    this.landing?.dispose();
+    this.landing = null;
     this.rivers?.dispose();
     this.rivers = null;
     this.grass?.dispose();
@@ -432,11 +454,19 @@ export class WorldView {
       this.cockpit.setPilotOffset(eyeX - EYE.x);
       this.rig.update(f.dt, f.t, _pos, _quat, _vel, load, { fov: set.fov, eyeX, shake: set.shake, headMotion: set.headMotion });
       const cockpitView = this.rig.mode === 'cockpit';
+      this.heli.rimDim = this.tod === 'night' ? 0 : 1;
       this.heli.setCockpitView(cockpitView);
       // 有 Blender 外观时座舱模型（含机身外壳）在追尾视角也显示：从外面能透过玻璃看到舱内
       this.cockpit.root.visible = cockpitView || this.heli.extLoaded;
       this.cockpit.updateControls(tel.stickPitch, tel.stickRoll, tel.collective, tel.pedal);
-      this.cockpit.updateGlass(f.t, weather.rain, tel.airspeed, s.buffs.shieldActive ? 0.25 + 0.15 * Math.sin(f.t * 6) : 0);
+      this.cockpit.updateGlass(f.t, weather.rain, tel.airspeed, s.buffs.shieldActive ? 0.25 + 0.15 * Math.sin(f.t * 6) : 0, this.renderer.toneMappingExposure);
+      if (this.landing) {
+        // 机头下面的着陆灯：朝前下方，离地面越近越亮堂
+        this.landing.position.set(0, -0.9, -2.2).applyQuaternion(_quat).add(_pos);
+        this.landing.target.position.set(0, -0.3, -1).applyQuaternion(_quat).multiplyScalar(30).add(this.landing.position);
+        this.landing.target.updateMatrixWorld();
+        this.landing.intensity = 2600;
+      }
     } else if (idle) {
       cam.position.copy(idle.pos);
       cam.lookAt(idle.target);
@@ -479,18 +509,25 @@ export class WorldView {
       VFOG.amb.value.copy(FOG.color.value).multiplyScalar(0.9);
       // 舱内补光：地平线一带的天光，混一半内饰反射出来的暖色（否则座舱背光处全是天空的蓝）
       CABIN_FILL.value.copy(FOG.color.value).lerp(_cabinWarm, 0.55).multiplyScalar(0.42 * (1 - 0.35 * w.overcast));
+      // 夜里舱内只有仪表的一点余光
+      if (this.tod === 'night') CABIN_FILL.value.multiplyScalar(0.02).add(_cabinGlow);
+      FOG.glint.value = this.tod === 'night' ? 0.42 : 1;
       // 清晨：谷地与林间的晨雾（更浓、更厚）；清晨与黄昏的低空霾也更重（逆光时的光束最明显）
-      const todMist = this.tod === 'dawn' ? 1.9 : this.tod === 'dusk' ? 1.3 : 1;
+      const todMist = this.tod === 'dawn' ? 1.9 : this.tod === 'dusk' ? 1.3 : this.tod === 'night' ? 1.25 : 1;
       VFOG.mist.value = Math.min(0.012, Math.max(0.0005, 8 / Math.max(300, w.visibility)) * (world.map.biome.mist ?? 1) * (1 + 0.6 * w.rain) * todMist);
       VFOG.mistH.value = (40 + 30 * w.rain) * (this.tod === 'dawn' ? 1.3 : 1);
       VFOG.haze.value = Math.min(1e-4, 0.25 / Math.max(300, w.visibility)) * (0.6 + 0.4 * (world.map.biome.mist ?? 1)) * (this.tod === 'day' ? 1 : 1.7);
       VFOG.shade.value = 1 - Math.min(1, w.overcast * 1.4);
-      WINDOW_LIGHT.value = Math.max(this.tod === 'dusk' ? 1 : this.tod === 'dawn' ? 0.35 : 0, Math.max(0, (w.overcast - 0.6) / 0.4) * 0.45);
+      WINDOW_LIGHT.value = Math.max(this.tod === 'dusk' || this.tod === 'night' ? 1 : this.tod === 'dawn' ? 0.35 : 0, Math.max(0, (w.overcast - 0.6) / 0.4) * 0.45);
+      const lampK = this.tod === 'night' ? 1 : this.tod === 'dusk' ? 0.42 : this.tod === 'dawn' ? 0.2 : 0;
+      this.lamps?.update(Math.max(lampK, Math.max(0, (w.overcast - 0.7) / 0.3) * 0.35));
+      // 仪表背光：天越暗开得越亮
+      CABIN_NIGHT.value = this.tod === 'night' ? 1 : this.tod === 'dusk' ? 0.32 : this.tod === 'dawn' ? 0.2 : Math.max(0, (w.overcast - 0.75) / 0.25) * 0.15;
       VFOG.wind.value.x -= _w.x * f.dt;
       VFOG.wind.value.z -= _w.z * f.dt;
       // 清晨、黄昏整体更暗：曝光只补回一部分（像相机那样稍微提亮，但保留低光的气氛）
       const adapted = this.eye.update(f.dt);
-      const fixed = 1 + 0.32 * (1 - this.sky.dayK);
+      const fixed = this.tod === 'night' ? 2.8 : 1 + 0.32 * (1 - this.sky.dayK);
       this.renderer.toneMappingExposure = (1.0 - w.overcast * 0.12) * (this.settings.eyeAdapt ? adapted : fixed) + this.flash * 0.6;
       const q = QUALITY[set.quality];
       // 分层阴影：视野或宽高比变了要重新划分；每帧把各层阴影框跟随相机（内部按纹素对齐，避免闪烁）

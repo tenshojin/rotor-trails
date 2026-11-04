@@ -22,6 +22,8 @@ export const FOG = {
   baseY: uniform(0),
   /** 云层里的额外均匀雾密度 */
   cloud: uniform(0),
+  /** 水面碎光的强度（月光比阳光弱，但碎光不能跟着曝光一起放大） */
+  glint: uniform(1),
 };
 
 /** 雾的颜色与浓度（vec4：rgb = 颜色，a = 雾的比例），天空与水面等自定义材质也可以直接用。 */

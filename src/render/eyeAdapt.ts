@@ -134,6 +134,11 @@ export class EyeAdapt {
     }
   }
 
+  /** 夜里眼睛能放得更开 */
+  setMax(max: number): void {
+    this.opt.max = max;
+  }
+
   /** 每帧调用：曝光按时间常数靠向目标 */
   update(dt: number): number {
     const tau = this.target > this.value ? this.opt.tauUp : this.opt.tauDown;

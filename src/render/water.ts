@@ -177,7 +177,7 @@ export class WaterView {
       const fG = float(0.02).add(float(0.98).mul(pow(float(1).sub(VoH), 5.0)));
       const P = exp(dot(dS, dS).div(sg.mul(-2.0))).div(sg.mul(2 * Math.PI));
       const cB = Hh.y.mul(Hh.y);
-      const glint = min(fG.mul(P).div(max(Vv.y, 0.04).mul(cB).mul(cB).mul(4.0)), 42.0).toVar();
+      const glint = min(fG.mul(P).div(max(Vv.y, 0.04).mul(cB).mul(cB).mul(4.0)), 42.0).mul(FOG.glint).toVar();
       // 旋翼下洗：桨盘正下方的水面被压平，四周是一圈向外跑的急促碎浪和白沫
       const washFoam = float(0).toVar();
       If(U.wash.z.greaterThan(0.01), () => {

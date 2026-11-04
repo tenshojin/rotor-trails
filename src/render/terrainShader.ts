@@ -471,8 +471,9 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
   // 反光：山谷里背阴的岩壁被对面晒着太阳的岩壁照亮——暖色的光在阴影里来回反射，
   // 这是峡谷清晨、黄昏最好看的地方，也是阴影里不至于一片死黑的原因
   const shadeK = float(1).sub(terrainSun(positionWorld));
-  // 背对太阳的坡（自己的影子里）也一样：只有蓝天照着会发青，实际上还接着地面反上来的暖光
-  const backK = clamp(dot(normalize(normalWorld), FOG.sunDir).negate().add(0.15), 0.0, 1.0);
-  mat.emissiveNode = (res.get('col') as N<'vec3'>).mul(VFOG.sun).mul(shadeK.mul(float(1.15).sub(SKY_VIS())).mul(0.1).add(backK.mul(0.075)));
+  // 背对太阳的坡（自己的影子里）和被斜阳擦过的平地也一样：只有蓝天照着会发青，实际上还接着地面反上来、
+  // 太阳那一侧的天空洒下来的暖光
+  const backK = clamp(float(0.32).sub(dot(normalize(normalWorld), FOG.sunDir)), 0.0, 1.0);
+  mat.emissiveNode = (res.get('col') as N<'vec3'>).mul(VFOG.sun).mul(shadeK.mul(float(1.15).sub(SKY_VIS())).mul(0.1).add(backK.mul(0.085)));
   return mat;
 }
