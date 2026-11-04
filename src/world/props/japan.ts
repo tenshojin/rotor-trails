@@ -362,8 +362,25 @@ export const japanProps: Record<string, PropFn> = {
     for (let i = 0; i < n; i++) {
       const x = (i + 0.5) * sl;
       B.beginModel('pier_seg', x, deck, 0, 0, sl / 20, 1, w / 10);
-      B.box(x, deck - 0.4, 0, sl, 0.8, w, 0x8a857c, { mat: 'rough' });
-      for (const sz of [-w / 2 + 0.6, w / 2 - 0.6]) B.cyl(x, deck / 2 - 3, sz, 0.35, 0.35, deck + 6, 0x5a5550, 6, { solid: false });
+      if (d.p?.wood) {
+        // 木栈桥：横着铺的板，一块块深浅不同，下面是粗木桩
+        B.box(x, deck - 0.3, 0, sl, 0.5, w, 0x352c24, { mat: 'std' });
+        for (let k = 0; k * 0.52 < sl; k++) {
+          const px = x - sl / 2 + 0.26 + k * 0.52;
+          const v = (k * 37) % 11;
+          B.flat(px, deck - 0.03, 0, 0.47, w, v < 3 ? 0x5e5042 : v < 7 ? 0x6c5c4c : 0x54483c, 'std');
+        }
+        for (const sz of [-w / 2 + 0.3, w / 2 - 0.3]) {
+          B.box(x, deck + 0.2, sz, sl, 0.14, 0.14, 0x44382e, { mat: 'std', solid: false });
+          for (const dx of [-sl / 4, sl / 4]) {
+            B.cyl(x + dx, deck / 2 - 3, sz, 0.26, 0.3, deck + 6.6, 0x3a3028, 8, { solid: false });
+            B.box(x + dx, deck + 0.5, sz, 0.12, 1, 0.12, 0x44382e, { mat: 'std', solid: false });
+          }
+        }
+      } else {
+        B.box(x, deck - 0.4, 0, sl, 0.8, w, 0x8a857c, { mat: 'rough' });
+        for (const sz of [-w / 2 + 0.6, w / 2 - 0.6]) B.cyl(x, deck / 2 - 3, sz, 0.35, 0.35, deck + 6, 0x5a5550, 6, { solid: false });
+      }
       B.endModel();
     }
   },

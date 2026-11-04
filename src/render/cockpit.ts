@@ -341,12 +341,14 @@ export class Cockpit {
     const inside = step(rL.y, -0.02)
       .mul(float(1).sub(smoothstep(GLARE_X - 0.14, GLARE_X, abs(q.x))))
       .mul(smoothstep(GLARE_Z[0], GLARE_Z[0] + 0.1, q.z))
-      .mul(float(1).sub(smoothstep(GLARE_Z[1] - 0.08, GLARE_Z[1], q.z)));
+      .mul(float(1).sub(smoothstep(GLARE_Z[1] - 0.08, GLARE_Z[1], q.z)))
+      // 只有风挡下半截看得出：再往上是斜着看到遮光罩的边，映出来是天上一块硬边的影子
+      .mul(float(1).sub(smoothstep(0.3, 0.52, positionGeometry.y)));
     const ndv = clamp(dot(nF, vL).negate(), 0.0, 1.0);
     const fres = float(0.05).add(float(0.95).mul(pow(float(1).sub(ndv), 5.0)));
     const seen = viewportSharedTexture(clamp(uvq, 0.002, 0.998)).rgb;
     // 玻璃按 alpha 混合：想叠加上 seen × 菲涅尔，发光项要除以 alpha
-    mat.emissiveNode = glare.add(seen.mul(fres).mul(inside).mul(1.35).div(alpha));
+    mat.emissiveNode = glare.add(seen.mul(fres).mul(inside).div(alpha));
     return mat;
   }
 

@@ -287,7 +287,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
         const lay = texture(U.strataLUT, vec2(sy.sub(R.y0).div(R.y1 - R.y0), 0.5));
         const stain = texture(U.strataLUT, vec2(sy.add(9.0).sub(R.y0).div(R.y1 - R.y0), 0.5));
         const lum = dot(col, LUMW).div(Math.max(0.02, 0.2126 * U.rock.r + 0.7152 * U.rock.g + 0.0722 * U.rock.b));
-        const rc = mix(lay.rgb, stain.rgb, smoothstep(0.45, 0.8, n3).mul(0.5)).mul(clamp(lum, 0.55, 1.5));
+        const rc = mix(lay.rgb, stain.rgb, smoothstep(0.45, 0.8, n3).mul(0.5)).mul(clamp(lum, 0.68, 1.45));
         // 只有真正的崖壁才露出层线：缓坡上满山一圈圈的条纹会像等高线
         // （地图外的远景网格很粗，层线在上面像等高线，减弱一些）
         col.assign(mix(col, rc, rockW.mul(smoothstep(0.26, 0.5, mac.a)).mul(mix(float(0.4), float(1), inMap)).mul(R.tint)));
@@ -401,13 +401,13 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const rH = rA.w.mul(0.6).add(rB.w.mul(0.4)).add(rC.w.sub(0.42).mul(footC.mul(0.5)));
     // 凸处（山脊、岩棱）亮，凹处（沟、裂缝）暗；积雪处减弱
     const shade = float(1).sub(cavS.mul(0.26)).sub(cavL.mul(0.2)).add(rH.sub(0.46).mul(mix(float(0.1), float(0.7), rockK)));
-    col.mulAssign(clamp(shade, 0.5, 1.4).mul(float(1).sub(snowW.mul(0.5))).add(snowW.mul(0.5)));
+    col.mulAssign(clamp(shade, 0.66, 1.4).mul(float(1).sub(snowW.mul(0.5))).add(snowW.mul(0.5)));
     // 裂缝和岩层下面的凹处：太阳照不进去，是岩壁上最黑的地方
     const cav = cavOf(71.0, 0.41).mul(footK.mul(0.75)).add(cavOf(19.0, 0.73).mul(footC.mul(0.65))).add(cavOf(230.0, 0.0).mul(0.42));
-    col.mulAssign(float(1).sub(clamp(cav, 0.0, 1.0).mul(rockK).mul(0.46)));
+    col.mulAssign(float(1).sub(clamp(cav, 0.0, 1.0).mul(rockK).mul(0.34)));
     // 水痕：雨水顺着岩壁往下淌，留下一道道深色的竖纹（矿物、地衣），这是崖壁远看最抢眼的纹理
     const seep = texture(noise, vec2(P.x.add(P.z).mul(0.0047), P.y.mul(0.00035))).r.mul(0.62).add(texture(noise, vec2(P.x.sub(P.z).mul(0.019), P.y.mul(0.0011).add(0.3))).g.mul(0.38));
-    col.mulAssign(float(1).sub(smoothstep(0.5, 0.74, seep).mul(rockK).mul(smoothstep(0.3, 0.55, slope)).mul(0.42)));
+    col.mulAssign(float(1).sub(smoothstep(0.5, 0.74, seep).mul(rockK).mul(smoothstep(0.3, 0.55, slope)).mul(0.3)));
     // 几百米尺度的深浅与冷暖：同一种地表在大范围里也不是一个颜色（土壤、湿度、植被密度都在变）
     const big = texture(noise, P.xz.mul(0.00031).add(0.2)).r;
     const big2 = texture(noise, P.xz.mul(0.00083).add(0.6)).r;

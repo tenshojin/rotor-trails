@@ -68,7 +68,8 @@ def cluster(kind, greens, n, size_rng, width_k, twig=(70, 52, 34)):
         d.polygon(poly, fill=col + (255,))
         # 叶脉
         ca, sa = math.cos(ang), math.sin(ang)
-        d.line([(x, y), (x + ca * L * 0.9, y + sa * L * 0.9)], fill=shade(col, 0.75) + (255,), width=3)
+        if L > S * 0.06:
+            d.line([(x, y), (x + ca * L * 0.9, y + sa * L * 0.9)], fill=shade(col, 0.75) + (255,), width=3)
     return im
 
 
@@ -150,20 +151,21 @@ def birch_bark():
 
 
 atlas = Image.new('RGBA', (S * 4, S * 4), (0, 0, 0, 0))
-GREEN = [(70, 112, 48), (88, 128, 56), (60, 98, 42), (98, 136, 62)]
+GREEN = [(62, 94, 44), (76, 108, 50), (52, 82, 38), (88, 116, 56), (70, 96, 40)]
 PINE = [(46, 78, 44), (56, 90, 50), (40, 68, 40)]
 SPRUCE = [(36, 64, 44), (44, 74, 50), (30, 56, 38)]
-TROP = [(48, 104, 40), (62, 122, 46), (40, 88, 34), (74, 132, 54)]
-BIRCH = [(118, 150, 66), (132, 162, 74), (104, 138, 58)]
+TROP = [(46, 92, 40), (58, 106, 44), (38, 78, 34), (70, 116, 50), (52, 92, 34)]
+BIRCH = [(108, 134, 62), (122, 146, 70), (94, 122, 54)]
 JUNI = [(84, 104, 74), (96, 116, 82), (74, 92, 66)]
 SHRUB = [(84, 108, 60), (100, 120, 66), (72, 96, 54)]
-atlas.paste(cluster('broad', GREEN, 120, (0.07, 0.12), 0.55), (0, 0))
+# 叶子要小而多：一张卡两米多宽，叶子画大了近看就是一把绿色的纸片
+atlas.paste(cluster('broad', GREEN, 620, (0.026, 0.05), 0.55), (0, 0))
 atlas.paste(needles(PINE, 70, 0.1, 1.0), (S, 0))
 atlas.paste(spruce_branch(SPRUCE), (S * 2, 0))
-atlas.paste(cluster('tropical', TROP, 46, (0.16, 0.26), 0.42), (S * 3, 0))
-atlas.paste(cluster('birch', BIRCH, 150, (0.045, 0.07), 0.7), (0, S))
+atlas.paste(cluster('tropical', TROP, 170, (0.07, 0.13), 0.42), (S * 3, 0))
+atlas.paste(cluster('birch', BIRCH, 560, (0.02, 0.036), 0.7), (0, S))
 atlas.paste(needles(JUNI, 90, 0.055, 1.0), (S, S))
-atlas.paste(cluster('shrub', SHRUB, 140, (0.05, 0.09), 0.6), (S * 2, S))
+atlas.paste(cluster('shrub', SHRUB, 520, (0.022, 0.042), 0.6), (S * 2, S))
 atlas.paste(palm_frond(TROP), (0, S * 2))
 atlas.paste(birch_bark(), (S * 2, S * 2))
 

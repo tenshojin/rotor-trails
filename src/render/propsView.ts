@@ -55,8 +55,10 @@ function makeMaterials(detail: THREE.DataArrayTexture | null, map: MapDef): Reco
   };
   const rA = relS(46.0, 0.13);
   const rB = relS(11.0, 0.57);
+  // 贴近飞过岩拱、石柱时看得到的一层
+  const rC = relS(2.9, 0.29);
   const band = texture(noise, vec2(P.y.mul(0.021), P.x.mul(0.0007).add(P.z.mul(0.0005)))).r;
-  const mott = vec3(rn.mul(0.35).add(0.62).add(rA.w.mul(0.34)).add(rB.w.mul(0.2)).mul(band.mul(0.5).add(0.78)));
+  const mott = vec3(rn.mul(0.3).add(0.56).add(rA.w.mul(0.34)).add(rB.w.mul(0.24)).add(rC.w.mul(0.18)).mul(band.mul(0.5).add(0.78)));
   rock.colorNode = vec4(mott, 1.0);
   if (map.rockForm) {
     // 岩拱、石林和旁边的山是同一套地层：颜色按高度查同一张表
@@ -68,7 +70,7 @@ function makeMaterials(detail: THREE.DataArrayTexture | null, map: MapDef): Reco
     rock.vertexColors = false;
     rock.colorNode = vec4(texture(lut, vec2(y.sub(R.y0).div(R.y1 - R.y0), 0.5)).rgb.mul(mott.mul(0.8).add(0.1)), 1.0);
   }
-  rock.normalNode = normalize(cameraViewMatrix.mul(vec4(normalize(nW.add(rA.xyz.mul(1.1)).add(rB.xyz.mul(0.8))), 0.0)).xyz);
+  rock.normalNode = normalize(cameraViewMatrix.mul(vec4(normalize(nW.add(rA.xyz.mul(1.1)).add(rB.xyz.mul(0.9)).add(rC.xyz.mul(0.8))), 0.0)).xyz);
   const std = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
   const rough = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   const metal = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.6 });

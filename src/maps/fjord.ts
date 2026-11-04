@@ -283,7 +283,7 @@ export const FJORD_MAP: MapDef = {
     { type: 'waterfall', pos: [FARM[0] + 160, 0, FARM[2] + 40], ground: true, p: { h: 230, w: 9 } },
     { type: 'nvillage', pos: [VILLAGE[0], 0, VILLAGE[2]], ground: true, p: { r: 85, n: 16 } },
     { type: 'staveChurch', pos: [VILLAGE[0] - V_N[0] * 55, 0, VILLAGE[2] - V_N[1] * 55], rotY: 0.6, ground: true },
-    { type: 'pier', pos: [VILLAGE[0] + V_N[0] * 40, 0, VILLAGE[2] + V_N[1] * 40], rotY: -Math.atan2(V_N[1], V_N[0]), p: { len: 82, w: 6, deck: 2.4 } },
+    { type: 'pier', pos: [VILLAGE[0] + V_N[0] * 40, 0, VILLAGE[2] + V_N[1] * 40], rotY: -Math.atan2(V_N[1], V_N[0]), p: { len: 82, w: 6, deck: 2.4, wood: 1 } },
     { type: 'boathouse', pos: [VILLAGE[0] + V_N[0] * 55 + 40, 0, VILLAGE[2] + V_N[1] * 55 - 20], rotY: 0.2, ground: true },
     { type: 'fishFarm', pos: [VILLAGE[0] + V_N[0] * 260 - 120, 0, VILLAGE[2] + V_N[1] * 260], p: { n: 4, r: 14 } },
     { type: 'nvillage', pos: [HEAD[0], 0, HEAD[2]], ground: true, p: { r: 120, n: 24 } },
