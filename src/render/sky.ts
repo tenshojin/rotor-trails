@@ -98,7 +98,7 @@ function makeSkyUniforms(sunDir: THREE.Vector3, wind: THREE.Vector2) {
     flash: uniform(0),
     /** 1 = 画太阳圆盘；烘焙环境贴图时设为 0（阳光高光由方向光负责） */
     disc: uniform(1),
-    /** 1 = 体积云取自 CloudPass 的纹理（主画面）；0 = 现场步进（烘焙环境贴图时） */
+    /** 1 = 叠加 CloudPass 的体积云（主画面）；0 = 不叠加（低、中画质，烘焙环境贴图时用二维云层） */
     useTex: uniform(0),
     /** 高空卷云的浓度 0..1 */
     cirrus: uniform(0.5),
@@ -121,7 +121,7 @@ function makeSkyUniforms(sunDir: THREE.Vector3, wind: THREE.Vector2) {
 type SkyU = ReturnType<typeof makeSkyUniforms>;
 
 /** 天空颜色（线性 HDR，色调映射在后期统一做）。d：视线方向（单位向量）。 */
-function skyColorNode(U: SkyU, noise: THREE.Texture, vol: (d: THREE.Node<'vec3'>) => THREE.Node<'vec4'>, cloudTex: THREE.TextureNode) {
+function skyColorNode(U: SkyU, noise: THREE.Texture, cloudTex: THREE.TextureNode) {
   const PI_ = Math.PI;
   const preetham = Fn(([d]: [THREE.Node<'vec3'>]) => {
     const dd = vec3(d);
@@ -187,13 +187,8 @@ function skyColorNode(U: SkyU, noise: THREE.Texture, vol: (d: THREE.Node<'vec3'>
     const ciA = smoothstep(0.5, 0.78, ci0.mul(0.7).add(ci1.mul(0.3))).mul(smoothstep(0.03, 0.3, h)).mul(U.cirrus).mul(0.42).mul(float(1).sub(U.overcast)).mul(step(0.5, U.steps));
     col.assign(mix(col, U.sunColor.mul(U.sunVis.mul(0.85).add(0.1)).add(col.mul(0.25)), ciA));
     // 体积云盖在天空与太阳之上（rgb = 散射光，a = 透过率）
-    const cl = vec4(0, 0, 0, 1).toVar();
-    If(U.useTex.greaterThan(0.5), () => {
-      cl.assign(cloudTex.sample(screenUV));
-    }).Else(() => {
-      cl.assign(vol(d));
-    });
-    col.assign(col.mul(cl.a).add(cl.rgb));
+    const cl = cloudTex.sample(screenUV);
+    col.assign(mix(col, col.mul(cl.a).add(cl.rgb), U.useTex));
     col.addAssign(vec3(0.55, 0.6, 0.75).mul(U.flash));
     return col;
   })();
@@ -238,15 +233,15 @@ function volumetricClouds(U: SkyU) {
         const p = U.camPos.add(d.mul(t));
         const den = density(p).toVar();
         If(den.greaterThan(0.004), () => {
-          // 向太阳步进 4 次（步长逐次加倍，共约 900 m）
+          // 向太阳步进 4 次（步长逐次加倍，共约 900 m）。用真循环：密度函数很大，着色器里多一份就多编译几秒
           const od = float(0).toVar();
-          let stepLen = 60;
-          let off = 30;
-          for (let k = 0; k < 4; k++) {
+          const stepLen = float(60).toVar();
+          const off = float(30).toVar();
+          Loop(4, () => {
             od.addAssign(density(p.add(U.sunDir.mul(off))).mul(stepLen));
-            off += stepLen * 1.5;
-            stepLen *= 2;
-          }
+            off.addAssign(stepLen.mul(1.5));
+            stepLen.mulAssign(2.0);
+          });
           const tau = od.mul(SIGMA);
           const tSun = exp(tau.mul(-0.9));
           const tMs = float(1).div(tau.mul(0.16).add(1.0));
@@ -325,9 +320,8 @@ export class SkyDome {
     this.u.betaR.value = this.betaR;
     this.u.betaM.value = this.betaM;
     this.material = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false });
-    const vol = volumetricClouds(this.u);
-    this.clouds = new CloudPass(vol);
-    this.material.colorNode = skyColorNode(this.u, getNoiseTexture(), vol, this.clouds.tex);
+    this.clouds = new CloudPass(volumetricClouds(this.u));
+    this.material.colorNode = skyColorNode(this.u, getNoiseTexture(), this.clouds.tex);
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(9000, 64, 32), this.material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = -10;
@@ -473,12 +467,12 @@ export class SkyDome {
     this.mesh.position.copy(camPos);
   }
 
-  /** 烘焙环境贴图时：现场步进（CloudPass 的纹理是屏幕空间的），步数减少；end() 恢复 */
+  /** 烘焙环境贴图时：CloudPass 的纹理是屏幕空间的，这里改用二维云层；返回的函数用来恢复 */
   beginEnvBake(): () => void {
     const steps = this.u.steps.value;
     const tex = this.u.useTex.value;
     this.u.useTex.value = 0;
-    this.u.steps.value = Math.min(steps, 16);
+    this.u.steps.value = 0;
     this.u.disc.value = 0;
     return () => {
       this.u.useTex.value = tex;

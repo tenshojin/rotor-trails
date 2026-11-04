@@ -294,6 +294,8 @@ export class App {
     this.view.rig.yaw = 0;
     this.view.rig.pitch = DEFAULT_PITCH;
     this.state = 'ready';
+    this.ui.loading('编译着色器（第一次进入会慢一些）', 0.99);
+    await this.warmUp();
     this.hud.show(true);
     const k = (a: keyof Settings['bindings']) => keyName(this.settings.bindings[a][0]);
     this.ui.clickToStart(
@@ -301,6 +303,26 @@ export class App {
       `${cfg.tutorial ? '跟随屏幕提示一步步完成操作。' : (this.session.mission.current()?.def.title ?? '')}<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>Esc</kbd> 暂停`,
       () => this.beginFlight(),
     );
+  }
+
+  /** 等渲染管线全部编译完：连续几帧都流畅了才算完（后台标签页里 rAF 不走，靠定时器兜底，最多等一分钟） */
+  private async warmUp(): Promise<void> {
+    this.view.setWarm(true);
+    const t0 = performance.now();
+    let last = t0;
+    let calm = 0;
+    let n = 0;
+    while (calm < 3 && performance.now() - t0 < 60000) {
+      await new Promise((r) => {
+        requestAnimationFrame(r);
+        setTimeout(r, 1000);
+      });
+      const now = performance.now();
+      n++;
+      calm = n > 2 && now - last < 250 ? calm + 1 : 0;
+      last = now;
+    }
+    this.view.setWarm(false);
   }
 
   beginFlight(): void {

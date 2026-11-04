@@ -90,6 +90,8 @@ await send('Page.enable');
 await send('Runtime.enable');
 await send('Log.enable');
 await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+// preload：每次打开页面时最先执行的脚本（比如钩住 WebGPU 接口，抓取生成的着色器）
+if (cfg.preload) await send('Page.addScriptToEvaluateOnNewDocument', { source: cfg.preload });
 await send('Page.navigate', { url: cfg.url });
 const evaluate = async (expr) => {
   const res = await send('Runtime.evaluate', { expression: `(async () => { return (${expr}); })()`, awaitPromise: true, returnByValue: true });
@@ -158,7 +160,7 @@ for (const s of cfg.steps) {
   }
   if (s.eval) {
     const v = await evaluate(s.eval);
-    if (v !== undefined) console.log(`${s.label ?? 'eval'}:`, JSON.stringify(v).slice(0, 1500));
+    if (v !== undefined) console.log(`${s.label ?? 'eval'}:`, JSON.stringify(v).slice(0, s.max ?? 1500));
   }
   if (s.shot) {
     const r = await send('Page.captureScreenshot', { format: s.shot.endsWith('.jpg') ? 'jpeg' : 'png', quality: 88 });

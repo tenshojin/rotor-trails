@@ -379,7 +379,16 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
   });
   // 颜色、粗糙度、法线引用同一个计算结果（着色器里只算一次）
   const res = result();
-  mat.colorNode = vec4(res.get('col') as N<'vec3'>, 1.0);
+  // 颜色不放在 colorNode 上：three.js 为了支持带透明度的阴影，会把 colorNode 的 alpha 带进阴影通道的着色器，
+  // 这么大的地形着色器要多编译一份（一百多 KB，首次进入要多等好几秒）。这里只在建主着色器的那一刻才交出去。
+  const M = mat as unknown as { terrainColor: N<'vec4'>; colorNode: N<'vec4'> | null; setupDiffuseColor(b: THREE.NodeBuilder): void };
+  M.terrainColor = vec4(res.get('col') as N<'vec3'>, 1.0);
+  const setupDiffuse = M.setupDiffuseColor;
+  M.setupDiffuseColor = function (b) {
+    this.colorNode = this.terrainColor;
+    setupDiffuse.call(this, b);
+    this.colorNode = null;
+  };
   mat.roughnessNode = res.get('rough') as N<'float'>;
   mat.normalNode = normalize(cameraViewMatrix.mul(vec4(res.get('nb') as N<'vec3'>, 0.0)).xyz);
   mat.aoNode = res.get('ao') as N<'float'>;

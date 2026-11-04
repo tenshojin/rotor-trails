@@ -54,12 +54,14 @@ export class WorldView {
   private csmFov = 0;
   private csmAspect = 0;
   private pmrem: THREE.PMREMGenerator | null = null;
-  private envRT: THREE.RenderTarget | null = null;
+  private envRT: THREE.CubeRenderTarget | null = null;
   private envKey = '';
   private envT = -10;
   private post: Post | null = null;
   /** 当前后期管线的配置（变化时重建） */
   private postKey = '';
+  private warm = false;
+  private envSize = 0;
   /** renderer.init() 完成后才能渲染 */
   private ready = false;
   private gbT = -10;
@@ -317,21 +319,49 @@ export class WorldView {
   private updateEnv(w: WeatherParams, t: number): void {
     if (!this.sky) return;
     const key = `${w.overcast.toFixed(1)}_${w.rain.toFixed(1)}_${Math.round(Math.log(w.visibility) * 2)}_${this.settings.quality}_${this.tod}`;
-    if (key === this.envKey || t - this.envT < 2) return;
+    // 第一张环境贴图不等：从“没有环境贴图”变成“有”时所有材质都要重新编译，越早越好
+    if (key === this.envKey || (this.envRT && t - this.envT < 2)) return;
     this.envKey = key;
     this.envT = t;
     const envScene = new THREE.Scene();
     const m = new THREE.Mesh(this.sky.mesh.geometry, this.sky.material);
     envScene.add(m);
-    const old = this.envRT;
     if (!this.pmrem) return;
     // 环境贴图里不画太阳圆盘（阳光的高光由方向光负责，否则光滑表面上会出现两个太阳）
     const endBake = this.sky.beginEnvBake();
-    this.envRT = this.pmrem.fromScene(envScene, 0, 1, 10000, { size: QUALITY[this.settings.quality].envSize });
+    // 大小不变时写回同一张贴图：换一张新贴图的话，场景里所有材质都要重新编译（天气变化时会卡好几秒）
+    const size = QUALITY[this.settings.quality].envSize;
+    const old = this.envRT;
+    const keep = old && this.envSize === size ? old : null;
+    this.envRT = this.pmrem.fromScene(envScene, 0, 1, 10000, { size, renderTarget: keep });
+    this.envSize = size;
     endBake();
     this.scene.environment = this.envRT.texture;
     this.scene.environmentIntensity = 0.55;
-    old?.dispose();
+    if (old !== this.envRT) old?.dispose();
+  }
+
+  /**
+   * 预热：打开时每帧把场景里所有物体都画一遍（隐藏的也画、不做视锥剔除），把渲染管线全部编译好。
+   * 否则第一次转头、第一次飞近某种树、第一次下雨时都要现场编译，画面会卡住一两秒。
+   */
+  setWarm(on: boolean): void {
+    this.warm = on;
+  }
+
+  private forceAllVisible(): () => void {
+    const undo: Array<[THREE.Object3D, boolean, boolean]> = [];
+    this.scene.traverse((o) => {
+      undo.push([o, o.visible, o.frustumCulled]);
+      o.visible = true;
+      o.frustumCulled = false;
+    });
+    return () => {
+      for (const [o, v, c] of undo) {
+        o.visible = v;
+        o.frustumCulled = c;
+      }
+    };
   }
 
   /** 每帧渲染。session 为空时（主菜单）使用 idlePose。 */
@@ -444,8 +474,10 @@ export class WorldView {
     // 云影贴图（地面、建筑与体积雾里的云影都从这里查）
     updateCloudShadowMap(this.renderer, cp);
     if (this.sky && this.sky.u.steps.value > 0) this.sky.clouds.render(this.renderer, cam);
+    const undoWarm = this.warm ? this.forceAllVisible() : null;
     if (this.post) this.post.pipeline.render();
     else this.renderer.render(this.scene, cam);
+    undoWarm?.();
     this.frameStats.calls = this.renderer.info.render.drawCalls;
     this.frameStats.tris = this.renderer.info.render.triangles;
     if (this.trackGpu && !this.gpuBusy) {

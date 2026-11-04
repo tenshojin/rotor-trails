@@ -7,7 +7,7 @@
 // 云的密度与天空里看到的体积云是同一个函数（sky.ts 的 cloudDensity），云影跟着云一起飘。
 
 import * as THREE from 'three/webgpu';
-import { exp, float, Fn, If, max, min, smoothstep, texture, uniform, uv, vec3, vec4 } from 'three/tsl';
+import { exp, float, Fn, If, Loop, max, min, smoothstep, texture, uniform, uv, vec3, vec4 } from 'three/tsl';
 import { CLOUD, cloudDensity } from './sky';
 
 const N = 512;
@@ -33,10 +33,10 @@ material.fragmentNode = Fn(() => {
   const sy = max(CLOUD.sunDir.y, 0.05);
   const len = min(CLOUD.top.sub(CLOUD.base).div(sy), 3000.0);
   const od = float(0).toVar();
-  for (let k = 0; k < STEPS; k++) {
-    const p = vec3(xz.x, CLOUD.base, xz.y).add(CLOUD.sunDir.mul(len.mul((k + 0.5) / STEPS)));
+  Loop(STEPS, ({ i }: { i: THREE.Node<'int'> }) => {
+    const p = vec3(xz.x, CLOUD.base, xz.y).add(CLOUD.sunDir.mul(len.mul(float(i).add(0.5).div(STEPS))));
     od.addAssign(cloudDensity(p));
-  }
+  });
   return vec4(max(exp(od.mul(len).mul(-SIGMA / STEPS)), 0.08), 0, 0, 1);
 })();
 const quad = new THREE.QuadMesh(material);

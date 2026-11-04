@@ -16,8 +16,10 @@ export class CloudPass {
   /** 天空穹顶采样的纹理节点（每帧指向最新的结果） */
   readonly tex: THREE.TextureNode;
   private readonly rts: [THREE.RenderTarget, THREE.RenderTarget];
-  private readonly quads: [THREE.QuadMesh, THREE.QuadMesh];
-  private readonly mats: THREE.NodeMaterial[] = [];
+  private readonly material = new THREE.NodeMaterial();
+  private readonly quad = new THREE.QuadMesh(this.material);
+  /** 上一帧的结果（只有一个材质：着色器很大，编译一次就够，每帧换它指向的纹理） */
+  private readonly hist: THREE.TextureNode;
   private readonly camWorld = uniform(new THREE.Matrix4());
   private readonly projInv = uniform(new THREE.Matrix4());
   private readonly prevView = uniform(new THREE.Matrix4());
@@ -39,29 +41,23 @@ export class CloudPass {
     };
     this.rts = [mk('CloudA'), mk('CloudB')];
     this.tex = texture(this.rts[0].texture);
-    const build = (hist: THREE.Texture) => {
-      const m = new THREE.NodeMaterial();
-      m.name = 'CloudMarch';
-      const h = texture(hist);
-      m.fragmentNode = Fn(() => {
-        const uvN = uv();
-        const ndc = vec2(uvN.x, uvN.y.oneMinus()).mul(2.0).sub(1.0);
-        const vp = this.projInv.mul(vec4(ndc, 0.5, 1.0));
-        const vd = normalize(vp.xyz.div(vp.w));
-        const wd = normalize(this.camWorld.mul(vec4(vd, 0.0)).xyz);
-        const cl = march(wd);
-        // 云很远，重投影时只看相机转动
-        const pv = this.prevView.mul(vec4(wd, 0.0)).xyz;
-        const pc = this.prevProj.mul(vec4(pv, 1.0));
-        const pn = pc.xy.div(pc.w);
-        const puv = vec2(pn.x, pn.y.negate()).mul(0.5).add(0.5);
-        const inside = step(pv.z, 0.0).mul(step(0.0, puv.x)).mul(step(puv.x, 1.0)).mul(step(0.0, puv.y)).mul(step(puv.y, 1.0));
-        return mix(cl, h.sample(puv), float(this.history).mul(inside));
-      })();
-      this.mats.push(m);
-      return new THREE.QuadMesh(m);
-    };
-    this.quads = [build(this.rts[1].texture), build(this.rts[0].texture)];
+    this.hist = texture(this.rts[1].texture);
+    this.material.name = 'CloudMarch';
+    this.material.fragmentNode = Fn(() => {
+      const uvN = uv();
+      const ndc = vec2(uvN.x, uvN.y.oneMinus()).mul(2.0).sub(1.0);
+      const vp = this.projInv.mul(vec4(ndc, 0.5, 1.0));
+      const vd = normalize(vp.xyz.div(vp.w));
+      const wd = normalize(this.camWorld.mul(vec4(vd, 0.0)).xyz);
+      const cl = march(wd);
+      // 云很远，重投影时只看相机转动
+      const pv = this.prevView.mul(vec4(wd, 0.0)).xyz;
+      const pc = this.prevProj.mul(vec4(pv, 1.0));
+      const pn = pc.xy.div(pc.w);
+      const puv = vec2(pn.x, pn.y.negate()).mul(0.5).add(0.5);
+      const inside = step(pv.z, 0.0).mul(step(0.0, puv.x)).mul(step(puv.x, 1.0)).mul(step(0.0, puv.y)).mul(step(puv.y, 1.0));
+      return mix(cl, this.hist.sample(puv), float(this.history).mul(inside));
+    })();
   }
 
   render(r: THREE.WebGPURenderer, cam: THREE.PerspectiveCamera): void {
@@ -81,9 +77,10 @@ export class CloudPass {
     this.projInv.value.copy(cam.projectionMatrixInverse);
     this.history.value = this.warm > 0 ? 0 : HISTORY;
     if (this.warm > 0) this.warm--;
+    this.hist.value = this.rts[1 - this.cur].texture;
     const prev = r.getRenderTarget();
     r.setRenderTarget(this.rts[this.cur]);
-    this.quads[this.cur].render(r);
+    this.quad.render(r);
     r.setRenderTarget(prev);
     this.tex.value = this.rts[this.cur].texture;
     this.cur = 1 - this.cur;
@@ -93,6 +90,6 @@ export class CloudPass {
 
   dispose(): void {
     for (const rt of this.rts) rt.dispose();
-    for (const m of this.mats) m.dispose();
+    this.material.dispose();
   }
 }

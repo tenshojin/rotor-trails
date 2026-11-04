@@ -278,6 +278,10 @@ export class HeliModel {
     // Blender 外观模型从座舱里只能透过顶窗看到整流罩与旋翼，始终显示；程序外观在座舱视角时隐藏
     if (!this.extLoaded) this.exterior.visible = !cockpit;
     this.inCockpit = cockpit;
+    // 两侧航行灯和顶上的防撞灯离眼睛不到两米，从座舱里看会变成一大团光（真实的灯是朝外照的）；尾灯离得远，留着
+    this.navLights[0].visible = !cockpit;
+    this.navLights[1].visible = !cockpit;
+    this.beacon.visible = !cockpit;
   }
 
   /** rpm：旋翼转速比例（0..1），t：时间，dt：帧间隔 */

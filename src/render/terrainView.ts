@@ -264,7 +264,8 @@ export class TerrainView {
     g.setIndex(idx);
     g.computeBoundingSphere();
     const m = new THREE.Mesh(g, this.material);
-    m.receiveShadow = false;
+    // 远景本来落不进阴影范围，但开着接收阴影才能和近处地形共用一份着色器（这么大的着色器多一个变体要多编译好几秒）
+    m.receiveShadow = true;
     return m;
   }
 
