@@ -407,6 +407,7 @@ export class WorldView {
       VFOG.mist.value = Math.min(0.012, Math.max(0.0005, 8 / Math.max(300, w.visibility)) * (world.map.biome.mist ?? 1) * (1 + 0.6 * w.rain) * todMist);
       VFOG.mistH.value = (40 + 30 * w.rain) * (this.tod === 'dawn' ? 1.6 : 1);
       VFOG.haze.value = Math.min(1e-4, 0.25 / Math.max(300, w.visibility)) * (0.6 + 0.4 * (world.map.biome.mist ?? 1)) * (this.tod === 'day' ? 1 : 1.7);
+      VFOG.shade.value = 1 - Math.min(1, w.overcast * 1.4);
       VFOG.wind.value.x -= _w.x * f.dt;
       VFOG.wind.value.z -= _w.z * f.dt;
       // 清晨、黄昏整体更暗：曝光只补回一部分（像相机那样稍微提亮，但保留低光的气氛）

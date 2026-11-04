@@ -335,8 +335,8 @@ export class TreeView {
           const set: LodMeshes = { meshes: [], tinted: [] };
           for (const part of parts) {
             const m = new THREE.InstancedMesh(part.g, part.mat, list.length);
+            // 不能标成 DynamicDrawUsage：WebGPU 后端对动态缓冲每次绘制都整块重传（实测每帧 60 MB），只在重排时按版本号上传
             if (set.meshes.length) m.instanceMatrix = set.meshes[0].instanceMatrix;
-            else m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
             m.count = 0;
             m.frustumCulled = false;
             m.receiveShadow = true;
@@ -424,7 +424,11 @@ export class TreeView {
     const T = this.trees;
     const Q = this.q;
     // 细节分级距离：模型树三级（近景全细节 / 中景简化 / 远景体块），程序树两级
-    const lim2 = (this.modeled ? [Math.min(Q.near * 0.42, 260), Q.near * 1.25] : [Q.near]).map((d) => d * d);
+    // 密林（亚马孙）：树的数量是别的地图的好几倍，近景细节收得更早；远处隔一棵画一棵、放大一点，
+    // 那里地形本身已经画了树冠层，看不出少了树
+    const dense = T.count > 50000;
+    const lim2 = (this.modeled ? [Math.min(Q.near * 0.42, dense ? 170 : 260), Q.near * (dense ? 0.8 : 1.25)] : [Q.near]).map((d) => d * d);
+    const thin2 = dense ? Q.far * Q.far * 0.16 : Infinity;
     const far2 = Q.far * Q.far;
     const always2 = 300 * 300;
     const m4 = new THREE.Matrix4();
@@ -452,10 +456,12 @@ export class TreeView {
         let l = 0;
         while (l < lim2.length && d2 >= lim2[l]) l++;
         l = Math.min(l, sets.length - 1);
+        const far = d2 > thin2;
+        if (far && (i & 1) === 1) continue;
         const set = sets[l];
         const n = counts[l]++;
         q.setFromAxisAngle(up, T.rot[i]);
-        s.setScalar(T.s[i]);
+        s.setScalar(far ? T.s[i] * 1.3 : T.s[i]);
         p.set(T.x[i], T.y[i], T.z[i]);
         m4.compose(p, q, s);
         set.meshes[0].setMatrixAt(n, m4);
@@ -469,8 +475,17 @@ export class TreeView {
           m.count = counts[l];
           m.castShadow = Q.shadows && l < shadowLods;
         }
-        set.meshes[0].instanceMatrix.needsUpdate = true;
-        for (const m of set.tinted) if (m.instanceColor) m.instanceColor.needsUpdate = true;
+        // 只上传用到的部分（缓冲按整张地图这种树的总数分配，大多数时候只用一小段）
+        const im = set.meshes[0].instanceMatrix;
+        im.clearUpdateRanges();
+        im.addUpdateRange(0, counts[l] * 16);
+        im.needsUpdate = true;
+        for (const m of set.tinted) {
+          if (!m.instanceColor) continue;
+          m.instanceColor.clearUpdateRanges();
+          m.instanceColor.addUpdateRange(0, counts[l] * 3);
+          m.instanceColor.needsUpdate = true;
+        }
       });
     });
   }

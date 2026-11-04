@@ -265,6 +265,7 @@ export class VolumetricFogNode extends THREE.Node {
       // 解析雾里朝太阳一侧的散射（与 atmosphere.ts 的 fogColorFactor 相同）；天空不受场景雾影响，不扣
       const F = float(1).sub(exp(D2.negate().mul(dEnd).mul(dEnd)));
       const lobe = max((FOG.sunColor as unknown as V3).sub(FOG.color as unknown as V3), vec3(0.0)).mul(pow(max(cosT, 0.0), 6.0)).mul(F);
+      // 阴天没有阳光可以扣：解析雾里朝阳的那部分本来就很弱，再按云影扣会把雾扣成黑的
       const shade = select(sky, float(0.0), VFOG.shade);
       return vec4(Lm.add(Lh).sub(lobe.mul(S).mul(shade)), Tm);
     });
