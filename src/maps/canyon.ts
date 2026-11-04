@@ -196,7 +196,7 @@ function mesa(x: number, z: number, cx: number, cz: number, r: number, top: numb
 }
 
 const MESA: V3 = [1380, 452, -1640];
-const ALT = (s: number) => floorAt(s) + 62;
+const ALT = (s: number) => floorAt(s) + 76;
 const LOW = (s: number) => floorAt(s) + 32;
 
 // ---------- 航点 ----------

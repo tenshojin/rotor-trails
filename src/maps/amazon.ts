@@ -98,7 +98,7 @@ const NODES: RouteNodeDef[] = [
   { id: 'a-up', pos: [START[0], 78, START[2]], radius: 40, speed: 10, label: '垂直爬升离开营地' },
   { id: 'a-up2', pos: [CLEAR_B[0], 95, CLEAR_B[2]], radius: 35, speed: 8, label: '垂直爬升出空地' },
   { id: 'a-up1', pos: [CAMP_A[0], 90, CAMP_A[2]], radius: 40, speed: 10, label: '爬升离开营地' },
-  { id: 'a-tin', pos: [tribNodes[0].pos[0], 75, tribNodes[0].pos[2]], radius: 35, speed: 8, label: '下降进入支流' },
+  { id: 'a-tin', pos: [tribNodes[0].pos[0], 82, tribNodes[0].pos[2]], radius: 35, speed: 8, label: '下降进入支流' },
   ...riverNodes,
   { id: 'a-c1', pos: [-1250, CRUISE + 10, 380], radius: 70, speed: 40, label: '林冠上空', autoAlt: 30 },
   { id: 'a-c2', pos: [-850, CRUISE + 10, 300], radius: 70, speed: 40, label: '林冠上空', checkpoint: true, autoAlt: 30 },

@@ -46,7 +46,7 @@ const CLOUD_SIGMA = 0.03;
  * 零散的小积云和几团高耸的浓积云，而不是铺满一层一样大的棉花。
  * 再乘高度轮廓（底平、顶圆）、三维 Perlin-Worley 形状（两个尺度，单朵云有大有小），最后用高频 Worley 侵蚀边缘。
  */
-export function cloudDensity(p: THREE.Node<'vec3'>): THREE.Node<'float'> {
+export function cloudDensity(p: THREE.Node<'vec3'>, fineDetail = false): THREE.Node<'float'> {
   const noise3 = getCloudNoise3D();
   const noise2 = getNoiseTexture();
   const span = CLOUD.top.sub(CLOUD.base);
@@ -70,9 +70,14 @@ export function cloudDensity(p: THREE.Node<'vec3'>): THREE.Node<'float'> {
   const base = clamp(d0.sub(th).div(float(1).sub(th)), 0.0, 1.0);
   // 高频 Worley 侵蚀边缘（越靠云边侵蚀越多），底部的侵蚀更强，显出絮状；再叠一层更细的，云边才有“菜花”的小疙瘩
   const det = texture3D(noise3, uvw.mul(4.3).add(0.21)).level(float(0));
-  const fine = texture3D(noise3, uvw.mul(13.7).add(0.57)).level(float(0));
-  const ero = mix(det.g, det.b, hn).mul(0.5).add(fine.g.mul(0.2)).mul(float(1).sub(base.mul(0.8)));
-  return clamp(base.mul(1.15).sub(ero.mul(0.62)), 0.0, 1.0).mul(1.6);
+  let ero: THREE.Node<'float'> = mix(det.g, det.b, hn).mul(0.5);
+  if (fineDetail) {
+    // 细节只在视线方向上算：云边一小团一小团的疙瘩，飞近了云才不是一块糊的。往太阳方向的采样不用（看不出来，却是开销的大头）
+    const fine = texture3D(noise3, uvw.mul(13.7).add(0.57)).level(float(0));
+    const tiny = texture3D(noise3, uvw.mul(41.0).add(0.31)).level(float(0));
+    ero = ero.add(fine.g.mul(0.26)).add(tiny.g.mul(0.12));
+  } else ero = ero.add(0.14);
+  return clamp(base.mul(1.18).sub(ero.mul(float(1).sub(base.mul(0.8))).mul(0.72)), 0.0, 1.0).mul(1.6);
 }
 
 /** 天空着色用的 uniform 节点（CPU 端每帧更新 .value） */
@@ -205,7 +210,8 @@ function skyColorNode(U: SkyU, noise: THREE.Texture, cloudTex: THREE.TextureNode
     // 低能见度：地平线附近被雾霾吞没
     col.assign(mix(col, U.haze, U.hazeK.mul(float(1).sub(smoothstep(0.0, 0.35, h)))));
     // 地平线以下（远景地形之外）
-    col.assign(mix(col, U.ground, float(1).sub(smoothstep(-0.18, 0.0, h))));
+    // （贴着地平线的那一段是雾：飞得高时远景地形到头之后，看到的应该是一层霾，不是一条土色的带子）
+    col.assign(mix(col, mix(U.fogCol, U.ground, smoothstep(-0.03, -0.2, h)), float(1).sub(smoothstep(-0.18, 0.0, h))));
     const sd = max(dot(d, U.sunDir), 0.0);
     // 云层（平面投影，地平线处变薄）
     const hh = max(h, 0.0);
@@ -286,7 +292,7 @@ function volumetricClouds(U: SkyU) {
         const t = t0.add(len.mul(pow(s, 1.7)));
         const dt = len.mul(1.7).mul(pow(s, 0.7)).div(U.steps).add(1.0);
         const p = U.camPos.add(d.mul(t));
-        const den = density(p).toVar();
+        const den = density(p, true).toVar();
         If(den.greaterThan(0.004), () => {
           // 向太阳步进 4 次（步长逐次加倍，共约 900 m）。用真循环：密度函数很大，着色器里多一份就多编译几秒
           const od = float(0).toVar();
