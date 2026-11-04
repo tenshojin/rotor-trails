@@ -58,11 +58,15 @@ const REFINE = 3;
 const FIELD_STEPS = 20;
 const FIELD_REFINE = 3;
 
-/** 场景深度：同一个水面的所有采样共用一份拷贝（深度格式要和渲染通道一致） */
+let depthShared: THREE.TextureNode | null = null;
+
+/** 场景深度：水面、河流、烟幕共用一份拷贝（每多一份，渲染通道就要多中断一次；深度格式要和渲染通道一致） */
 export function sceneDepthNode(reversedDepth: boolean): THREE.TextureNode {
+  if (depthShared) return depthShared;
   const depthCopy = new THREE.DepthTexture(1, 1);
   if (reversedDepth) depthCopy.type = THREE.FloatType;
-  return (viewportDepthTexture as unknown as (u: N<'vec2'>, l: null, d: THREE.DepthTexture) => THREE.TextureNode)(screenUV, null, depthCopy);
+  depthShared = (viewportDepthTexture as unknown as (u: N<'vec2'>, l: null, d: THREE.DepthTexture) => THREE.TextureNode)(screenUV, null, depthCopy);
+  return depthShared;
 }
 
 /** 从 P0 沿 Rd 在地形高度图里走，返回 vec4(那里的颜色, 碰到了吗) */
@@ -174,17 +178,22 @@ export function screenMirror(nW: N<'vec3'>, foam: N<'float'>, depthNode: THREE.T
       });
     }
     const wFar = far.a.mul(live).mul(float(1).sub(k));
-    // spread：波浪把倒影上下拉开多少（屏幕比例）。三点采样 + 每像素抖动，时间抗锯齿再把它抹平
-    const jit = interleavedGradientNoise(screenCoordinate.xy).sub(0.5).mul(0.66);
+    // spread：波浪把倒影上下拉开多少（屏幕比例）。几点采样 + 每像素抖动（逐帧变化），时间抗锯齿再把它抹平
+    const fr = (sky.u.frame as unknown as N<'float'>).mul(5.588238);
+    const jit = interleavedGradientNoise(screenCoordinate.xy.add(fr)).sub(0.5).mul(0.66);
+    const jx = interleavedGradientNoise(screenCoordinate.yx.add(fr.mul(1.7)).add(23.0)).sub(0.5);
     const sp = spread.toVar();
     const offs = [-0.66, 0, 0.66];
     const tap = (uvq: N<'vec2'>, o: number) => vec2(uvq.x, clamp(uvq.y.add(jit.add(o).mul(sp)), 0.002, 0.998));
     const seen = offs.map((o) => viewportSharedTexture(tap(huv, o)).rgb).reduce((a, b) => a.add(b)).mul(1 / 3);
+    // 云的倒影：左右也要散开一点，否则竖着抹开的云是一块块直边的方块
+    const cloudTap = (uvq: N<'vec2'>, ox: number, oy: number) => vec2(clamp(uvq.x.add(jx.add(ox).mul(sp).mul(0.62)), 0.0, 1.0), clamp(uvq.y.add(jit.add(oy).mul(sp)), 0.002, 0.998));
     // 天空：光线走到无穷远落在画面的哪里（云只有画面里才有）
     const cS = cameraProjectionMatrix.mul(cameraViewMatrix.mul(vec4(Rd, 0.0))).toVar();
     const uvS = toUV(cS).toVar();
     const eS = min(min(uvS.x, float(1).sub(uvS.x)), min(uvS.y, float(1).sub(uvS.y)));
-    const skyRgb = sky.reflectedSky(Rd, offs.map((o) => tap(vec2(clamp(uvS.x, 0.0, 1.0), clamp(uvS.y, 0.0, 1.0)), o)), step(0.01, cS.w).mul(smoothstep(0.0, 0.12, eS)));
+    const uvC = vec2(clamp(uvS.x, 0.0, 1.0), clamp(uvS.y, 0.0, 1.0)).toVar();
+    const skyRgb = sky.reflectedSky(Rd, [[-0.7, -0.66], [0.7, -0.33], [0, 0], [-0.7, 0.33], [0.7, 0.66]].map(([ox, oy]) => cloudTap(uvC, ox, oy)), step(0.01, cS.w).mul(smoothstep(0.0, 0.12, eS)));
     const wHit = k.add(wFar).toVar();
     const wSky = max(float(1).sub(wHit), 0.0).mul(live);
     const total = wHit.add(wSky).toVar();

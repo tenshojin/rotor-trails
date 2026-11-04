@@ -12,7 +12,7 @@
 // 只能看到屏幕上可见的物体；屏幕外的信息由环境贴图补足。
 
 import * as THREE from 'three/webgpu';
-import { clamp, convertToTexture, screenSize, Fn, diffuseColor, dot, float, int, length, max, min, luminance, metalness, mix, mrt, normalView, output, packNormalToRGB, pass, perspectiveDepthToViewZ, reference, renderOutput, roughness, sample, screenUV, smoothstep, unpackRGBToNormal, vec2, vec3, vec4, velocity, vibrance } from 'three/tsl';
+import { clamp, convertToTexture, screenSize, Fn, diffuseColor, dot, float, int, length, max, min, luminance, metalness, mix, mrt, normalView, output, packNormalToRGB, pass, perspectiveDepthToViewZ, reference, renderOutput, roughness, sample, screenUV, smoothstep, uniform, unpackRGBToNormal, vec2, vec3, vec4, velocity, vibrance } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
@@ -67,6 +67,9 @@ export interface Post {
   fog: VolumetricFogNode | null;
   dispose(): void;
 }
+
+/** 月光下人眼看不出多少颜色（0 = 白天，1 = 夜晚）：暗处往蓝灰靠，灯光和屏幕够亮，保持原色 */
+export const SCOTOPIC = uniform(0);
 
 /** 各档光线追踪参数：SSGI 切片 × 步数、SSR 质量、是否开接触阴影 */
 const RT = {
@@ -247,6 +250,7 @@ function grade(c: THREE.Node<'vec4'>, dbg: PostDebug): THREE.Node<'vec4'> {
   const curved = mix(rgb0, smoothstep(0.0, 1.0, rgb0), contrast - 1.0).add(s.sub(rgb0).mul(0.5));
   let rgb: THREE.Node<'vec3'> = vibrance(clamp(curved, 0.0, 1.0), float(vib));
   const l = luminance(rgb);
+  rgb = mix(rgb, vec3(l).mul(vec3(0.84, 0.94, 1.16)), float(1).sub(smoothstep(0.08, 0.42, l)).mul(SCOTOPIC).mul(0.68));
   // 分离色调：高光偏暖、暗部偏冷（幅度很小）
   rgb = rgb.add(mix(vec3(-0.008, 0.0, 0.014), vec3(0.012, 0.004, -0.01), smoothstep(0.15, 0.85, l)));
   // 暗角

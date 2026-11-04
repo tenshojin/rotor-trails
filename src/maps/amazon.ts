@@ -126,23 +126,28 @@ export const AMAZON: MapDef = {
   waterLevel: 0,
   buildTerrain(b) {
     b.fill(base);
-    const river = (p: Vec2[], half: (s: number) => number, depth: number, bankW: number) =>
-      b.applySpline(p, 260, (h, d, s) => {
+    // 雨林的河不是挖出来的水渠：岸线弯弯曲曲，贴水是一道矮矮的泥岸，往外是高出水面几米的河漫滩，
+    // 树一直长到河边；过了河漫滩才慢慢接回丘陵
+    const river = (p: Vec2[], half: (s: number) => number, depth: number, bankW: number, plain: number) =>
+      b.applySpline(p, 150 + plain, (h, d, s, x, z) => {
         const w = half(s);
-        if (d > w + bankW) return h;
-        if (d < w) return Math.min(h, -depth * (1 - Math.pow(d / w, 2)) - 0.5);
-        const t = (d - w) / bankW;
-        return Math.min(h, -0.5 + (h + 0.5) * smoothstep(0, 1, t));
+        const dn = Math.max(0, d + 11 * n.noise(x / 66, z / 66) + 5 * n2.noise(x / 23, z / 23));
+        if (dn < w) return Math.min(h, -depth * (1 - Math.pow(dn / w, 2)) - 0.5);
+        const e = dn - w;
+        if (e > plain) return h;
+        const flat = 4.5 + 1.4 * n.noise(x / 90 + 7, z / 90);
+        const shore = -0.5 + (flat + 0.5) * smoothstep(0, 1, e / bankW);
+        return Math.min(h, shore + (h - shore) * smoothstep(plain * 0.4, plain, e));
       });
-    river(RIVER, riverHalf, 9, 26);
-    river(TRIB, tribHalf, 4, 14);
-    river(OXBOW, () => 42, 5, 16);
-    river(CREEK, () => 18, 3, 12);
+    river(RIVER, riverHalf, 9, 10, 230);
+    river(TRIB, tribHalf, 4, 7, 130);
+    river(OXBOW, () => 42, 5, 8, 120);
+    river(CREEK, () => 18, 3, 6, 90);
     // 河岸基地：把坡削成一片临河的空地（只往下削，不把河填上）
     b.flatten(START[0], START[2], 62, 5.0, 60, 'min');
     // 沙洲与河岸
-    b.paint(0, (x, z, h) => (h > -0.5 && h < 2.5 ? 1 - smoothstep(1.2, 2.5, h) : 0));
-    b.paint(0, (x, z, h) => (h > 2 && h < 8 ? 0.35 * (1 - smoothstep(4, 8, h)) * (0.5 + 0.5 * n.noise(x / 40, z / 40)) : 0));
+    b.paint(0, (x, z, h) => (h > -0.5 && h < 2.2 ? 1 - smoothstep(1.0, 2.2, h) : 0));
+    b.paint(0, (x, z, h) => (h > 1.6 && h < 4.5 ? 0.3 * (1 - smoothstep(2.6, 4.5, h)) * (0.5 + 0.5 * n.noise(x / 40, z / 40)) : 0));
   },
   farTerrain: base,
   spawn: { padId: 'A-base', heading: Math.round(headingOf(RIVER_AT_START[0] - START[0], RIVER_AT_START[1] - START[2])) },
@@ -181,6 +186,9 @@ export const AMAZON: MapDef = {
     { type: 'palm', density: 520, scale: [0.8, 1.35], minH: 1.2, maxH: 12, maxSlope: 0.7 },
     { type: 'broadleaf', density: 1500, scale: [0.9, 1.5], minH: 1.2, maxH: 40, maxSlope: 0.8 },
     { type: 'shrub', density: 1500, scale: [1.0, 1.9], minH: 1.0, maxH: 30, maxSlope: 0.9 },
+    // 河漫滩上的灌丛：河边见光，林缘比林子里面密得多
+    { type: 'shrub', density: 4600, scale: [0.9, 1.8], minH: 1.0, maxH: 7.5, maxSlope: 0.9 },
+    { type: 'palm', density: 620, scale: [0.7, 1.15], minH: 1.0, maxH: 7.5, maxSlope: 0.7 },
   ],
   clearings: [
     [START[0], START[2], 70],
@@ -289,7 +297,7 @@ export const AMAZON: MapDef = {
   ],
   defaultWeather: 'clear',
   biome: {
-    sand: 0xc9b08a,
+    sand: 0xb09876,
     grass: 0x46622f,
     grass2: 0x566e35,
     dirt: 0x7a5a3a,
@@ -297,7 +305,7 @@ export const AMAZON: MapDef = {
     rock2: 0x4e463c,
     snow: 0xf0f0f0,
     strata: 0,
-    beachTop: 2.2,
+    beachTop: 1.5,
     snowLine: 9999,
     rockSlope: 0.55,
     waterDeep: 0x4a3e22,

@@ -7,8 +7,8 @@
 import * as THREE from 'three/webgpu';
 import type { MapDef, ObjectiveDef, V3 } from '../maps/types';
 import type { GameSession } from '../sim/session';
-import { FOG } from './atmosphere';
 import { getGlowTexture } from './propsView';
+import { SmokePlume } from './smokePlume';
 
 /** 烟幕的一团：柔和的絮状圆斑 */
 let smokeTex: THREE.CanvasTexture | null = null;
@@ -36,11 +36,6 @@ export function getSmokeTexture(): THREE.CanvasTexture {
   return smokeTex;
 }
 
-const SMOKE_N = 64;
-const SMOKE_LIFE = 19;
-const _smokeBase = new THREE.Color(1.0, 0.46, 0.14);
-const _smokeTop = new THREE.Color();
-const _c = new THREE.Color();
 const _wind = new THREE.Vector3();
 
 /**
@@ -58,9 +53,11 @@ export class NavView {
   /** 引导灯（停机坪四角、悬停区一圈、巡查点） */
   private lamps: THREE.Sprite[] = [];
   private lampOn = 0;
-  private smoke: Array<{ sp: THREE.Sprite; age: number; seed: number; pos: THREE.Vector3 }> = [];
+  private plume: SmokePlume;
   private smokeSrc = new THREE.Vector3();
   private smokeOn = false;
+  /** 烟罐口的火光（天黑时看得见）0..1 */
+  flare = 0;
   private lastT = 0;
   private pickups = new Map<string, { obj: THREE.Group; kind: string; base: THREE.Vector3; led: THREE.Sprite; rotors: THREE.Mesh[] }>();
   private mats: THREE.Material[] = [];
@@ -69,7 +66,7 @@ export class NavView {
   /** 三维航线标记（光环、箭头） */
   guides = false;
 
-  constructor(map: MapDef) {
+  constructor(map: MapDef, reversedDepth: boolean) {
     const ringGeo = new THREE.TorusGeometry(1, 0.035, 8, 48);
     this.geos.push(ringGeo);
     for (let i = 0; i < 3; i++) {
@@ -110,16 +107,8 @@ export class NavView {
       this.lamps.push(sp);
       this.group.add(sp);
     }
-    const st = getSmokeTexture();
-    for (let i = 0; i < SMOKE_N; i++) {
-      const m = new THREE.SpriteMaterial({ map: st, transparent: true, depthWrite: false, opacity: 0, rotation: i * 2.399 });
-      this.mats.push(m);
-      const sp = new THREE.Sprite(m);
-      sp.visible = false;
-      sp.renderOrder = 6;
-      this.group.add(sp);
-      this.smoke.push({ sp, age: (i / SMOKE_N) * SMOKE_LIFE, seed: (i * 0.618) % 1, pos: new THREE.Vector3() });
-    }
+    this.plume = new SmokePlume(reversedDepth);
+    this.group.add(this.plume.mesh);
     this.buildPickups(map);
   }
 
@@ -167,7 +156,7 @@ export class NavView {
     }
   }
 
-  update(s: GameSession, t: number, camPos: THREE.Vector3): void {
+  update(s: GameSession, t: number, camPos: THREE.Vector3, cam: THREE.Camera): void {
     const nav = s.nav.info;
     const show = this.visible && s.state === 'running';
     const guides = show && this.guides;
@@ -228,7 +217,7 @@ export class NavView {
     this.smokeOn = false;
     if (show && cur) this.placeObjective(cur.def, cur.visited, s, t, camPos);
     for (let i = this.lampOn; i < this.lamps.length; i++) this.lamps[i].visible = false;
-    this.updateSmoke(dt, s, camPos);
+    this.updateSmoke(dt, s, cam);
     // 补给无人机
     for (const [id, p] of this.pickups) {
       p.obj.visible = !s.pickupsTaken.has(id);
@@ -273,7 +262,10 @@ export class NavView {
         this.lamp(px + (a * c + b * n) * r, py + 0.5, pz + (-a * n + b * c) * r, camPos, i === k ? 1 : 0.28);
       });
     } else if (def.kind === 'hover') {
-      this.smokeSrc.set(def.center[0] + def.radius * 1.5, def.center[1] + 0.4, def.center[2] + def.radius * 1.5);
+      // 烟罐放在地上（悬停点本身可能在半空）
+      const sx = def.center[0] + def.radius * 1.5;
+      const sz = def.center[2] + def.radius * 1.5;
+      this.smokeSrc.set(sx, Math.max(s.world.terrain.heightAt(sx, sz), s.world.map.waterLevel ?? -1e9) + 0.4, sz);
       this.smokeOn = true;
       const k = Math.floor(t * 4) % 8;
       for (let i = 0; i < 8; i++) {
@@ -288,37 +280,14 @@ export class NavView {
     }
   }
 
-  /** 烟幕：一团团从地面升起、随风飘散，近处是橙色，往上淡成灰白。离得太远就不更新 */
-  private updateSmoke(dt: number, s: GameSession, camPos: THREE.Vector3): void {
-    const far = this.smokeOn ? camPos.distanceTo(this.smokeSrc) : Infinity;
-    if (far > 7000) {
-      for (const p of this.smoke) p.sp.visible = false;
-      return;
-    }
+  /** 烟幕：从地面升起、随风飘散（见 smokePlume.ts） */
+  private updateSmoke(dt: number, s: GameSession, cam: THREE.Camera): void {
     s.wind.sample(this.smokeSrc.x, this.smokeSrc.y + 15, this.smokeSrc.z, s.t, _wind);
-    const wx = _wind.x;
-    const wz = _wind.z;
-    _smokeTop.copy(FOG.color.value).multiplyScalar(0.95);
-    for (const p of this.smoke) {
-      p.age = (p.age + dt) % SMOKE_LIFE;
-      const k = p.age / SMOKE_LIFE;
-      // 位置只取决于“出生多久”：刚出来时喷得快，之后随风走，越往上越散
-      const sway = k * 5;
-      p.pos.set(
-        this.smokeSrc.x + wx * p.age * (0.25 + 0.5 * k) + Math.sin(p.seed * 40 + p.age * 0.7) * sway,
-        this.smokeSrc.y + 4.2 * p.age * (1 - 0.35 * k),
-        this.smokeSrc.z + wz * p.age * (0.25 + 0.5 * k) + Math.cos(p.seed * 31 + p.age * 0.6) * sway,
-      );
-      p.sp.position.copy(p.pos);
-      p.sp.visible = true;
-      p.sp.scale.setScalar(1.5 + k * 13 + p.seed * 1.6);
-      const m = p.sp.material as THREE.SpriteMaterial;
-      m.color.copy(_c.copy(_smokeBase).lerp(_smokeTop, Math.min(1, k * 2.2)));
-      m.opacity = Math.min(1, p.age / 0.5) * (1 - k) ** 1.7 * 0.5;
-    }
+    this.plume.update(dt, this.smokeOn ? this.smokeSrc : null, _wind.x, _wind.z, cam, this.flare);
   }
 
   dispose(): void {
+    this.plume.dispose();
     for (const g of this.geos) g.dispose();
     for (const m of this.mats) m.dispose();
     for (const p of this.pickups.values()) {

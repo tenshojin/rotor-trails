@@ -158,10 +158,15 @@ function vnoise(u: number, v: number, period: number, seed: number): number {
 }
 
 let relief: THREE.DataTexture | null = null;
+let reliefLoading: Promise<void> | null = null;
 
 /** 加载岩石浮雕图（tools/prep_relief.py 烘焙）。地形和岩石道具建材质之前调用 */
-export async function loadRockRelief(): Promise<void> {
-  if (relief) return;
+export function loadRockRelief(): Promise<void> {
+  reliefLoading ??= fetchRockRelief();
+  return reliefLoading;
+}
+
+async function fetchRockRelief(): Promise<void> {
   try {
     const r = await fetch(new URL('textures/rock_relief.webp', document.baseURI).href);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);

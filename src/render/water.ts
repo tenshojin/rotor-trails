@@ -172,7 +172,9 @@ export class WaterView {
         texture(noise, p.mul(0.023).add(vec2(wd.y, wd.x).mul(t).mul(0.026)).add(0.7)).a.sub(texture(noise, p.mul(0.031).sub(vec2(wd.y, wd.x).mul(t).mul(0.037)).add(0.2)).a),
       ).mul(float(1).sub(smoothstep(0.06, 0.5, foot)).mul(0.62)).mul(s2.sqrt().mul(3.0));
       const dS = need.sub(g).sub(micro);
-      const sg = max(s2.mul(float(1).sub(drawn.mul(amp.mul(amp).min(1.0)))), 0.0009).add(foot.mul(foot).mul(0.0002)).toVar();
+      // （像素覆盖的范围再大，坡度的方差也就是海面本身那么大：不封顶的话几十公里外的海面朝哪个方向都反光，
+      // 海天线上是一条发亮的带子）
+      const sg = max(s2.mul(float(1).sub(drawn.mul(amp.mul(amp).min(1.0)))), 0.0009).add(min(foot.mul(foot).mul(0.0002), 0.01)).toVar();
       const VoH = clamp(dot(Vv, Hh), 0.0, 1.0);
       const fG = float(0.02).add(float(0.98).mul(pow(float(1).sub(VoH), 5.0)));
       const P = exp(dot(dS, dS).div(sg.mul(-2.0))).div(sg.mul(2 * Math.PI));

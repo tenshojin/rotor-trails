@@ -301,7 +301,7 @@ export class PropsView {
       const sx = -dz / l;
       const sz = dx / l;
       const k = i / (line.length - 1);
-      const width = w * (0.45 + 0.75 * k);
+      const width = w * (1.1 + 1.5 * k);
       if (i) along += Math.hypot(px - line[i - 1][0], T.heightAt(px, pz) - T.heightAt(line[i - 1][0], line[i - 1][1]), pz - line[i - 1][1]);
       for (let c = 0; c <= COLS; c++) {
         const u = c / COLS;
@@ -331,8 +331,15 @@ export class PropsView {
     // 水流：横向细、纵向长的噪声，向下滚动；两层速度不同，看上去不是一整块在平移
     const s1 = texture(noise, vec2(U.x.mul(0.7).add(0.13), U.y.mul(0.0035).sub(fall))).g;
     const s2 = texture(noise, vec2(U.x.mul(1.6).add(0.41), U.y.mul(0.0085).sub(fall.mul(1.7)))).g;
-    const edge = smoothstep(0.0, 0.32, U.x).mul(smoothstep(1.0, 0.68, U.x));
-    const flow = smoothstep(0.34, 0.66, s1.mul(0.6).add(s2.mul(0.4)));
+    // 水帘沿程忽宽忽窄、左右摆：撞上岩架就散开，过了又收拢，不是一根粗细均匀的白线
+    const wide = texture(noise, vec2(0.37, U.y.mul(0.0019))).r;
+    const half = mix(float(0.1), float(0.5), smoothstep(0.34, 0.62, wide));
+    const mid = texture(noise, vec2(0.71, U.y.mul(0.0013))).r.sub(0.5).mul(0.5).add(0.5);
+    const off = U.x.sub(mid).abs();
+    const edge = float(1).sub(smoothstep(half.mul(0.45), half, off)).mul(smoothstep(0.0, 0.12, U.x)).mul(smoothstep(1.0, 0.88, U.x));
+    // 分成几股，股与股之间露出岩壁
+    const strand = smoothstep(0.36, 0.58, texture(noise, vec2(U.x.mul(1.9).add(0.2), U.y.mul(0.0012))).r);
+    const flow = smoothstep(0.34, 0.66, s1.mul(0.6).add(s2.mul(0.4))).mul(strand.mul(0.65).add(0.35));
     const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.55, metalness: 0, transparent: true, depthWrite: false, side: THREE.DoubleSide });
     m.colorNode = vec4(mix(vec3(0.72, 0.78, 0.82), vec3(1.0, 1.0, 1.0), flow), 1.0);
     m.opacityNode = edge.mul(flow.mul(0.6).add(0.34));

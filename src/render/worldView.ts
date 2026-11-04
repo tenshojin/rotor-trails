@@ -16,9 +16,10 @@ import { NavView } from './navView';
 import { PropsView } from './propsView';
 import { SkyDome } from './sky';
 import { FOG, sceneFog } from './atmosphere';
-import { buildPost, protectTransparent, type Post } from './post';
+import { buildPost, protectTransparent, SCOTOPIC, type Post } from './post';
 import { markNearShadow, SunShadows } from './sunShadows';
-import { loadTerrainLayers } from './terrainLayers';
+import type { MapDef } from '../maps/types';
+import { loadTerrainLayers, type TerrainLayers } from './terrainLayers';
 import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrainView';
 import { makeForestTexture, makeGroundHeightTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
 import { fogMaps, VFOG } from './volumetricFog';
@@ -90,6 +91,8 @@ export class WorldView {
   water: WaterView | null = null;
   props: PropsView | null = null;
   private modelLib: ModelLib | null = null;
+  /** 生成世界期间就开始下载的地图资源（见 prefetch） */
+  private early: { id: string; texSize: number; layers: Promise<TerrainLayers | null>; lib: Promise<ModelLib | null> } | null = null;
   trees: TreeView | null = null;
   nav: NavView | null = null;
   rain: RainFx;
@@ -237,6 +240,16 @@ export class WorldView {
     this.sun.updateFrustums();
   }
 
+  /** 生成世界要占主线程好几秒：这段时间网络和解码线程闲着，先把这张图要的模型和贴图下载起来。 */
+  prefetch(map: MapDef): void {
+    const texSize = QUALITY[this.settings.quality].terrainTex;
+    const file = MODEL_FILES[map.id];
+    void loadRockRelief();
+    void loadDetailTextures();
+    void loadTreeLib();
+    this.early = { id: map.id, texSize, layers: texSize > 0 ? loadTerrainLayers(map.id, map.biome, texSize) : Promise.resolve(null), lib: file ? loadModelLib(file) : Promise.resolve(null) };
+  }
+
   /** 构建地图视觉资源。 */
   async load(world: WorldData, progress?: (p: number, label: string) => void): Promise<void> {
     this.unload();
@@ -260,7 +273,9 @@ export class WorldView {
     VFOG.mapSize.value = map.size;
     progress?.(0.84, '加载地形材质');
     const texSize = QUALITY[this.settings.quality].terrainTex;
-    const layers = texSize > 0 ? await loadTerrainLayers(map.id, map.biome, texSize) : null;
+    const early = this.early?.id === map.id && this.early.texSize === texSize ? this.early : null;
+    this.early = null;
+    const layers = early ? await early.layers : texSize > 0 ? await loadTerrainLayers(map.id, map.biome, texSize) : null;
     if (layers) this.mapTextures.push(layers.color, layers.normal);
     this.terrainUniforms = makeTerrainUniforms(map, surfaceTex, forestTex, macroTex, layers);
     this.terrain = new TerrainView(map, world.terrain, this.terrainUniforms);
@@ -297,14 +312,14 @@ export class WorldView {
     progress?.(0.88, '构建建筑与植被');
     await tick();
     const modelFile = MODEL_FILES[map.id];
-    const [lib, detail, treeLib] = await Promise.all([modelFile ? loadModelLib(modelFile) : Promise.resolve(null), loadDetailTextures(), loadTreeLib()]);
+    const [lib, detail, treeLib] = await Promise.all([early ? early.lib : modelFile ? loadModelLib(modelFile) : Promise.resolve(null), loadDetailTextures(), loadTreeLib()]);
     this.modelLib = lib;
     this.props = new PropsView(world, this.modelLib, detail);
     this.props.lodScale = QUALITY[this.settings.quality].terrainLod;
     this.scene.add(this.props.group);
     this.trees = new TreeView(world.trees, treeLib, map.biome.rock);
     this.scene.add(this.trees.group);
-    this.nav = new NavView(map);
+    this.nav = new NavView(map, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true);
     this.nav.guides = this.settings.navGuides;
     this.scene.add(this.nav.group);
     this.wash = new DownwashView(map);
@@ -413,6 +428,43 @@ export class WorldView {
     this.warm = on;
   }
 
+  /**
+   * 并行编译：之后新建的渲染管线都走异步接口，没编译好的物体先不画。
+   * 渲染时 three.js 用的是同步接口，显卡进程只能一个接一个地编译（实测一百多条管线排队 20 多秒，主线程全程空等）；
+   * 异步接口能同时编译。返回的函数等全部编译完，并恢复原来的做法。
+   */
+  parallelCompile(): () => Promise<void> {
+    interface Ro {
+      pipeline: unknown;
+    }
+    const r = this.renderer as unknown as {
+      _pipelines: { getForRender(ro: Ro, promises?: Array<Promise<void>> | null): unknown };
+      backend: { isWebGPUBackend?: boolean; get(o: unknown): { pipeline?: unknown }; draw(ro: Ro, info: unknown): void };
+    };
+    const P = r._pipelines;
+    const B = r.backend;
+    if (!B.isWebGPUBackend) return () => Promise.resolve();
+    const list: Array<Promise<void>> = [];
+    const get = P.getForRender;
+    const draw = B.draw;
+    P.getForRender = function (ro, promises = null) {
+      return get.call(P, ro, promises ?? list);
+    };
+    B.draw = function (ro, info) {
+      if (B.get(ro.pipeline).pipeline) draw.call(B, ro, info);
+    };
+    return async () => {
+      // 等的时候还在画帧，可能又添了新的管线
+      for (let done = 0; done < list.length; ) {
+        const n = list.length;
+        await Promise.all(list.slice(done));
+        done = n;
+      }
+      delete (P as Partial<typeof P>).getForRender;
+      delete (B as Partial<typeof B>).draw;
+    };
+  }
+
   /** 等显卡把已提交的工作（包括着色器编译）都做完；WebGL2 后端没有这个接口，直接返回 */
   async gpuIdle(): Promise<void> {
     await (this.renderer.backend as unknown as { device?: GPUDevice }).device?.queue.onSubmittedWorkDone();
@@ -501,6 +553,8 @@ export class WorldView {
       FOG.color.value.copy(C.fog).lerp(_cloudGrey, this.inCloud);
       FOG.sunColor.value.copy(C.fogSun).lerp(_cloudGrey, this.inCloud);
       FOG.sunDir.value.copy(this.sky.sunDir);
+      FOG.sunFlat.value.copy(this.sky.sunFlat);
+      C.ring.forEach((k, i) => (FOG.ring[i].value as THREE.Color).copy(k).lerp(_cloudGrey, this.inCloud));
       FOG.cloud.value = (1.65 / 90) * this.inCloud;
       FOG.heightK.value = 1 / 1100;
       FOG.baseY.value = this.fogBaseY;
@@ -520,6 +574,8 @@ export class WorldView {
       VFOG.shade.value = 1 - Math.min(1, w.overcast * 1.4);
       WINDOW_LIGHT.value = Math.max(this.tod === 'dusk' || this.tod === 'night' ? 1 : this.tod === 'dawn' ? 0.35 : 0, Math.max(0, (w.overcast - 0.6) / 0.4) * 0.45);
       const lampK = this.tod === 'night' ? 1 : this.tod === 'dusk' ? 0.42 : this.tod === 'dawn' ? 0.2 : 0;
+      if (this.nav) this.nav.flare = lampK;
+      SCOTOPIC.value = this.tod === 'night' ? 1 : 0;
       this.lamps?.update(Math.max(lampK, Math.max(0, (w.overcast - 0.7) / 0.3) * 0.35));
       // 仪表背光：天越暗开得越亮
       CABIN_NIGHT.value = this.tod === 'night' ? 1 : this.tod === 'dusk' ? 0.32 : this.tod === 'dawn' ? 0.2 : Math.max(0, (w.overcast - 0.75) / 0.25) * 0.15;
@@ -552,7 +608,7 @@ export class WorldView {
       this.props?.update(f.t, cp, windAt);
       const gust = s ? Math.min(1, s.windInfo.gust / 8) : 0.2;
       this.trees?.update(f.t, cam, _w.x, _w.z, gust);
-      if (s) this.nav?.update(s, f.t, cp);
+      if (s) this.nav?.update(s, f.t, cp, cam);
       this.rivers?.update(f.t);
       this.grass?.update(f.t, cp);
       if (s && this.wash) {

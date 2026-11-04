@@ -278,6 +278,7 @@ export class App {
     this.view.setTimeOfDay(cfg.time ?? 'day');
     if (!this.world || this.world.map.id !== cfg.map.id) {
       this.ui.loading('生成地形', 0.02);
+      this.view.prefetch(cfg.map);
       const w = await generateWorld(cfg.map, true, (p, l) => this.ui.loading(l, p));
       await this.view.load(w, (p, l) => this.ui.loading(l, p));
       this.world = w;
@@ -307,14 +308,21 @@ export class App {
 
   /**
    * 等渲染管线全部编译完：强制全画几帧（第一帧就把所有管线提交了，体积雾等到阴影贴图建好才重建，所以多画几帧），
-   * 再等显卡把队列跑完。按帧数而不是帧时间判断，慢显卡上也不会白等；用定时器轮询，后台标签页里也能走完。
+   * 这几帧里的管线并行编译；编译好之后再真的画几帧，最后等显卡把队列跑完。
+   * 按帧数而不是帧时间判断，慢显卡上也不会白等；用定时器轮询，后台标签页里也能走完。
    */
   private async warmUp(): Promise<void> {
     const v = this.view;
+    const frames = async (n: number): Promise<void> => {
+      const t0 = performance.now();
+      const target = v.frames + n;
+      while (v.frames < target && performance.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 30));
+    };
     v.setWarm(true);
-    const t0 = performance.now();
-    const target = v.frames + 6;
-    while (v.frames < target && performance.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 30));
+    const compiled = v.parallelCompile();
+    await frames(6);
+    await compiled();
+    await frames(3);
     v.setWarm(false);
     await v.gpuIdle();
   }

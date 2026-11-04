@@ -21,13 +21,14 @@ const ROCK: RockFormDef = {
   ],
   bench: 0.6,
   slope: [0.8, 1.7],
-  tint: 0.62,
+  tint: 0.8,
   talus: 3.2,
   warp: [
     [14, 170],
     [5, 55],
   ],
-  bands: randomBands(611, 120, [0x4f4a46, 0x6b6056, 0x8a7b68, 0x5c5048, 0x7a6a58, 0x9a8c78, 0x46423e], [10, 64]),
+  // 片麻岩、片岩：灰褐色，层与层之间的明暗差别不大（差大了山就成了一层层的千层糕）
+  bands: randomBands(611, 120, [0x7c766f, 0x8a8177, 0x9a8f81, 0x80786f, 0x92877a, 0xa59a8a, 0x756f68], [10, 64]),
 };
 
 const SEED = 6601;
