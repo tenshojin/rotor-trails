@@ -171,7 +171,8 @@ export const himalayaProps: Record<string, PropFn> = {
   },
   tentCamp(B, d, rng, ctx: PropCtx) {
     const n = Number(d.p?.n ?? 6);
-    const cols = [0xd8601a, 0xe8c020, 0x2a6ab0, 0xc0302a];
+    // 高山帐篷：外帐颜色鲜艳，但在太阳底下晒旧了，不是糖果色
+    const cols = [0xb9622f, 0xc9a43e, 0x3f6688, 0xa64a3a];
     const [cx, , cz] = B.origin;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
@@ -181,7 +182,20 @@ export const himalayaProps: Record<string, PropFn> = {
       // 帐篷跟随地面（取四角最低点，避免悬空）
       const foot = Math.min(ctx.terrain.heightAt(x + 1.5, z), ctx.terrain.heightAt(x - 1.5, z), ctx.terrain.heightAt(x, z + 1.5), ctx.terrain.heightAt(x, z - 1.5));
       B.at(x, foot, z, a, 1);
-      B.sphere(0, 0.2, 0, 2.2, rng.pick(cols), { sy: 0.7, seg: 8, mat: 'cloth', solid: false });
+      const c = rng.pick(cols);
+      B.sphere(0, 0.05, 0, 1.75, c, { sy: 0.68, seg: 14, mat: 'cloth', solid: false });
+      // 门厅和交叉的帐杆
+      B.sphere(1.45, 0.02, 0, 1.0, c, { sy: 0.6, seg: 10, mat: 'cloth', solid: false });
+      for (const q of [0.78, -0.78]) {
+        for (let k = 0; k < 8; k++) {
+          const t0 = (k / 8) * Math.PI;
+          const t1 = ((k + 1) / 8) * Math.PI;
+          const p = (t: number): [number, number, number] => [Math.cos(t) * 1.78 * Math.cos(q), Math.sin(t) * 1.24, Math.cos(t) * 1.78 * Math.sin(q)];
+          B.beam(p(t0), p(t1), 0.028, 0x24262a, { solid: false, mat: 'metal' });
+        }
+      }
+      // 防风绳
+      for (const [gx, gz] of [[3.1, 1.3], [3.1, -1.3], [-2.9, 1.5], [-2.9, -1.5]]) B.beam([gx * 0.5, 1.0, gz * 0.5], [gx, 0.02, gz], 0.012, 0xc8c4b8, { solid: false, mat: 'metal' });
     }
     B.footprint(20);
   },

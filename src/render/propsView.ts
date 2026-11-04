@@ -1,7 +1,7 @@
 // 建筑/道具渲染：把 PropBuilder 合批数据转成网格；锚点生成风向袋、旗帜、信标灯、经幡等动态对象。
 
 import * as THREE from 'three/webgpu';
-import { abs, attribute, cameraViewMatrix, float, max, mix, normalize, normalWorld, positionGeometry, positionLocal, positionWorld, pow, sin, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
+import { abs, attribute, cameraViewMatrix, float, fract, max, mix, normalize, normalWorld, positionGeometry, positionLocal, positionWorld, pow, sin, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
 import { wetColor, wetRough, windowGlow } from './wetness';
 import type { MatKey, ModelInstance } from '../world/propBuilder';
 import type { MapDef } from '../maps/types';
@@ -81,8 +81,21 @@ function makeMaterials(detail: THREE.DataArrayTexture | null, map: MapDef): Reco
     addDetail(metal, detail, DETAIL.corrugated, 1.0);
     addDetail(stone, detail, DETAIL.stone, 1.0);
   }
+  // 停机坪：一块块的板、风吹日晒的污渍、滑橇和轮胎磨出来的黑印，标线也跟着旧
+  const pad = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
+  {
+    const stain = texture(noise, P.xz.mul(0.09)).r.mul(0.55).add(texture(noise, P.xz.mul(0.33).add(0.2)).g.mul(0.3)).add(texture(noise, P.xz.mul(1.4).add(0.6)).g.mul(0.15));
+    const grain = texture(noise, P.xz.mul(3.1).add(0.1)).a.mul(0.1).add(0.95);
+    const q = P.xz.div(4.6);
+    const jx = abs(fract(q.x).sub(0.5));
+    const jz = abs(fract(q.y).sub(0.5));
+    const joint = smoothstep(0.487, 0.497, max(jx, jz));
+    const scuff = smoothstep(0.62, 0.84, texture(noise, vec2(P.x.mul(0.31), P.z.mul(0.055)).add(0.37)).r).mul(smoothstep(0.5, 0.7, texture(noise, P.xz.mul(0.05).add(0.71)).g));
+    const k = smoothstep(0.3, 0.72, stain).mul(0.34).add(0.56).mul(grain).mul(float(1).sub(joint.mul(0.5))).mul(float(1).sub(scuff.mul(0.34)));
+    pad.colorNode = vec4(vec3(k), 1.0);
+  }
   // 雨天的湿润效果（颜色变深、变光滑；朝上的面最明显）
-  for (const m of [std, rough, metal, stone, rock]) {
+  for (const m of [std, rough, metal, stone, rock, pad]) {
     m.colorNode = wetColor((m.colorNode as THREE.Node<'vec4'> | null) ?? vec4(1, 1, 1, 1));
     m.roughnessNode = wetRough(float(m.roughness));
   }
@@ -93,6 +106,7 @@ function makeMaterials(detail: THREE.DataArrayTexture | null, map: MapDef): Reco
     glass.emissiveNode = windowGlow(step(c.b, c.r.mul(1.6).add(0.02)));
   }
   return {
+    pad,
     std,
     rough,
     metal,

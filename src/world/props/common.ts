@@ -60,28 +60,28 @@ export function buildPad(B: PropBuilder, pad: PadDef, ctx: PropCtx): void {
   const ground = ctx.ground(x, z);
   const slabT = style === 'ground' || style === 'ledge' ? 0.6 : 0.5;
   const surface = style === 'ground' || style === 'ledge' ? C.concrete : C.darkConcrete;
-  B.box(0, -slabT / 2, 0, s, slabT, s, surface, { tag: padTag, mat: 'rough', jitter: 0.02 });
+  B.box(0, -slabT / 2, 0, s, slabT, s, surface, { tag: padTag, mat: 'pad', jitter: 0.02 });
   // 标线：外框、H 字、接地圆
   const mk = 0.03;
   const kc = PAD_COLOR[pad.kind];
   const e = s / 2 - 0.5;
-  B.flat(0, mk, -e, s - 1, 0.6, kc, 'std');
-  B.flat(0, mk, e, s - 1, 0.6, kc, 'std');
-  B.flat(-e, mk, 0, 0.6, s - 1, kc, 'std');
-  B.flat(e, mk, 0, 0.6, s - 1, kc, 'std');
+  B.flat(0, mk, -e, s - 1, 0.6, kc, 'pad');
+  B.flat(0, mk, e, s - 1, 0.6, kc, 'pad');
+  B.flat(-e, mk, 0, 0.6, s - 1, kc, 'pad');
+  B.flat(e, mk, 0, 0.6, s - 1, kc, 'pad');
   const ring = s * 0.36;
   for (let i = 0; i < 24; i++) {
     const a = (i / 24) * Math.PI * 2;
-    B.flat(Math.cos(a) * ring, mk, Math.sin(a) * ring, 0.45, (ring * Math.PI * 2) / 24 + 0.05, C.yellow, 'std', -a);
+    B.flat(Math.cos(a) * ring, mk, Math.sin(a) * ring, 0.45, (ring * Math.PI * 2) / 24 + 0.05, C.yellow, 'pad', -a);
   }
   const hs = s * 0.11;
   if (pad.kind === 'repair') {
-    B.flat(0, mk + 0.01, 0, hs * 2.6, hs * 0.8, C.white, 'std');
-    B.flat(0, mk + 0.01, 0, hs * 0.8, hs * 2.6, C.white, 'std');
+    B.flat(0, mk + 0.01, 0, hs * 2.6, hs * 0.8, C.white, 'pad');
+    B.flat(0, mk + 0.01, 0, hs * 0.8, hs * 2.6, C.white, 'pad');
   } else {
-    B.flat(-hs, mk + 0.01, 0, hs * 0.45, hs * 2.4, C.white, 'std');
-    B.flat(hs, mk + 0.01, 0, hs * 0.45, hs * 2.4, C.white, 'std');
-    B.flat(0, mk + 0.01, 0, hs * 2, hs * 0.4, C.white, 'std');
+    B.flat(-hs, mk + 0.01, 0, hs * 0.45, hs * 2.4, C.white, 'pad');
+    B.flat(hs, mk + 0.01, 0, hs * 0.45, hs * 2.4, C.white, 'pad');
+    B.flat(0, mk + 0.01, 0, hs * 2, hs * 0.4, C.white, 'pad');
   }
   // 边灯
   for (const [lx, lz] of [

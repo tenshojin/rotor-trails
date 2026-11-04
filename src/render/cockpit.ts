@@ -96,7 +96,7 @@ export class Cockpit {
     const scene = gltf.scene;
     const glass = this.makeGlassMaterial(false);
     const roofGlass = this.makeGlassMaterial(true);
-    const gaugeGlass = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.1, roughness: 0.04, metalness: 0, depthWrite: false, envMapIntensity: 1.4 });
+    const gaugeGlass = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.05, roughness: 0.04, metalness: 0, depthWrite: false, envMapIntensity: 0.5 });
     this.mats.add(glass).add(roofGlass).add(gaugeGlass);
     // 模型里的标准材质换成节点材质（接上舱内补光）。有第二套 UV 的网格用烘焙的遮蔽，所以同一材质按有无 UV 各一份
     const interior = new Map<string, THREE.MeshStandardNodeMaterial>();
