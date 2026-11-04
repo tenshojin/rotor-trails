@@ -303,13 +303,67 @@ export interface TreeQuality {
 interface LodMeshes {
   meshes: THREE.InstancedMesh[];
   tinted: THREE.InstancedMesh[];
+  /** 列表长度；owner[槽位] = 这个槽位上是这种树的第几棵 */
+  count: number;
+  owner: Int32Array;
+  /** 这一轮空出来的槽位、改写过的槽位 */
+  holes: number[];
+  dirty: number[];
+}
+
+/** 一种树里每一棵现在的位置：细节级（-1 = 不画）、槽位、是否按远景放大 */
+interface Placed {
+  lod: Int8Array;
+  slot: Int32Array;
+  big: Uint8Array;
+}
+
+// 每次刷新只改真正换了细节级或进出视野的树。整张列表重写一次要往显卡传几 MB，传输队列一满，
+// 连后面几十字节的写入也要排队，飞行中每隔一秒就卡 200 多毫秒
+/** 一帧最多挪动多少棵远处的树（急转弯时排队，近处的不受限） */
+const TREE_BUDGET = 2000;
+/** 两个改动的槽位隔得比这近就并成一次上传 */
+const SLOT_GAP = 8;
+
+function uploadSlots(set: LodMeshes): void {
+  const d = set.dirty;
+  if (d.length === 0) return;
+  d.sort((a, b) => a - b);
+  const im = set.meshes[0].instanceMatrix;
+  const send = (a: number, b: number): void => {
+    im.addUpdateRange(a * 16, (b - a) * 16);
+    for (const m of set.tinted) m.instanceColor?.addUpdateRange(a * 3, (b - a) * 3);
+  };
+  let a = -1;
+  let b = -1;
+  for (const s of d) {
+    if (s >= set.count) break;
+    if (a >= 0 && s <= b + SLOT_GAP) {
+      b = s + 1;
+      continue;
+    }
+    if (a >= 0) send(a, b);
+    a = s;
+    b = s + 1;
+  }
+  d.length = 0;
+  if (a < 0) return;
+  send(a, b);
+  im.needsUpdate = true;
+  for (const m of set.tinted) if (m.instanceColor) m.instanceColor.needsUpdate = true;
 }
 
 export class TreeView {
   readonly group = new THREE.Group();
   private trees: TreeSet;
   private sets: Array<LodMeshes[] | null> = [];
+  private placed: Placed[] = [];
   private byType: number[][] = [];
+  /** 上一帧的预算用完了，还有远处的树在排队 */
+  private backlog = false;
+  /** 下一次刷新一次排完（刚载入、画质改变） */
+  private rebuild = true;
+  private pending = new Int32Array(0);
   private lastPos = new THREE.Vector3(1e9, 0, 0);
   private lastDir = new THREE.Vector3();
   private lastT = -10;
@@ -329,6 +383,7 @@ export class TreeView {
     // 叶片边缘的锯齿交给后期的时间抗锯齿（TRAA）处理，不再用 alpha-to-coverage
     this.q = q;
     this.lastT = -10;
+    this.rebuild = true;
   }
 
   constructor(trees: TreeSet, lib: TreeLib | null = null, rock = 0x8a8278) {
@@ -343,6 +398,8 @@ export class TreeView {
     const white = new THREE.Color(1, 1, 1);
     TREE_TYPES.forEach((type, ti) => {
       const list = this.byType[ti];
+      this.placed.push({ lod: new Int8Array(list.length).fill(-1), slot: new Int32Array(list.length), big: new Uint8Array(list.length) });
+      if (list.length > this.pending.length) this.pending = new Int32Array(list.length);
       if (list.length === 0) {
         this.sets.push(null);
         return;
@@ -356,10 +413,10 @@ export class TreeView {
           });
       this.sets.push(
         geoSets.map((parts, lodIdx) => {
-          const set: LodMeshes = { meshes: [], tinted: [] };
+          const set: LodMeshes = { meshes: [], tinted: [], count: 0, owner: new Int32Array(list.length), holes: [], dirty: [] };
           for (const part of parts) {
             const m = new THREE.InstancedMesh(part.g, part.mat, list.length);
-            // 不能标成 DynamicDrawUsage：WebGPU 后端对动态缓冲每次绘制都整块重传（实测每帧 60 MB），只在重排时按版本号上传
+            // 不能标成 DynamicDrawUsage：WebGPU 后端对动态缓冲每次绘制都整块重传（实测每帧 60 MB），只上传改过的槽位
             if (set.meshes.length) m.instanceMatrix = set.meshes[0].instanceMatrix;
             m.count = 0;
             m.frustumCulled = false;
@@ -367,7 +424,7 @@ export class TreeView {
             // 中景、远景的树离镜头至少上百米，不会落进最近两层阴影（图层 1，见 sunShadows.ts）
             if (lodIdx > 0) m.layers.set(1);
             if (part.tint) {
-              // 分配逐实例颜色缓冲（每次重排时按树的编号重新写入，保证颜色固定）
+              // 分配逐实例颜色缓冲（树放进槽位时按它的编号写入，保证颜色固定）
               m.setColorAt(0, white);
               set.tinted.push(m);
             }
@@ -441,8 +498,13 @@ export class TreeView {
     cam.getWorldDirection(dir);
     dir.y = 0;
     dir.normalize();
-    const moved = pos.distanceTo(this.lastPos) > 25 || dir.dot(this.lastDir) < 0.96 || t - this.lastT > 1.5;
+    const away = pos.distanceTo(this.lastPos);
+    const moved = this.backlog || away > 25 || dir.dot(this.lastDir) < 0.96 || t - this.lastT > 1.5;
     if (!moved && !force) return;
+    // 瞬移、刚载入：一次排好，不留到后面几帧
+    let budget = force || this.rebuild || away > 400 ? Infinity : TREE_BUDGET;
+    this.rebuild = false;
+    this.backlog = false;
     this.lastPos.copy(pos);
     this.lastDir.copy(dir);
     this.lastT = t;
@@ -456,61 +518,97 @@ export class TreeView {
     const thin2 = dense ? Q.far * Q.far * 0.16 : Infinity;
     const far2 = Q.far * Q.far;
     const always2 = 300 * 300;
+    const urgent2 = lim2[lim2.length - 1];
     const m4 = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const s = new THREE.Vector3();
     const p = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0);
+    // 视野的边界进出不对称：已经在画的树要转出更远才摘掉，稍微转一下头不用搬动一大片
     const cosHalf = Math.cos(1.15);
+    const cosKeep = Math.cos(1.35);
     const shadowLods = this.modeled ? 2 : 1;
+    const put = (set: LodMeshes, n: number, i: number, big: number, ti: number): void => {
+      q.setFromAxisAngle(up, T.rot[i]);
+      s.setScalar(big ? T.s[i] * 1.3 : T.s[i]);
+      p.set(T.x[i], T.y[i], T.z[i]);
+      m4.compose(p, q, s);
+      set.meshes[0].setMatrixAt(n, m4);
+      if (set.tinted.length) {
+        const col = treeColor(T.x[i], T.z[i], ti);
+        for (const m of set.tinted) m.setColorAt(n, col);
+      }
+      set.dirty.push(n);
+    };
+    const pend = this.pending;
     TREE_TYPES.forEach((_type, ti) => {
       const sets = this.sets[ti];
       if (!sets) return;
-      const counts = sets.map(() => 0);
+      const P = this.placed[ti];
       const list = this.byType[ti];
+      let np = 0;
       for (let k = 0; k < list.length; k++) {
         const i = list[k];
+        const was = P.lod[k];
         const dx = T.x[i] - pos.x;
         const dz = T.z[i] - pos.z;
         const d2 = dx * dx + dz * dz;
-        if (d2 > far2) continue;
-        if (d2 > always2) {
-          const d = Math.sqrt(d2);
-          if ((dx * dir.x + dz * dir.z) / d < cosHalf) continue;
+        let l = -1;
+        let big = 0;
+        if (d2 <= far2 && (d2 <= always2 || (dx * dir.x + dz * dir.z) / Math.sqrt(d2) >= (was >= 0 ? cosKeep : cosHalf))) {
+          big = d2 > thin2 ? 1 : 0;
+          if (!big || (i & 1) === 0) {
+            l = 0;
+            while (l < lim2.length && d2 >= lim2[l]) l++;
+            l = Math.min(l, sets.length - 1);
+          }
         }
-        let l = 0;
-        while (l < lim2.length && d2 >= lim2[l]) l++;
-        l = Math.min(l, sets.length - 1);
-        const far = d2 > thin2;
-        if (far && (i & 1) === 1) continue;
-        const set = sets[l];
-        const n = counts[l]++;
-        q.setFromAxisAngle(up, T.rot[i]);
-        s.setScalar(far ? T.s[i] * 1.3 : T.s[i]);
-        p.set(T.x[i], T.y[i], T.z[i]);
-        m4.compose(p, q, s);
-        set.meshes[0].setMatrixAt(n, m4);
-        if (set.tinted.length) {
-          const col = treeColor(T.x[i], T.z[i], ti);
-          for (const m of set.tinted) m.setColorAt(n, col);
+        if (l === was && (l < 0 || big === P.big[k])) continue;
+        if (budget <= 0 && d2 > urgent2) {
+          this.backlog = true;
+          continue;
         }
+        budget--;
+        P.big[k] = big;
+        if (l === was) {
+          put(sets[l], P.slot[k], i, big, ti);
+          continue;
+        }
+        if (was >= 0) sets[was].holes.push(P.slot[k]);
+        P.lod[k] = l;
+        if (l >= 0) pend[np++] = k;
+      }
+      // 新来的树先填空位，不够再接到列表尾巴上
+      for (let a = 0; a < np; a++) {
+        const k = pend[a];
+        const set = sets[P.lod[k]];
+        const n = set.holes.length ? (set.holes.pop() as number) : set.count++;
+        set.owner[n] = k;
+        P.slot[k] = n;
+        put(set, n, list[k], P.big[k], ti);
       }
       sets.forEach((set, l) => {
+        // 还剩空位：拿列表尾巴上的树填上，列表保持连续（实例绘制只能画前 count 个）
+        if (set.holes.length) {
+          set.holes.sort((a, b) => a - b);
+          const mat = set.meshes[0].instanceMatrix.array;
+          while (set.holes.length) {
+            const h = set.holes.pop() as number;
+            const last = --set.count;
+            if (h === last) continue;
+            const k = set.owner[last];
+            set.owner[h] = k;
+            P.slot[k] = h;
+            mat.copyWithin(h * 16, last * 16, last * 16 + 16);
+            for (const m of set.tinted) m.instanceColor?.array.copyWithin(h * 3, last * 3, last * 3 + 3);
+            set.dirty.push(h);
+          }
+        }
         for (const m of set.meshes) {
-          m.count = counts[l];
+          m.count = set.count;
           m.castShadow = Q.shadows && l < shadowLods;
         }
-        // 只上传用到的部分（缓冲按整张地图这种树的总数分配，大多数时候只用一小段）
-        const im = set.meshes[0].instanceMatrix;
-        im.clearUpdateRanges();
-        im.addUpdateRange(0, counts[l] * 16);
-        im.needsUpdate = true;
-        for (const m of set.tinted) {
-          if (!m.instanceColor) continue;
-          m.instanceColor.clearUpdateRanges();
-          m.instanceColor.addUpdateRange(0, counts[l] * 3);
-          m.instanceColor.needsUpdate = true;
-        }
+        uploadSlots(set);
       });
     });
   }

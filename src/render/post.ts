@@ -24,6 +24,7 @@ import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 import type { SunShadows } from './sunShadows';
 import { applyVolumetricFog, FOG_QUALITY, volumetricFog, type VolumetricFogNode } from './volumetricFog';
 import { cloudShadowDebug } from './cloudShadowMap';
+import { fixInstancedVelocity } from './instancing';
 
 export type QualityTier = 'low' | 'medium' | 'high' | 'ultra';
 
@@ -95,6 +96,7 @@ interface PostDebug {
 }
 
 export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, shadows: SunShadows, cfg: PostConfig): Post {
+  fixInstancedVelocity();
   const sun = shadows.light;
   const dbg: PostDebug = (globalThis as { __postDebug?: PostDebug }).__postDebug ?? {};
   const pipeline = new THREE.RenderPipeline(renderer);
