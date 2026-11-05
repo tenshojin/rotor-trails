@@ -178,3 +178,7 @@ npm run regress:recovery
 - 各组验收并行运行，耗时只作为验证记录，不用于宣称性能提升。没有测量 GPU 帧率增幅，没有推送或发布。
 
 逐项航线与恢复结果见 [acceptance-round3-2026-11-05.json](acceptance-round3-2026-11-05.json)，测试文件清单、依赖检查、构建哈希与范围限制见 [code-audit-round3-2026-11-05.json](code-audit-round3-2026-11-05.json)。本轮已定位的问题均已修复并通过回归；最终画面复验仍未完成，不将这些结果表述为绝对零缺陷。
+
+## 后续
+
+这三轮修改已合入 `main` 并发布。上文提到的浏览器复验（六张图、画质切换、WebGL2）已在之后补做，结果见 `docs/test-report.md`。
