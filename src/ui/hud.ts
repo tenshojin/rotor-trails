@@ -8,6 +8,7 @@ import { STATUS_LABEL } from '../sim/damage';
 import { LANDING_LIMITS } from '../sim/mission';
 import type { GameSession } from '../sim/session';
 import { keyName, type Settings } from '../game/settings';
+import type { TutorialHud } from '../game/tutorial';
 import type { WorldView } from '../render/worldView';
 
 const SPEED_K = { kmh: 3.6, kt: 1.9438, ms: 1 };
@@ -57,6 +58,9 @@ export class Hud {
   /** 上次有事情需要注意的时间：平稳飞行一段时间后，面板收起来，把风景让出来 */
   private busyT = 0;
   private lastObjective = '';
+  /** 教学时只露出学到的部分（null = 不在教学里） */
+  private tut: TutorialHud | null = null;
+  private tutKey = '';
   showDebug = false;
   private proj = { x: 0, y: 0, behind: false };
   private pkPos = new THREE.Vector3();
@@ -113,6 +117,20 @@ export class Hud {
     this.root.classList.toggle('hud-full', this.mode === 1);
     this.root.classList.toggle('hud-off', this.mode === 2);
     return ['自动', '完整', '隐藏'][this.mode];
+  }
+
+  /** 教学：露出哪些部分、这一步要看哪里 */
+  setTutorial(view: TutorialHud | null): void {
+    const key = view ? `${view.parts.join()}|${view.spot}` : '';
+    if (key === this.tutKey) return;
+    this.tutKey = key;
+    this.tut = view;
+    const r = this.root.classList;
+    r.toggle('hud-tut', !!view);
+    for (const part of ['flight', 'heading', 'nav', 'status', 'landing'] as const) {
+      r.toggle(`tut-no-${part}`, !!view && !view.parts.includes(part));
+      r.toggle(`tut-spot-${part}`, view?.spot === part);
+    }
   }
 
   setOpacity(o: number): void {
@@ -172,7 +190,8 @@ export class Hud {
   update(s: GameSession, view: WorldView, set: Settings, t: number): void {
     if (this.disposed || this.root.classList.contains('hidden')) return;
     if (this.mode !== 2) {
-      this.drawOverlay(s, view);
+      if (!this.tut || this.tut.parts.includes('marker')) this.drawOverlay(s, view);
+      else this.og.clearRect(0, 0, window.innerWidth, window.innerHeight);
       this.drawHeading(s);
     }
     if (t >= this.lastText && t - this.lastText < 0.08) return;
@@ -186,8 +205,11 @@ export class Hud {
     const vs = s.body.vel.y;
     const msl = s.altitudeMSL();
     const navInfo = s.nav.info;
-    // 飞行数据
-    setMarkup(this.flight, `
+    // 飞行数据（教学时只留最要紧的两个数）
+    if (this.tut) setMarkup(this.flight, `
+      <div class="row big"><span>地速</span><b>${Math.round(s.groundSpeed * k)}</b><em>${u}</em></div>
+      <div class="row big ${s.agl < 3 && !s.gear.contactCount ? 'amber' : ''}"><span>离地高度</span><b>${s.agl > 2500 ? '—' : s.agl.toFixed(s.agl < 20 ? 1 : 0)}</b><em>m</em></div>`);
+    else setMarkup(this.flight, `
       <div class="row big"><span>地速</span><b>${Math.round(s.groundSpeed * k)}</b><em>${u}</em></div>
       <div class="row"><span>空速</span><b>${Math.round(tel.airspeed * k)}</b><em>${u}</em></div>
       <div class="row big ${s.agl < 10 ? 'amber' : ''}"><span>离地高度</span><b>${s.agl > 2500 ? '—' : s.agl.toFixed(s.agl < 20 ? 1 : 0)}</b><em>m</em></div>
@@ -284,7 +306,7 @@ export class Hud {
     // 告警
     const warns: string[] = [];
     if (s.terrainWarning !== null) warns.push(`<div class="w red">地形！ ${s.terrainWarning} 秒内接近地面 — 拉升或减速</div>`);
-    if (tel.torqueLimited && s.agl > 3) warns.push('<div class="w amber">动力已达上限</div>');
+    if (tel.torqueLimited && s.agl > 3 && !this.tut) warns.push('<div class="w amber">动力已达上限</div>');
     if (vs < -4 && s.agl < 12 && s.agl > 0.5) warns.push('<div class="w amber">下降过快</div>');
     if (s.weatherInCloud > 0.5) warns.push('<div class="w amber">在云中：依靠仪表与导航飞行</div>');
     if (st === 'critical') warns.push('<div class="w red">严重受损：前往维修点或谨慎飞行</div>');
@@ -292,7 +314,7 @@ export class Hud {
     this.updateLanding(s, set);
     const busy = warns.length > 0 || !this.forks.classList.contains('hidden') || !this.landing.classList.contains('hidden') || s.groundSpeed < 8 || this.toasts.children.length > 0;
     if (busy) this.busyT = t;
-    this.root.classList.toggle('hud-calm', this.mode === 0 && t - this.busyT > 6);
+    this.root.classList.toggle('hud-calm', this.mode === 0 && !this.tut && t - this.busyT > 6);
     if (this.showDebug) {
       this.debug.classList.remove('hidden');
       this.debug.textContent = `${view.info()} · trees ${s.treeProxyCount} · t ${s.t.toFixed(1)}`;
@@ -541,7 +563,7 @@ export class Hud {
     }
     // 航点方位
     const nav = s.nav.info;
-    if (nav.mode !== 'complete') {
+    if (nav.mode !== 'complete' && (!this.tut || this.tut.parts.includes('marker'))) {
       const rel = headingDelta(hdg, nav.bearing);
       const x = W / 2 + clamp(rel, -68, 68) * px;
       g.fillStyle = nav.mode === 'optional' ? '#c08bff' : '#38e8ff';

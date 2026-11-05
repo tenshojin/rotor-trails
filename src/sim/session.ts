@@ -537,11 +537,11 @@ export class GameSession {
     };
   }
 
-  saveCheckpoint(label: string): void {
+  saveCheckpoint(label: string, quiet = false): void {
     const snap = this.snapshot();
     this.checkpoints.push({ id: ++this.cpId, label, t: this.t, durability: this.damage.durability, snap });
     if (this.checkpoints.length > 24) this.checkpoints.splice(1, 1);
-    if (this.cpId > 1) this.events.push({ type: 'checkpoint', label });
+    if (this.cpId > 1 && !quiet) this.events.push({ type: 'checkpoint', label });
   }
 
   /**

@@ -19,7 +19,7 @@ import type { AssistId } from '../config/flight';
 import { Input } from './input';
 import { SaveStore, type StorageLike } from './save';
 import { keyName, type Settings } from './settings';
-import { Tutorial } from './tutorial';
+import { LESSONS, TUTORIAL_STEPS, Tutorial, type TutorialCtx } from './tutorial';
 import { isTimeOfDay, type TimeOfDay } from '../render/timeOfDay';
 import { waitForOperation } from './pending';
 import { InstrumentLists } from './instrumentLists';
@@ -31,9 +31,13 @@ interface RunConfig {
   weather: string;
   assist: AssistId;
   tutorial: boolean;
+  /** 教学从第几课开始 */
+  lesson?: number;
   /** 时段（只影响画面） */
   time?: TimeOfDay;
 }
+
+const TUTORIAL_ANCHOR = (i: number): boolean => TUTORIAL_STEPS[i]?.anchor === true;
 
 const _wB = new THREE.Vector3();
 const _qInv = new THREE.Quaternion();
@@ -107,6 +111,7 @@ export class App {
   private loadingRun = false;
   private loadWarning: string | null = null;
   private tutorialHtml = '';
+  private readonly tutorialCtx: TutorialCtx = { yaw: 0, pitch: 0, held: (a) => this.input.is(a), dragLook: false };
   private controlHintHtml = '';
   private frames = 0;
   private fpsT = 0;
@@ -168,6 +173,10 @@ export class App {
           e.preventDefault();
           e.returnValue = '';
         }
+      }, listenerOptions);
+      // 教学的说明页：点一下鼠标也算看完了
+      window.addEventListener('mousedown', () => {
+        if (this.state === 'playing' && this.tutorial && this.session) this.tutorial.click(this.session);
       }, listenerOptions);
       window.addEventListener('keydown', (e) => {
         if (e.defaultPrevented || e.isComposing) return;
@@ -277,7 +286,7 @@ export class App {
       const tp = params.get('time');
       const assist = params.get('assist');
       const weather = m.weathers.find((w) => w.id === params.get('weather'))?.id ?? m.defaultWeather;
-      await this.startRun({ map: m, weather, assist: assist === 'novice' || assist === 'standard' || assist === 'challenge' ? assist : this.settings.assist, tutorial: auto.id === 'training' && params.get('tutorial') !== '0', time: isTimeOfDay(tp) ? tp : 'day' });
+      await this.startRun({ map: m, weather, assist: assist === 'novice' || assist === 'standard' || assist === 'challenge' ? assist : this.settings.assist, tutorial: auto.id === 'training' && params.get('tutorial') !== '0', lesson: Number(params.get('lesson') ?? 0) || 0, time: isTimeOfDay(tp) ? tp : 'day' });
       if (params.get('autostart') === '1') this.beginFlight();
     } else {
       this.mainMenu();
@@ -336,12 +345,21 @@ export class App {
       { warning: [this.loadWarning, touchOnlyWarning(), gpuWarning(this.gpu), this.save.warning].filter(Boolean).join('<br>') || null, tutorialDone: this.save.data.tutorialDone },
       {
         play: () => this.mapSelect(),
-        tutorial: () => void this.startRun({ map: getMap('training'), weather: 'clear', assist: 'novice', tutorial: true }),
+        tutorial: () => this.trainingMenu(),
         settings: () => this.openSettings(),
         help: () => this.ui.help(this.settings.bindings),
         about: () => this.ui.about(),
       },
     );
+  }
+
+  /** 飞行训练的课程表：从头学，或者直接选一课 */
+  trainingMenu(): void {
+    this.state = 'menu';
+    this.ui.training(LESSONS, this.save.data.lessonsDone, {
+      start: (lesson) => void this.startRun({ map: getMap('training'), weather: 'clear', assist: 'novice', tutorial: true, lesson }),
+      back: () => this.mainMenu(),
+    });
   }
 
   mapSelect(): void {
@@ -464,6 +482,7 @@ export class App {
     this.session.drainEvents();
     this.tutorial = cfg.tutorial ? new Tutorial(this.settings) : null;
     this.tutorialHtml = '';
+    this.hud.setTutorial?.(null);
     this.audio.setAmbience(cfg.map.ambience);
     this.stepper.reset();
     this.view.rig.setMode('cockpit');
@@ -477,8 +496,8 @@ export class App {
     const k = (a: keyof Settings['bindings']) => keyName(this.settings.bindings[a][0]);
     const controls = this.settings.hints ? `<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>${k('pause')}</kbd> 暂停` : '';
     this.ui.clickToStart(
-      cfg.tutorial ? '飞行训练' : cfg.map.name,
-      `${cfg.tutorial ? '跟随屏幕提示一步步完成操作。' : (this.session.mission.current()?.def.title ?? '')}${controls}`,
+      cfg.tutorial ? `第 ${(cfg.lesson ?? 0) + 1} 课 · ${LESSONS[cfg.lesson ?? 0].title}` : cfg.map.name,
+      cfg.tutorial ? '跟着屏幕下方的提示做，每次只学一个动作。' : `${this.session.mission.current()?.def.title ?? ''}${controls}`,
       () => this.beginFlight(),
     );
   }
@@ -563,7 +582,20 @@ export class App {
     this.last = performance.now();
     this.stepper.reset();
     if (this.tutorial) {
-      this.tutorial.start(this.session);
+      const s = this.session;
+      const t = this.tutorial;
+      // 每一课开头都是安全的状态（悬停或停在地面）：撞了回到这里
+      t.onStep = (i) => {
+        if (TUTORIAL_ANCHOR(i)) s.saveCheckpoint('教学', true);
+      };
+      t.onLesson = (lesson) => {
+        this.audio.success();
+        if (!this.save.data.lessonsDone.includes(lesson)) {
+          this.save.data.lessonsDone.push(lesson);
+          this.save.save();
+        }
+      };
+      t.start(s, this.run?.lesson ?? 0);
       this.tutBox.classList.remove('hidden');
     }
     if (this.input.lockFailed) this.hud.toast('鼠标锁定不可用：按住鼠标拖动或使用方向键观察', 'warn', 6000);
@@ -627,6 +659,7 @@ export class App {
     this.session?.dispose();
     this.session = null;
     this.tutorial = null;
+    this.hud.setTutorial?.(null);
     this.failTimer = this.completeTimer = -1;
     this.audio.update(this.audioState(true), 0);
     this.audio.setAmbience({});
@@ -641,7 +674,9 @@ export class App {
       return;
     }
     if (this.state !== 'playing' || !s) return;
-    if (a === 'hover') s.toggleHover();
+    if (a === 'hover') {
+      if (!this.tutorial || this.tutorial.hoverAllowed) s.toggleHover();
+    }
     else if (a === 'boost') s.useBoost();
     else if (a === 'center') this.view.rig.center();
     else if (a === 'view') this.view.rig.setMode(this.view.rig.mode === 'cockpit' ? 'chase' : 'cockpit');
@@ -698,9 +733,17 @@ export class App {
       }
       alpha = this.stepper.alpha;
       if (this.tutorial) {
-        s.mission.locked = this.tutorial.index < 7;
-        this.tutorial.update(s, dt);
-        const html = this.tutorial.html();
+        const c = this.tutorialCtx;
+        c.yaw = this.view.rig.yaw;
+        c.pitch = this.view.rig.pitch;
+        c.dragLook = this.input.lockFailed;
+        s.mission.locked = this.tutorial.missionLocked;
+        this.tutorial.update(s, dt, c);
+        const tutHud = this.tutorial.hud();
+        this.hud.setTutorial?.(tutHud);
+        // 着陆辅助在右下角：卡片让到左边
+        this.tutBox.classList.toggle('side', tutHud.parts.includes('landing'));
+        const html = this.tutorial.html(c);
         if (html !== this.tutorialHtml) {
           this.tutorialHtml = html;
           this.tutBox.innerHTML = html;
@@ -716,7 +759,10 @@ export class App {
     }
     if (this.state === 'playing' && this.failTimer > 0) {
       this.failTimer -= dt;
-      if (this.failTimer <= 0) this.showFailure();
+      if (this.failTimer <= 0) {
+        if (this.tutorial && s) this.tutorialRecover(s);
+        else this.showFailure();
+      }
     }
     if (this.state === 'playing' && this.completeTimer > 0) {
       this.completeTimer -= dt;
@@ -748,6 +794,7 @@ export class App {
     s.input.turn = I.axis('left', 'right');
     s.input.lateral = I.axis('strafeLeft', 'strafeRight');
     s.input.vertical = I.axis('down', 'up');
+    this.tutorial?.filter(s.input);
     const [dx, dy] = I.takeLook(dt);
     if (dx || dy) this.view.rig.look(dx, dy);
   }
@@ -904,6 +951,18 @@ export class App {
     if (s && s.windInfo.gustIn !== null && s.windInfo.gustIn < 2) A.alert('gust');
   }
 
+  /** 教学里撞了不算失败：回到这一课的安全点，耐久补满，再来一次 */
+  private tutorialRecover(s: GameSession): void {
+    const t = this.tutorial;
+    if (!t) return;
+    const last = s.checkpoints.length - 1;
+    s.restoreCheckpoint(last, 'safe');
+    s.damage.repair(100);
+    this.failTimer = -1;
+    t.rewind(s);
+    this.hud.toast('没关系，回到这一课的开头，再来一次', 'info', 4000);
+  }
+
   private showFailure(): void {
     const s = this.session;
     if (!s || !this.run) return;
@@ -951,6 +1010,20 @@ export class App {
     if (run.tutorial) {
       this.save.data.tutorialDone = true;
       this.save.save();
+      this.tutBox.classList.add('hidden');
+      this.hud.setTutorial?.(null);
+      this.ui.trainingDone(s.mission.finalLanding, {
+        next: () => {
+          this.quitToMenu();
+          this.briefing(getMap('japan'));
+        },
+        again: () => {
+          this.quitToMenu();
+          this.trainingMenu();
+        },
+        menu: () => this.quitToMenu(),
+      });
+      return;
     } else best = this.save.recordResult(run.map.id, score.total, score.rating, s.mission.optional.filter((o) => o.status === 'done').map((o) => o.def.id), s.t);
     const idx = CAMPAIGN.indexOf(run.map.id);
     const nextId = run.tutorial ? 'japan' : idx >= 0 && idx < CAMPAIGN.length - 1 ? CAMPAIGN[idx + 1] : null;

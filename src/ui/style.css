@@ -1203,34 +1203,243 @@ table.score .total td {
   background: rgba(0, 0, 0, 0.5);
   padding: 4px 8px;
 }
+/* 教学卡片：放在屏幕下方正中，盖住的是新手用不上的仪表板，天空和前方的路都露着 */
 .tutorial {
   position: absolute;
-  left: 14px;
-  bottom: 16px;
-  width: 460px;
-  background: rgba(8, 20, 30, 0.86);
-  border: 1px solid var(--accent);
-  border-radius: 10px;
-  padding: 12px 16px;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  width: min(680px, calc(100% - 28px));
+  background: rgba(7, 16, 24, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 14px 20px 12px;
   z-index: 12;
   pointer-events: none;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+}
+.tutorial.side {
+  left: 14px;
+  transform: none;
+  width: min(640px, calc(100% - 492px));
+}
+.tut-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+.tut-dots {
+  display: flex;
+  gap: 5px;
+}
+.tut-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+}
+.tut-dots i.on {
+  background: var(--accent2);
+}
+.tut-dots i.now {
+  background: #fff;
+}
+.tut-main {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  margin: 6px 0 10px;
+}
+.tut-body {
+  flex: 1;
+  min-width: 0;
 }
 .tut-title {
-  color: var(--accent);
   font-weight: 700;
-  font-size: 16px;
+  font-size: 22px;
+  letter-spacing: 0.02em;
 }
 .tut-text {
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.6;
-  margin: 6px 0;
+  margin-top: 4px;
+}
+.tut-text b {
+  color: #fff;
+}
+.tut-why {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #b8c7d2;
+  margin-top: 4px;
+}
+.tut-note {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #ffd27a;
+  margin-top: 6px;
+}
+.tut-keys {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+kbd.big {
+  min-width: 52px;
+  height: 52px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-bottom-width: 4px;
+  color: #fff;
+  transition: transform 0.08s, background 0.08s;
+}
+kbd.big.on {
+  background: var(--accent2);
+  border-color: var(--accent2);
+  color: #06131c;
+  transform: translateY(2px);
+  border-bottom-width: 2px;
+}
+.tut-ok {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-radius: 12px;
+  background: rgba(10, 44, 30, 0.94);
+  color: #dfffe9;
+  font-size: 26px;
+  font-weight: 700;
+  animation: tut-pop 0.25s ease-out;
+}
+.tut-ok b {
+  color: #4cff9a;
+  font-size: 34px;
+}
+@keyframes tut-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
 }
 .tut-bar {
   height: 5px;
   background: rgba(255, 255, 255, 0.12);
   border-radius: 3px;
   overflow: hidden;
+}
+/* 教学时只露出学到的部分，这一步要看的地方亮起来 */
+.hud.tut-no-flight .hud-flight,
+.hud.tut-no-status .hud-status,
+.hud.tut-no-heading .heading-tape,
+.hud.tut-no-nav .nav-text,
+.hud.tut-no-landing .hud-landing,
+.hud.hud-tut .hud-obj,
+.hud.hud-tut .hud-buffs,
+.hud.hud-tut .hud-forks {
+  display: none;
+}
+.hud.hud-tut .hud-flight {
+  width: 196px;
+  top: 40%;
+  background: rgba(6, 11, 16, 0.6);
+}
+.hud.hud-tut .hud-flight .row.big b {
+  font-size: 30px;
+}
+.hud.hud-tut .hud-flight .row span {
+  font-size: 14px;
+  color: #dfe8ef;
+}
+.hud.tut-spot-flight .hud-flight,
+.hud.tut-spot-status .hud-status,
+.hud.tut-spot-landing .hud-landing {
+  outline: 2px solid var(--accent2);
+  outline-offset: 2px;
+  animation: tut-spot 1.3s ease-in-out infinite;
+}
+.hud.tut-spot-heading .heading-tape {
+  filter: drop-shadow(0 0 6px var(--accent2));
+}
+@keyframes tut-spot {
+  50% {
+    outline-color: transparent;
+  }
+}
+/* 课程表 */
+.train {
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) 1fr;
+  gap: 18px;
+  max-width: 1040px;
+  margin: 0 auto;
+  width: 100%;
+}
+.train-side .btn {
+  width: 100%;
+}
+.lessons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lesson {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+  background: rgba(10, 18, 26, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: inherit;
+  padding: 11px 14px;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+.lesson:hover,
+.lesson:focus-visible {
+  border-color: var(--accent);
+  background: rgba(16, 30, 42, 0.86);
+}
+.ls-no {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+}
+.lesson.done .ls-no {
+  background: var(--accent2);
+  color: #06131c;
+}
+.ls-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ls-body b {
+  font-size: 16px;
+}
+.ls-body span {
+  font-size: 13px;
+  color: var(--muted);
 }
 .tut-bar i {
   display: block;
@@ -1413,8 +1622,19 @@ table.score .total td {
     width: 100px;
     height: 100px;
   }
-  .tutorial {
-    width: min(330px, calc(100% - 28px));
+  .tut-title {
+    font-size: 18px;
+  }
+  .tut-text {
+    font-size: 15px;
+  }
+  kbd.big {
+    min-width: 40px;
+    height: 40px;
+    font-size: 15px;
+  }
+  .train {
+    grid-template-columns: 1fr;
   }
   .hud-warn .w {
     font-size: 14px;

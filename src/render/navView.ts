@@ -256,7 +256,8 @@ export class NavView {
       if (!pad) return;
       // Keep the canister on the actual deck, including raised/rotated platforms.
       this.smokeSrc.set(...padWorld(pad, pad.size / 2 - 0.65, 0.2, pad.size / 2 - 0.65));
-      this.smokeOn = true;
+      // 烟是给远处的人看的：飞到跟前就不再冒了，否则进近时一头扎进烟里，看不见坪
+      this.smokeOn = Math.hypot(this.smokeSrc.x - s.body.pos.x, this.smokeSrc.z - s.body.pos.z) > 220;
       // 四角的引导灯依次闪烁
       const r = pad.size / 2 - 0.2;
       const k = Math.floor(t * 3) % 4;

@@ -23,10 +23,12 @@ export interface SaveData {
   settings: Settings;
   maps: Partial<Record<MapId, MapRecord>>;
   tutorialDone: boolean;
+  /** 学完的课（序号） */
+  lessonsDone: number[];
 }
 
 function defaults(): SaveData {
-  return { version: SAVE_VERSION, settings: defaultSettings(), maps: {}, tutorialDone: false };
+  return { version: SAVE_VERSION, settings: defaultSettings(), maps: {}, tutorialDone: false, lessonsDone: [] };
 }
 
 const MAP_IDS: readonly MapId[] = ['training', 'japan', 'canyon', 'amazon', 'fjord', 'himalaya'];
@@ -57,6 +59,7 @@ export function migrate(raw: unknown): SaveData {
   }
   d.settings = sanitizeSettings(version < 2 ? upgradeLegacyBindings(o.settings) : o.settings);
   d.tutorialDone = o.tutorialDone === true;
+  if (Array.isArray(o.lessonsDone)) d.lessonsDone = [...new Set(o.lessonsDone.filter((x): x is number => Number.isInteger(x) && x >= 0 && x < 32))];
   if (o.maps && typeof o.maps === 'object') {
     for (const k of MAP_IDS) {
       if (!Object.hasOwn(o.maps, k)) continue;
