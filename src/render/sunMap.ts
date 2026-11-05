@@ -7,6 +7,7 @@
 
 import * as THREE from 'three/webgpu';
 import { float, Fn, mix, smoothstep, step, texture, uniform, vec2, vec3 } from 'three/tsl';
+import { Perlin2 } from '../core/noise';
 import type { Heightfield } from '../sim/terrain';
 
 const empty = new THREE.DataTexture(new Uint16Array([0, 0, 0, 0]), 2, 2, THREE.RedFormat, THREE.HalfFloatType);
@@ -18,7 +19,8 @@ const heightTex = texture(empty);
 const mapSize = uniform(1);
 const active = uniform(0);
 /** 阴影边缘的软硬（米，竖直方向）：太阳越低，同样的高度差在地面上拉得越长 */
-const SOFT = 7;
+const SOFT = 10;
+const ragged = new Perlin2(907);
 
 let current: THREE.DataTexture | null = null;
 
@@ -66,7 +68,12 @@ export function setSunMap(t: Heightfield, sunDir: THREE.Vector3): void {
   const n = t.res;
   const U = bakeShadowHeights(t, sunDir);
   const half = new Uint16Array(n * n);
-  for (let i = 0; i < half.length; i++) half[i] = THREE.DataUtils.toHalfFloat(U[i]);
+  // 影子的边缘不是一条尺子画的直线：投影的山脊本身是碎的，高度图一格 4 米又把它抹平了，这里把碎的感觉补回来
+  for (let z = 0; z < n; z++)
+    for (let x = 0; x < n; x++) {
+      const i = z * n + x;
+      half[i] = THREE.DataUtils.toHalfFloat(U[i] + ragged.fbm((x * t.cell) / 90, (z * t.cell) / 90, 4) * 26);
+    }
   const tex = new THREE.DataTexture(half, n, n, THREE.RedFormat, THREE.HalfFloatType);
   tex.name = 'SunHeight';
   tex.magFilter = THREE.LinearFilter;

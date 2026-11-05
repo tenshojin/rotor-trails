@@ -21,7 +21,10 @@ function base(x: number, z: number): number {
   // 谷底的缓坡 → 牧场 → 林山。训练航线在谷底上空，山要到 700 m 以外才起来
   const roll = 5 * n.fbm(x / 210, z / 210, 3) * smoothstep(300, 640, r);
   const foot = 70 * Math.pow(Math.max(0, n2.fbm(x / 640 + 3, z / 640, 3) + 0.5), 1.5) * smoothstep(560, 1000, r);
-  const hills = 330 * Math.pow(n.ridged(x / 720, z / 720, 5), 1.7) * smoothstep(760, 1400, r);
+  // 坐标扭一下，山脊才不是一个个圆锥；细到几十米的山棱让山坡不再是光滑的一面
+  const wx = x + 260 * n2.noise(x / 900, z / 900 + 4);
+  const wz = z + 260 * n.noise(x / 900 + 2, z / 900);
+  const hills = 340 * Math.pow(n.ridged(wx / 760, wz / 760, 7, 2.05, 0.5, 2.0), 1.45) * smoothstep(760, 1400, r);
   return 10 + roll + foot + hills;
 }
 
@@ -32,8 +35,8 @@ function far(x: number, z: number): number {
   const wx = x + 900 * n.noise(x / 3100, z / 3100 + 7);
   const wz = z + 900 * n2.noise(x / 3100 + 3, z / 3100);
   const massif = Math.pow(Math.max(0, n.fbm(wx / 4200 + 5, wz / 4200 - 2, 3) + 0.55), 1.4);
-  const crest = Math.pow(n.ridged(wx / 1500, wz / 1500, 5), 1.3);
-  return base(x, z) + (massif * 1500 + crest * massif * 1100) * smoothstep(1100, 6000, r);
+  const crest = Math.pow(n.ridged(wx / 2300, wz / 2300, 8, 2.05, 0.5, 2.0), 1.25);
+  return base(x, z) + (massif * 1400 + crest * massif * 1500) * smoothstep(1100, 6000, r);
 }
 
 /** 小河：从北边的山里下来，绕过机场东边 */
@@ -84,7 +87,7 @@ export const TRAINING: MapDef = {
   seed: SEED,
   altitudeOffset: 30,
   waterLevel: null,
-  erosion: 70000,
+  erosion: 240000,
   pavedMask: true,
   buildTerrain(b) {
     b.fill(base);
@@ -247,6 +250,7 @@ export const TRAINING: MapDef = {
     { name: '谷地全景', at: [120, 130, 420], look: [-40, -900] },
     { name: '小机场', at: [320, 45, 300], look: [-60, 100] },
     { name: '北面的雪山', at: [-40, 120, -420], look: [100, -1500] },
+    { name: '小河上空', at: [300, 60, -300], look: [360, 300] },
   ],
   briefing: ['按照屏幕提示完成每一步操作。', '可通过暂停菜单跳过当前步骤或退出教学。'],
   estMinutes: [5, 8],

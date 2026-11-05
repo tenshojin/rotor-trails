@@ -367,7 +367,7 @@ export const CANYON: MapDef = {
     { type: 'cactus', density: 45, scale: [0.7, 1.2], maxSlope: 0.2, mask: (_x, _z, h) => (h < 200 ? 1 : 0.15) },
     // 崖脚的崩塌石块：只落在陡崖下面的缓坡和岩架上
     { type: 'boulder', density: 5200, scale: [0.22, 1.9], maxSlope: 0.5, mask: (_x, _z, h, s) => (h < 295 ? (0.12 + 0.88 * smoothstep(0.01, 0.07, s)) * (1 - smoothstep(0.34, 0.5, s)) : 0) },
-    { type: 'shrub', density: 4200, scale: [0.5, 1.15], maxSlope: 0.34, wash: 0.75, mask: (x, z) => 0.45 * smoothstep(-0.25, 0.3, n.fbm(x / 170 + 9, z / 170, 3)) },
+    { type: 'shrub', density: 7200, scale: [0.5, 1.15], maxSlope: 0.34, wash: 0.75, mask: (x, z) => 0.6 * smoothstep(-0.25, 0.3, n.fbm(x / 170 + 9, z / 170, 3)) },
   ],
   clearings: [
     [-1500, 820, 70],
@@ -485,8 +485,11 @@ export const CANYON: MapDef = {
     { name: '石林', pos: [-640, 300, 220] },
   ],
   vistas: [
-    { name: '峡谷大拐弯', at: [-700, 200, 660], look: [-150, 300] },
-    { name: '台地边缘', at: [-950, 240, 300], look: [-300, 420] },
+    { name: '峡谷深处', at: [-949, 100, 626], look: [-805, 457] },
+    { name: '石林与远方的台地', at: [-1150, 100, 520], look: [-640, 60] },
+    { name: '大岩拱', at: [802, 100, -603], look: [783, -712] },
+    { name: '天空台地', at: [783, 100, -712], look: [771, -850] },
+    { name: '河流转弯处', at: [-594, 100, 441], look: [-378, 440] },
   ],
   briefing: [
     '峡谷内风小但弯道连续、通道狭窄；台地上空开阔但风大。高速进入急弯会冲出航线——注意 HUD 的转弯预告并提前减速。',

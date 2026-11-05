@@ -69,7 +69,7 @@ export interface Lesson {
   parts: readonly HudPart[];
   allow: Allow;
   /** 直接从这一课开始时，把飞机放到哪里（x、z、离地高度、航向；node：导航走到第几个航点） */
-  place?: { x: number; z: number; agl: number; heading: number; node?: number };
+  place?: { x: number; z: number; agl: number; heading: number; node?: number; hover?: boolean };
   steps: TutorialStep[];
 }
 
@@ -407,7 +407,7 @@ export const LESSONS: Lesson[] = [
     sub: '减速、对准、慢慢落下，完成全部训练',
     parts: ['flight', 'heading', 'nav', 'marker', 'landing'],
     allow: 'all',
-    place: { x: -40, z: -260, agl: 45, heading: 270, node: 4 },
+    place: { x: -40, z: -260, agl: 45, heading: 270, node: 4, hover: true },
     steps: [
       {
         id: 'toPad',
@@ -552,6 +552,7 @@ export class Tutorial {
     if (!p || lesson === 0) return;
     const ground = s.world.ctx.ground(p.x, p.z);
     s.teleport(p.x, ground + p.agl, p.z, p.heading, 0);
+    if (p.hover) s.flight.setHover(true);
     if (p.node !== undefined) {
       s.nav.path = 0;
       s.nav.node = p.node;

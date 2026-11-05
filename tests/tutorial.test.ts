@@ -8,7 +8,7 @@ function session() {
     agl: 0,
     groundSpeed: 0,
     body: { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 } },
-    flight: { telemetry: { heading: 0, hover: 'off' } },
+    flight: { telemetry: { heading: 0, hover: 'off' }, setHover: () => {} },
     nav: { node: 0, path: 0, info: { distance: 100 } },
     mission: { complete: false, main: [{ progress: 0 }] },
     world: { map: { nodes: [{}, {}, {}, {}] }, ctx: { ground: () => 10 } },

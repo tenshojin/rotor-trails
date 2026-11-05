@@ -256,9 +256,9 @@ export const HIMALAYA: MapDef = {
     { type: 'boulder', density: 1500, scale: [0.25, 1.7], maxH: 1020, maxSlope: 0.5, mask: (x, z, _h, s) => smoothstep(0.5, 0.62, 0.5 + 0.5 * n.fbm(x / 210 - 5, z / 210, 3)) * (1 - smoothstep(0.34, 0.5, s)) },
     // 灌丛成片长：一片片深色的杜松、杜鹃灌丛，中间是草甸和碎石
     // 谷里是一片片的云杉林（沿着沟长上山坡），林子外面是成丛的灌木
-    { type: 'spruce', density: 1500, scale: [0.55, 1.15], minH: 300, maxH: 950, maxSlope: 0.52, wash: 0.25, mask: (x, z) => smoothstep(0.46, 0.6, 0.5 + 0.5 * n2.fbm(x / 170, z / 170, 3)) },
+    { type: 'spruce', density: 3000, scale: [0.55, 1.2], minH: 300, maxH: 950, maxSlope: 0.52, wash: 0.25, mask: (x, z) => smoothstep(0.43, 0.56, 0.5 + 0.5 * n2.fbm(x / 170, z / 170, 3)) },
     { type: 'juniper', density: 120, scale: [0.5, 0.85], minH: 300, maxH: 1050, maxSlope: 0.5, mask: (x, z) => smoothstep(0.42, 0.62, 0.5 + 0.5 * n.fbm(x / 240, z / 240, 3)) },
-    { type: 'shrub', density: 2400, scale: [0.5, 1.05], maxH: 1150, maxSlope: 0.55, wash: 0.5, mask: (x, z) => 0.12 + 0.88 * smoothstep(0.4, 0.6, 0.5 + 0.5 * n.fbm(x / 130 + 3, z / 130, 3)) },
+    { type: 'shrub', density: 4600, scale: [0.5, 1.05], maxH: 1150, maxSlope: 0.55, wash: 0.5, mask: (x, z) => 0.12 + 0.88 * smoothstep(0.4, 0.6, 0.5 + 0.5 * n.fbm(x / 130 + 3, z / 130, 3)) },
   ],
   clearings: [
     [BASE[0], BASE[2], 60],
@@ -401,8 +401,11 @@ export const HIMALAYA: MapDef = {
     { name: '冰斗平台', pos: SUMMIT },
   ],
   vistas: [
+    { name: '雪线', at: [251, 100, 194], look: [445, 16] },
+    { name: '河谷', at: [-832, 100, 928], look: [-625, 767] },
+    { name: '两座山峰之间', at: [-535, 100, 405], look: [-303, 562] },
     { name: '雪山群', at: [0, 300, 0], look: [-600, 1800] },
-    { name: '冰川山谷', at: [-1400, 380, 1100], look: [-200, -300] },
+    { name: '冰川上游', at: [445, 100, 16], look: [621, -179] },
   ],
   briefing: [
     '海拔每升高 1000 m，空气密度下降约 11%，发动机功率与旋翼效率随之下降：HUD 的“动力余量”和“密度”会直观显示。变化是连续、可预期的，不会突然失去升力。',

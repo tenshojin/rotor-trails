@@ -35,6 +35,8 @@ export const VFOG = {
   sun: uniform(new THREE.Color(3, 3, 3)),
   /** 光束的强度（夜里月光的光束弱得多） */
   beam: uniform(1),
+  /** 太阳很低（0 = 白天，1 = 日出日落）：树冠迎着斜阳发亮 */
+  low: uniform(0),
   /** 天空光（薄雾被天空照亮的颜色） */
   amb: uniform(new THREE.Color(0.5, 0.6, 0.7)),
   /** 雾团随风飘动的偏移（米） */

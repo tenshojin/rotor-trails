@@ -265,6 +265,7 @@ export class App {
     this.gpu = this.view.gpuInfo().name;
     if (this.save.fresh) {
       this.settings.quality = pickQuality(this.gpu);
+      this.settings.rayTracing = this.settings.quality === 'high' || this.settings.quality === 'ultra';
       this.view.applySettings(this.settings);
       this.save.save();
     }
@@ -385,7 +386,8 @@ export class App {
   mapSelect(): void {
     this.state = 'menu';
     const list = [...CAMPAIGN.filter((id) => MAPS.find((m) => m.id === id)).map((id) => getMap(id)), getMap('training')];
-    this.ui.mapSelect(list, this.save.data.maps, { pick: (m) => this.briefing(m), back: () => this.mainMenu() });
+    // 训练场的正门是课程表
+    this.ui.mapSelect(list, this.save.data.maps, { pick: (m) => (m.id === 'training' ? this.trainingMenu() : this.briefing(m)), back: () => this.mainMenu() });
   }
 
   briefing(m: MapDef): void {

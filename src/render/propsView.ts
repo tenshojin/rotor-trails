@@ -307,7 +307,8 @@ export class PropsView {
       const sx = -dz / l;
       const sz = dx / l;
       const k = i / (line.length - 1);
-      const width = w * (1.1 + 1.5 * k);
+      // 顶上是从崖边漫下来的细流，越往下散得越开
+      const width = w * (0.5 + 2.1 * k);
       if (i) along += Math.hypot(px - line[i - 1][0], T.heightAt(px, pz) - T.heightAt(line[i - 1][0], line[i - 1][1]), pz - line[i - 1][1]);
       for (let c = 0; c <= COLS; c++) {
         const u = c / COLS;
@@ -342,7 +343,10 @@ export class PropsView {
     const half = mix(float(0.1), float(0.5), smoothstep(0.34, 0.62, wide));
     const mid = texture(noise, vec2(0.71, U.y.mul(0.0013))).r.sub(0.5).mul(0.5).add(0.5);
     const off = U.x.sub(mid).abs();
-    const edge = float(1).sub(smoothstep(half.mul(0.45), half, off)).mul(smoothstep(0.0, 0.12, U.x)).mul(smoothstep(1.0, 0.88, U.x));
+    // 顶端不是一刀切的：每一股水从岩壁上渗出来的位置都不一样
+    const seep = texture(noise, vec2(U.x.mul(2.3).add(0.6), 0.27)).r;
+    const top = smoothstep(0.0, 26.0, U.y.sub(seep.mul(30.0)));
+    const edge = float(1).sub(smoothstep(half.mul(0.45), half, off)).mul(smoothstep(0.0, 0.12, U.x)).mul(smoothstep(1.0, 0.88, U.x)).mul(top);
     // 分成几股，股与股之间露出岩壁
     const strand = smoothstep(0.36, 0.58, texture(noise, vec2(U.x.mul(1.9).add(0.2), U.y.mul(0.0012))).r);
     const flow = smoothstep(0.34, 0.66, s1.mul(0.6).add(s2.mul(0.4))).mul(strand.mul(0.65).add(0.35));

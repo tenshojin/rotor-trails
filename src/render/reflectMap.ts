@@ -32,8 +32,10 @@ const lin2s = (v: number): number => {
 
 export function makeReflectField(map: MapDef, t: Heightfield, trees: TreeSet, surface: Uint8Array, macro: Uint8Array, forest: Uint8Array): ReflectField {
   const n = t.res;
-  // 高度：地形 + 树冠
+  // 高度：地形 + 树冠；颜色图上也要记下哪里是树冠（否则光线碰到岸边的树，取到的是树脚下沙滩的颜色）
   const H = new Float32Array(t.data);
+  const crowns = new Uint8Array(COLOR_RES * COLOR_RES);
+  const cCell = t.size / COLOR_RES;
   for (let i = 0; i < trees.count; i++) {
     const name = TREE_TYPES[trees.type[i]];
     if (name === 'boulder' || name === 'shrub') continue;
@@ -47,6 +49,11 @@ export function makeReflectField(map: MapDef, t: Heightfield, trees: TreeSet, su
         const o = z * n + x;
         if (H[o] < top) H[o] = top;
       }
+    const r2 = Math.max(1, Math.round((S.crownR * trees.s[i]) / cCell));
+    const px = Math.floor((trees.x[i] + t.half) / cCell);
+    const pz = Math.floor((trees.z[i] + t.half) / cCell);
+    for (let z = Math.max(0, pz - r2); z <= Math.min(COLOR_RES - 1, pz + r2); z++)
+      for (let x = Math.max(0, px - r2); x <= Math.min(COLOR_RES - 1, px + r2); x++) crowns[z * COLOR_RES + x] = 1;
   }
   let topH = -Infinity;
   const half = new Uint16Array(n * n);
@@ -119,7 +126,7 @@ export function makeReflectField(map: MapDef, t: Heightfield, trees: TreeSet, su
         }
         lerp(rc, rk);
       }
-      lerp(CANOPY, smooth(0.25, 0.75, f) * (1 - rk * 0.6));
+      lerp(CANOPY, Math.max(smooth(0.25, 0.75, f) * (1 - rk * 0.6), crowns[y * N + x] * 0.9));
       lerp(SNOW, Math.min(1, smooth(B.snowLine - 50, B.snowLine + 30, h) * (1 - smooth(0.2, 0.4, m)) + smooth(B.snowLine + 500, B.snowLine + 1100, h) * 0.85));
       if (map.pavedMask) lerp(PAVED, (surface[s + 3] / 255) * 0.9);
       const o = (y * N + x) * 4;

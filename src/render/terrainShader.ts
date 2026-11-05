@@ -99,7 +99,7 @@ const unpackN = (v: N<'vec4'>) => {
   const xy = v.rg.mul(2).sub(1);
   return vec3(xy.x, xy.y.negate(), sqrt(max(0, float(1).sub(dot(xy, xy)))));
 };
-const TerrainOut = struct({ col: 'vec3', rough: 'float', nb: 'vec3', ao: 'float' });
+const TerrainOut = struct({ col: 'vec3', rough: 'float', nb: 'vec3', ao: 'float', crown: 'float' });
 const ROT = 0.83;
 const rot2 = (p: N<'vec2'>) => vec2(p.x.mul(Math.cos(ROT)).sub(p.y.mul(Math.sin(ROT))), p.x.mul(Math.sin(ROT)).add(p.y.mul(Math.cos(ROT))));
 
@@ -379,6 +379,9 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
         nb.assign(normalize(mix(nb, n, pk)));
       });
     }
+    // 从空中看，平地是几百米一块的贴图，容易显得干净得不真实：加一层十几米到上百米尺度的深浅，离得越远越明显
+    const mottle = n2.sub(0.5).mul(0.24).add(n3.sub(0.5).mul(0.2)).add(n1.sub(0.5).mul(0.2));
+    col.mulAssign(float(1).add(mottle.mul(smoothstep(60.0, 500.0, length(P.sub(cameraPosition)))).mul(float(1).sub(snowW.mul(0.8)))));
     // 宏观地貌：岩壁加上三平面投影的脊状浮雕（两个尺度），平缓的地面只加一点起伏；明暗再跟着真实的沟谷与山脊走
     const cavS = mac.r.mul(2.0).sub(1.0);
     const cavL = mac.g.mul(2.0).sub(1.0);
@@ -438,6 +441,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     // 离镜头近（< 90 m）时淡出，只看真实的树。
     const camDist = length(P.sub(cameraPosition));
     const canopyK = smoothstep(0.25, 0.75, forest).mul(smoothstep(90.0, 300.0, camDist)).mul(float(1).sub(snowW)).toVar();
+    const crown = float(0).toVar();
     If(canopyK.greaterThan(0.01), () => {
       const cp = P.xz.div(5.2);
       const f1 = mx_worley_noise_float(cp);
@@ -453,6 +457,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       const bump = vec3(fx.sub(f1).mul(-2.2), 1.0, fz.sub(f1).mul(-2.2));
       nb.assign(normalize(mix(nb, normalize(bump.mul(vec3(1, 1, 1))), canopyK.mul(0.6))));
       rough.assign(mix(rough, 0.85, canopyK));
+      crown.assign(canopyK);
     });
     // 水下：变暗偏蓝绿；雨后变湿：变暗、更光滑
     const under = float(1).sub(smoothstep(U.waterLevel - 2.0, U.waterLevel + 0.3, h));
@@ -464,7 +469,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const wet = U.uWet.mul(float(1).sub(snowW));
     col.mulAssign(mix(1.0, 0.68, wet));
     rough.assign(mix(rough, 0.55, wet.mul(0.7)));
-    return TerrainOut(col, rough, nb, mix(float(0.42), float(1), mac.b));
+    return TerrainOut(col, rough, nb, mix(float(0.42), float(1), mac.b), crown);
   });
   const SKY_VIS = Fn(() => texture(U.macro, positionWorld.xz.div(U.mapSize).add(0.5)).b);
   // 颜色、粗糙度、法线引用同一个计算结果（着色器里只算一次）
@@ -489,6 +494,9 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
   // 太阳那一侧的天空洒下来的暖光
   const backK = clamp(float(0.32).sub(dot(normalize(normalWorld), FOG.sunDir)), 0.0, 1.0);
   // （开着光线追踪时大部分换成算出来的真实反弹光，见 giField.ts）
-  mat.emissiveNode = (res.get('col') as N<'vec3'>).mul(VFOG.sun).mul(shadeK.mul(float(1.15).sub(SKY_VIS())).mul(0.1).add(backK.mul(0.085))).mul(float(1).sub(GI.on.mul(0.75)));
+  const fake = shadeK.mul(float(1.15).sub(SKY_VIS())).mul(0.1).add(backK.mul(0.085)).mul(float(1).sub(GI.on.mul(0.75)));
+  // 远处的林子在这里只是一层贴图，但实际上是一个个树冠：斜阳照到的是它们的侧面，不能按平地算入射角
+  const crownLit = (res.get('crown') as N<'float'>).mul(VFOG.low).mul(terrainSun(positionWorld)).mul(0.34);
+  mat.emissiveNode = (res.get('col') as N<'vec3'>).mul(VFOG.sun).mul(fake.add(crownLit));
   return mat;
 }

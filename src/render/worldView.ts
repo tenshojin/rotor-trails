@@ -783,6 +783,7 @@ export class WorldView {
       VFOG.sun.value.copy(C.sun).multiplyScalar(C.sunIntensity);
       // 月光照得亮地面（曝光开得大），但照不出光柱：夜里按太阳那样算，云底下全是一道道亮条
       VFOG.beam.value = this.tod === 'night' ? 0.08 : 1;
+      VFOG.low.value = this.tod === 'night' ? 0 : (1 - this.sky.dayK) ** 2 * (1 - w.overcast);
       VFOG.amb.value.copy(FOG.color.value).multiplyScalar(0.9);
       // 舱内补光：地平线一带的天光，混一半内饰反射出来的暖色（否则座舱背光处全是天空的蓝）
       CABIN_FILL.value.copy(FOG.color.value).lerp(_cabinWarm, 0.55).multiplyScalar(0.62 * (1 - 0.35 * w.overcast));

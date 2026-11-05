@@ -3,6 +3,7 @@ import '../src/ui/style.css';
 import { UI } from '../src/ui/menus';
 import { Hud } from '../src/ui/hud';
 import { defaultSettings, type Settings } from '../src/game/settings';
+import { LESSONS } from '../src/game/tutorial';
 import type { MapDef } from '../src/maps/types';
 import type { GameSession } from '../src/sim/session';
 import type { WorldView } from '../src/render/worldView';
@@ -88,6 +89,48 @@ await test('地图卡片使用原生按钮，选择对应地图', (ui) => {
   card.click();
   assert(picked === map, '选择结果错误');
   assert(find<HTMLElement>('.screen').scrollWidth <= find<HTMLElement>('.screen').clientWidth, '地图选择页横向溢出');
+});
+
+await test('课程表从第一节没学的课开始，也能直接选任何一课', (ui) => {
+  const picked: number[] = [];
+  ui.training(LESSONS, [0, 1], { start: (lesson) => picked.push(lesson), back: () => {} });
+  assert(fixture.querySelectorAll('.lesson').length === LESSONS.length, '课程没有列全');
+  assert(fixture.querySelectorAll('.lesson.done').length === 2, '学完的课没有打勾');
+  click('[data-a="go"]');
+  click('.lesson[data-i="5"]');
+  assert(picked.join() === '2,5', `开始的课不对：${picked.join()}`);
+  assert(find<HTMLElement>('.screen').scrollWidth <= find<HTMLElement>('.screen').clientWidth, '课程表横向溢出');
+});
+
+await test('休闲飞行选图不提难度和成绩，简报保留时段和天气', (ui) => {
+  let chosen: MapDef | null = null;
+  ui.mapSelect([map], {}, { pick: (value) => { chosen = value; }, back: () => {} }, true);
+  assert(!fixture.querySelector('.mc-stars') && !fixture.querySelector('.mc-foot'), '休闲模式不该显示难度和成绩');
+  click('.map-card');
+  assert(chosen === map, '选图结果错误');
+  let selection = '';
+  ui.freeBrief(map, defaultSettings(), ['甲', '乙'], { back: () => {}, start: (w, t) => { selection = `${w}/${t}`; } });
+  assert(fixture.querySelectorAll('.vistas span').length === 2, '景点没有列出来');
+  click('[data-group="weather"] [data-v="rain"]');
+  click('[data-group="time"] [data-v="night"]');
+  click('[data-a="start"]');
+  assert(selection === 'rain/night', `选择未保留：${selection}`);
+});
+
+await test('休闲飞行的暂停菜单换时段、天气、景点', (ui) => {
+  const log: string[] = [];
+  ui.freePause({ map, time: 'dusk', weather: 'clear', vistas: ['甲', '乙'], cruise: false }, {
+    resume: () => log.push('resume'), time: (t) => { log.push(`t:${t}`); }, weather: (w) => log.push(`w:${w}`), vista: (i) => log.push(`v:${i}`),
+    cruise: () => log.push('cruise'), settings: () => {}, help: () => {}, quit: () => {},
+  });
+  assert(find('.chip[data-v="dusk"]').getAttribute('aria-pressed') === 'true', '当前时段没有选中');
+  click('.chip[data-v="night"]');
+  assert(find('.chip[data-v="night"]').getAttribute('aria-pressed') === 'true' && find('.chip[data-v="dusk"]').getAttribute('aria-pressed') === 'false', '时段选中状态没有更新');
+  click('.chip[data-a="weather"][data-v="rain"]');
+  click('.chip[data-a="vista"][data-v="1"]');
+  click('[data-a="cruise"]');
+  click('[data-a="resume"]');
+  assert(log.join() === 't:night,w:rain,v:1,cruise,resume', `操作不对：${log.join()}`);
 });
 
 await test('任务简介选择有读屏状态，开始时保留天气/时段/辅助', (ui) => {

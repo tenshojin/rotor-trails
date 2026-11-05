@@ -295,7 +295,7 @@ export class HeliModel {
     if (!this.extLoaded) this.exterior.visible = !cockpit;
     this.inCockpit = cockpit;
     // 从座舱里看，桨尖那一圈在暗的山壁前会变成一道横着的亮线；肉眼其实看不到它
-    this.rimK.value = (cockpit ? 0.004 : 0.035) * this.rimDim;
+    this.rimK.value = (cockpit ? 0.004 : 0.02) * this.rimDim;
     // 两侧航行灯和顶上的防撞灯离眼睛不到两米，从座舱里看会变成一大团光（真实的灯是朝外照的）；尾灯离得远，留着
     this.navLights[0].visible = !cockpit;
     this.navLights[1].visible = !cockpit;

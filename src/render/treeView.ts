@@ -480,7 +480,8 @@ export class TreeView {
         // 叶片是半透明的：迎着太阳看时被照透（发亮的黄绿色）；树冠里的暗处也有叶片之间反射的绿光，不是黑洞
         const back = pow(max(dot(normalize(positionWorld.sub(cameraPosition)), FOG.sunDir), 0.0), 3.0);
         // （阳光那部分要乘山影：在山的影子里叶片没有被照透，否则一棵棵树在暗处发光）
-        m.emissiveNode = albedo.mul(vec3(1.08, 1.16, 0.72)).mul(FOG.color.mul(0.13).add(VFOG.sun.mul(back.mul(0.15).add(0.018)).mul(terrainSun(positionWorld))));
+        // （太阳很低时迎光的一面也亮：叶子是一层层竖着的，不是平铺的）
+        m.emissiveNode = albedo.mul(vec3(1.08, 1.16, 0.72)).mul(FOG.color.mul(0.13).add(VFOG.sun.mul(back.mul(0.15).add(0.018).add(VFOG.low.mul(0.16))).mul(terrainSun(positionWorld))));
         // 双面渲染时背面不翻转法线（叶片法线朝树冠外侧，翻转会让背面发黑）
         m.normalNode = normalViewGeometry;
       }

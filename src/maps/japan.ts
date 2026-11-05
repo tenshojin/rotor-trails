@@ -170,6 +170,10 @@ export const JAPAN: MapDef = {
     { type: 'crane', pos: [-938, 2.5, 960], rotY: 0 },
     { type: 'crane', pos: [-938, 2.5, 1120], rotY: 0.2 },
     { type: 'containerStack', pos: [-1000, 2.5, 950], rotY: Math.PI / 2, p: { n: 4 } },
+    { type: 'containerStack', pos: [-1036, 2.5, 748], rotY: 0, p: { n: 4 } },
+    { type: 'containerStack', pos: [-1036, 2.5, 776], rotY: 0, p: { n: 3 } },
+    { type: 'containerStack', pos: [-1062, 2.5, 790], rotY: Math.PI / 2, p: { n: 3 } },
+    { type: 'containerStack', pos: [-1040, 2.5, 1048], rotY: 0, p: { n: 3 } },
     { type: 'pier', pos: [-928, 0, 690], p: { len: 95, w: 9 } },
     { type: 'pier', pos: [-928, 0, 880], p: { len: 110, w: 12 } },
     { type: 'pier', pos: [-928, 0, 1070], p: { len: 90, w: 9 } },
@@ -369,8 +373,11 @@ export const JAPAN: MapDef = {
     { name: '海上鸟居', pos: [-655, 5, 40] },
   ],
   vistas: [
-    { name: '濑户内的海面', at: [-300, 70, 300], look: [400, -500] },
+    { name: '内海的岛', at: [-300, 70, 300], look: [400, -500] },
     { name: '海岸全景', at: [900, 300, 200], look: [-2100, -300] },
+    { name: '五重塔', at: [-1169, 90, 435], look: [-1450, 540] },
+    { name: '海角灯塔', at: [-299, 90, -1187], look: [-372, -1478] },
+    { name: '海上鸟居', at: [-356, 90, 22], look: [-655, 40] },
   ],
   briefing: [
     '作为第一关，这张地图的航线开阔、风力温和，适合熟悉起飞、加速、转弯、悬停和精确着陆。',

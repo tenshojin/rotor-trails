@@ -189,7 +189,7 @@ export function screenMirror(nW: N<'vec3'>, foam: N<'float'>, depthNode: THREE.T
     const tap = (uvq: N<'vec2'>, o: number) => vec2(uvq.x, clamp(uvq.y.add(jit.add(o).mul(sp)), 0.002, 0.998));
     const seen = offs.map((o) => viewportSharedTexture(tap(huv, o)).rgb).reduce((a, b) => a.add(b)).mul(1 / 3);
     // 云的倒影：左右也要散开一点，否则竖着抹开的云是一块块直边的方块
-    const cloudTap = (uvq: N<'vec2'>, ox: number, oy: number) => vec2(clamp(uvq.x.add(jx.add(ox).mul(sp).mul(0.62)), 0.0, 1.0), clamp(uvq.y.add(jit.add(oy).mul(sp)), 0.002, 0.998));
+    const cloudTap = (uvq: N<'vec2'>, ox: number, oy: number) => vec2(clamp(uvq.x.add(jx.add(ox).mul(sp).mul(1.3)), 0.0, 1.0), clamp(uvq.y.add(jit.add(oy).mul(sp).mul(2.0)), 0.002, 0.998));
     // 天空：光线走到无穷远落在画面的哪里（云只有画面里才有）
     const cS = cameraProjectionMatrix.mul(cameraViewMatrix.mul(vec4(Rd, 0.0))).toVar();
     const uvS = toUV(cS).toVar();

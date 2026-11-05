@@ -14,17 +14,13 @@ const ARRIVE = 260;
 /** 看前方多远的地形（m） */
 const LOOK = [0, 80, 180, 320, 500, 720];
 
-/** 这张图可以去的地方：地图自己的观景点，加上地标（站在旁边看它） */
+/** 这张图可以去的地方：地图挑好的观景点；没挑的图用地标（从地图中心那一侧看过去） */
 export function vistasOf(map: MapDef): Vista[] {
-  const list: Vista[] = [...(map.vistas ?? [])];
-  for (const l of map.landmarks) {
-    if (list.some((v) => v.name === l.name)) continue;
-    // 从地图中心那一侧看过去，身后留得出飞的地方
-    const d = Math.hypot(l.pos[0], l.pos[2]) || 1;
-    const k = Math.min(1, 300 / d);
-    list.push({ name: l.name, at: [l.pos[0] - l.pos[0] * k, 90, l.pos[2] - l.pos[2] * k], look: [l.pos[0], l.pos[2]] });
-  }
-  return list;
+  if (map.vistas?.length) return map.vistas;
+  return map.landmarks.map((l) => {
+    const k = Math.min(1, 300 / (Math.hypot(l.pos[0], l.pos[2]) || 1));
+    return { name: l.name, at: [l.pos[0] * (1 - k), 90, l.pos[2] * (1 - k)], look: [l.pos[0], l.pos[2]] };
+  });
 }
 
 export class ScenicCruise {

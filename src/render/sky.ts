@@ -7,7 +7,7 @@
 // 散射公式参照 three.js examples/jsm/objects/Sky.js（MIT）。
 
 import * as THREE from 'three/webgpu';
-import { abs, acos, Break, clamp, cos, dot, exp, float, floor, Fn, fract, hash, If, int, interleavedGradientNoise, length, Loop, max, min, mix, normalize, positionLocal, pow, screenCoordinate, screenUV, select, sin, smoothstep, step, texture, texture3D, uniform, vec2, vec3, vec4 } from 'three/tsl';
+import { abs, acos, atan, Break, clamp, cos, dot, exp, float, floor, Fn, fract, hash, If, int, interleavedGradientNoise, length, Loop, luminance, max, min, mix, normalize, positionLocal, pow, screenCoordinate, screenUV, select, sin, smoothstep, step, texture, texture3D, uniform, vec2, vec3, vec4 } from 'three/tsl';
 import { RING_N, ringColor } from './atmosphere';
 import { getCloudNoise3D } from './cloudNoise';
 import { CloudPass } from './cloudPass';
@@ -95,6 +95,8 @@ function makeSkyUniforms(sunDir: THREE.Vector3, wind: THREE.Vector2) {
     overcast: uniform(0),
     haze: uniform(new THREE.Color()),
     hazeK: uniform(0),
+    /** 暮光带的强度（太阳越低越明显） */
+    belt: uniform(0),
     ground: uniform(new THREE.Color()),
     sunColor: uniform(new THREE.Color()),
     sunVis: uniform(1),
@@ -159,8 +161,9 @@ function starField(d: THREE.Node<'vec3'>, noise: THREE.Texture, t: THREE.Node<'f
     const gal = normalize(vec3(0.42, 0.56, -0.71));
     const b = dot(d, gal);
     const band = exp(b.mul(b).mul(-13.0));
-    const q = vec2(d.x.add(d.y.mul(0.6)), d.z.sub(d.y.mul(0.4)));
-    const cl = texture(noise, q.mul(0.35)).r.mul(0.6).add(texture(noise, q.mul(1.1).add(0.3)).g.mul(0.4));
+    // 沿银河走一圈是贴图的整数倍（接缝对得上），横向比例和纵向一样：直接拿方向当坐标会把噪声拉成一道道细线，像天上的划痕
+    const along = atan(dot(d, vec3(-0.8607, 0.0000, -0.5091)), dot(d, vec3(-0.2860, 0.8274, 0.4834))).div(2 * Math.PI).add(0.5);
+    const cl = texture(noise, vec2(along.mul(3.0), b.mul(0.5).add(0.5))).level(float(0)).r.mul(0.6).add(texture(noise, vec2(along.mul(9.0), b.mul(1.5).add(0.3))).level(float(0)).g.mul(0.4));
     out.addAssign(vec3(0.5, 0.56, 0.72).mul(band.mul(smoothstep(0.32, 0.72, cl)).mul(0.038)));
     return out;
   })();
@@ -182,7 +185,13 @@ function preethamNode(U: SkyU) {
     const Lin = pow(U.sunE.mul(bt).mul(float(1).sub(Fex)), vec3(1.5)).toVar();
     Lin.mulAssign(mix(vec3(1.0), pow(U.sunE.mul(bt).mul(Fex), vec3(0.5)), clamp(pow(float(1).sub(U.sunDir.y), 5.0), 0.0, 1.0)));
     const c = Lin.add(Fex.mul(0.1)).mul(0.04).add(vec3(0.0, 0.0003, 0.00075));
-    return pow(c, vec3(1.0 / 2.4)).mul(U.skyScale);
+    const base = pow(c, vec3(1.0 / 2.4)).mul(U.skyScale).toVar();
+    // 暮光带：太阳很低时，背对太阳那一边的地平线上方是一条粉紫色的光带（Preetham 模型里没有）
+    const flat = normalize(vec3(dd.x, 0.0, dd.z));
+    const sunF = normalize(vec3(U.sunDir.x, 0.0, U.sunDir.z));
+    const anti = max(dot(flat, sunF).negate().mul(0.5).add(0.5), 0.0);
+    const k = pow(anti, 1.6).mul(float(1).sub(smoothstep(0.03, 0.3, dd.y))).mul(U.belt);
+    return mix(base, luminance(base).mul(vec3(1.32, 0.98, 1.02)), k);
   });
 }
 
@@ -376,6 +385,7 @@ export class SkyDome {
   private skyScale = 1;
   /** 太阳高度带来的“白天程度”：0 = 贴着地平线，1 = 高于约 25°（清晨、黄昏时天空、阳光、环境光都更暗） */
   dayK = 1;
+  private belt = 0;
   /** 1 = 夜晚 */
   night = 0;
   /** 晴空的天顶/地平线/朝阳地平线颜色与阳光透射（只与太阳位置、浑浊度有关，加载时算一次） */
@@ -452,6 +462,7 @@ export class SkyDome {
     const fx = this.sunDir.x / fl;
     const fz = this.sunDir.z / fl;
     this.sunFlat.set(fx, fz);
+    this.belt = (1 - this.dayK) ** 2 * 0.72;
     for (let i = 0; i < RING_N; i++) {
       const g = Math.PI * (i / (RING_N - 1)) ** 2;
       _ringDir.set(fx * Math.cos(g) - fz * Math.sin(g), 0, fz * Math.cos(g) + fx * Math.sin(g));
@@ -488,7 +499,14 @@ export class SkyDome {
       Lin *= 1 + (Math.pow(this.sunE * bt * Fex, 0.5) - 1) * fade;
       return Math.pow((Lin + 0.1 * Fex) * 0.04 + add, 1 / 2.4) * this.skyScale;
     };
-    return out.setRGB(ch(this.betaR.x, this.betaM.x, 0), ch(this.betaR.y, this.betaM.y, 0.0003), ch(this.betaR.z, this.betaM.z, 0.00075));
+    out.setRGB(ch(this.betaR.x, this.betaM.x, 0), ch(this.betaR.y, this.betaM.y, 0.0003), ch(this.betaR.z, this.betaM.z, 0.00075));
+    // 暮光带（和着色器里的一样）
+    const fl = Math.hypot(d.x, d.z) * Math.hypot(this.sunDir.x, this.sunDir.z) || 1;
+    const anti = Math.max(0, (-(d.x * this.sunDir.x + d.z * this.sunDir.z) / fl) * 0.5 + 0.5);
+    const t = Math.min(1, Math.max(0, (d.y - 0.03) / 0.27));
+    const k = anti ** 1.6 * (1 - t * t * (3 - 2 * t)) * this.belt;
+    const lum = 0.2126 * out.r + 0.7152 * out.g + 0.0722 * out.b;
+    return out.setRGB(out.r + (lum * 1.32 - out.r) * k, out.g + (lum * 0.98 - out.g) * k, out.b + (lum * 1.02 - out.b) * k);
   }
 
   /** 根据天气计算天空与光照颜色。flash：闪电亮度 0..1。 */
@@ -541,6 +559,7 @@ export class SkyDome {
     u.skyFog.value = skyFog;
     u.fogCol.value.copy(C.fog);
     u.hazeK.value = hazeK;
+    u.belt.value = this.night ? 0 : this.belt;
     u.ground.value.copy(C.ground);
     u.sunColor.value.copy(C.sun);
     // 云和天空里的光按“太阳的亮度”写的：月光要弱得多
