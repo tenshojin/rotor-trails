@@ -451,9 +451,34 @@ a {
   color: var(--muted);
   font-size: 14px;
 }
-/* 加载新地图时旧场景正在被替换：用不透明背景遮住，避免看到半成品画面 */
+/* 加载新地图时旧场景正在被替换：用不透明背景遮住，避免看到半成品画面。背景是这张图的实拍画面 */
 .screen.loading {
-  background: radial-gradient(ellipse at 50% 40%, #13263a, #070d14 70%);
+  background: linear-gradient(180deg, rgba(4, 8, 12, 0.1) 45%, rgba(4, 8, 12, 0.82)), var(--art, none) center / cover no-repeat, radial-gradient(ellipse at 50% 40%, #13263a, #070d14 70%);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 0 6vw 5vh;
+}
+.load-name h2 {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 52px);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+}
+.load-name span {
+  color: #d6e0e8;
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+}
+.load-foot {
+  margin-top: 16px;
+  max-width: 520px;
+}
+.load-foot .lbar {
+  height: 3px;
+  margin-bottom: 7px;
 }
 .click-start {
   cursor: pointer;

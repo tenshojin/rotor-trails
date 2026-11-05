@@ -119,15 +119,15 @@ export class CameraRig {
       fwd.y = 0;
       if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
       fwd.normalize();
-      const want = _target.copy(pos).addScaledVector(fwd, -17);
-      want.y += 5.5;
+      const want = _target.copy(pos).addScaledVector(fwd, -14);
+      want.y += 4.2;
       if (!this.chaseInit) {
         this.chasePos.copy(want);
         this.chaseInit = true;
       }
-      this.chasePos.x = damp(this.chasePos.x, want.x, 4, dt);
-      this.chasePos.y = damp(this.chasePos.y, want.y, 4, dt);
-      this.chasePos.z = damp(this.chasePos.z, want.z, 4, dt);
+      this.chasePos.x = damp(this.chasePos.x, want.x, 5.5, dt);
+      this.chasePos.y = damp(this.chasePos.y, want.y, 5.5, dt);
+      this.chasePos.z = damp(this.chasePos.z, want.z, 5.5, dt);
       cam.position.copy(this.chasePos);
       cam.lookAt(pos.x, pos.y + 1.2, pos.z);
       _eul.set(this.pitch * 0.5, this.yaw, 0);

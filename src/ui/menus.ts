@@ -255,9 +255,20 @@ export class UI {
     });
   }
 
-  loading(label: string, p: number): void {
+  /** map：这张图的实拍画面铺满背景，地图名压在上面（等待的时候看的是风景，不是一个进度条） */
+  loading(label: string, p: number, map?: MapDef): void {
     let el = this.screen?.classList.contains('loading') ? this.screen : null;
-    if (!el) el = this.show(h(`<div class="screen center loading"><div class="card narrow"><h2>正在准备地图</h2><div class="lbar" role="progressbar" aria-label="地图准备进度" aria-valuemin="0" aria-valuemax="100"><i></i></div><div class="llabel" role="status"></div><p class="muted">正在生成地形与加载模型。首次进入地图可能需要稍等片刻。</p></div></div>`));
+    if (el && map && el.dataset.map !== map.id) el = null;
+    if (!el) {
+      // （写在 CSS 变量里的相对地址按样式表的位置解析，这里要给完整地址）
+      const art = map ? ` style="--art:url('${new URL(`ui/map_${map.id}_bg.webp`, document.baseURI).href}')" data-map="${map.id}"` : '';
+      el = this.show(
+        h(`<div class="screen loading"${art}>
+          <div class="load-name">${map ? `<h2>${map.name}</h2><span>${map.subtitle}</span>` : '<h2>正在准备地图</h2>'}</div>
+          <div class="load-foot"><div class="lbar" role="progressbar" aria-label="地图准备进度" aria-valuemin="0" aria-valuemax="100"><i></i></div><div class="llabel" role="status"></div></div>
+        </div>`),
+      );
+    }
     const percent = Math.round(Math.max(0, Math.min(1, Number.isFinite(p) ? p : 0)) * 100);
     (el.querySelector('.lbar i') as HTMLElement).style.width = `${percent}%`;
     el.querySelector('.lbar')?.setAttribute('aria-valuenow', String(percent));

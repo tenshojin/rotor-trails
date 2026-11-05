@@ -257,10 +257,11 @@ export class App {
     if (!auto) {
       // 菜单背景：训练场的黄昏
       this.view.setTimeOfDay('dusk');
-      this.ui.loading('生成训练场', 0.1);
-      const w = await generateWorld(getMap('training'), true, (p, l) => this.ui.loading(l, p * 0.9));
+      const home = getMap('training');
+      this.ui.loading('生成地形', 0.1, home);
+      const w = await generateWorld(home, true, (p, l) => this.ui.loading(l, p * 0.9, home));
       this.assertActive();
-      await this.view.load(w, (p, l) => this.ui.loading(l, p));
+      await this.view.load(w, (p, l) => this.ui.loading(l, p, home));
       this.assertActive();
       this.world = w;
       const pad = w.pads.get(w.map.spawn.padId)!;
@@ -436,15 +437,15 @@ export class App {
     this.run = cfg;
     this.view.setTimeOfDay(cfg.time ?? 'day');
     if (!this.world || this.world.map.id !== cfg.map.id) {
-      this.ui.loading('生成地形', 0.02);
+      this.ui.loading('生成地形', 0.02, cfg.map);
       this.view.prefetch(cfg.map);
-      const w = await generateWorld(cfg.map, true, (p, l) => this.ui.loading(l, p));
+      const w = await generateWorld(cfg.map, true, (p, l) => this.ui.loading(l, p, cfg.map));
       this.assertActive();
-      await this.view.load(w, (p, l) => this.ui.loading(l, p));
+      await this.view.load(w, (p, l) => this.ui.loading(l, p, cfg.map));
       this.assertActive();
       this.world = w;
     }
-    this.ui.loading('初始化物理', 0.98);
+    this.ui.loading('初始化物理', 0.98, cfg.map);
     const session = await GameSession.create(this.world, cfg.weather, cfg.assist);
     if (this.disposed) {
       session.dispose();
@@ -462,7 +463,7 @@ export class App {
     this.view.rig.yaw = 0;
     this.view.rig.pitch = DEFAULT_PITCH;
     this.state = 'ready';
-    this.ui.loading('编译着色器（第一次进入会慢一些）', 0.99);
+    this.ui.loading('编译着色器（第一次进入会慢一些）', 0.99, cfg.map);
     await this.warmUp();
     this.assertActive();
     this.hud.show(true);
