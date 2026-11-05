@@ -451,6 +451,18 @@ a {
   color: var(--muted);
   font-size: 14px;
 }
+/* 主菜单的实时场景编译好之前，背后放一张实拍画面 */
+.menu-art {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: center / cover no-repeat;
+  pointer-events: none;
+  transition: opacity 1.4s;
+}
+.menu-art.off {
+  opacity: 0;
+}
 /* 加载新地图时旧场景正在被替换：用不透明背景遮住，避免看到半成品画面。背景是这张图的实拍画面 */
 .screen.loading {
   background: linear-gradient(180deg, rgba(4, 8, 12, 0.1) 45%, rgba(4, 8, 12, 0.82)), var(--art, none) center / cover no-repeat, radial-gradient(ellipse at 50% 40%, #13263a, #070d14 70%);

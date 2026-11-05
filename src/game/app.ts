@@ -101,6 +101,8 @@ export class App {
   private settingsSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly canvas: HTMLCanvasElement;
   private readonly idlePose = { pos: new THREE.Vector3(), target: new THREE.Vector3(), fov: 34 };
+  /** 主菜单的并行编译（见 warmMenu） */
+  private menuWarm: { cancel(): void } | null = null;
   private readonly instrumentLists = new InstrumentLists();
   private loadingRun = false;
   private loadWarning: string | null = null;
@@ -277,7 +279,10 @@ export class App {
       const weather = m.weathers.find((w) => w.id === params.get('weather'))?.id ?? m.defaultWeather;
       await this.startRun({ map: m, weather, assist: assist === 'novice' || assist === 'standard' || assist === 'challenge' ? assist : this.settings.assist, tutorial: auto.id === 'training' && params.get('tutorial') !== '0', time: isTimeOfDay(tp) ? tp : 'day' });
       if (params.get('autostart') === '1') this.beginFlight();
-    } else this.mainMenu();
+    } else {
+      this.mainMenu();
+      void this.warmMenu();
+    }
   }
 
   // ---------------- 调试 / 自动化测试接口 ----------------
@@ -398,6 +403,8 @@ export class App {
 
   async startRun(cfg: RunConfig): Promise<void> {
     if (this.disposed || this.loadingRun) return;
+    this.menuWarm?.cancel();
+    this.menuWarm = null;
     this.pendingOperations++;
     this.loadingRun = true;
     this.loadWarning = null;
@@ -477,6 +484,36 @@ export class App {
   }
 
   /**
+   * 主菜单第一次画实时场景要编译一批着色器（十几秒）。菜单这时已经能用，背后先放一张实拍画面，
+   * 着色器并行编译，好了再淡入实时画面。玩家中途开始飞行时取消，交给 warmUp。
+   */
+  private async warmMenu(): Promise<void> {
+    const v = this.view;
+    const compiled = v.parallelCompile();
+    if (!compiled) return;
+    const art = document.createElement('div');
+    art.className = 'menu-art';
+    art.style.backgroundImage = "url('ui/map_training_bg.webp')";
+    this.canvas?.parentElement?.insertBefore(art, this.canvas.nextSibling);
+    this.menuWarm = { cancel: () => { compiled.cancel(); art.remove(); } };
+    try {
+      const target = v.frames + 4;
+      const t0 = performance.now();
+      while (v.frames < target && this.menuWarm && performance.now() - t0 < 30000) await new Promise((r) => setTimeout(r, 30));
+      if (this.menuWarm) await compiled();
+      v.refreshEnv?.();
+      await new Promise((r) => setTimeout(r, 400));
+    } catch (error) {
+      console.warn('主菜单着色器预热失败：', error);
+    }
+    if (!this.menuWarm) return;
+    this.menuWarm = null;
+    compiled.cancel();
+    art.classList.add('off');
+    setTimeout(() => art.remove(), 1600);
+  }
+
+  /**
    * 等渲染管线全部编译完：强制全画几帧（第一帧就把所有管线提交了，体积雾等到阴影贴图建好才重建，所以多画几帧），
    * 这几帧里的管线并行编译；编译好之后再真的画几帧，最后等显卡把队列跑完。
    * 按帧数而不是帧时间判断，慢显卡上也不会白等；用定时器轮询，后台标签页里也能走完。
@@ -505,6 +542,7 @@ export class App {
       compiled = v.parallelCompile();
       await frames(6);
       await waitForOperation(compiled(), this.lifetime.signal, 60000, '着色器编译');
+      v.refreshEnv?.();
       await frames(3);
       await waitForOperation(v.gpuIdle(), this.lifetime.signal, 60000, '显卡准备');
     } finally {

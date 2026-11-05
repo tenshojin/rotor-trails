@@ -555,6 +555,12 @@ export class WorldView {
   }
 
   /** 天气变化时重新烘焙环境贴图（限频）。 */
+  /** 下一帧重烘环境贴图（并行编译期间不画，那时烘出来的是空的） */
+  refreshEnv(): void {
+    this.envKey = '';
+    this.envT = -10;
+  }
+
   private updateEnv(w: WeatherParams, t: number): void {
     if (!this.sky) return;
     const key = `${w.overcast.toFixed(1)}_${w.rain.toFixed(1)}_${Math.round(Math.log(w.visibility) * 2)}_${this.settings.quality}_${this.tod}`;
