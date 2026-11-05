@@ -33,8 +33,17 @@ export const amazonProps: Record<string, PropFn> = {
     B.footprint(Math.hypot(w, l) / 2 + 2);
   },
   tent(B, _d, rng) {
-    const c = rng.pick([0x3a6a8a, 0xc85a2a, 0x4a7a3a, 0xd8c060]);
+    // 科考队的帆布帐篷：日晒雨淋过的军绿、卡其、灰蓝、铁锈色，不是鲜亮的色块
+    const c = rng.pick([0x515c46, 0x7d6e50, 0x4b5a63, 0x724c34]);
     B.gable(0, 0, 0, 4.5, 3.2, 2.2, 0.1, c, { mat: 'cloth' }, 0);
+    // 门帘、脊杆、两头的支杆、防风绳
+    B.box(2.26, 0.72, 0, 0.03, 1.44, 0.82, 0x24261f, { mat: 'cloth', solid: false });
+    B.beam([-2.6, 2.25, 0], [2.6, 2.25, 0], 0.04, 0x3a2c20, { solid: false });
+    for (const x of [-2.3, 2.3]) B.beam([x, 0, 0], [x, 2.25, 0], 0.035, 0x3a2c20, { solid: false });
+    for (const x of [-1, 1]) {
+      B.beam([x * 2.6, 2.25, 0], [x * 4.1, 0.03, 0], 0.012, 0xa8a08a, { solid: false });
+      for (const z of [-1, 1]) B.beam([x * 1.9, 0.42, z * 1.62], [x * 2.5, 0.03, z * 2.8], 0.012, 0xa8a08a, { solid: false });
+    }
     B.footprint(3);
   },
   camp(B, d, rng, ctx) {

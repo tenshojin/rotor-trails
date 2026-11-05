@@ -11,6 +11,7 @@ import type { ModelInstance } from '../world/propBuilder';
 
 /** 已有建筑模型库的地图（其余地图仍用程序几何体） */
 export const MODEL_FILES: Record<string, string> = {
+  training: 'props_training.glb',
   japan: 'props_japan.glb',
   fjord: 'props_fjord.glb',
   himalaya: 'props_himalaya.glb',

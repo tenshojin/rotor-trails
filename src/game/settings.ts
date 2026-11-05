@@ -40,7 +40,7 @@ export const ACTION_LABEL: Record<Action, string> = {
   view: '切换座舱/追尾视角',
   nav: '切换导航目标 / 分岔推荐路线',
   mapRange: '切换地图范围',
-  hud: 'HUD 显示（完整 / 简洁 / 隐藏）',
+  hud: 'HUD 显示（自动 / 完整 / 隐藏）',
   lookLeft: '向左看（无鼠标锁定时）',
   lookRight: '向右看',
   lookUp: '向上看',

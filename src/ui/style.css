@@ -250,8 +250,18 @@ a {
 }
 .map-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
+}
+@media (max-width: 1080px) {
+  .map-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 680px) {
+  .map-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .map-card {
   font: inherit;
@@ -262,19 +272,32 @@ a {
   background: var(--panel-solid);
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 16px 18px;
+  padding: 0;
   cursor: pointer;
   pointer-events: auto;
   transition: border-color 0.15s, transform 0.15s;
   position: relative;
   overflow: hidden;
 }
-.map-card::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 5px;
-  background: var(--card-color, var(--accent));
+/* 每张图的实拍画面（游戏里拍的，见 public/ui）。图片加载失败时是这条颜色带 */
+.mc-img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2.6;
+  background: var(--card-color, var(--accent)) center / cover no-repeat;
+  transition: transform 0.35s ease;
+}
+.map-card:hover .mc-img {
+  transform: scale(1.035);
+}
+.mc-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  width: 100%;
+  padding: 10px 18px 14px;
+  background: var(--panel-solid);
+  position: relative;
 }
 .map-card:hover {
   border-color: var(--accent);
@@ -325,9 +348,8 @@ a {
 .mc-desc {
   display: block;
   font-size: 14px;
-  line-height: 1.55;
+  line-height: 1.5;
   color: #c6d4de;
-  min-height: 66px;
 }
 .mc-foot {
   display: flex;
@@ -347,6 +369,13 @@ a {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
   gap: 18px;
+}
+/* 简报顶上的实拍画面 */
+.brief-hero {
+  height: 170px;
+  margin: -22px -24px 14px;
+  background: center / cover no-repeat;
+  border-radius: 10px 10px 0 0;
 }
 .brief-main p {
   line-height: 1.65;
@@ -691,21 +720,26 @@ table.score .total td {
   padding: 9px 12px;
   backdrop-filter: blur(2px);
 }
+/* 飞行时画面是主角：面板轻薄，不挡风景 */
 .hud .panel {
-  transition: opacity 0.8s;
+  background: rgba(6, 11, 16, 0.36);
+  border-color: rgba(255, 255, 255, 0.07);
+  backdrop-filter: none;
+  padding: 7px 10px;
+  transition: opacity 0.9s;
 }
 .hud > :not(.hud-warn):not(.hud-toasts) {
   opacity: var(--hud-opacity);
 }
-/* 平稳飞行时面板淡下去；有警告、分岔、着陆时恢复 */
-.hud.hud-calm .panel {
-  opacity: calc(var(--hud-opacity) * 0.5);
+/* 自动：平稳飞行时面板和按键提示都收起来，只留航向带和下一个航点；有警告、分岔、着陆、任务变化时回来 */
+.hud.hud-calm .panel,
+.hud.hud-calm .hud-hint {
+  opacity: 0;
 }
-/* 简洁：只留航向带、目标标记和警告 */
-.hud.hud-min .hud-obj,
-.hud.hud-min .hud-flight,
-.hud.hud-min .hud-status,
-.hud.hud-min .hud-buffs {
+.hud-hint {
+  transition: opacity 0.9s;
+}
+.hud.hud-calm .nav-sub {
   display: none;
 }
 /* 隐藏：只有告警还显示 */
@@ -720,20 +754,20 @@ table.score .total td {
 }
 .hud-obj {
   position: absolute;
-  top: 14px;
-  left: 14px;
-  width: 360px;
+  top: 12px;
+  left: 12px;
+  width: 300px;
 }
 .obj-title {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
-  margin-top: 2px;
+  margin-top: 1px;
 }
 .obj-detail {
-  font-size: 13px;
+  font-size: 12px;
   color: #c6d4de;
-  margin-top: 3px;
-  line-height: 1.45;
+  margin-top: 2px;
+  line-height: 1.4;
 }
 .obj-bar {
   height: 4px;
@@ -763,9 +797,9 @@ table.score .total td {
 }
 .hud-buffs {
   position: absolute;
-  top: 14px;
-  right: 14px;
-  width: 220px;
+  top: 12px;
+  right: 12px;
+  width: 190px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -822,16 +856,17 @@ table.score .total td {
 .hud-flight,
 .hud-status {
   position: absolute;
-  top: 54%;
+  top: 46%;
   transform: translateY(-50%);
-  width: 230px;
+  width: 180px;
+  font-size: 12px;
 }
 .hud-flight {
-  left: 14px;
+  left: 12px;
 }
 .hud-status {
-  right: 14px;
-  width: 260px;
+  right: 12px;
+  width: 210px;
 }
 .row {
   display: flex;
@@ -841,25 +876,25 @@ table.score .total td {
 }
 .row span {
   color: var(--muted);
-  font-size: 12px;
-  width: 70px;
+  font-size: 11px;
+  width: 58px;
   flex-shrink: 0;
 }
 .row b {
   font-family: var(--mono);
-  font-size: 17px;
+  font-size: 14px;
 }
 .row b.sm {
   font-family: var(--font);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
 }
 .row.big b {
-  font-size: 24px;
+  font-size: 19px;
 }
 .row em {
   font-style: normal;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
 }
 .meter {
@@ -912,22 +947,20 @@ table.score .total td {
   left: 50%;
   transform: translateX(-50%);
   text-align: center;
-  width: clamp(300px, calc(100vw - 800px), 560px);
+  width: clamp(300px, calc(100vw - 700px), 460px);
 }
 .heading-tape {
   width: 100%;
-  height: 46px;
-  border-radius: 6px;
+  height: auto;
+  aspect-ratio: 560 / 46;
 }
 .nav-text {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 6px 12px;
-  margin-top: 6px;
+  padding: 0 8px;
+  margin-top: 1px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.55);
 }
 .nav-main {
-  font-size: 15px;
+  font-size: 13px;
 }
 .nav-main b {
   color: var(--accent);
@@ -941,9 +974,9 @@ table.score .total td {
   margin-right: 4px;
 }
 .nav-sub {
-  font-size: 13px;
-  color: #c6d4de;
-  margin-top: 2px;
+  font-size: 12px;
+  color: #d6e0e8;
+  margin-top: 1px;
 }
 .nav-turn {
   font-size: 15px;

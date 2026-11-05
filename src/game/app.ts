@@ -100,7 +100,7 @@ export class App {
   private startPromise: Promise<void> | null = null;
   private settingsSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly canvas: HTMLCanvasElement;
-  private readonly idlePose = { pos: new THREE.Vector3(), target: new THREE.Vector3() };
+  private readonly idlePose = { pos: new THREE.Vector3(), target: new THREE.Vector3(), fov: 34 };
   private readonly instrumentLists = new InstrumentLists();
   private loadingRun = false;
   private loadWarning: string | null = null;
@@ -255,7 +255,8 @@ export class App {
     const params = new URLSearchParams(location.search);
     const auto = MAPS.find((m) => m.id === params.get('map'));
     if (!auto) {
-      // 菜单背景：训练场
+      // 菜单背景：训练场的黄昏
+      this.view.setTimeOfDay('dusk');
       this.ui.loading('生成训练场', 0.1);
       const w = await generateWorld(getMap('training'), true, (p, l) => this.ui.loading(l, p * 0.9));
       this.assertActive();
@@ -688,12 +689,15 @@ export class App {
       this.view.drawInstruments(this.t, this.instrumentData(s));
       this.audio.update(this.audioState(this.state !== 'playing'), dt);
     } else {
-      // 菜单背景：绕停机坪缓慢环绕
-      this.idleAngle += dt * 0.05;
+      // 菜单背景：长焦、贴着地面绕直升机慢慢转，直升机在画面右边（左边是标题和菜单），背后是谷地和雪山
+      this.idleAngle += dt * 0.022;
       const c = this.view.heli.root.position;
-      const r = 28;
-      this.idlePose.pos.set(c.x + Math.sin(this.idleAngle) * r, c.y + 7, c.z + Math.cos(this.idleAngle) * r);
-      this.idlePose.target.set(c.x, c.y + 1.5, c.z);
+      const r = 21;
+      const a = 2.5 + 0.55 * Math.sin(this.idleAngle);
+      const sx = Math.sin(a);
+      const cz = Math.cos(a);
+      this.idlePose.pos.set(c.x + sx * r, c.y + 0.5, c.z + cz * r);
+      this.idlePose.target.set(c.x - cz * 3.6, c.y + 2.6, c.z + sx * 3.6);
       this.view.render(null, { dt, t: this.t, alpha: 1 }, this.idlePose);
       this.audio.update(this.audioState(true), dt);
     }

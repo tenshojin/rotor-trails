@@ -4,6 +4,7 @@ import { canyonProps } from './canyon';
 import { amazonProps } from './amazon';
 import { fjordProps } from './fjord';
 import { himalayaProps } from './himalaya';
+import { trainingProps } from './training';
 
 export const PROP_FNS: Record<string, PropFn> = {
   ...commonProps,
@@ -12,6 +13,7 @@ export const PROP_FNS: Record<string, PropFn> = {
   ...amazonProps,
   ...fjordProps,
   ...himalayaProps,
+  ...trainingProps,
 };
 
 export function registerProps(fns: Record<string, PropFn>): void {

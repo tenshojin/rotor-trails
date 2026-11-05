@@ -54,8 +54,9 @@ export class Hud {
   private debug: HTMLDivElement;
   private lastText = -1;
   private mode = 0;
-  /** 上次有事情需要注意的时间：平稳飞行一段时间后，面板淡下去，把风景让出来 */
+  /** 上次有事情需要注意的时间：平稳飞行一段时间后，面板收起来，把风景让出来 */
   private busyT = 0;
+  private lastObjective = '';
   showDebug = false;
   private proj = { x: 0, y: 0, behind: false };
   private pkPos = new THREE.Vector3();
@@ -106,12 +107,12 @@ export class Hud {
     else this.clearToasts();
   }
 
-  /** 完整 → 简洁 → 隐藏，返回新模式的名字 */
+  /** 自动（平稳飞行时收起）→ 完整（一直显示）→ 隐藏（只留告警），返回新模式的名字 */
   cycleMode(): string {
     this.mode = (this.mode + 1) % 3;
-    this.root.classList.toggle('hud-min', this.mode === 1);
+    this.root.classList.toggle('hud-full', this.mode === 1);
     this.root.classList.toggle('hud-off', this.mode === 2);
-    return ['完整', '简洁', '隐藏'][this.mode];
+    return ['自动', '完整', '隐藏'][this.mode];
   }
 
   setOpacity(o: number): void {
@@ -217,6 +218,8 @@ export class Hud {
     const b = s.buffs;
     const slot = (cls: string, name: string, on: boolean, text: string, frac: number) =>
       `<div class="buff ${cls} ${on ? 'on' : ''}"><div class="bi"></div><div class="bt"><b>${name}</b><span>${text}</span></div><div class="bbar"><i style="width:${frac * 100}%"></i></div></div>`;
+    // 手上没有补给时不占地方
+    this.buffs.classList.toggle('hidden', !(b.boostActive || b.boostCharges > 0 || b.shieldActive));
     setMarkup(this.buffs,
       slot('boost', '动力增强', b.boostActive || b.boostCharges > 0, b.boostActive ? `生效 ${b.boostTime.toFixed(1)} s` : b.boostCharges > 0 ? `已储备 · ${set.bindings.boost.map(keyName).join(' / ')} 使用` : '未持有', b.boostActive ? b.boostTime / BUFFS.boost.duration : b.boostCharges > 0 ? 1 : 0) +
       slot('shield', '免伤护盾', b.shieldActive, b.shieldActive ? `剩余 ${b.shieldTime.toFixed(1)} s` : '未激活', b.shieldTime / BUFFS.shield.maxDuration));
@@ -224,7 +227,12 @@ export class Hud {
     const cur = s.mission.current();
     if (cur) {
       const idx = s.mission.index + 1;
-      this.objTitle.textContent = `${idx}/${s.mission.main.length} · ${cur.def.title}`;
+      const title = `${idx}/${s.mission.main.length} · ${cur.def.title}`;
+      if (title !== this.lastObjective) {
+        this.lastObjective = title;
+        this.busyT = t;
+      }
+      this.objTitle.textContent = title;
       this.objDetail.textContent = cur.def.detail;
       this.objBar.style.width = `${cur.progress * 100}%`;
       let hint = cur.hint;
@@ -284,7 +292,7 @@ export class Hud {
     this.updateLanding(s, set);
     const busy = warns.length > 0 || !this.forks.classList.contains('hidden') || !this.landing.classList.contains('hidden') || s.groundSpeed < 8 || this.toasts.children.length > 0;
     if (busy) this.busyT = t;
-    this.root.classList.toggle('hud-calm', t - this.busyT > 7);
+    this.root.classList.toggle('hud-calm', this.mode === 0 && t - this.busyT > 6);
     if (this.showDebug) {
       this.debug.classList.remove('hidden');
       this.debug.textContent = `${view.info()} · trees ${s.treeProxyCount} · t ${s.t.toFixed(1)}`;
@@ -512,15 +520,17 @@ export class Hud {
     const W = 560;
     const H = 46;
     g.clearRect(0, 0, W, H);
-    g.fillStyle = 'rgba(5,10,16,0.5)';
-    g.fillRect(0, 0, W, H);
+    // 不铺底色：刻度直接画在风景上，靠阴影保持看得清
+    g.shadowColor = 'rgba(0,0,0,0.75)';
+    g.shadowBlur = 3;
     const hdg = wrap360(s.flight.telemetry.heading * RAD);
-    const px = 3.4;
-    g.strokeStyle = '#d8e4ee';
-    g.fillStyle = '#d8e4ee';
-    g.font = '600 13px system-ui, sans-serif';
+    const px = 2.6;
+    g.strokeStyle = 'rgba(232,240,246,0.9)';
+    g.fillStyle = 'rgba(232,240,246,0.92)';
+    g.font = '600 12px system-ui, sans-serif';
     g.textAlign = 'center';
-    for (let a = Math.floor((hdg - 85) / 5) * 5; a <= hdg + 85; a += 5) {
+    g.lineWidth = 1;
+    for (let a = Math.floor((hdg - 70) / 5) * 5; a <= hdg + 70; a += 5) {
       const x = W / 2 + headingDelta(hdg, wrap360(a)) * px;
       const aa = wrap360(a);
       g.beginPath();
@@ -533,7 +543,7 @@ export class Hud {
     const nav = s.nav.info;
     if (nav.mode !== 'complete') {
       const rel = headingDelta(hdg, nav.bearing);
-      const x = W / 2 + clamp(rel, -80, 80) * px;
+      const x = W / 2 + clamp(rel, -68, 68) * px;
       g.fillStyle = nav.mode === 'optional' ? '#c08bff' : '#38e8ff';
       g.beginPath();
       g.moveTo(x, 2);
@@ -545,7 +555,7 @@ export class Hud {
     // 航迹（实际运动方向）
     if (s.groundSpeed > 3) {
       const trk = wrap360(Math.atan2(s.body.vel.x, -s.body.vel.z) * RAD);
-      const x = W / 2 + clamp(headingDelta(hdg, trk), -80, 80) * px;
+      const x = W / 2 + clamp(headingDelta(hdg, trk), -68, 68) * px;
       g.strokeStyle = '#78ffaa';
       g.lineWidth = 2;
       g.beginPath();

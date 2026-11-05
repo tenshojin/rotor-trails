@@ -87,16 +87,18 @@ export class SmokePlume {
     const n = n1.mul(0.68).add(n2.mul(0.32)).toVar();
     const k = I.x;
     const shape = clamp(float(1).sub(rr).mul(1.8).add(n.sub(0.5).mul(mix(float(1.5), float(3.0), k))).sub(0.1), 0, 1);
-    const body = smoothstep(0.0, 0.8, shape).toVar();
+    const body = smoothstep(0.0, 0.42, shape).toVar();
     // 受光：把方块当半球，法线再按噪声扰动一点，表面才有鼓包
     const nrm = normalize(this.uRight.mul(q.x.add(n1.sub(0.5).mul(1.2))).add(this.uUp.mul(q.y.add(n2.sub(0.5).mul(1.2)))).add(this.uBack.mul(sqrt(max(float(1).sub(rr.mul(rr)), 0.06)))));
     const ndl = dot(nrm, FOG.sunDir).mul(0.5).add(0.5);
     const sun = (VFOG.sun as unknown as THREE.Node<'vec3'>).mul(terrainSun(positionWorld)).mul(1 / Math.PI);
     const look = normalize(positionWorld.sub(cameraPosition));
     const through = pow(max(dot(look, FOG.sunDir), 0.0), 6.0).mul(float(1).sub(body).mul(0.8).add(0.2));
-    const albedo = mix(vec3(0.82, 0.4, 0.17), vec3(0.8, 0.74, 0.68), smoothstep(0.02, 0.3, k));
+    const albedo = mix(vec3(0.8, 0.38, 0.15), vec3(0.74, 0.7, 0.66), smoothstep(0.02, 0.3, k));
     const sky = FOG.color.mul(nrm.y.mul(0.22).add(0.62));
-    const lit = sky.add(sun.mul(ndl.mul(ndl).mul(1.15).add(through.mul(1.4))));
+    // 团与团之间的缝里阳光进不去：朝着光的时候烟才有层次，不是一条平的色带
+    const fold = smoothstep(0.1, 0.75, shape).mul(0.5).add(0.5);
+    const lit = sky.add(sun.mul(ndl.mul(ndl).mul(0.8).add(through.mul(1.4)))).mul(fold);
     const heat = float(1).sub(smoothstep(0.0, 0.05, k));
     m.colorNode = albedo.mul(lit).mul(n.mul(0.5).add(0.76)).add(vec3(1.0, 0.33, 0.07).mul(this.uFlare.mul(heat).mul(heat).mul(0.9)));
     // 软边与淡出
@@ -131,6 +133,10 @@ export class SmokePlume {
     p.t0 = this.time - age;
     p.seed = this.rnd();
     return p;
+  }
+
+  private static radius(a: number, seed: number): number {
+    return 0.9 + 0.95 * a ** 0.92 * (0.85 + 0.3 * seed);
   }
 
   /** 水平飘动的速度比例：贴地时风小，越高越顺风 */
@@ -178,11 +184,13 @@ export class SmokePlume {
     for (const p of this.puffs) {
       if (!p.live) continue;
       const a = p.age;
-      const amp = 0.4 + a * 0.5;
+      const amp = 0.5 + a * 0.72;
       const ph = p.t0 * 0.85;
-      p.px = p.x + amp * (Math.sin(ph + a * 0.21) + 0.5 * Math.sin(ph * 2.3 + a * 0.47 + 1.7));
-      p.py = p.y + 3.2 * a + 26 * (1 - Math.exp(-a / 4.5));
-      p.pz = p.z + amp * (Math.cos(ph * 0.8 + a * 0.19 + 2.1) + 0.5 * Math.sin(ph * 1.9 + a * 0.41));
+      // 烟柱的走向 + 每团自己的偏移（外轮廓才是一个个鼓包，不是一根光滑的管子）
+      const r = SmokePlume.radius(a, p.seed);
+      p.px = p.x + amp * (Math.sin(ph + a * 0.21) + 0.5 * Math.sin(ph * 2.3 + a * 0.47 + 1.7)) + Math.sin(p.seed * 91.7) * r * 0.42;
+      p.py = p.y + 3.2 * a + 26 * (1 - Math.exp(-a / 4.5)) + Math.sin(p.seed * 33.1) * r * 0.3;
+      p.pz = p.z + amp * (Math.cos(ph * 0.8 + a * 0.19 + 2.1) + 0.5 * Math.sin(ph * 1.9 + a * 0.41)) + Math.cos(p.seed * 57.3) * r * 0.42;
       p.dist = (p.px - cp.x) ** 2 + (p.py - cp.y) ** 2 + (p.pz - cp.z) ** 2;
       o.push(p);
     }
@@ -196,9 +204,12 @@ export class SmokePlume {
       A[i * 4] = p.px;
       A[i * 4 + 1] = p.py;
       A[i * 4 + 2] = p.pz;
-      A[i * 4 + 3] = 1.3 + 0.95 * p.age ** 0.92 * (0.85 + 0.3 * p.seed);
+      // 烟一阵浓一阵淡；飘高以后只留一部分团、每团实一点：层数太多只剩一片均匀的颜色
+      const thin = k > 0.1 && p.seed > 0.5 ? 0 : 1;
+      const pulse = 0.72 + 0.28 * Math.sin(p.t0 * 1.7);
+      A[i * 4 + 3] = SmokePlume.radius(p.age, p.seed) * (thin ? 1 : 0);
       B[i * 4] = k;
-      B[i * 4 + 1] = Math.min(1, p.age / 0.35) * (1 - k) ** 1.6 * 0.46;
+      B[i * 4 + 1] = Math.min(1, p.age / 0.35) * (1 - k) ** 1.5 * 0.72 * pulse;
       B[i * 4 + 2] = p.seed * 6.283 + p.age * (p.seed - 0.5) * 0.12;
       B[i * 4 + 3] = p.seed;
     });

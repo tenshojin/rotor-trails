@@ -680,7 +680,7 @@ export class WorldView {
   }
 
   /** 每帧渲染。session 为空时（主菜单）使用 idlePose。 */
-  render(s: GameSession | null, f: FrameInfo, idle?: { pos: THREE.Vector3; target: THREE.Vector3 }): void {
+  render(s: GameSession | null, f: FrameInfo, idle?: { pos: THREE.Vector3; target: THREE.Vector3; fov?: number }): void {
     const world = this.world;
     const cam = this.rig.camera;
     const set = this.settings;
@@ -714,6 +714,11 @@ export class WorldView {
         this.landing.intensity = 1100;
       }
     } else if (idle) {
+      if (idle.fov && cam.fov !== idle.fov) {
+        cam.fov = idle.fov;
+        cam.updateProjectionMatrix();
+        this.sun.updateFrustums();
+      }
       cam.position.copy(idle.pos);
       cam.lookAt(idle.target);
       this.heli.root.visible = true;
@@ -759,7 +764,7 @@ export class WorldView {
       VFOG.beam.value = this.tod === 'night' ? 0.08 : 1;
       VFOG.amb.value.copy(FOG.color.value).multiplyScalar(0.9);
       // 舱内补光：地平线一带的天光，混一半内饰反射出来的暖色（否则座舱背光处全是天空的蓝）
-      CABIN_FILL.value.copy(FOG.color.value).lerp(_cabinWarm, 0.55).multiplyScalar(0.42 * (1 - 0.35 * w.overcast));
+      CABIN_FILL.value.copy(FOG.color.value).lerp(_cabinWarm, 0.55).multiplyScalar(0.62 * (1 - 0.35 * w.overcast));
       // 夜里舱内只有仪表的一点余光
       if (this.tod === 'night') CABIN_FILL.value.multiplyScalar(0.02).add(_cabinGlow);
       FOG.glint.value = this.tod === 'night' ? 0.42 : 1;
