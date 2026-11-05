@@ -43,6 +43,7 @@ import {
 } from 'three/tsl';
 import type { RockFormDef } from '../world/rockForm';
 import { FOG } from './atmosphere';
+import { GI } from './giField';
 import { terrainSun } from './sunMap';
 import type { TerrainLayers } from './terrainLayers';
 import { VFOG } from './volumetricFog';
@@ -487,6 +488,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
   // 背对太阳的坡（自己的影子里）和被斜阳擦过的平地也一样：只有蓝天照着会发青，实际上还接着地面反上来、
   // 太阳那一侧的天空洒下来的暖光
   const backK = clamp(float(0.32).sub(dot(normalize(normalWorld), FOG.sunDir)), 0.0, 1.0);
-  mat.emissiveNode = (res.get('col') as N<'vec3'>).mul(VFOG.sun).mul(shadeK.mul(float(1.15).sub(SKY_VIS())).mul(0.1).add(backK.mul(0.085)));
+  // （开着光线追踪时大部分换成算出来的真实反弹光，见 giField.ts）
+  mat.emissiveNode = (res.get('col') as N<'vec3'>).mul(VFOG.sun).mul(shadeK.mul(float(1.15).sub(SKY_VIS())).mul(0.1).add(backK.mul(0.085))).mul(float(1).sub(GI.on.mul(0.75)));
   return mat;
 }

@@ -248,12 +248,10 @@ export class WaterView {
     this.material.opacityNode = float(1);
     const lit = new WaterLighting(res.get('glint') as N<'float'>);
     (this.material as unknown as { setupLightingModel(): THREE.PhysicalLightingModel }).setupLightingModel = () => lit;
-    // 屏幕空间反射：水面在“金属度”通道写入菲涅尔反射率（正视约 2%，掠射接近 100%），光滑表面才反射；
     // 法线通道写波浪法线。其他透明材质不写这些通道（见 post.ts keepGBuffer）。
     const nView = normalize(cameraViewMatrix.mul(vec4(nW, 0.0)).xyz);
-    const ndv = clamp(dot(nView, normalize(positionView).negate()), 0.0, 1.0);
-    const fres = float(0.02).add(float(0.98).mul(pow(float(1).sub(ndv), 5.0)));
-    this.material.mrtNode = mrt({ normal: vec4(packNormalToRGB(nView), fres.mul(1 - 0.6 * muddy).mul(float(1).sub(res.get('foam') as N<'float'>))) });
+    // 反射全在材质里算完了（mirror.ts）：金属度写 0、漫反射色写黑，后期的反射和反弹光都不再碰水面
+    this.material.mrtNode = mrt({ normal: vec4(packNormalToRGB(nView), 0), diffuse: vec4(0, 0, 0, 1) });
     this.material.userData.gbuffer = true;
     this.mesh = new THREE.Mesh(geo, this.material);
     this.mesh.position.y = level;

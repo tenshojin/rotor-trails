@@ -31,6 +31,7 @@ import { GroundCover } from './groundCover';
 import { RiverView } from './riverView';
 import { EYE_DEFAULT, EyeAdapt } from './eyeAdapt';
 import { clearSunMap, setSunMap } from './sunMap';
+import { bakeGi, clearGiMap, disposeGi, GI, giGroundLight, setGiMap } from './giField';
 import { sunFor, type TimeOfDay } from './timeOfDay';
 import { WET, WINDOW_LIGHT } from './wetness';
 import { updateCloudShadowMap } from './cloudShadowMap';
@@ -48,6 +49,9 @@ export interface FrameInfo {
 
 const _cabinGlow = new THREE.Color(0.018, 0.0132, 0.0102);
 const _cloudGrey = new THREE.Color(0.86, 0.88, 0.9);
+const _ground = new THREE.Color();
+const _groundLit = new THREE.Color();
+const _cabinBounce = new THREE.Color();
 const _cabinWarm = new THREE.Color(1.0, 0.9, 0.76);
 const _pos = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
@@ -127,6 +131,10 @@ export class WorldView {
   private landing: THREE.SpotLight | null = null;
   private rivers: RiverView | null = null;
   private grass: GroundCover | null = null;
+  /** 光线追踪的全局光照：探针图要不要重算；算的时候太阳多亮（天气变了按比例调）；正在并行编译（那时什么都画不出来） */
+  private giDirty = true;
+  private giSun = 1;
+  private compiling = false;
   flash = 0;
   /** 雷声回调（音频层） */
   onThunder: ((delay: number, strength: number) => void) | null = null;
@@ -215,10 +223,10 @@ export class WorldView {
     // Usually a no-op; also permits a failed texture request to be retried without
     // rebuilding any already-working render resources.
     this.syncTerrainQuality(q.terrainTex);
-    // 水面倒影：低画质没有后期管线，省掉；开着光线追踪时海面由后期的屏幕空间反射负责，不要反射两遍
+    // 水面倒影：低画质没有后期管线，省掉（开了光线追踪就有后期，倒影也要留着）
     if (qualityChanged || previous?.rayTracing !== s.rayTracing) {
-      const mirror = s.quality === 'low' ? 0 : 1;
-      if (this.water) this.water.ssr.value = s.rayTracing ? 0 : mirror;
+      const mirror = s.quality === 'low' && !s.rayTracing ? 0 : 1;
+      if (this.water) this.water.ssr.value = mirror;
       if (this.rivers) this.rivers.ssr.value = mirror;
     }
     if (force || previous?.lightning !== s.lightning) this.lightning.enabled = s.lightning;
@@ -299,6 +307,7 @@ export class WorldView {
       if (changed) {
         setSunMap(this.world.terrain, this.sky.sunDir);
         this.sky.clouds.reset();
+        this.giDirty = true;
       }
     }
     // 太阳很低时远处的山也会把影子投进谷里：阴影框往太阳方向多留一些距离
@@ -405,6 +414,8 @@ export class WorldView {
       // 水面倒影飞出画面后接着走的地形图
       const field = makeReflectField(map, world.terrain, world.trees, world.surface, macroTex.image.data as Uint8Array, forestTex.image.data as Uint8Array);
       this.mapTextures.push(field.height, field.color);
+      setGiMap(field, map.waterLevel);
+      this.giDirty = true;
       fogMaps.height = groundTex;
       fogMaps.forest = forestTex;
       VFOG.mapSize.value = map.size;
@@ -539,6 +550,7 @@ export class WorldView {
     this.grass?.dispose();
     this.grass = null;
     clearSunMap();
+    clearGiMap();
     this.clouds?.dispose();
     for (const t of this.mapTextures) t.dispose();
     this.mapTextures = [];
@@ -557,6 +569,7 @@ export class WorldView {
   /** 天气变化时重新烘焙环境贴图（限频）。 */
   /** 下一帧重烘环境贴图（并行编译期间不画，那时烘出来的是空的） */
   refreshEnv(): void {
+    this.giDirty = true;
     this.envKey = '';
     this.envT = -10;
   }
@@ -622,6 +635,7 @@ export class WorldView {
     const pipelineData = new Set<PipelineData>();
     const get = P.getForRender;
     const draw = B.draw;
+    this.compiling = true;
     P.getForRender = function (ro, promises = null) {
       const offset = list.length;
       const result = get.call(P, ro, promises ?? list);
@@ -643,6 +657,7 @@ export class WorldView {
       restored = true;
       P.getForRender = get;
       B.draw = draw;
+      this.compiling = false;
     };
     let completion: Promise<void> | null = null;
     const complete = () => completion ??= (async () => {
@@ -784,6 +799,20 @@ export class WorldView {
       const lampK = this.tod === 'night' ? 1 : this.tod === 'dusk' ? 0.42 : this.tod === 'dawn' ? 0.2 : 0;
       if (this.nav) this.nav.flare = lampK;
       SCOTOPIC.value = this.tod === 'night' ? 1 : 0;
+      // 光线追踪的全局光照：上面的太阳、天空都更新过了才能算；天气变暗时反弹光跟着变弱，天光反上来的那部分还在
+      if (set.rayTracing && this.giDirty && !this.compiling) {
+        bakeGi(this.renderer);
+        this.giDirty = false;
+        this.giSun = Math.max(C.sunIntensity, 1e-3);
+      }
+      GI.on.value = set.rayTracing && !this.giDirty ? 1 : 0;
+      GI.gain.value = 0.3 + 0.7 * Math.min(1.4, C.sunIntensity / this.giSun);
+      // 舱内的光也跟着脚下的地：飞过雪坡整个座舱亮起来，飞过红岩泛暖，飞过深水暗下去
+      if (set.rayTracing && giGroundLight(cp.x, cp.z, world.map.size, _ground)) {
+        _ground.multiplyScalar(GI.gain.value);
+        _groundLit.lerp(_ground, 1 - Math.exp(-2.5 * f.dt));
+        CABIN_FILL.value.add(_cabinBounce.copy(_groundLit).multiplyScalar(0.5));
+      }
       const nightLight = Math.max(lampK, Math.max(0, (w.overcast - 0.7) / 0.3) * 0.35);
       this.lamps?.update(nightLight);
       this.padDetails?.update(nightLight);
@@ -891,6 +920,7 @@ export class WorldView {
     this.rain.dispose();
     this.eye.dispose();
     this.post?.dispose();
+    disposeGi();
     this.sun.dispose();
     this.pmrem?.dispose();
     // Renderer.dispose() is asynchronous and can reject if initialization itself

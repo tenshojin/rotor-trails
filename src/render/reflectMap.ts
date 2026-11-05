@@ -76,6 +76,7 @@ export function makeReflectField(map: MapDef, t: Heightfield, trees: TreeSet, su
   const rock = col(B.rock);
   const rock2 = col(B.rock2);
   const CANOPY: [number, number, number] = [0.062, 0.1, 0.043];
+  const PAVED: [number, number, number] = [0.22, 0.22, 0.21];
   const SNOW: [number, number, number] = [0.8, 0.83, 0.88];
   const form = map.rockForm ?? null;
   const T = form ? layerTable(form) : null;
@@ -108,6 +109,7 @@ export function makeReflectField(map: MapDef, t: Heightfield, trees: TreeSet, su
       lerp(floor, Math.min(0.85, f * 1.3));
       lerp(sand, Math.max(1 - smooth(B.beachTop - 0.5, B.beachTop + 2, h), surface[s] / 255));
       lerp(dirt, (surface[s + 1] / 255) * 0.9);
+      if (map.pavedMask) lerp(PAVED, surface[s + 3] / 255);
       const rk = smooth(B.rockSlope - 0.07, B.rockSlope + 0.06, m);
       if (rk > 0) {
         let rc: [number, number, number] = iz % 7 < 4 ? rock : rock2;
@@ -119,6 +121,7 @@ export function makeReflectField(map: MapDef, t: Heightfield, trees: TreeSet, su
       }
       lerp(CANOPY, smooth(0.25, 0.75, f) * (1 - rk * 0.6));
       lerp(SNOW, Math.min(1, smooth(B.snowLine - 50, B.snowLine + 30, h) * (1 - smooth(0.2, 0.4, m)) + smooth(B.snowLine + 500, B.snowLine + 1100, h) * 0.85));
+      if (map.pavedMask) lerp(PAVED, (surface[s + 3] / 255) * 0.9);
       const o = (y * N + x) * 4;
       data[o] = Math.round(lin2s(c[0]) * 255);
       data[o + 1] = Math.round(lin2s(c[1]) * 255);

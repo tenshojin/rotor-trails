@@ -5,25 +5,25 @@
 //   高：     GTAO 全分辨率 → TRAA → 泛光
 //   极高：   同“高”，GTAO 采样更多、泛光更细
 //   体积雾（中及以上，可在设置里关）：贴地薄雾 + 光束（丁达尔效应）+ 远处雾里的山影 / 云影，见 volumetricFog.ts
-//   光线追踪（任意画质可开）：屏幕空间光线追踪的全局光照 SSGI（间接漫反射 + 遮蔽，取代 GTAO）
-//            + 屏幕空间反射 SSR（水面、玻璃、金属）+ 屏幕空间接触阴影 SSS，由 TRAA 做时间累积降噪。
+//   光线追踪（任意画质可开）：在不开时的画面上加东西，不换掉任何一层（遮蔽、水面倒影、雾都和不开时一样）：
+//            · 全局光照：加载时在地形高度图里追踪真实光线，算出每个地方接到的反弹光（giField.ts），画面外的山也算得到；
+//            · 反射：金属、玻璃上的光线同样在高度图里走，映得出地形和水面（水面有自己的三段倒影，见 mirror.ts）。
 //
-// 说明：浏览器（WebGPU）目前没有硬件光线追踪接口，这里的“光线追踪”都是在着色器里沿屏幕深度做光线步进，
-// 只能看到屏幕上可见的物体；屏幕外的信息由环境贴图补足。
+// 说明：浏览器（WebGPU）目前没有硬件光线追踪接口，这些光线都是在着色器里沿地形高度图走的，看得到画面外的东西。
+// 试过 three 的 SSGI / SSR / SSS，都不合适：屏幕空间全局光照把天空也当成光源，阴影全被冲灰；
+// 反射在屋檐和门板边上是一排锯齿；接触阴影在白色机身上是一片噪点。
 
 import * as THREE from 'three/webgpu';
-import { clamp, convertToTexture, screenSize, Fn, diffuseColor, dot, float, int, length, max, min, luminance, metalness, mix, mrt, normalView, output, packNormalToRGB, pass, perspectiveDepthToViewZ, reference, renderOutput, roughness, sample, screenUV, smoothstep, uniform, unpackRGBToNormal, vec2, vec3, vec4, velocity, vibrance } from 'three/tsl';
+import { clamp, convertToTexture, screenSize, Fn, If, diffuseColor, dot, float, getViewPosition, int, length, max, min, luminance, metalness, mix, mrt, normalize, normalView, output, packNormalToRGB, pass, perspectiveDepthToViewZ, reference, renderOutput, roughness, sample, screenUV, smoothstep, uniform, unpackRGBToNormal, vec2, vec3, vec4, velocity, vibrance } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
-import { ssgi } from 'three/addons/tsl/display/SSGINode.js';
-import { ssr } from 'three/addons/tsl/display/SSRNode.js';
-import { sss } from 'three/addons/tsl/display/SSSNode.js';
 import { traa } from 'three/addons/tsl/display/TRAANode.js';
 import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 import type { SunShadows } from './sunShadows';
 import { applyVolumetricFog, FOG_QUALITY, volumetricFog, type VolumetricFogNode } from './volumetricFog';
 import { cloudShadowDebug } from './cloudShadowMap';
+import { giBounce, giReflect } from './giField';
 import { fixInstancedVelocity } from './instancing';
 
 export type QualityTier = 'low' | 'medium' | 'high' | 'ultra';
@@ -71,36 +71,26 @@ export interface Post {
 /** 月光下人眼看不出多少颜色（0 = 白天，1 = 夜晚）：暗处往蓝灰靠，灯光和屏幕够亮，保持原色 */
 export const SCOTOPIC = uniform(0);
 
-/** 各档光线追踪参数：SSGI 切片 × 步数、SSR 质量、是否开接触阴影 */
-const RT = {
-  low: { slices: 1, steps: 8, ssrQ: 0.3, sss: false },
-  medium: { slices: 1, steps: 12, ssrQ: 0.4, sss: true },
-  high: { slices: 2, steps: 12, ssrQ: 0.5, sss: true },
-  ultra: { slices: 3, steps: 16, ssrQ: 0.7, sss: true },
-};
-
 /** 开发调试：window.__postDebug = { ao, aoScale, aoTemporal, traa } 覆盖默认值（重建管线后生效） */
 interface PostDebug {
   ao?: boolean;
   aoScale?: number;
   aoTemporal?: boolean;
   traa?: boolean;
+  /** 反弹光的强度倍数 */
   gi?: number;
-  giAo?: number;
-  giRadius?: number;
   contrast?: number;
   vibrance?: number;
   vignette?: number;
   sharpen?: number;
   bloom?: boolean;
   fog?: boolean;
-  /** 直接显示某个通道：normal / velocity / color / fog */
+  /** 直接显示某个通道：normal / velocity / color / fog / gi / albedo */
   view?: string;
 }
 
 export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, shadows: SunShadows, cfg: PostConfig): Post {
   fixInstancedVelocity();
-  const sun = shadows.light;
   const dbg: PostDebug = (globalThis as { __postDebug?: PostDebug }).__postDebug ?? {};
   const pipeline = new THREE.RenderPipeline(renderer);
   const scenePass = pass(scene, camera);
@@ -147,32 +137,8 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
   const viewDist = perspectiveDepthToViewZ(depth, reference('near', 'float', camera), reference('far', 'float', camera)).negate();
   const outside = smoothstep(1.2, 2.5, viewDist);
   let composite: THREE.Node<'vec4'> = color;
-  if (cfg.rayTracing) {
-    const P = RT[cfg.quality];
-    const gi = ssgi(color, depth, sceneNormal, camera);
-    gi.sliceCount.value = P.slices;
-    gi.stepCount.value = P.steps;
-    // 户外：天空环境光已经由环境贴图提供，SSGI 只补近处的反弹光与遮蔽（默认强度是给室内点光源场景的，户外会发白）
-    gi.radius.value = dbg.giRadius ?? 5;
-    gi.thickness.value = 1.5;
-    gi.giIntensity.value = dbg.gi ?? 1.2;
-    gi.aoIntensity.value = dbg.giAo ?? 1.0;
-    gi.useTemporalFiltering = true;
-    disposers.push(gi);
-    const diffuse = scenePass.getTextureNode('diffuse');
-    const lit = vec4(color.rgb.mul(mix(float(1), gi.a, outside)).add(diffuse.rgb.mul(gi.rgb).mul(outside)), color.a);
-    const refl = ssr(color, depth, sceneNormal, { metalnessNode: nTex.a, roughnessNode: diffuse.a, camera });
-    refl.quality.value = P.ssrQ;
-    refl.maxDistance.value = 260;
-    refl.thickness.value = 0.6;
-    disposers.push(refl);
-    composite = lit.add(vec4(refl.rgb, 0));
-    if (P.sss) {
-      const contact = sss(depth, camera, sun);
-      disposers.push(contact);
-      composite = vec4(composite.rgb.mul(mix(float(1), contact.r, outside.mul(0.7))), 1);
-    }
-  } else if (dbg.ao !== false) {
+  let aoK: THREE.Node<'float'> = float(1);
+  if (dbg.ao !== false) {
     const q = cfg.quality;
     const aoPass = ao(depth, sceneNormal, camera);
     // 半分辨率的 GTAO 在远处（天空、远海）升采样时会出现竖条纹，所以各档都用全分辨率、只调采样数
@@ -183,7 +149,33 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     aoPass.samples.value = q === 'ultra' ? 16 : q === 'high' ? 12 : 8;
     aoPass.useTemporalFiltering = dbg.aoTemporal ?? true;
     disposers.push(aoPass);
-    composite = vec4(color.rgb.mul(mix(float(1), aoPass.r, outside.mul(0.85))), color.a);
+    aoK = mix(float(1), aoPass.r, outside.mul(0.85));
+    composite = vec4(color.rgb.mul(aoK), color.a);
+  }
+  let giView: THREE.Node<'vec3'> | null = null;
+  let albedoView: THREE.Node<'vec3'> | null = null;
+  if (cfg.rayTracing) {
+    const diffuse = scenePass.getTextureNode('diffuse');
+    // 反弹光：按这个像素在世界里的位置和朝向去探针图里取，再乘上它自己的颜色
+    const camWorld = uniform(camera.matrixWorld);
+    const projInv = uniform(camera.projectionMatrixInverse);
+    const worldPos = camWorld.mul(vec4(getViewPosition(screenUV, depth.r, projInv), 1.0)).xyz;
+    const worldN = normalize(camWorld.mul(vec4(unpackRGBToNormal(nTex.rgb), 0.0)).xyz);
+    const bounce = giBounce(worldPos, worldN).mul(dbg.gi ?? 1);
+    giView = bounce;
+    albedoView = diffuse.rgb;
+    const lit = composite.rgb.add(diffuse.rgb.mul(bounce).mul(aoK).mul(outside));
+    // 金属、玻璃：镜面方向上碰到地形就映出地形（够光滑才映，粗糙的金属是一片模糊的亮斑，环境贴图已经够了）
+    const eye = camWorld.mul(vec4(0, 0, 0, 1)).xyz;
+    const mirrorK = nTex.a.mul(float(1).sub(smoothstep(0.25, 0.6, diffuse.a))).mul(outside).toVar();
+    composite = Fn(() => {
+      const c = lit.toVar();
+      If(mirrorK.greaterThan(0.02), () => {
+        const r = giReflect(worldPos, worldN, eye).toVar();
+        c.assign(mix(c, r.rgb.mul(mix(vec3(1), diffuse.rgb, 0.6)), r.a.mul(mirrorK).mul(0.85)));
+      });
+      return vec4(c, color.a);
+    })();
   }
   // 体积雾：在遮蔽 / 全局光照之后、时间抗锯齿之前叠加（TRAA 顺便把步进抖动的噪点抹平）
   let fogNode: VolumetricFogNode | null = null;
@@ -225,7 +217,7 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     pipeline.outputColorTransform = false;
     const fogView = fogNode ? fogNode.getTextureNode() : vec4(0, 0, 0, 1);
     pipeline.outputNode =
-      dbg.view === 'normal' ? vec4(nTex.rgb, 1) : dbg.view === 'velocity' ? vec4(vel.xy.mul(50).add(0.5), 0.5, 1) : dbg.view === 'fog' ? vec4(fogView.rgb.mul(4).add(0.25), 1) : dbg.view === 'fogT' ? vec4(vec3(fogView.a), 1) : dbg.view === 'cloud' ? cloudShadowDebug(screenUV) : vec4(color.rgb, 1);
+      dbg.view === 'normal' ? vec4(nTex.rgb, 1) : dbg.view === 'velocity' ? vec4(vel.xy.mul(50).add(0.5), 0.5, 1) : dbg.view === 'fog' ? vec4(fogView.rgb.mul(4).add(0.25), 1) : dbg.view === 'fogT' ? vec4(vec3(fogView.a), 1) : dbg.view === 'cloud' ? cloudShadowDebug(screenUV) : dbg.view === 'gi' && giView ? vec4(giView.mul(2), 1) : dbg.view === 'albedo' && albedoView ? vec4(albedoView, 1) : vec4(color.rgb, 1);
     return { pipeline, fog: fogNode, hdr, dispose };
   }
   // 色调映射 + 色彩空间转换之后再调色（在显示空间里调对比度、饱和度更直观）

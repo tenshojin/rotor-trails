@@ -83,7 +83,8 @@ describe('render settings invalidation', () => {
     f.settings.rayTracing = true;
     f.view.applySettings(f.settings);
     expect(buildPost).toHaveBeenCalledTimes(2);
-    expect(f.view.water!.ssr.value).toBe(0);
+    // 水面的倒影和光线追踪无关：关掉它，山和云就从水里消失了
+    expect(f.view.water!.ssr.value).toBe(1);
     expect(f.renderer.setDrawingBufferSize).toHaveBeenCalledOnce();
     expect(f.sun.setShadows).toHaveBeenCalledOnce();
     f.settings.renderScale = 0.75;
