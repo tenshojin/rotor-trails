@@ -64,6 +64,7 @@ export class EyeAdapt {
   private count = 0;
   private fresh = true;
   private dead = false;
+  private generation = 0;
 
   constructor() {
     this.rt = new THREE.RenderTarget(CELLS, 1, { depthBuffer: false, type: THREE.UnsignedByteType });
@@ -95,7 +96,9 @@ export class EyeAdapt {
 
   /** 瞬移、换地图之后：下一次读回的结果直接生效，不慢慢过渡 */
   snap(): void {
+    this.generation++;
     this.fresh = true;
+    this.count = 0;
   }
 
   /** 这帧画面（线性 HDR，色调映射之前）画完之后调用 */
@@ -106,14 +109,21 @@ export class EyeAdapt {
     this.src.value = tex;
     const prev = r.getRenderTarget();
     r.setRenderTarget(this.rt);
-    this.quad.render(r);
-    r.setRenderTarget(prev);
+    try {
+      this.quad.render(r);
+    } finally {
+      r.setRenderTarget(prev);
+    }
     this.busy = true;
+    const generation = this.generation;
     r.readRenderTargetPixelsAsync(this.rt, 0, 0, CELLS, 1)
       .then((px) => {
-        if (px) this.consume(px as Uint8Array);
+        // A readback from the previous map or time of day must not become the
+        // first exposure sample of the new scene.
+        if (px && !this.dead && generation === this.generation) this.consume(px as Uint8Array);
       })
       .catch(() => {
+        if (this.dead || generation !== this.generation) return;
         // 读回失败（个别后端）：退回固定曝光
         this.dead = true;
         this.target = 1;
@@ -147,6 +157,8 @@ export class EyeAdapt {
   }
 
   dispose(): void {
+    this.dead = true;
+    this.generation++;
     this.rt.dispose();
     this.material.dispose();
   }

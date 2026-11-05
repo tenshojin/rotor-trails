@@ -249,8 +249,10 @@ export function loadTreeLib(): Promise<TreeLib | null> {
         }
         if (lods.length === 3) lib.set(type, lods);
       }
+      if (!lib.size) libPromise = null;
       return lib.size ? lib : null;
     } catch (e) {
+      libPromise = null;
       console.warn('树木模型加载失败，使用程序几何体：', e);
       return null;
     }

@@ -31,6 +31,39 @@ describe('着陆判定', () => {
 });
 
 describe('任务与检查点（测试平地）', () => {
+  it('恢复检查点丢弃旧输入、待触发操作、维修与接触状态', async () => {
+    const s = await sessionFor(FLAT, 'standard', 'calm');
+    try {
+      run(s, 6, { vertical: 1 });
+      s.buffs.boostCharges = 1;
+      s.saveCheckpoint('空中恢复');
+      const idx = s.checkpoints.length - 1;
+      const hover = s.flight.hoverOn;
+      s.t = 100;
+      s.cycleNav();
+      s.toggleHover();
+      s.useBoost();
+      s.repairProgress = 0.98;
+      s.settledPad = 'R';
+      s.terrainWarning = 2;
+      s.input.pitch = 1;
+      s.restoreCheckpoint(idx, 'exact');
+      expect(s.input).toEqual({ pitch: 0, turn: 0, lateral: 0, vertical: 0 });
+      expect(s.repairProgress).toBe(0);
+      expect(s.settledPad).toBeNull();
+      expect(s.terrainWarning).toBeNull();
+      s.cycleNav();
+      expect(s.drainEvents().some((e) => e.type === 'message')).toBe(true);
+      s.step();
+      expect(s.buffs.boostCharges).toBe(1);
+      expect(s.buffs.boostActive).toBe(false);
+      expect(s.flight.hoverOn).toBe(hover);
+      expect(s.state).toBe('running');
+    } finally {
+      s.dispose();
+    }
+  });
+
   it('自动驾驶（只通过飞行员输入）能完成降落任务并给出结算', async () => {
     const s = await sessionFor(FLAT, 'standard', 'calm');
     const r = runAutopilot(s, 240);

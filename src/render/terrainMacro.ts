@@ -162,25 +162,39 @@ let reliefLoading: Promise<void> | null = null;
 
 /** 加载岩石浮雕图（tools/prep_relief.py 烘焙）。地形和岩石道具建材质之前调用 */
 export function loadRockRelief(): Promise<void> {
-  reliefLoading ??= fetchRockRelief();
+  reliefLoading ??= fetchRockRelief().then((loaded) => {
+    if (!loaded) reliefLoading = null;
+  });
   return reliefLoading;
 }
 
-async function fetchRockRelief(): Promise<void> {
+async function fetchRockRelief(): Promise<boolean> {
+  let bmp: ImageBitmap | null = null;
   try {
     const r = await fetch(new URL('textures/rock_relief.webp', document.baseURI).href);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const bmp = await createImageBitmap(await r.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none', imageOrientation: 'none' });
+    bmp = await createImageBitmap(await r.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none', imageOrientation: 'none' });
     const cv = document.createElement('canvas');
     cv.width = bmp.width;
     cv.height = bmp.height;
     const g = cv.getContext('2d', { willReadFrequently: true })!;
     g.drawImage(bmp, 0, 0);
     const data = new Uint8Array(g.getImageData(0, 0, bmp.width, bmp.height).data.buffer);
-    relief = reliefTexture(data, bmp.width);
-    bmp.close();
+    // A previous attempt may already have supplied a procedural fallback to
+    // materials. Keep that shared Texture object alive when retrying the image.
+    if (relief) {
+      // The baked map is larger than the fallback; free the old GPU allocation
+      // before uploading the new dimensions through the same Texture object.
+      relief.dispose();
+      relief.image = { data, width: bmp.width, height: bmp.height };
+      relief.needsUpdate = true;
+    } else relief = reliefTexture(data, bmp.width);
+    return true;
   } catch (e) {
     console.warn('岩石浮雕图加载失败，改用程序生成：', e);
+    return false;
+  } finally {
+    bmp?.close();
   }
 }
 

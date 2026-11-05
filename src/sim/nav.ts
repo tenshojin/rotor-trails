@@ -55,12 +55,18 @@ export interface NavSnapshot {
 interface PathRT {
   def: RoutePathDef;
   nodes: RouteNodeDef[];
+  exclusive: RouteNodeDef[];
+  sequence: Array<{ pos: V3; radius: number; node: RouteNodeDef | null }>;
 }
+
+const NO_PATHS: PathRT[] = [];
 
 export class Navigator {
   readonly map: MapDef;
   private terrain: Heightfield;
   private nodeMap = new Map<string, RouteNodeDef>();
+  private pathsByLeg: PathRT[][];
+  private prefixes: number[];
   leg = 0;
   path: number | null = null;
   node = 0;
@@ -76,6 +82,24 @@ export class Navigator {
     this.map = map;
     this.terrain = terrain;
     for (const n of map.nodes) this.nodeMap.set(n.id, n);
+    // 世界生成结束后航线节点固定；每物理步只更新分段起点和当前任务目标。
+    this.pathsByLeg = map.legs.map((leg) => leg.paths.map((def): PathRT => {
+      const nodes = def.nodes.map((id) => this.node$(id));
+      return {
+        def, nodes, exclusive: [],
+        sequence: [
+          { pos: [0, 0, 0], radius: 0, node: null },
+          ...nodes.map((node) => ({ pos: node.pos, radius: node.radius, node })),
+          { pos: [0, 0, 0], radius: 60, node: null },
+        ],
+      };
+    }));
+    this.prefixes = this.pathsByLeg.map((paths) => {
+      for (const p of paths) p.exclusive = p.nodes.filter((n) => !paths.some((q) => q !== p && q.nodes.includes(n)));
+      let prefix = 0;
+      while (paths.length && prefix < paths[0].nodes.length && paths.every((q) => q.nodes[prefix] === paths[0].nodes[prefix])) prefix++;
+      return prefix;
+    });
     this.info = {
       mode: 'route',
       target: [0, 0, 0],
@@ -101,9 +125,7 @@ export class Navigator {
   }
 
   private paths(): PathRT[] {
-    const leg = this.map.legs[this.leg];
-    if (!leg) return [];
-    return leg.paths.map((def) => ({ def, nodes: def.nodes.map((id) => this.node$(id)) }));
+    return this.pathsByLeg[this.leg] ?? NO_PATHS;
   }
 
   setLeg(index: number, start: V3): void {
@@ -141,10 +163,9 @@ export class Navigator {
 
   /** 当前路线的点序列：分段起点 + 航点 + 任务进近点。 */
   private seq(p: PathRT, goal: V3): Array<{ pos: V3; radius: number; node: RouteNodeDef | null }> {
-    const out: Array<{ pos: V3; radius: number; node: RouteNodeDef | null }> = [{ pos: this.legStart, radius: 0, node: null }];
-    for (const n of p.nodes) out.push({ pos: n.pos, radius: n.radius, node: n });
-    out.push({ pos: goal, radius: 60, node: null });
-    return out;
+    p.sequence[0].pos = this.legStart;
+    p.sequence[p.sequence.length - 1].pos = goal;
+    return p.sequence;
   }
 
   /**
@@ -183,8 +204,7 @@ export class Navigator {
     // ---------- 分岔：等待玩家选择 ----------
     if (this.path === null) {
       // 各路线共用的前缀航点（例如先垂直爬升离开营地）：依次推进，之后才是真正的分岔
-      let prefix = 0;
-      while (prefix < paths[0].nodes.length && paths.every((q) => q.nodes[prefix] === paths[0].nodes[prefix])) prefix++;
+      const prefix = this.prefixes[this.leg];
       while (this.node < prefix) {
         const nd = paths[0].nodes[this.node];
         const dyN = Math.abs(pos.y - nd.pos[1]);
@@ -207,9 +227,7 @@ export class Navigator {
       // 靠近某条路线独有的航点，或明显更接近某条路线时自动确定选择
       let chosen: number | null = null;
       paths.forEach((p, i) => {
-        for (const n of p.nodes) {
-          const shared = paths.some((q, j) => j !== i && q.nodes.includes(n));
-          if (shared) continue;
+        for (const n of p.exclusive) {
           // 三维距离：正上方很高处的爬升航点不算“已选择”
           if (Math.hypot(pos.x - n.pos[0], (pos.y - n.pos[1]) * 1.5, pos.z - n.pos[2]) < n.radius * 1.6) chosen = i;
         }
@@ -330,18 +348,20 @@ export class Navigator {
     const info = this.info;
     this.aimAt(pos, t, label);
     info.mode = mode;
-    const safe = this.terrain.maxAlongSegment(pos.x, pos.z, t[0], t[2], 45, 16) + 55;
     const horiz = Math.hypot(pos.x - t[0], pos.z - t[2]);
-    info.targetAlt = horiz > 400 ? Math.max(safe, t[1]) : t[1];
-    if (horiz > 400 && safe > pos.y + 15) info.message = `直飞前建议先爬升至 ${Math.round(safe)} m 以上`;
+    if (horiz > 400) {
+      const safe = this.terrain.maxAlongSegment(pos.x, pos.z, t[0], t[2], 45, 16) + 55;
+      info.targetAlt = Math.max(safe, t[1]);
+      if (safe > pos.y + 15) info.message = `直飞前建议先爬升至 ${Math.round(safe)} m 以上`;
+    }
     info.preview = [{ pos: t, radius: 50 }];
   }
 
   private pathDistance(p: PathRT, goal: V3, pos: { x: number; z: number }): number {
     let best = Infinity;
-    const pts: V3[] = [this.legStart, ...p.nodes.map((n) => n.pos), goal];
+    const pts = this.seq(p, goal);
     for (let i = 1; i < pts.length; i++) {
-      const s = segDist2D(pos.x, pos.z, pts[i - 1][0], pts[i - 1][2], pts[i][0], pts[i][2]);
+      const s = segDist2D(pos.x, pos.z, pts[i - 1].pos[0], pts[i - 1].pos[2], pts[i].pos[0], pts[i].pos[2]);
       if (s.d < best) best = s.d;
     }
     return best;

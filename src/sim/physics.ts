@@ -38,7 +38,10 @@ export interface RayHit {
 let initPromise: Promise<void> | null = null;
 
 export function initPhysics(): Promise<void> {
-  if (!initPromise) initPromise = RAPIER.init();
+  if (!initPromise) initPromise = RAPIER.init().catch((error) => {
+    initPromise = null;
+    throw error;
+  });
   return initPromise;
 }
 
@@ -52,16 +55,22 @@ export class PhysicsWorld {
   readonly parts = new Map<number, HeliPart>();
   heli!: RAPIER.RigidBody;
   readonly dt: number;
-  private colliderList: RAPIER.Collider[] = [];
+  private disposed = false;
   private noTreePredicate: (c: RAPIER.Collider) => boolean;
   private allPredicate: (c: RAPIER.Collider) => boolean;
   mass = HELI.massBase;
 
   constructor(dt = 1 / 60) {
+    if (!Number.isFinite(dt) || dt <= 0) throw new RangeError('物理步长必须是正数');
     this.dt = dt;
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
-    this.world.timestep = dt;
-    this.events = new RAPIER.EventQueue(true);
+    try {
+      this.world.timestep = dt;
+      this.events = new RAPIER.EventQueue(true);
+    } catch (error) {
+      this.world.free();
+      throw error;
+    }
     this.noTreePredicate = (c) => {
       const t = this.tags.get(c.handle);
       return !!t && t.kind !== 'tree' && t.kind !== 'boundary';
@@ -73,11 +82,22 @@ export class PhysicsWorld {
   }
 
   dispose(): void {
-    this.events.free();
-    this.world.free();
-    this.tags.clear();
-    this.parts.clear();
-    this.colliderList = [];
+    if (this.disposed) return;
+    this.disposed = true;
+    try {
+      this.events.free();
+    } finally {
+      try {
+        this.world.free();
+      } finally {
+        this.tags.clear();
+        this.parts.clear();
+      }
+    }
+  }
+
+  private assertActive(): void {
+    if (this.disposed) throw new Error('物理世界已释放');
   }
 
   // ---------------- 静态世界 ----------------
@@ -137,20 +157,22 @@ export class PhysicsWorld {
   }
 
   removeCollider(c: RAPIER.Collider): void {
+    if (this.disposed) return;
     this.tags.delete(c.handle);
     this.world.removeCollider(c, false);
   }
 
   private addCollider(desc: RAPIER.ColliderDesc, tag: ColliderTag, parent?: RAPIER.RigidBody): RAPIER.Collider {
+    this.assertActive();
     const c = this.world.createCollider(desc, parent);
     this.tags.set(c.handle, tag);
-    this.colliderList.push(c);
     return c;
   }
 
   // ---------------- 直升机 ----------------
 
   createHeli(pos: Vector3, quat: Quaternion, mass: number): RAPIER.RigidBody {
+    this.assertActive();
     const H = HELI;
     this.mass = mass;
     const desc = RAPIER.RigidBodyDesc.dynamic()
@@ -185,11 +207,13 @@ export class PhysicsWorld {
   }
 
   setHeliMass(mass: number): void {
+    this.assertActive();
     this.mass = mass;
     this.heli.setAdditionalMassProperties(mass, { x: 0, y: 0, z: 0 }, inertiaFor(mass), IDENTITY, true);
   }
 
   readBody(out: BodyState): BodyState {
+    this.assertActive();
     const t = this.heli.translation();
     const r = this.heli.rotation();
     const v = this.heli.linvel();
@@ -202,6 +226,7 @@ export class PhysicsWorld {
   }
 
   writeBody(s: BodyState): void {
+    this.assertActive();
     const b = this.heli;
     b.setTranslation({ x: s.pos.x, y: s.pos.y, z: s.pos.z }, true);
     b.setRotation({ x: s.quat.x, y: s.quat.y, z: s.quat.z, w: s.quat.w }, true);
@@ -213,6 +238,8 @@ export class PhysicsWorld {
 
   /** 施加本步外力并推进一步，返回接触报告。 */
   step(force: Vector3, torque: Vector3, pointForces: Array<{ f: Vector3; p: Vector3 }>, out: ContactReport[]): void {
+    out.length = 0;
+    if (this.disposed) return;
     const b = this.heli;
     b.resetForces(true);
     b.resetTorques(true);
@@ -220,7 +247,6 @@ export class PhysicsWorld {
     b.addTorque({ x: torque.x, y: torque.y, z: torque.z }, true);
     for (const pf of pointForces) b.addForceAtPoint({ x: pf.f.x, y: pf.f.y, z: pf.f.z }, { x: pf.p.x, y: pf.p.y, z: pf.p.z }, true);
     this.world.step(this.events);
-    out.length = 0;
     const dt = this.dt;
     this.events.drainContactForceEvents((e) => {
       const h1 = e.collider1();
@@ -256,6 +282,7 @@ export class PhysicsWorld {
   private ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
 
   castRay(origin: Vector3, dir: Vector3, maxDist: number, includeTrees: boolean): RayHit | null {
+    if (this.disposed) return null;
     this.ray.origin = { x: origin.x, y: origin.y, z: origin.z };
     this.ray.dir = { x: dir.x, y: dir.y, z: dir.z };
     const hit = this.world.castRayAndGetNormal(

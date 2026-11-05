@@ -139,17 +139,20 @@ export class VolumetricFogNode extends THREE.Node {
     if (this.rt.width !== w || this.rt.height !== h) this.rt.setSize(w, h);
     this.size.value.set(w, h);
     _state = THREE.RendererUtils.resetRendererState(r, _state as THREE.RendererUtils.RendererState);
-    r.setRenderTarget(this.rt);
-    if (this.ready) {
-      this.camPos.value.setFromMatrixPosition(this.camera.matrixWorld);
-      this.frameN.value = (this.frameN.value + 1) % 64;
-      this.quad.render(r);
-    } else {
-      // 阴影贴图还没准备好：输出“没有雾”（散射 0、透过率 1）
-      r.setClearColor(0x000000, 1);
-      r.clear();
+    try {
+      r.setRenderTarget(this.rt);
+      if (this.ready) {
+        this.camPos.value.setFromMatrixPosition(this.camera.matrixWorld);
+        this.frameN.value = (this.frameN.value + 1) % 64;
+        this.quad.render(r);
+      } else {
+        // 阴影贴图还没准备好：输出“没有雾”（散射 0、透过率 1）
+        r.setClearColor(0x000000, 1);
+        r.clear();
+      }
+    } finally {
+      THREE.RendererUtils.restoreRendererState(r, _state);
     }
-    THREE.RendererUtils.restoreRendererState(r, _state);
     return undefined;
   }
 

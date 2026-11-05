@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "description": "Rotor Trails（旋翼航迹）：第一人称拟真直升机闯关网页游戏",
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -11,7 +14,9 @@
     "test:watch": "vitest",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "preview": "vite preview --port 4173 --strictPort",
-    "mapviz": "vitest run --config vitest.tools.config.ts",
+    "mapviz": "vitest run --config vitest.tools.config.ts tools/mapviz.tool.ts",
+    "regress": "vitest run --config vitest.tools.config.ts tools/regression.tool.ts",
+    "regress:recovery": "vitest run --config vitest.tools.config.ts tools/recovery-regression.tool.ts",
     "shots": "node tools/shot.mjs"
   },
   "dependencies": {

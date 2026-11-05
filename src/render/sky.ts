@@ -577,6 +577,7 @@ export class SkyDome {
 
   /** 体积云的步进次数（0 = 用二维云层）与云层高度（米） */
   setVolumetric(steps: number, base?: number, top?: number): void {
+    if (steps !== this.u.steps.value) this.clouds.reset();
     this.u.steps.value = steps;
     this.u.useTex.value = steps > 0 ? 1 : 0;
     CLOUD.on.value = steps > 0 ? 1 : 0;

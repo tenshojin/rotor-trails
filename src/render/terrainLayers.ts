@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import type { BiomeDef, MapId } from '../maps/types';
+import { loadBitmapBatch } from './bitmapBatch';
 
 export const SLOTS = 8;
 
@@ -35,12 +36,6 @@ function url(p: string): string {
   return new URL(p, document.baseURI).href;
 }
 
-async function bitmap(path: string): Promise<ImageBitmap> {
-  const r = await fetch(url(path));
-  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
-  return createImageBitmap(await r.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none', imageOrientation: 'none' });
-}
-
 function arrayTexture(size: number, srgb: boolean): { tex: THREE.DataArrayTexture; data: Uint8Array } {
   const data = new Uint8Array(size * size * 4 * SLOTS);
   const tex = new THREE.DataArrayTexture(data, size, size, SLOTS);
@@ -56,26 +51,33 @@ function arrayTexture(size: number, srgb: boolean): { tex: THREE.DataArrayTextur
 }
 
 export async function loadTerrainLayers(mapId: MapId, biome: BiomeDef, size: number): Promise<TerrainLayers | null> {
+  let images: ImageBitmap[] = [];
+  let color: THREE.DataArrayTexture | null = null;
+  let normal: THREE.DataArrayTexture | null = null;
   try {
-    manifestP ??= fetch(url('textures/terrain/manifest.json')).then((r) => {
-      if (!r.ok) throw new Error('manifest HTTP ' + r.status);
-      return r.json() as Promise<Manifest>;
-    });
+    manifestP ??= fetch(url('textures/terrain/manifest.json'))
+      .then((r) => {
+        if (!r.ok) throw new Error('manifest HTTP ' + r.status);
+        return r.json() as Promise<Manifest>;
+      })
+      .catch((error) => {
+        // A temporary failure must not force every later map to use fallback art.
+        manifestP = null;
+        throw error;
+      });
     const manifest = await manifestP;
     const ids = BY_MAP[mapId] ?? DEFAULT;
     const unique = [...new Set(ids)];
     const imgs = new Map<string, [ImageBitmap, ImageBitmap]>();
-    await Promise.all(
-      unique.map(async (id) => {
-        const [c, n] = await Promise.all([bitmap(`textures/terrain/${id}_c.webp`), bitmap(`textures/terrain/${id}_n.webp`)]);
-        imgs.set(id, [c, n]);
-      }),
-    );
+    images = await loadBitmapBatch(unique.flatMap((id) => [`textures/terrain/${id}_c.webp`, `textures/terrain/${id}_n.webp`]));
+    unique.forEach((id, i) => imgs.set(id, [images[i * 2], images[i * 2 + 1]]));
     const cv = document.createElement('canvas');
     cv.width = cv.height = size;
     const g = cv.getContext('2d', { willReadFrequently: true })!;
     const C = arrayTexture(size, true);
+    color = C.tex;
     const N = arrayTexture(size, false);
+    normal = N.tex;
     const layer = size * size * 4;
     ids.forEach((id, i) => {
       const [c, n] = imgs.get(id)!;
@@ -84,10 +86,6 @@ export async function loadTerrainLayers(mapId: MapId, biome: BiomeDef, size: num
       g.drawImage(n, 0, 0, size, size);
       N.data.set(g.getImageData(0, 0, size, size).data, i * layer);
     });
-    for (const [c, n] of imgs.values()) {
-      c.close();
-      n.close();
-    }
     C.tex.needsUpdate = true;
     N.tex.needsUpdate = true;
     const lum = (m: number[]) => 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2];
@@ -101,7 +99,11 @@ export async function loadTerrainLayers(mapId: MapId, biome: BiomeDef, size: num
       tintK: TINT_K,
     };
   } catch (e) {
+    color?.dispose();
+    normal?.dispose();
     console.warn('地形照片材质加载失败，使用程序化配色：', e);
     return null;
+  } finally {
+    for (const image of images) image.close();
   }
 }

@@ -7,6 +7,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { HELI } from '../config/flight';
 import { loadGltf } from './gltf';
 import { getGlowTexture } from './propsView';
+import { modelResources } from './modelResources';
 
 const EXT_URL = 'models/heli_ext.glb';
 
@@ -59,7 +60,9 @@ export class HeliModel {
   /** Blender 外观模型（models/heli_ext.glb）已加载 */
   extLoaded = false;
   private glbBladeMats: THREE.MeshStandardMaterial[] = [];
-  private glbGeos: THREE.BufferGeometry[] = [];
+  private geos = new Set<THREE.BufferGeometry>();
+  private extResources: ReturnType<typeof modelResources> | null = null;
+  private disposed = false;
   private rotorSpin = new THREE.Group();
   /** Blender 外观的桨叶网格（高速旋转时不投影） */
   private glbBlades: THREE.Mesh[] = [];
@@ -149,7 +152,7 @@ export class HeliModel {
     const trMesh = new THREE.Mesh(mergeGeometries([tb, tb2]), dark);
     this.tailRotor.add(trMesh);
     this.proc.push(trMesh);
-    const tdm = new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false });
+    const tdm = new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.25, side: THREE.DoubleSide, forceSinglePass: true, depthWrite: false });
     this.mats.push(tdm);
     this.tailDisc = new THREE.Mesh(new THREE.CircleGeometry(0.75, 20).rotateY(Math.PI / 2), tdm);
     this.tailRotor.add(this.tailDisc);
@@ -180,7 +183,7 @@ export class HeliModel {
     this.rotor.add(this.blades);
     this.proc.push(this.blades);
     // 模糊桨盘：着色器里直接算径向渐变（真实照片里转动的旋翼只是一层很淡的灰影，桨尖一圈略亮）
-    this.discMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: 0.6 });
+    this.discMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, opacity: 0.6 });
     {
       const r = length(uv().sub(0.5)).mul(2.0);
       const rim = smoothstep(0.9, 0.97, r).mul(float(1).sub(smoothstep(0.97, 1.0, r)));
@@ -235,6 +238,9 @@ export class HeliModel {
     };
     this.navLights.push(mk(0xff2a1a, -1.05, 0.1, -0.2, 0.5), mk(0x30ff60, 1.05, 0.1, -0.2, 0.5), mk(0xffffff, 0, 0.8, 7.1, 0.45));
     this.beacon = mk(0xff3010, 0, 1.45, 1.2, 1.2);
+    this.root.traverse((object) => {
+      if ((object as THREE.Mesh).isMesh) this.geos.add((object as THREE.Mesh).geometry);
+    });
     this.ready = this.loadExt().catch((e) => console.warn('外观模型加载失败，使用程序外观：', e));
   }
 
@@ -242,19 +248,26 @@ export class HeliModel {
   private async loadExt(): Promise<void> {
     const gltf = await loadGltf(EXT_URL);
     const scene = gltf.scene;
+    const resources = modelResources(scene);
+    if (this.disposed) {
+      resources.dispose();
+      return;
+    }
     scene.updateMatrixWorld(true);
     const body = scene.getObjectByName('ext_body');
     const main = scene.getObjectByName('main_rotor');
     const tail = scene.getObjectByName('tail_rotor');
-    if (!body || !main || !tail) throw new Error('heli_ext.glb 缺少节点');
+    if (!body || !main || !tail) {
+      resources.dispose();
+      throw new Error('heli_ext.glb 缺少节点');
+    }
+    this.extResources = resources;
     for (const o of this.proc) o.visible = false;
     scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
       m.castShadow = true;
       m.receiveShadow = true;
-      this.glbGeos.push(m.geometry);
-      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) this.mats.push(mat);
     });
     this.root.add(body);
     // 主旋翼：桨毂与桨叶放进一个随转速旋转的子组（桨毂位置与程序旋翼相同）
@@ -308,7 +321,7 @@ export class HeliModel {
       m.opacity = bladeA;
       m.depthWrite = blur < 0.5;
     }
-    this.blades.visible = bladeA > 0.004;
+    this.blades.visible = !this.extLoaded && bladeA > 0.004;
     for (const m of this.glbBlades) m.visible = bladeA > 0.004;
     this.discMat.opacity = blur * (this.inCockpit ? 0.14 : 0.45);
     // 高速旋转时桨叶不投影：每帧角度不同的桨叶阴影会被时间抗锯齿累积成一整块深色圆盘，
@@ -325,10 +338,13 @@ export class HeliModel {
   }
 
   dispose(): void {
-    this.root.traverse((o) => {
-      if ((o as THREE.Mesh).geometry) (o as THREE.Mesh).geometry.dispose();
-    });
-    for (const g of this.glbGeos) g.dispose();
-    for (const m of this.mats) m.dispose();
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const g of this.geos) g.dispose();
+    for (const m of new Set(this.mats)) m.dispose();
+    this.extResources?.dispose();
+    this.root.clear();
+    this.geos.clear();
+    this.glbBlades.length = this.glbBladeMats.length = this.mats.length = this.proc.length = 0;
   }
 }

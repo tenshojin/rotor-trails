@@ -1,7 +1,7 @@
 // 键盘鼠标输入：可重绑定的按键、鼠标锁定观察（失败时退化为拖拽/方向键观察）、
 // 浏览器快捷键冲突处理（游戏中拦截可拦截的 Ctrl 组合键）、失焦/切后台时清空按键状态。
 
-import type { Action, Settings } from './settings';
+import { isBindingCode, type Action, type Settings } from './settings';
 
 type EdgeAction = 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud';
 const EDGE: EdgeAction[] = ['hover', 'boost', 'center', 'pause', 'view', 'nav', 'mapRange', 'hud'];
@@ -21,6 +21,8 @@ export class Input {
   onLockChange: ((locked: boolean) => void) | null = null;
   /** 改键捕获：返回按下的按键代码 */
   private capture: ((code: string) => void) | null = null;
+  private disposed = false;
+  private lockRequest = 0;
 
   constructor(canvas: HTMLCanvasElement, settings: Settings) {
     this.canvas = canvas;
@@ -28,14 +30,14 @@ export class Input {
     this.rebuild();
     window.addEventListener('keydown', this.onKeyDown, { capture: true });
     window.addEventListener('keyup', this.onKeyUp, { capture: true });
-    window.addEventListener('blur', this.clear);
+    window.addEventListener('blur', this.onBlur);
     document.addEventListener('visibilitychange', this.onVisibility);
     document.addEventListener('pointerlockchange', this.onPointerLock);
     document.addEventListener('pointerlockerror', this.onPointerLockError);
     window.addEventListener('mousemove', this.onMouseMove);
     canvas.addEventListener('mousedown', this.onMouseDown);
     window.addEventListener('mouseup', this.onMouseUp);
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener('contextmenu', this.onContextMenu);
   }
 
   setSettings(s: Settings): void {
@@ -54,8 +56,17 @@ export class Input {
     }
   }
 
-  captureNextKey(cb: (code: string) => void): void {
+  captureNextKey(cb: (code: string) => void): () => void {
+    if (this.disposed) return () => {};
+    this.clear();
     this.capture = cb;
+    return () => {
+      if (this.capture === cb) this.capture = null;
+    };
+  }
+
+  cancelCapture(): void {
+    this.capture = null;
   }
 
   is(a: Action): boolean {
@@ -74,20 +85,29 @@ export class Input {
   };
 
   private onVisibility = (): void => {
-    if (document.hidden) this.clear();
+    if (document.hidden) this.onBlur();
+  };
+
+  private onBlur = (): void => {
+    this.clear();
+    // A pending remap should not consume the first key after returning to the app.
+    const capture = this.capture;
+    this.capture = null;
+    capture?.('Escape');
   };
 
   private onKeyDown = (e: KeyboardEvent): void => {
     if (this.capture) {
       e.preventDefault();
       e.stopPropagation();
+      if (e.repeat || e.isComposing || !isBindingCode(e.code)) return;
       const cb = this.capture;
       this.capture = null;
       cb(e.code);
       return;
     }
     const target = e.target as HTMLElement | null;
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')) return;
+    if (e.isComposing || target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
     const actions = this.codeToActions.get(e.code);
     if (this.active) {
       // 游戏中拦截浏览器快捷键（Ctrl+S/D/H/F/R/P 等可拦截；Ctrl+W 等无法拦截的由离开确认兜底）
@@ -95,19 +115,20 @@ export class Input {
     }
     if (!actions) return;
     if (!e.repeat && !this.down.has(e.code)) {
+      const wasActive = this.active;
       for (const a of actions) if ((EDGE as string[]).includes(a) && (this.active || a === 'pause')) this.onEdge?.(a as EdgeAction);
+      // A remapped Enter/Space can resume from a focused menu button. Consuming
+      // that transition prevents its native click (and the tutorial skip key)
+      // from also acting on the same physical press.
+      if (!wasActive && this.active) e.preventDefault();
     }
-    this.down.add(e.code);
+    // onEdge may pause the game and clear the held keys. Never add a stale key
+    // afterwards, or collect movement keys while a menu has keyboard focus.
+    if (this.active) this.down.add(e.code);
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
     this.down.delete(e.code);
-    // 修饰键松开时，部分浏览器不会为同时按下的字母键发送 keyup（例如 Ctrl+W 被拦截后）
-    if (e.code.startsWith('Control') || e.code.startsWith('Shift') || e.code.startsWith('Alt') || e.code.startsWith('Meta')) {
-      if (!e.ctrlKey && !e.shiftKey && !e.altKey) {
-        /* 保持其他键状态 */
-      }
-    }
   };
 
   private onMouseMove = (e: MouseEvent): void => {
@@ -119,7 +140,7 @@ export class Input {
   };
 
   private onMouseDown = (e: MouseEvent): void => {
-    if (!this.active) return;
+    if (!this.active || e.button !== 0) return;
     if (!this.locked) {
       this.dragging = true;
       if (!this.lockFailed && e.button === 0) this.requestLock();
@@ -130,7 +151,16 @@ export class Input {
     this.dragging = false;
   };
 
+  private onContextMenu = (e: MouseEvent): void => {
+    if (this.active) e.preventDefault();
+  };
+
   requestLock(): void {
+    if (!this.active || this.disposed) return;
+    const request = ++this.lockRequest;
+    const failed = () => {
+      if (request === this.lockRequest && this.active && !this.locked && !this.disposed) this.lockFailed = true;
+    };
     const c = this.canvas;
     if (!c.requestPointerLock) {
       this.lockFailed = true;
@@ -138,24 +168,38 @@ export class Input {
     }
     try {
       const r = c.requestPointerLock() as unknown as Promise<void> | undefined;
-      if (r && typeof r.catch === 'function') r.catch(() => (this.lockFailed = true));
+      if (r && typeof r.then === 'function') {
+        void r.then(() => {
+          // Permission can resolve after listeners were removed by dispose().
+          if (this.disposed || !this.active) this.exitLock();
+        }, failed);
+      }
     } catch {
-      this.lockFailed = true;
+      failed();
     }
   }
 
   exitLock(): void {
-    if (document.pointerLockElement) document.exitPointerLock();
+    this.lockRequest++;
+    if (document.pointerLockElement === this.canvas) document.exitPointerLock();
   }
 
   private onPointerLock = (): void => {
     this.locked = document.pointerLockElement === this.canvas;
-    if (this.locked) this.lockFailed = false;
+    // A pending browser permission can resolve after the player has paused.
+    if (this.locked && !this.active) {
+      this.exitLock();
+      return;
+    }
+    if (this.locked) {
+      this.lockRequest++;
+      this.lockFailed = false;
+    } else this.clear();
     this.onLockChange?.(this.locked);
   };
 
   private onPointerLockError = (): void => {
-    this.lockFailed = true;
+    if (this.active && !this.locked && !this.disposed) this.lockFailed = true;
   };
 
   /** 取出本帧视线变化（弧度）。 */
@@ -174,14 +218,21 @@ export class Input {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.active = false;
+    this.cancelCapture();
+    this.clear();
+    this.exitLock();
     window.removeEventListener('keydown', this.onKeyDown, { capture: true });
     window.removeEventListener('keyup', this.onKeyUp, { capture: true });
-    window.removeEventListener('blur', this.clear);
+    window.removeEventListener('blur', this.onBlur);
     document.removeEventListener('visibilitychange', this.onVisibility);
     document.removeEventListener('pointerlockchange', this.onPointerLock);
     document.removeEventListener('pointerlockerror', this.onPointerLockError);
     window.removeEventListener('mousemove', this.onMouseMove);
     this.canvas.removeEventListener('mousedown', this.onMouseDown);
     window.removeEventListener('mouseup', this.onMouseUp);
+    this.canvas.removeEventListener('contextmenu', this.onContextMenu);
   }
 }

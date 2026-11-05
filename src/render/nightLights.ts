@@ -4,6 +4,7 @@
 import * as THREE from 'three/webgpu';
 import { attribute, cameraProjectionMatrix, cameraViewMatrix, float, length, positionGeometry, smoothstep, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
 import type { WorldData } from '../world/worldgen';
+import { padLightOffsets, padWorld } from '../maps/padLayout';
 
 interface Lamp {
   /** 灯头位置 */
@@ -36,12 +37,7 @@ function gather(world: WorldData): Lamp[] {
   }
   // 停机坪四周一圈边灯
   for (const p of world.map.pads) {
-    const e = p.size / 2 + 0.4;
-    const n = Math.max(3, Math.round(p.size / 7));
-    for (let i = 0; i <= n; i++) {
-      const t = -e + (2 * e * i) / n;
-      for (const [x, z] of [[t, -e], [t, e], [-e, t], [e, t]] as Array<[number, number]>) out.push({ pos: [p.pos[0] + x, p.pos[1] + 0.35, p.pos[2] + z], size: 0.55, color: PAD, pool: 0 });
-    }
+    for (const [x, z] of padLightOffsets(p.size)) out.push({ pos: padWorld(p, x, 0.15, z), size: 0.55, color: PAD, pool: 0 });
   }
   return out;
 }

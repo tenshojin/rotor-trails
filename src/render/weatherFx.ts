@@ -8,6 +8,7 @@ export class RainFx {
   readonly mesh: THREE.InstancedMesh;
   private mat: THREE.MeshBasicNodeMaterial;
   private count: number;
+  private disposed = false;
   private u = {
     cam: uniform(new THREE.Vector3()),
     vel: uniform(new THREE.Vector3(0, -9, 0)),
@@ -67,6 +68,9 @@ export class RainFx {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.mesh.dispose();
     this.mesh.geometry.dispose();
     this.mat.dispose();
   }
@@ -85,7 +89,7 @@ export class CloudLayer {
     const noise = getNoiseTexture();
     for (let i = 0; i < 7; i++) {
       const U = makeCloudU(i);
-      const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false });
+      const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true, fog: false });
       const W = positionWorld;
       const p = W.xz.mul(0.00045).add(U.off);
       const n = texture(noise, p).r.mul(0.6).add(texture(noise, p.mul(3.1).add(0.3)).g.mul(0.3)).add(texture(noise, p.mul(9.0)).a.mul(0.1));

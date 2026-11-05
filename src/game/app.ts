@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { AudioEngine } from '../audio/audio';
 import { MAPS, CAMPAIGN, getMap } from '../maps/index';
-import type { MapDef, MapId } from '../maps/types';
+import type { MapDef } from '../maps/types';
 import { CAUSE_LABEL } from '../sim/damage';
 import { GRADE_LABEL } from '../sim/mission';
 import { computeScore } from '../sim/scoring';
@@ -17,12 +17,14 @@ import { UI } from '../ui/menus';
 import { generateWorld, type WorldData } from '../world/worldgen';
 import type { AssistId } from '../config/flight';
 import { Input } from './input';
-import { SaveStore } from './save';
+import { SaveStore, type StorageLike } from './save';
 import { keyName, type Settings } from './settings';
 import { Tutorial } from './tutorial';
 import { isTimeOfDay, type TimeOfDay } from '../render/timeOfDay';
+import { waitForOperation } from './pending';
+import { InstrumentLists } from './instrumentLists';
 
-type State = 'boot' | 'menu' | 'loading' | 'ready' | 'playing' | 'paused' | 'failed' | 'result';
+type State = 'boot' | 'menu' | 'loading' | 'ready' | 'playing' | 'paused' | 'failed' | 'result' | 'disposed';
 
 interface RunConfig {
   map: MapDef;
@@ -90,65 +92,160 @@ export class App {
   private failTimer = -1;
   private completeTimer = -1;
   private lastBlocked = -10;
-  private resumeAfterSettings: State | null = null;
+  private readonly lifetime = new AbortController();
+  private disposed = false;
+  private pendingOperations = 0;
+  private viewDisposed = false;
+  private frameId: number | null = null;
+  private startPromise: Promise<void> | null = null;
+  private settingsSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly canvas: HTMLCanvasElement;
+  private readonly idlePose = { pos: new THREE.Vector3(), target: new THREE.Vector3() };
+  private readonly instrumentLists = new InstrumentLists();
+  private loadingRun = false;
+  private loadWarning: string | null = null;
+  private tutorialHtml = '';
+  private controlHintHtml = '';
   private frames = 0;
   private fpsT = 0;
   fps = 0;
   /** 实际使用的显卡名称（renderer.init() 之后才知道） */
   gpu = '';
 
-  constructor(root: HTMLElement) {
-    this.save = new SaveStore();
-    this.settings = this.save.data.settings;
-    const canvas = document.createElement('canvas');
-    canvas.className = 'gl';
-    root.appendChild(canvas);
-    this.view = new WorldView(canvas, this.settings);
-    this.hud = new Hud(root);
-    this.hud.setOpacity(this.settings.hudOpacity);
-    this.tutBox = document.createElement('div');
-    this.tutBox.className = 'tutorial hidden';
-    root.appendChild(this.tutBox);
-    this.ui = new UI(root);
-    this.ui.onClick = () => this.audio.click();
-    this.input = new Input(canvas, this.settings);
-    this.input.onEdge = (a) => this.onEdge(a);
-    this.input.onLockChange = (locked) => {
-      if (!locked && this.state === 'playing' && !this.input.lockFailed) this.pause();
-    };
-    this.view.onThunder = (delay, strength) => this.audio.thunder(delay, strength);
-    window.addEventListener('resize', () => {
-      this.view.resize();
-      this.hud.resize();
-    });
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) {
+  constructor(private readonly root: HTMLElement, storage?: StorageLike | null) {
+    // A constructor that throws never reaches main.ts's currentApp assignment.
+    // Roll back completed owners here so failed startup cannot retain a renderer
+    // or input callbacks that still receive events behind the recovery screen.
+    const rollback: Array<() => void> = [() => this.audio.dispose()];
+    try {
+      this.save = new SaveStore(storage);
+      this.settings = this.save.data.settings;
+      const canvas = this.canvas = document.createElement('canvas');
+      rollback.push(() => canvas.remove());
+      canvas.className = 'gl';
+      root.appendChild(canvas);
+      this.view = new WorldView(canvas, this.settings);
+      rollback.push(() => this.view.dispose());
+      this.hud = new Hud(root);
+      rollback.push(() => this.hud.dispose());
+      this.hud.setOpacity(this.settings.hudOpacity);
+      this.tutBox = document.createElement('div');
+      rollback.push(() => this.tutBox.remove());
+      this.tutBox.className = 'tutorial hidden';
+      root.appendChild(this.tutBox);
+      this.ui = new UI(root);
+      rollback.push(() => this.ui.dispose());
+      this.ui.onClick = () => this.audio.click();
+      this.input = new Input(canvas, this.settings);
+      rollback.push(() => this.input.dispose());
+      this.input.onEdge = (a) => this.onEdge(a);
+      this.input.onLockChange = (locked) => {
+        if (!locked && this.state === 'playing' && !this.input.lockFailed) this.pause();
+      };
+      this.view.onThunder = (delay, strength) => this.audio.thunder(delay, strength);
+      const listenerOptions = { signal: this.lifetime.signal };
+      window.addEventListener('resize', () => {
+        this.view.resize();
+        this.hud.resize();
+      }, listenerOptions);
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+          this.flushSettingsSave();
+          if (this.state === 'playing') this.pause();
+          this.audio.suspend();
+        } else if (this.state !== 'playing') this.audio.resume();
+      }, listenerOptions);
+      window.addEventListener('blur', () => {
+        // Drag-to-look browsers do not emit pointerlockchange on Alt+Tab.
+        // Losing the window must still leave the aircraft safely paused.
         if (this.state === 'playing') this.pause();
-        this.audio.suspend();
-      } else if (this.state !== 'playing') this.audio.resume();
-    });
-    window.addEventListener('beforeunload', (e) => {
-      if (this.state === 'playing' || this.state === 'paused') {
-        e.preventDefault();
-        e.returnValue = '';
+      }, listenerOptions);
+      window.addEventListener('beforeunload', (e) => {
+        this.flushSettingsSave();
+        if (this.state === 'playing' || this.state === 'paused') {
+          e.preventDefault();
+          e.returnValue = '';
+        }
+      }, listenerOptions);
+      window.addEventListener('keydown', (e) => {
+        if (e.defaultPrevented || e.isComposing) return;
+        if (e.code === 'Enter' && !e.repeat && this.state === 'playing' && this.tutorial && this.session) {
+          this.tutorial.skip(this.session);
+          e.preventDefault();
+        }
+        if (e.code === 'F3') {
+          if (!e.repeat) this.hud.showDebug = !this.hud.showDebug;
+          e.preventDefault();
+        }
+      }, listenerOptions);
+      this.hud.resize();
+    } catch (error) {
+      this.lifetime.abort();
+      for (const release of rollback.reverse()) {
+        try { release(); } catch (cleanupError) { console.warn('启动失败后的资源清理未完成', cleanupError); }
       }
-    });
-    window.addEventListener('keydown', (e) => {
-      if (e.code === 'Enter' && this.state === 'playing' && this.tutorial && this.session) {
-        this.tutorial.skip(this.session);
-        e.preventDefault();
-      }
-      if (e.code === 'F3') {
-        this.hud.showDebug = !this.hud.showDebug;
-        e.preventDefault();
-      }
-    });
-    this.hud.resize();
+      throw error;
+    }
   }
 
-  async start(): Promise<void> {
+  start(): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    return this.startPromise ??= this.startTracked();
+  }
+
+  private async startTracked(): Promise<void> {
+    this.pendingOperations++;
+    try {
+      await this.startApp();
+    } finally {
+      this.finishOperation();
+    }
+  }
+
+  private assertActive(): void {
+    if (this.disposed) throw new Error('游戏实例已停止');
+  }
+
+  private finishOperation(): void {
+    this.pendingOperations--;
+    if (this.disposed && this.pendingOperations === 0) this.disposeView();
+  }
+
+  private disposeView(): void {
+    if (this.viewDisposed) return;
+    this.viewDisposed = true;
+    this.view.dispose();
+  }
+
+  /** Stop owned callbacks immediately; let in-flight construction settle before freeing the renderer. */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.state = 'disposed';
+    this.flushSettingsSave();
+    this.lifetime.abort();
+    if (this.frameId !== null) cancelAnimationFrame(this.frameId);
+    this.frameId = null;
+    this.input.onEdge = this.input.onLockChange = null;
+    this.view.onThunder = null;
+    this.input.dispose();
+    this.audio.dispose();
+    this.session?.dispose();
+    this.session = null;
+    this.world = null;
+    this.run = null;
+    this.tutorial = null;
+    this.ui.dispose();
+    this.hud.dispose();
+    this.tutBox.remove();
+    this.canvas.remove();
+    if (this.pendingOperations === 0) this.disposeView();
+  }
+
+  private async startApp(): Promise<void> {
     // 先初始化 GPU（WebGPU，不可用时自动退回 WebGL2），再按显卡选默认画质
     await this.view.init();
+    this.assertActive();
     this.gpu = this.view.gpuInfo().name;
     if (this.save.fresh) {
       this.settings.quality = pickQuality(this.gpu);
@@ -156,22 +253,27 @@ export class App {
       this.save.save();
     }
     const params = new URLSearchParams(location.search);
-    const auto = params.get('map') as MapId | null;
+    const auto = MAPS.find((m) => m.id === params.get('map'));
     if (!auto) {
       // 菜单背景：训练场
       this.ui.loading('生成训练场', 0.1);
       const w = await generateWorld(getMap('training'), true, (p, l) => this.ui.loading(l, p * 0.9));
+      this.assertActive();
       await this.view.load(w, (p, l) => this.ui.loading(l, p));
+      this.assertActive();
       this.world = w;
       const pad = w.pads.get(w.map.spawn.padId)!;
       this.view.heli.root.position.set(pad.pos[0], pad.pos[1] + 1.32, pad.pos[2]);
       this.view.heli.root.quaternion.identity();
     }
-    requestAnimationFrame(this.frame);
-    if (auto && MAPS.find((m) => m.id === auto)) {
-      const m = getMap(auto);
+    this.last = performance.now();
+    this.frameId = requestAnimationFrame(this.frame);
+    if (auto) {
+      const m = auto;
       const tp = params.get('time');
-      await this.startRun({ map: m, weather: params.get('weather') ?? m.defaultWeather, assist: (params.get('assist') as AssistId) ?? this.settings.assist, tutorial: auto === 'training' && params.get('tutorial') !== '0', time: isTimeOfDay(tp) ? tp : 'day' });
+      const assist = params.get('assist');
+      const weather = m.weathers.find((w) => w.id === params.get('weather'))?.id ?? m.defaultWeather;
+      await this.startRun({ map: m, weather, assist: assist === 'novice' || assist === 'standard' || assist === 'challenge' ? assist : this.settings.assist, tutorial: auto.id === 'training' && params.get('tutorial') !== '0', time: isTimeOfDay(tp) ? tp : 'day' });
       if (params.get('autostart') === '1') this.beginFlight();
     } else this.mainMenu();
   }
@@ -216,12 +318,15 @@ export class App {
 
   mainMenu(): void {
     this.state = 'menu';
+    this.refreshControlHint();
     this.hud.show(false);
     this.tutBox.classList.add('hidden');
     this.input.active = false;
+    this.input.clear();
+    this.input.cancelCapture();
     this.input.exitLock();
     this.ui.main(
-      { warning: [touchOnlyWarning(), gpuWarning(this.gpu), this.save.warning].filter(Boolean).join('<br>') || null, tutorialDone: this.save.data.tutorialDone },
+      { warning: [this.loadWarning, touchOnlyWarning(), gpuWarning(this.gpu), this.save.warning].filter(Boolean).join('<br>') || null, tutorialDone: this.save.data.tutorialDone },
       {
         play: () => this.mapSelect(),
         tutorial: () => void this.startRun({ map: getMap('training'), weather: 'clear', assist: 'novice', tutorial: true }),
@@ -250,26 +355,79 @@ export class App {
       change: (s) => this.applySettings(s),
       capture: (cb) => this.input.captureNextKey(cb),
       close: () => {
-        this.save.save();
-        if (this.resumeAfterSettings) this.resumeAfterSettings = null;
+        this.input.cancelCapture();
+        this.flushSettingsSave();
       },
     });
   }
 
   applySettings(s: Settings): void {
+    if (this.disposed) return;
     this.settings = s;
     this.save.data.settings = s;
     this.view.applySettings(s);
     this.input.setSettings(s);
+    this.tutorial?.setSettings(s);
     this.hud.setOpacity(s.hudOpacity);
+    this.refreshControlHint();
     this.audio.applyVolumes({ master: s.volMaster, engine: s.volEngine, ambience: s.volAmbience, alerts: s.volAlerts });
+    // Sliders update the game immediately, but storage is synchronous and should
+    // only receive the final value after a short pause or when leaving settings.
+    if (this.settingsSaveTimer !== null) clearTimeout(this.settingsSaveTimer);
+    this.settingsSaveTimer = setTimeout(() => this.flushSettingsSave(), 200);
+  }
+
+  private flushSettingsSave(): void {
+    if (this.settingsSaveTimer === null) return;
+    clearTimeout(this.settingsSaveTimer);
+    this.settingsSaveTimer = null;
     this.save.save();
   }
 
+  private refreshControlHint(): void {
+    const k = (a: keyof Settings['bindings']) => keyName(this.settings.bindings[a][0]);
+    const html = this.settings.hints && !this.tutorial && this.state === 'playing'
+      ? `<kbd>${k('hover')}</kbd> 悬停 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('nav')}</kbd> 导航 · <kbd>${k('pause')}</kbd> 暂停`
+      : '';
+    if (html === this.controlHintHtml) return;
+    this.controlHintHtml = html;
+    this.hud.setHint(html);
+  }
+
   async startRun(cfg: RunConfig): Promise<void> {
+    if (this.disposed || this.loadingRun) return;
+    this.pendingOperations++;
+    this.loadingRun = true;
+    this.loadWarning = null;
+    this.failTimer = this.completeTimer = -1;
+    this.input.active = false;
+    this.input.clear();
+    this.input.cancelCapture();
+    this.input.exitLock();
+    try {
+      await this.loadRun(cfg);
+    } catch (error) {
+      if (this.disposed) return;
+      console.error('关卡加载失败', error);
+      this.session?.dispose();
+      this.session = null;
+      this.tutorial = null;
+      // A partly loaded scene must be rebuilt on retry, even on the same map.
+      this.world = null;
+      this.audio.setAmbience({});
+      this.loadWarning = '关卡未能加载完成。请稍后重新选择任务；也可以在设置中降低画质后重试。已保存的进度不受影响。';
+      this.mainMenu();
+    } finally {
+      this.loadingRun = false;
+      this.finishOperation();
+    }
+  }
+
+  private async loadRun(cfg: RunConfig): Promise<void> {
     this.audio.init();
     this.audio.applyVolumes({ master: this.settings.volMaster, engine: this.settings.volEngine, ambience: this.settings.volAmbience, alerts: this.settings.volAlerts });
     this.state = 'loading';
+    this.refreshControlHint();
     this.hud.show(false);
     this.tutBox.classList.add('hidden');
     this.session?.dispose();
@@ -280,15 +438,23 @@ export class App {
       this.ui.loading('生成地形', 0.02);
       this.view.prefetch(cfg.map);
       const w = await generateWorld(cfg.map, true, (p, l) => this.ui.loading(l, p));
+      this.assertActive();
       await this.view.load(w, (p, l) => this.ui.loading(l, p));
+      this.assertActive();
       this.world = w;
     }
     this.ui.loading('初始化物理', 0.98);
-    this.session = await GameSession.create(this.world, cfg.weather, cfg.assist);
+    const session = await GameSession.create(this.world, cfg.weather, cfg.assist);
+    if (this.disposed) {
+      session.dispose();
+      return;
+    }
+    this.session = session;
     // 先推进一个物理步（停在坪上，无副作用），让 HUD 在“点击开始”画面里就显示真实的密度、航点等数值
     this.session.step();
     this.session.drainEvents();
     this.tutorial = cfg.tutorial ? new Tutorial(this.settings) : null;
+    this.tutorialHtml = '';
     this.audio.setAmbience(cfg.map.ambience);
     this.stepper.reset();
     this.view.rig.setMode('cockpit');
@@ -297,11 +463,13 @@ export class App {
     this.state = 'ready';
     this.ui.loading('编译着色器（第一次进入会慢一些）', 0.99);
     await this.warmUp();
+    this.assertActive();
     this.hud.show(true);
     const k = (a: keyof Settings['bindings']) => keyName(this.settings.bindings[a][0]);
+    const controls = this.settings.hints ? `<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>${k('pause')}</kbd> 暂停` : '';
     this.ui.clickToStart(
       cfg.tutorial ? '飞行训练' : cfg.map.name,
-      `${cfg.tutorial ? '跟随屏幕提示一步步完成操作。' : (this.session.mission.current()?.def.title ?? '')}<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>Esc</kbd> 暂停`,
+      `${cfg.tutorial ? '跟随屏幕提示一步步完成操作。' : (this.session.mission.current()?.def.title ?? '')}${controls}`,
       () => this.beginFlight(),
     );
   }
@@ -314,24 +482,41 @@ export class App {
   private async warmUp(): Promise<void> {
     const v = this.view;
     const frames = async (n: number): Promise<void> => {
-      const t0 = performance.now();
       const target = v.frames + n;
-      while (v.frames < target && performance.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 30));
+      let observedFrames = v.frames;
+      let lastCheck = performance.now();
+      let stalledMs = 0;
+      while (v.frames < target) {
+        this.assertActive();
+        const now = performance.now();
+        if (document.hidden || v.frames !== observedFrames) stalledMs = 0;
+        else stalledMs += now - lastCheck;
+        observedFrames = v.frames;
+        lastCheck = now;
+        if (stalledMs >= 60000) throw new Error('画面预热无进展，请重试或降低画质');
+        await new Promise((r) => setTimeout(r, 30));
+      }
     };
     v.setWarm(true);
-    const compiled = v.parallelCompile();
-    await frames(6);
-    await compiled();
-    await frames(3);
-    v.setWarm(false);
-    await v.gpuIdle();
+    let compiled: ReturnType<WorldView['parallelCompile']> | null = null;
+    try {
+      compiled = v.parallelCompile();
+      await frames(6);
+      await waitForOperation(compiled(), this.lifetime.signal, 60000, '着色器编译');
+      await frames(3);
+      await waitForOperation(v.gpuIdle(), this.lifetime.signal, 60000, '显卡准备');
+    } finally {
+      compiled?.cancel();
+      v.setWarm(false);
+    }
   }
 
   beginFlight(): void {
-    if (!this.session) return;
+    if (!this.session || this.state !== 'ready') return;
     this.audio.init();
     this.ui.clear();
     this.state = 'playing';
+    this.refreshControlHint();
     this.input.active = true;
     this.input.clear();
     this.input.requestLock();
@@ -347,6 +532,7 @@ export class App {
   pause(): void {
     if (this.state !== 'playing' || !this.session) return;
     this.state = 'paused';
+    this.refreshControlHint();
     this.input.active = false;
     this.input.clear();
     this.input.exitLock();
@@ -369,9 +555,11 @@ export class App {
   }
 
   resume(): void {
-    if (!this.session) return;
+    if (!this.session || (this.state !== 'paused' && this.state !== 'failed')) return;
+    this.audio.resume();
     this.ui.clear();
     this.state = 'playing';
+    this.refreshControlHint();
     this.input.active = true;
     this.input.clear();
     this.input.requestLock();
@@ -380,9 +568,10 @@ export class App {
   }
 
   restoreCheckpoint(i: number, mode: 'exact' | 'safe'): void {
-    if (!this.session) return;
+    if (!this.session?.checkpoints[i]) return;
     this.session.restoreCheckpoint(i, mode);
-    this.failTimer = -1;
+    this.failTimer = this.completeTimer = -1;
+    this.tutorial?.resumeStep(this.session);
     this.hud.toast(mode === 'safe' ? '安全恢复：以稳定悬停状态继续' : '已从检查点继续', 'info');
     this.resume();
   }
@@ -400,6 +589,7 @@ export class App {
     this.tutorial = null;
     this.failTimer = this.completeTimer = -1;
     this.audio.update(this.audioState(true), 0);
+    this.audio.setAmbience({});
     this.mainMenu();
   }
 
@@ -428,13 +618,26 @@ export class App {
   // ---------------- 主循环 ----------------
 
   private frame = (now: number): void => {
-    requestAnimationFrame(this.frame);
-    let dt = (now - this.last) / 1000;
+    if (this.disposed) return;
+    this.frameId = requestAnimationFrame(this.frame);
+    try {
+      this.tick(now);
+    } catch (error) {
+      // A failed frame must not keep throwing and advancing flight every refresh.
+      console.error('游戏运行中断', error);
+      this.dispose();
+      new UI(this.root).compatError('游戏运行中断，请刷新页面后重试。已保存的进度不受影响。');
+    }
+  };
+
+  private tick(now: number): void {
+    const elapsed = (now - this.last) / 1000;
     this.last = now;
-    if (!Number.isFinite(dt) || dt < 0) dt = 0;
-    dt = Math.min(dt, 0.1);
+    const frameSeconds = Number.isFinite(elapsed) && elapsed > 0 ? elapsed : 0;
+    const dt = Math.min(frameSeconds, 0.1);
     this.frames++;
-    this.fpsT += dt;
+    // Report actual elapsed time; the simulation clamp must not hide long stalls.
+    this.fpsT += frameSeconds;
     if (this.fpsT >= 1) {
       this.fps = this.frames / this.fpsT;
       this.frames = 0;
@@ -457,7 +660,11 @@ export class App {
       if (this.tutorial) {
         s.mission.locked = this.tutorial.index < 7;
         this.tutorial.update(s, dt);
-        this.tutBox.innerHTML = this.tutorial.html();
+        const html = this.tutorial.html();
+        if (html !== this.tutorialHtml) {
+          this.tutorialHtml = html;
+          this.tutBox.innerHTML = html;
+        }
         if (this.tutorial.done && this.completeTimer < 0 && !s.mission.complete) {
           this.completeTimer = 0.5;
         }
@@ -467,11 +674,11 @@ export class App {
       if (s.state === 'crashed' && this.failTimer < 0) this.failTimer = 1.4;
       if (s.state === 'complete' && this.completeTimer < 0) this.completeTimer = 1.6;
     }
-    if (this.failTimer > 0) {
+    if (this.state === 'playing' && this.failTimer > 0) {
       this.failTimer -= dt;
       if (this.failTimer <= 0) this.showFailure();
     }
-    if (this.completeTimer > 0) {
+    if (this.state === 'playing' && this.completeTimer > 0) {
       this.completeTimer -= dt;
       if (this.completeTimer <= 0) this.showResult();
     }
@@ -485,11 +692,12 @@ export class App {
       this.idleAngle += dt * 0.05;
       const c = this.view.heli.root.position;
       const r = 28;
-      const pos = new THREE.Vector3(c.x + Math.sin(this.idleAngle) * r, c.y + 7, c.z + Math.cos(this.idleAngle) * r);
-      this.view.render(null, { dt, t: this.t, alpha: 1 }, { pos, target: new THREE.Vector3(c.x, c.y + 1.5, c.z) });
+      this.idlePose.pos.set(c.x + Math.sin(this.idleAngle) * r, c.y + 7, c.z + Math.cos(this.idleAngle) * r);
+      this.idlePose.target.set(c.x, c.y + 1.5, c.z);
+      this.view.render(null, { dt, t: this.t, alpha: 1 }, this.idlePose);
       this.audio.update(this.audioState(true), dt);
     }
-  };
+  }
 
   private readInput(s: GameSession, dt: number): void {
     const I = this.input;
@@ -522,16 +730,7 @@ export class App {
   private instrumentData(s: GameSession): InstrumentData {
     const tel = s.flight.telemetry;
     const nav = s.nav.info;
-    const route: Array<[number, number]> = [[s.body.pos.x, s.body.pos.z], ...nav.preview.map((p) => [p.pos[0], p.pos[2]] as [number, number])];
-    const objs = s.mission.optional.filter((o) => o.status !== 'done').map((o) => {
-      const g = s.mission.goalOf(o, s.body.pos);
-      return { x: g[0], z: g[2], main: false };
-    });
-    const cur = s.mission.current();
-    if (cur) {
-      const g = s.mission.goalOf(cur, s.body.pos);
-      objs.push({ x: g[0], z: g[2], main: true });
-    }
+    this.instrumentLists.update(s);
     return {
       pitch: tel.pitch,
       roll: tel.roll,
@@ -566,9 +765,9 @@ export class App {
       collective: tel.collective,
       heliX: s.body.pos.x,
       heliZ: s.body.pos.z,
-      route,
-      objectives: objs,
-      pickups: s.world.map.pickups.filter((p) => !s.pickupsTaken.has(p.id)).map((p) => ({ x: p.pos[0], z: p.pos[2], kind: p.kind })),
+      route: this.instrumentLists.route,
+      objectives: this.instrumentLists.objectives,
+      pickups: this.instrumentLists.pickups,
       mapSize: s.world.map.size,
       speedUnit: this.settings.speedUnit,
     };
@@ -598,7 +797,7 @@ export class App {
         case 'pickup':
           A.pickup(e.kind);
           hud.toast(
-            e.kind === 'boost' ? '获得动力增强（按 Shift 使用）' : e.kind === 'shield' ? (e.result === 'shieldExtended' ? '护盾时间延长' : '免伤护盾已生效') : '维修补给：耐久 +25',
+            e.kind === 'boost' ? `获得动力增强（按 ${keyName(this.settings.bindings.boost[0])} 使用）` : e.kind === 'shield' ? (e.result === 'shieldExtended' ? '护盾时间延长' : '免伤护盾已生效') : '维修补给：耐久 +25',
             'good',
           );
           break;
@@ -666,6 +865,7 @@ export class App {
     const s = this.session;
     if (!s || !this.run) return;
     this.state = 'failed';
+    this.refreshControlHint();
     this.input.active = false;
     this.input.exitLock();
     const cause = s.crashCause ?? 'impact';
@@ -691,6 +891,7 @@ export class App {
     const run = this.run;
     if (!s || !run) return;
     this.state = 'result';
+    this.refreshControlHint();
     this.input.active = false;
     this.input.exitLock();
     this.tutBox.classList.add('hidden');

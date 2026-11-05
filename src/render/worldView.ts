@@ -25,6 +25,7 @@ import { makeForestTexture, makeGroundHeightTexture, makeMinimapCanvas, makeSurf
 import { fogMaps, VFOG } from './volumetricFog';
 import { DownwashView } from './downwash';
 import { NightLights } from './nightLights';
+import { PadDetails } from './padDetails';
 import { makeReflectField } from './reflectMap';
 import { GroundCover } from './groundCover';
 import { RiverView } from './riverView';
@@ -52,6 +53,8 @@ const _pos = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
 const _vel = new THREE.Vector3();
 const _w = new THREE.Vector3();
+const _zero = new THREE.Vector3();
+const _project = new THREE.Vector3();
 
 export class WorldView {
   readonly renderer: THREE.WebGPURenderer;
@@ -83,11 +86,20 @@ export class WorldView {
   /** 上一帧的绘制次数与三角形数（含阴影与后期） */
   readonly frameStats = { calls: 0, tris: 0 };
   private settings: Settings;
+  /** Snapshot values, since the caller may mutate its Settings object in place. */
+  private appliedSettings: Pick<Settings, 'quality' | 'renderScale' | 'rayTracing' | 'motionBlur' | 'volumetric' | 'navGuides' | 'lightning'> | null = null;
+  private renderWidth = 0;
+  private renderHeight = 0;
+  private pixelRatio = 0;
   // 地图相关
   world: WorldData | null = null;
   sky: SkyDome | null = null;
   terrain: TerrainView | null = null;
   terrainUniforms: TerrainUniforms | null = null;
+  private terrainTexSize = 0;
+  private terrainRequestedSize: number | null = null;
+  private terrainVersion = 0;
+  private terrainRefresh: Promise<void> | null = null;
   water: WaterView | null = null;
   props: PropsView | null = null;
   private modelLib: ModelLib | null = null;
@@ -110,6 +122,7 @@ export class WorldView {
   readonly eye = new EyeAdapt();
   private wash: DownwashView | null = null;
   private lamps: NightLights | null = null;
+  private padDetails: PadDetails | null = null;
   /** 着陆灯（夜晚才放进场景：多一盏灯所有材质都要重新编译） */
   private landing: THREE.SpotLight | null = null;
   private rivers: RiverView | null = null;
@@ -134,7 +147,7 @@ export class WorldView {
     r.toneMapping = THREE.NeutralToneMapping;
     r.toneMappingExposure = 1.0;
     r.shadowMap.enabled = true;
-    r.shadowMap.type = THREE.PCFSoftShadowMap;
+    r.shadowMap.type = THREE.PCFShadowMap;
     // 绘制统计按整帧累计（后期管线一帧里有多次 render，自动清零只会留下最后一次）
     r.info.autoReset = false;
     this.rig = new CameraRig(canvas.clientWidth / Math.max(1, canvas.clientHeight));
@@ -179,44 +192,132 @@ export class WorldView {
     return { backend: 'WebGL2', name };
   }
 
-  applySettings(s: Settings): void {
+  applySettings(s: Settings, force = false): void {
+    const previous = this.appliedSettings;
+    const qualityChanged = force || !previous || previous.quality !== s.quality;
     this.settings = s;
-    if (this.nav) this.nav.guides = s.navGuides;
+    this.rig.camera.fov = s.fov;
+    if (this.nav && (force || !previous || previous.navGuides !== s.navGuides)) this.nav.guides = s.navGuides;
     const q = QUALITY[s.quality];
-    const dpr = Math.min(window.devicePixelRatio || 1, q.pixelRatio) * s.renderScale;
-    this.renderer.setPixelRatio(dpr);
-    this.renderer.shadowMap.enabled = q.shadows;
-    this.sun.setShadows(q.shadows, q.shadowSize);
-    if (this.terrain) {
-      this.terrain.lodScale = q.terrainLod;
-      this.terrain.shadowRange = q.shadowRange;
+    if (qualityChanged) {
+      this.renderer.shadowMap.enabled = q.shadows;
+      this.sun.setShadows(q.shadows, q.shadowSize);
+      if (this.terrain) {
+        this.terrain.lodScale = q.terrainLod;
+        this.terrain.shadowRange = q.shadowRange;
+      }
+      if (this.trees) this.trees.quality = { near: q.treeNear, far: q.treeFar, shadows: q.shadows, aa: q.msaa > 0 };
+      if (this.props) this.props.lodScale = q.terrainLod;
+      // 高画质起用光线步进的体积积云（低、中用二维云层）
+      this.sky?.setVolumetric(s.quality === 'ultra' ? 56 : s.quality === 'high' ? 40 : 0);
+      this.envKey = '';
     }
-    if (this.trees) this.trees.quality = { near: q.treeNear, far: q.treeFar, shadows: q.shadows, aa: q.msaa > 0 };
-    if (this.props) this.props.lodScale = q.terrainLod;
+    // Usually a no-op; also permits a failed texture request to be retried without
+    // rebuilding any already-working render resources.
+    this.syncTerrainQuality(q.terrainTex);
     // 水面倒影：低画质没有后期管线，省掉；开着光线追踪时海面由后期的屏幕空间反射负责，不要反射两遍
-    const mirror = s.quality === 'low' ? 0 : 1;
-    if (this.water) this.water.ssr.value = s.rayTracing ? 0 : mirror;
-    if (this.rivers) this.rivers.ssr.value = mirror;
-    // 高画质起用光线步进的体积积云（低、中用二维云层）
-    this.sky?.setVolumetric(s.quality === 'ultra' ? 56 : s.quality === 'high' ? 40 : 0);
-    this.lightning.enabled = s.lightning;
-    this.envKey = '';
-    this.buildPost();
-    this.resize();
+    if (qualityChanged || previous?.rayTracing !== s.rayTracing) {
+      const mirror = s.quality === 'low' ? 0 : 1;
+      if (this.water) this.water.ssr.value = s.rayTracing ? 0 : mirror;
+      if (this.rivers) this.rivers.ssr.value = mirror;
+    }
+    if (force || previous?.lightning !== s.lightning) this.lightning.enabled = s.lightning;
+    if (qualityChanged || previous?.rayTracing !== s.rayTracing || previous?.motionBlur !== s.motionBlur || previous?.volumetric !== s.volumetric) this.buildPost();
+    if (qualityChanged || previous?.renderScale !== s.renderScale) this.resize();
+    else this.syncCameraProjection();
+    this.appliedSettings = { quality: s.quality, renderScale: s.renderScale, rayTracing: s.rayTracing, motionBlur: s.motionBlur, volumetric: s.volumetric, navGuides: s.navGuides, lightning: s.lightning };
+  }
+
+  /** Change texture quality without rebuilding the map or interrupting a flight. */
+  private syncTerrainQuality(size: number): void {
+    const world = this.world;
+    const terrain = this.terrain;
+    const uniforms = this.terrainUniforms;
+    if (!world || !terrain || !uniforms) return;
+    if (this.terrainRefresh && this.terrainRequestedSize === size) return;
+    if (size === this.terrainTexSize && !this.terrainRefresh) return;
+    const version = ++this.terrainVersion;
+    this.terrainRefresh = null;
+    this.terrainRequestedSize = null;
+    // Returning to the current material cancels a pending upgrade without
+    // recreating that material. Its late result is released by the version guard.
+    if (size === this.terrainTexSize) return;
+    const replace = (layers: TerrainLayers | null): void => {
+      const previous = uniforms.layers;
+      terrain.setLayers(layers);
+      if (previous) {
+        this.mapTextures = this.mapTextures.filter((t) => t !== previous.color && t !== previous.normal);
+        previous.color.dispose();
+        previous.normal.dispose();
+      }
+      if (layers) this.mapTextures.push(layers.color, layers.normal);
+    };
+    if (size === 0) {
+      replace(null);
+      this.terrainTexSize = 0;
+      return;
+    }
+    this.terrainRequestedSize = size;
+    this.terrainRefresh = loadTerrainLayers(world.map.id, world.map.biome, size)
+      .then((layers) => {
+        if (!layers) return;
+        // A newer quality selection or a map unload can overtake the download.
+        if (version !== this.terrainVersion || this.world !== world || this.terrain !== terrain) {
+          layers.color.dispose();
+          layers.normal.dispose();
+          return;
+        }
+        try {
+          replace(layers);
+          this.terrainTexSize = size;
+        } catch (error) {
+          layers.color.dispose();
+          layers.normal.dispose();
+          throw error;
+        }
+      })
+      .catch((error) => console.warn('地形材质切换失败，保留现有画面：', error))
+      .finally(() => {
+        if (version === this.terrainVersion) {
+          this.terrainRefresh = null;
+          this.terrainRequestedSize = null;
+        }
+      });
   }
 
   /** 时段：换太阳位置（地图已加载时立刻生效），环境贴图随后重新烘焙 */
   setTimeOfDay(tod: TimeOfDay): void {
+    const changed = this.tod !== tod;
     this.tod = tod;
     if (this.sky && this.world) {
       const [az, el] = sunFor(this.world.map, tod);
       this.eye.snap();
       this.sky.setSun(az, el);
       this.sky.setNight(tod === 'night');
+      this.eye.setMax(tod === 'night' ? 3.6 : EYE_DEFAULT.max);
+      this.updateLandingLight();
+      if (changed) {
+        setSunMap(this.world.terrain, this.sky.sunDir);
+        this.sky.clouds.reset();
+      }
     }
     // 太阳很低时远处的山也会把影子投进谷里：阴影框往太阳方向多留一些距离
     this.sun.csm.lightMargin = this.sky ? 400 + 1800 * (1 - this.sky.dayK) : 400;
     this.envKey = '';
+  }
+
+  /** The same map can be restarted at a different time without reloading it. */
+  private updateLandingLight(): void {
+    if (this.tod === 'night' && !this.landing) {
+      const light = new THREE.SpotLight(0xfff0dc, 0, 900, 0.24, 1, 1.7);
+      light.castShadow = false;
+      this.scene.add(light, light.target);
+      this.landing = light;
+    } else if (this.tod !== 'night' && this.landing) {
+      this.scene.remove(this.landing, this.landing.target);
+      this.landing.dispose();
+      this.landing = null;
+    }
   }
 
   /** 后期管线（见 post.ts）：画质或光线追踪开关变化时重建。 */
@@ -225,24 +326,43 @@ export class WorldView {
     const s = this.settings;
     const key = `${s.quality}_${s.rayTracing}_${s.motionBlur}_${s.volumetric}`;
     if (key === this.postKey && this.post) return;
+    const next = buildPost(this.renderer, this.scene, this.rig.camera, this.sun, { quality: s.quality, rayTracing: s.rayTracing, motionBlur: s.motionBlur, volumetric: s.volumetric });
+    const previous = this.post;
+    this.post = next;
     this.postKey = key;
-    this.post?.dispose();
-    this.post = buildPost(this.renderer, this.scene, this.rig.camera, this.sun, { quality: s.quality, rayTracing: s.rayTracing, motionBlur: s.motionBlur, volumetric: s.volumetric });
+    previous?.dispose();
   }
 
   resize(): void {
     const c = this.renderer.domElement;
-    const w = c.clientWidth || window.innerWidth;
-    const h = c.clientHeight || window.innerHeight;
-    this.renderer.setSize(w, h, false);
-    this.rig.camera.aspect = w / Math.max(1, h);
-    this.rig.camera.updateProjectionMatrix();
+    const w = Math.max(1, c.clientWidth || window.innerWidth);
+    const h = Math.max(1, c.clientHeight || window.innerHeight);
+    const dpr = Math.min(window.devicePixelRatio || 1, QUALITY[this.settings.quality].pixelRatio) * this.settings.renderScale;
+    if (w !== this.renderWidth || h !== this.renderHeight || dpr !== this.pixelRatio) {
+      // One resize notification, even when both viewport and display DPR change.
+      this.renderer.setDrawingBufferSize(w, h, dpr);
+      this.renderWidth = w;
+      this.renderHeight = h;
+      this.pixelRatio = dpr;
+    }
+    this.rig.camera.aspect = w / h;
+    this.syncCameraProjection();
+  }
+
+  private syncCameraProjection(): void {
+    const cam = this.rig.camera;
+    if (cam.fov === this.csmFov && cam.aspect === this.csmAspect) return;
+    cam.updateProjectionMatrix();
     this.sun.updateFrustums();
+    this.csmFov = cam.fov;
+    this.csmAspect = cam.aspect;
   }
 
   /** 生成世界要占主线程好几秒：这段时间网络和解码线程闲着，先把这张图要的模型和贴图下载起来。 */
   prefetch(map: MapDef): void {
     const texSize = QUALITY[this.settings.quality].terrainTex;
+    if (this.early?.id === map.id && this.early.texSize === texSize) return;
+    this.discardPrefetch();
     const file = MODEL_FILES[map.id];
     void loadRockRelief();
     void loadDetailTextures();
@@ -250,104 +370,137 @@ export class WorldView {
     this.early = { id: map.id, texSize, layers: texSize > 0 ? loadTerrainLayers(map.id, map.biome, texSize) : Promise.resolve(null), lib: file ? loadModelLib(file) : Promise.resolve(null) };
   }
 
+  private discardPrefetch(): void {
+    const early = this.early;
+    this.early = null;
+    if (!early) return;
+    void early.layers.then((layers) => {
+      layers?.color.dispose();
+      layers?.normal.dispose();
+    });
+    void early.lib.then((lib) => lib?.dispose());
+  }
+
   /** 构建地图视觉资源。 */
   async load(world: WorldData, progress?: (p: number, label: string) => void): Promise<void> {
-    this.unload();
-    this.world = world;
-    const map = world.map;
-    const tick = () => new Promise<void>((r) => setTimeout(r, 0));
-    progress?.(0.82, '构建地形网格');
-    await tick();
-    const surfaceTex = makeSurfaceTexture(world.surface, world.terrain.res);
-    const forestTex = makeForestTexture(world.trees, map.size, world.flow);
-    // 体积雾：贴地薄雾按离地高度变淡、林区更浓
-    const groundTex = makeGroundHeightTexture(world.terrain, map.waterLevel);
-    const macroTex = makeTerrainMacroTexture(world.terrain);
-    this.mapTextures.push(surfaceTex, forestTex, groundTex, macroTex);
-    await loadRockRelief();
-    // 水面倒影飞出画面后接着走的地形图
-    const field = makeReflectField(map, world.terrain, world.trees, world.surface, macroTex.image.data as Uint8Array, forestTex.image.data as Uint8Array);
-    this.mapTextures.push(field.height, field.color);
-    fogMaps.height = groundTex;
-    fogMaps.forest = forestTex;
-    VFOG.mapSize.value = map.size;
-    progress?.(0.84, '加载地形材质');
     const texSize = QUALITY[this.settings.quality].terrainTex;
-    const early = this.early?.id === map.id && this.early.texSize === texSize ? this.early : null;
-    this.early = null;
-    const layers = early ? await early.layers : texSize > 0 ? await loadTerrainLayers(map.id, map.biome, texSize) : null;
-    if (layers) this.mapTextures.push(layers.color, layers.normal);
-    this.terrainUniforms = makeTerrainUniforms(map, surfaceTex, forestTex, macroTex, layers);
-    this.terrain = new TerrainView(map, world.terrain, this.terrainUniforms);
-    this.scene.add(this.terrain.group);
-    const [sunAz, sunEl] = sunFor(map, this.tod);
-    this.sky = new SkyDome(sunAz, sunEl, map.biome.fogTint, map.biome.grass, this.tod === 'night');
-    this.eye.setMax(this.tod === 'night' ? 3.6 : EYE_DEFAULT.max);
-    if (this.tod === 'night') {
-      const l = new THREE.SpotLight(0xfff0dc, 0, 900, 0.24, 1, 1.7);
-      l.castShadow = false;
-      this.scene.add(l, l.target);
-      this.landing = l;
+    const early = this.early?.id === world.map.id && this.early.texSize === texSize ? this.early : null;
+    if (early) this.early = null;
+    this.unload();
+    let layersTaken = false;
+    let libTaken = false;
+    try {
+      this.world = world;
+      const map = world.map;
+      const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+      progress?.(0.82, '构建地形网格');
+      await tick();
+      const surfaceTex = makeSurfaceTexture(world.surface, world.terrain.res);
+      const forestTex = makeForestTexture(world.trees, map.size, world.flow);
+      // 体积雾：贴地薄雾按离地高度变淡、林区更浓
+      const groundTex = makeGroundHeightTexture(world.terrain, map.waterLevel);
+      const macroTex = makeTerrainMacroTexture(world.terrain);
+      this.mapTextures.push(surfaceTex, forestTex, groundTex, macroTex);
+      await loadRockRelief();
+      // 水面倒影飞出画面后接着走的地形图
+      const field = makeReflectField(map, world.terrain, world.trees, world.surface, macroTex.image.data as Uint8Array, forestTex.image.data as Uint8Array);
+      this.mapTextures.push(field.height, field.color);
+      fogMaps.height = groundTex;
+      fogMaps.forest = forestTex;
+      VFOG.mapSize.value = map.size;
+      progress?.(0.84, '加载地形材质');
+      const layers = early ? await early.layers : texSize > 0 ? await loadTerrainLayers(map.id, map.biome, texSize) : null;
+      if (layers) this.mapTextures.push(layers.color, layers.normal);
+      layersTaken = true;
+      this.terrainTexSize = layers ? texSize : 0;
+      this.terrainUniforms = makeTerrainUniforms(map, surfaceTex, forestTex, macroTex, layers);
+      if (this.terrainUniforms.strataLUT) this.mapTextures.push(this.terrainUniforms.strataLUT);
+      this.terrain = new TerrainView(map, world.terrain, this.terrainUniforms);
+      this.scene.add(this.terrain.group);
+      const [sunAz, sunEl] = sunFor(map, this.tod);
+      this.sky = new SkyDome(sunAz, sunEl, map.biome.fogTint, map.biome.grass, this.tod === 'night');
+      this.eye.setMax(this.tod === 'night' ? 3.6 : EYE_DEFAULT.max);
+      this.updateLandingLight();
+      this.sun.csm.lightMargin = 400 + 1800 * (1 - this.sky.dayK);
+      setSunMap(world.terrain, this.sky.sunDir);
+      this.eye.snap();
+      this.scene.add(this.sky.mesh);
+      // 雾的基准高度：地图最低处（有水面时取水面）
+      const hf = world.terrain;
+      let minH = Infinity;
+      for (let i = 0; i <= 32; i++) for (let j = 0; j <= 32; j++) minH = Math.min(minH, hf.heightAt(-hf.half + (i * hf.size) / 32, -hf.half + (j * hf.size) / 32));
+      this.fogBaseY = map.waterLevel !== null ? Math.max(minH, map.waterLevel) : minH;
+      // 积云层：一般在雾的基准高度之上 1300 m（夏季海边的晴天积云底约 1000~1500 m），且高于最高的山顶
+      let maxH = -Infinity;
+      for (let i = 0; i <= 32; i++) for (let j = 0; j <= 32; j++) maxH = Math.max(maxH, hf.heightAt(-hf.half + (i * hf.size) / 32, -hf.half + (j * hf.size) / 32));
+      const cloudBase = Math.max(this.fogBaseY + 1300, maxH + 250);
+      this.sky.setVolumetric(0, cloudBase, cloudBase + 1300);
+      if (map.waterLevel !== null) {
+        const depth = makeWaterDepthTexture(world.terrain, map.waterLevel);
+        this.mapTextures.push(depth);
+        this.water = new WaterView(map, depth, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true, field, this.sky);
+        this.scene.add(this.water.mesh);
+      }
+      progress?.(0.88, '构建建筑与植被');
+      await tick();
+      const modelFile = MODEL_FILES[map.id];
+      const [lib, detail, treeLib] = await Promise.all([early ? early.lib : modelFile ? loadModelLib(modelFile) : Promise.resolve(null), loadDetailTextures(), loadTreeLib()]);
+      this.modelLib = lib;
+      libTaken = true;
+      this.props = new PropsView(world, this.modelLib, detail);
+      this.props.lodScale = QUALITY[this.settings.quality].terrainLod;
+      this.scene.add(this.props.group);
+      this.trees = new TreeView(world.trees, treeLib, map.biome.rock);
+      this.scene.add(this.trees.group);
+      this.nav = new NavView(map, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true);
+      this.nav.guides = this.settings.navGuides;
+      this.scene.add(this.nav.group);
+      this.wash = new DownwashView(map);
+      this.scene.add(this.wash.group);
+      this.lamps = new NightLights(world);
+      this.scene.add(this.lamps.group);
+      this.padDetails = new PadDetails(map);
+      this.scene.add(this.padDetails.group);
+      this.grass = new GroundCover(world, forestTex);
+      this.scene.add(this.grass.group);
+      if (map.rivers) {
+        this.rivers = new RiverView(map.rivers, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true, field, this.sky);
+        this.scene.add(this.rivers.group);
+      }
+      this.clouds = new CloudLayer(map.size);
+      this.scene.add(this.clouds.group);
+      this.minimap = makeMinimapCanvas(map, world.terrain, world.trees);
+      this.cockpit.minimap = this.minimap;
+      if (!this.cockpit.loaded || !this.heli.extLoaded) {
+        progress?.(0.92, '加载直升机模型');
+        await Promise.all([this.cockpit.ready, this.heli.ready]);
+      }
+      await this.padDetails.ready;
+      this.applySettings(this.settings, true);
+      await this.terrainRefresh;
+      protectTransparent(this.scene);
+      markNearShadow(this.scene);
+      progress?.(0.96, '编译着色器');
+      await tick();
+    } catch (error) {
+      this.unload();
+      throw error;
+    } finally {
+      // The model may still be decoding if an earlier construction step failed.
+      if (early && !layersTaken) void early.layers.then((layers) => {
+        layers?.color.dispose();
+        layers?.normal.dispose();
+      });
+      if (early && !libTaken) void early.lib.then((lib) => lib?.dispose());
     }
-    this.sun.csm.lightMargin = 400 + 1800 * (1 - this.sky.dayK);
-    setSunMap(world.terrain, this.sky.sunDir);
-    this.eye.snap();
-    this.scene.add(this.sky.mesh);
-    // 雾的基准高度：地图最低处（有水面时取水面）
-    const hf = world.terrain;
-    let minH = Infinity;
-    for (let i = 0; i <= 32; i++) for (let j = 0; j <= 32; j++) minH = Math.min(minH, hf.heightAt(-hf.half + (i * hf.size) / 32, -hf.half + (j * hf.size) / 32));
-    this.fogBaseY = map.waterLevel !== null ? Math.max(minH, map.waterLevel) : minH;
-    // 积云层：一般在雾的基准高度之上 1300 m（夏季海边的晴天积云底约 1000~1500 m），且高于最高的山顶
-    let maxH = -Infinity;
-    for (let i = 0; i <= 32; i++) for (let j = 0; j <= 32; j++) maxH = Math.max(maxH, hf.heightAt(-hf.half + (i * hf.size) / 32, -hf.half + (j * hf.size) / 32));
-    const cloudBase = Math.max(this.fogBaseY + 1300, maxH + 250);
-    this.sky.setVolumetric(0, cloudBase, cloudBase + 1300);
-    if (map.waterLevel !== null) {
-      const depth = makeWaterDepthTexture(world.terrain, map.waterLevel);
-      this.mapTextures.push(depth);
-      this.water = new WaterView(map, depth, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true, field, this.sky);
-      this.scene.add(this.water.mesh);
-    }
-    progress?.(0.88, '构建建筑与植被');
-    await tick();
-    const modelFile = MODEL_FILES[map.id];
-    const [lib, detail, treeLib] = await Promise.all([early ? early.lib : modelFile ? loadModelLib(modelFile) : Promise.resolve(null), loadDetailTextures(), loadTreeLib()]);
-    this.modelLib = lib;
-    this.props = new PropsView(world, this.modelLib, detail);
-    this.props.lodScale = QUALITY[this.settings.quality].terrainLod;
-    this.scene.add(this.props.group);
-    this.trees = new TreeView(world.trees, treeLib, map.biome.rock);
-    this.scene.add(this.trees.group);
-    this.nav = new NavView(map, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true);
-    this.nav.guides = this.settings.navGuides;
-    this.scene.add(this.nav.group);
-    this.wash = new DownwashView(map);
-    this.scene.add(this.wash.group);
-    this.lamps = new NightLights(world);
-    this.scene.add(this.lamps.group);
-    this.grass = new GroundCover(world, forestTex);
-    this.scene.add(this.grass.group);
-    if (map.rivers) {
-      this.rivers = new RiverView(map.rivers, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true, field, this.sky);
-      this.scene.add(this.rivers.group);
-    }
-    this.clouds = new CloudLayer(map.size);
-    this.scene.add(this.clouds.group);
-    this.minimap = makeMinimapCanvas(map, world.terrain, world.trees);
-    this.cockpit.minimap = this.minimap;
-    if (!this.cockpit.loaded || !this.heli.extLoaded) {
-      progress?.(0.92, '加载直升机模型');
-      await Promise.all([this.cockpit.ready, this.heli.ready]);
-    }
-    this.applySettings(this.settings);
-    protectTransparent(this.scene);
-    markNearShadow(this.scene);
-    progress?.(0.96, '编译着色器');
-    await tick();
   }
 
   unload(): void {
+    this.terrainVersion++;
+    this.terrainTexSize = 0;
+    this.terrainRequestedSize = null;
+    this.terrainRefresh = null;
+    this.discardPrefetch();
     const rm = (o: THREE.Object3D | undefined) => o && this.scene.remove(o);
     rm(this.terrain?.group);
     rm(this.sky?.mesh);
@@ -357,6 +510,7 @@ export class WorldView {
     rm(this.nav?.group);
     rm(this.wash?.group);
     rm(this.lamps?.group);
+    rm(this.padDetails?.group);
     rm(this.landing?.target);
     rm(this.landing ?? undefined);
     rm(this.rivers?.group);
@@ -376,6 +530,8 @@ export class WorldView {
     this.wash = null;
     this.lamps?.dispose();
     this.lamps = null;
+    this.padDetails?.dispose();
+    this.padDetails = null;
     this.landing?.dispose();
     this.landing = null;
     this.rivers?.dispose();
@@ -389,6 +545,10 @@ export class WorldView {
     fogMaps.height = fogMaps.forest = null;
     this.terrain = this.water = this.props = this.trees = this.nav = this.clouds = this.sky = null;
     this.world = null;
+    this.terrainUniforms = null;
+    this.minimap = null;
+    this.cockpit.minimap = null;
+    this.scene.environment = null;
     this.envRT?.dispose();
     this.envRT = null;
     this.envKey = '';
@@ -400,8 +560,6 @@ export class WorldView {
     const key = `${w.overcast.toFixed(1)}_${w.rain.toFixed(1)}_${Math.round(Math.log(w.visibility) * 2)}_${this.settings.quality}_${this.tod}`;
     // 第一张环境贴图不等：从“没有环境贴图”变成“有”时所有材质都要重新编译，越早越好
     if (key === this.envKey || (this.envRT && t - this.envT < 2)) return;
-    this.envKey = key;
-    this.envT = t;
     const envScene = new THREE.Scene();
     const m = new THREE.Mesh(this.sky.mesh.geometry, this.sky.material);
     envScene.add(m);
@@ -412,9 +570,14 @@ export class WorldView {
     const size = QUALITY[this.settings.quality].envSize;
     const old = this.envRT;
     const keep = old && this.envSize === size ? old : null;
-    this.envRT = this.pmrem.fromScene(envScene, 0, 1, 10000, { size, renderTarget: keep });
+    try {
+      this.envRT = this.pmrem.fromScene(envScene, 0, 1, 10000, { size, renderTarget: keep });
+    } finally {
+      endBake();
+    }
+    this.envKey = key;
+    this.envT = t;
     this.envSize = size;
-    endBake();
     this.scene.environment = this.envRT.texture;
     this.scene.environmentIntensity = 0.55;
     if (old !== this.envRT) old?.dispose();
@@ -432,37 +595,68 @@ export class WorldView {
    * 并行编译：之后新建的渲染管线都走异步接口，没编译好的物体先不画。
    * 渲染时 three.js 用的是同步接口，显卡进程只能一个接一个地编译（实测一百多条管线排队 20 多秒，主线程全程空等）；
    * 异步接口能同时编译。返回的函数等全部编译完，并恢复原来的做法。
+   * cancel() 同步恢复绘制接口（例如预热超时）；已提交的 GPU 编译仍由返回函数收尾。
    */
-  parallelCompile(): () => Promise<void> {
+  parallelCompile(): (() => Promise<void>) & { cancel(): void } {
     interface Ro {
       pipeline: unknown;
     }
+    interface PipelineData {
+      pipeline?: unknown;
+      error?: boolean;
+    }
     const r = this.renderer as unknown as {
       _pipelines: { getForRender(ro: Ro, promises?: Array<Promise<void>> | null): unknown };
-      backend: { isWebGPUBackend?: boolean; get(o: unknown): { pipeline?: unknown }; draw(ro: Ro, info: unknown): void };
+      backend: { isWebGPUBackend?: boolean; get(o: unknown): PipelineData; draw(ro: Ro, info: unknown): void };
     };
     const P = r._pipelines;
     const B = r.backend;
-    if (!B.isWebGPUBackend) return () => Promise.resolve();
+    if (!B.isWebGPUBackend) return Object.assign(() => Promise.resolve(), { cancel() {} });
     const list: Array<Promise<void>> = [];
+    const pipelineData = new Set<PipelineData>();
     const get = P.getForRender;
     const draw = B.draw;
     P.getForRender = function (ro, promises = null) {
-      return get.call(P, ro, promises ?? list);
+      const offset = list.length;
+      const result = get.call(P, ro, promises ?? list);
+      // Three reports WebGPU validation failures on the data object while its
+      // compilation promise still resolves. Capture it now: completion must not
+      // query a backend that may already have been disposed after cancellation.
+      if (result) pipelineData.add(B.get(result));
+      // Warm-up renders several frames before awaiting completion. Mark failures
+      // as observed immediately; allSettled below still reports the original error.
+      for (let i = offset; i < list.length; i++) void list[i].catch(() => {});
+      return result;
     };
     B.draw = function (ro, info) {
       if (B.get(ro.pipeline).pipeline) draw.call(B, ro, info);
     };
-    return async () => {
-      // 等的时候还在画帧，可能又添了新的管线
-      for (let done = 0; done < list.length; ) {
-        const n = list.length;
-        await Promise.all(list.slice(done));
-        done = n;
-      }
-      delete (P as Partial<typeof P>).getForRender;
-      delete (B as Partial<typeof B>).draw;
+    let restored = false;
+    const cancel = () => {
+      if (restored) return;
+      restored = true;
+      P.getForRender = get;
+      B.draw = draw;
     };
+    let completion: Promise<void> | null = null;
+    const complete = () => completion ??= (async () => {
+      try {
+        // 等的时候还在画帧，可能又添了新的管线。先等所有编译收尾，
+        // 再报告失败；无论成功与否都恢复正常渲染函数。
+        const failures: PromiseRejectedResult[] = [];
+        for (let done = 0; done < list.length; ) {
+          const n = list.length;
+          const results = await Promise.allSettled(list.slice(done));
+          for (const result of results) if (result.status === 'rejected') failures.push(result);
+          done = n;
+        }
+        if (failures.length) throw failures[0].reason;
+        for (const data of pipelineData) if (data.error) throw new Error('着色器编译失败，请重试或降低画质');
+      } finally {
+        cancel();
+      }
+    })();
+    return Object.assign(complete, { cancel });
   }
 
   /** 等显卡把已提交的工作（包括着色器编译）都做完；WebGL2 后端没有这个接口，直接返回 */
@@ -579,7 +773,9 @@ export class WorldView {
       const lampK = this.tod === 'night' ? 1 : this.tod === 'dusk' ? 0.42 : this.tod === 'dawn' ? 0.2 : 0;
       if (this.nav) this.nav.flare = lampK;
       SCOTOPIC.value = this.tod === 'night' ? 1 : 0;
-      this.lamps?.update(Math.max(lampK, Math.max(0, (w.overcast - 0.7) / 0.3) * 0.35));
+      const nightLight = Math.max(lampK, Math.max(0, (w.overcast - 0.7) / 0.3) * 0.35);
+      this.lamps?.update(nightLight);
+      this.padDetails?.update(nightLight);
       // 仪表背光：天越暗开得越亮
       CABIN_NIGHT.value = this.tod === 'night' ? 1 : this.tod === 'dusk' ? 0.32 : this.tod === 'dawn' ? 0.2 : Math.max(0, (w.overcast - 0.75) / 0.25) * 0.15;
       VFOG.wind.value.x -= _w.x * f.dt;
@@ -590,11 +786,7 @@ export class WorldView {
       this.renderer.toneMappingExposure = (1.0 - w.overcast * 0.12) * (this.settings.eyeAdapt ? adapted : fixed) + this.flash * 0.6;
       const q = QUALITY[set.quality];
       // 分层阴影：视野或宽高比变了要重新划分；每帧把各层阴影框跟随相机（内部按纹素对齐，避免闪烁）
-      if (cam.fov !== this.csmFov || cam.aspect !== this.csmAspect) {
-        this.csmFov = cam.fov;
-        this.csmAspect = cam.aspect;
-        this.sun.updateFrustums();
-      }
+      this.syncCameraProjection();
       this.sun.update(cam);
       // 兜底：定期给新出现的透明材质套上“只写最终颜色”（见 post.ts keepGBuffer）
       if (f.t - this.gbT > 2 || f.t < this.gbT) {
@@ -615,10 +807,10 @@ export class WorldView {
       this.rivers?.update(f.t);
       this.grass?.update(f.t, cp);
       if (s && this.wash) {
-        this.wash.update(f.dt, s);
+        this.wash.update(f.dt, s, cam);
         this.water?.setWash(this.wash.state.x, this.wash.state.z, this.wash.state.water);
       }
-      this.rain.update(f.t, cp, w.rain, _w, s ? _vel : new THREE.Vector3(), q.rainDensity);
+      this.rain.update(f.t, cp, w.rain, _w, s ? _vel : _zero, q.rainDensity);
       // 低云层：开着体积雾时由它画（按深度积分，和地形没有硬边），否则退回半透明的面片
       const volLow = !!this.post?.fog;
       VFOG.lowK.value = volLow ? w.lowCloud : 0;
@@ -632,10 +824,13 @@ export class WorldView {
     updateCloudShadowMap(this.renderer, cp);
     if (this.sky && this.sky.u.steps.value > 0) this.sky.clouds.render(this.renderer, cam);
     const undoWarm = this.warm ? this.forceAllVisible() : null;
-    if (this.post) this.post.pipeline.render();
-    else this.renderer.render(this.scene, cam);
-    undoWarm?.();
-    this.eye.sample(this.renderer, this.post?.hdr() ?? null);
+    try {
+      if (this.post) this.post.pipeline.render();
+      else this.renderer.render(this.scene, cam);
+    } finally {
+      undoWarm?.();
+    }
+    if (set.eyeAdapt) this.eye.sample(this.renderer, this.post?.hdr() ?? null);
     this.frames++;
     this.frameStats.calls = this.renderer.info.render.drawCalls;
     this.frameStats.tris = this.renderer.info.render.triangles;
@@ -648,6 +843,7 @@ export class WorldView {
           if (ms > 0) this.gpuMs = this.gpuMs > 0 ? this.gpuMs * 0.9 + ms * 0.1 : ms;
           (window as unknown as { __gpuMs: number }).__gpuMs = this.gpuMs;
         })
+        .catch(() => { this.trackGpu = false; })
         .finally(() => (this.gpuBusy = false));
     }
   }
@@ -659,7 +855,7 @@ export class WorldView {
   /** 投影世界坐标到屏幕（像素），在相机后方时返回 null。 */
   project(p: THREE.Vector3, out: { x: number; y: number; behind: boolean }): { x: number; y: number; behind: boolean } {
     const cam = this.rig.camera;
-    const v = p.clone().applyMatrix4(cam.matrixWorldInverse);
+    const v = _project.copy(p).applyMatrix4(cam.matrixWorldInverse);
     out.behind = v.z > 0;
     v.applyMatrix4(cam.projectionMatrix);
     const c = this.renderer.domElement;
@@ -682,9 +878,12 @@ export class WorldView {
     this.heli.dispose();
     this.cockpit.dispose();
     this.rain.dispose();
+    this.eye.dispose();
     this.post?.dispose();
     this.sun.dispose();
     this.pmrem?.dispose();
-    this.renderer.dispose();
+    // Renderer.dispose() is asynchronous and can reject if initialization itself
+    // failed. Observe that cleanup failure rather than creating an unhandled one.
+    void Promise.resolve(this.renderer.dispose()).catch((error) => console.warn('渲染器资源释放失败：', error));
   }
 }

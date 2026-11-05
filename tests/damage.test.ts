@@ -10,6 +10,18 @@ function contact(part: HeliPart, dv: number, started = false): ContactReport {
 }
 
 describe('耐久与损伤', () => {
+  it.each(['restore', 'reset'] as const)('回到较早时间后不会残留未来的擦碰伤害（%s）', (method) => {
+    const m = new DamageModel();
+    const snap = m.snapshot();
+    m.processContacts([contact('cabin', 0, true)], 100, 1 / 60, 0, false, []);
+    if (method === 'restore') m.restore(snap);
+    else m.reset();
+    const out: DamageEvent[] = [];
+    for (let i = 0; i < 120; i++) m.processContacts([], 1 + i / 60, 1 / 60, 30, false, out);
+    expect(m.durability).toBe(100);
+    expect(out).toEqual([]);
+  });
+
   it('70 / 30 阈值与状态', () => {
     expect(statusOf(100)).toBe('normal');
     expect(statusOf(70)).toBe('normal');

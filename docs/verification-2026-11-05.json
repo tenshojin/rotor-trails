@@ -1,0 +1,190 @@
+{
+  "date": "2026-11-05",
+  "baseCommit": "fc0da70ad7b7af4b5793fca70f64b549d3c1010f",
+  "localChangesOnly": true,
+  "tests": {
+    "total": 159,
+    "passed": 159,
+    "failed": 0,
+    "files": [
+      {
+        "file": "app-lifecycle.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "audio.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "buffs.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "damage.test.ts",
+        "status": "passed",
+        "tests": 12
+      },
+      {
+        "file": "downwash.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "eye-adapt.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "flight.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "flow.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "heightfield.test.ts",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "input.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "maps.test.ts",
+        "status": "passed",
+        "tests": 40
+      },
+      {
+        "file": "mission.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "model-assets.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "pad-details.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "padLayout.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "physics.test.ts",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "props-resources.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "render-lifecycle.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "render-resources.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "rockform.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "save.test.ts",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "terrain-quality.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "texture-loading.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "tutorial.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "renderReview.test.ts",
+        "status": "passed",
+        "tests": 7
+      }
+    ]
+  },
+  "missionAcceptance": {
+    "passed": 42,
+    "total": 42,
+    "durability": 100,
+    "collisions": 0
+  },
+  "typecheck": "passed",
+  "productionBuild": "passed",
+  "windowsLauncherCheck": "passed: Start-RotorTrails.cmd --check",
+  "diffWhitespace": "passed (CRLF-aware)",
+  "browser": {
+    "ui": {
+      "passedPerViewport": 11,
+      "viewports": [
+        [
+          1280,
+          720
+        ],
+        [
+          640,
+          600
+        ]
+      ]
+    },
+    "observed": "WebGPU complete cockpit, helicopter and helipad models; training scene assets and continuous rendering passed. Japanese pagoda UV warnings identified and fixed afterward.",
+    "finalVisualReview": "incomplete",
+    "reason": "Browser declined localhost access after connection recovery; no alternative browser access attempted.",
+    "pending": [
+      "six-map final visual pass",
+      "day/night and quality switching",
+      "ray tracing switching",
+      "WebGL2",
+      "PNG export visual verification"
+    ],
+    "invalidRunsExcluded": [
+      "fallback assets from incorrect QA base URI",
+      "stopped partial sweeps"
+    ]
+  },
+  "assets": [
+    {
+      "file": "public/models/pad_fixtures.glb",
+      "bytes": 11816,
+      "sha256": "b464b57775c30f36afd80358f93adc522a3a40d8b78a56c20e053376cb8fc6fb",
+      "productionCopyMatches": true
+    },
+    {
+      "file": "public/models/props_japan.glb",
+      "bytes": 9366072,
+      "sha256": "bc11d1800dfb269f8fa5265a4608f4bd5cca562d750a6d7a445c6adc3cca037c",
+      "productionCopyMatches": true
+    }
+  ]
+}

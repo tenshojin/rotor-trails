@@ -15,10 +15,11 @@ const only = process.env.MAP;
 it('mapviz', async () => {
   const out = path.resolve('tmp/maps');
   fs.mkdirSync(out, { recursive: true });
-  for (const map of MAPS) {
-    if (only && map.id !== only) continue;
+  for (const definition of MAPS) {
+    if (only && definition.id !== only) continue;
     const t0 = Date.now();
-    const world = await generateWorld(map, false);
+    const world = await generateWorld(definition, false);
+    const map = world.map;
     const genMs = Date.now() - t0;
     if (process.env.PROBE) {
       for (const p of process.env.PROBE.split(';')) {

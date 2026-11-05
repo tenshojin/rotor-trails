@@ -52,7 +52,7 @@ describe.each(MAPS.map((m) => [m.id, m] as const))('地图 %s', (_id, map) => {
 
   it('补给在地图范围内且不在障碍物里', async () => {
     const w = await worldFor(map);
-    for (const p of map.pickups) {
+    for (const p of w.map.pickups) {
       expect(Math.abs(p.pos[0]) < map.size / 2 - 60 && Math.abs(p.pos[2]) < map.size / 2 - 60).toBe(true);
       const top = obstacleTop(w, p.pos[0], p.pos[2], 4, p.pos[1]);
       expect(p.pos[1] - top, `${p.id} 离障碍太近`).toBeGreaterThan(4);

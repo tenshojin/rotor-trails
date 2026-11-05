@@ -61,6 +61,16 @@ export function buildPad(B: PropBuilder, pad: PadDef, ctx: PropCtx): void {
   const slabT = style === 'ground' || style === 'ledge' ? 0.6 : 0.5;
   const surface = style === 'ground' || style === 'ledge' ? C.concrete : C.darkConcrete;
   B.box(0, -slabT / 2, 0, s, slabT, s, surface, { tag: padTag, mat: 'pad', jitter: 0.02 });
+  // Shallow expansion joints below the paint, with a pale worn lip. These are
+  // surface details only: the original flat landing collider remains unchanged.
+  const bays = Math.max(2, Math.round(s / 6));
+  for (let i = 1; i < bays; i++) {
+    const p = -s / 2 + (s * i) / bays;
+    B.flat(p, 0.008, 0, 0.045, s - 0.12, 0x555650, 'pad');
+    B.flat(0, 0.008, p, s - 0.12, 0.045, 0x555650, 'pad');
+    B.flat(p + 0.035, 0.009, 0, 0.018, s - 0.12, 0x95948b, 'pad');
+    B.flat(0, 0.009, p + 0.035, s - 0.12, 0.018, 0x95948b, 'pad');
+  }
   // 标线：外框、H 字、接地圆
   const mk = 0.03;
   const kc = PAD_COLOR[pad.kind];
@@ -83,19 +93,7 @@ export function buildPad(B: PropBuilder, pad: PadDef, ctx: PropCtx): void {
     B.flat(hs, mk + 0.01, 0, hs * 0.45, hs * 2.4, C.white, 'pad');
     B.flat(0, mk + 0.01, 0, hs * 2, hs * 0.4, C.white, 'pad');
   }
-  // 边灯
-  for (const [lx, lz] of [
-    [-s / 2, -s / 2],
-    [s / 2, -s / 2],
-    [-s / 2, s / 2],
-    [s / 2, s / 2],
-    [0, -s / 2],
-    [0, s / 2],
-    [-s / 2, 0],
-    [s / 2, 0],
-  ]) {
-    B.box(lx, 0.12, lz, 0.25, 0.25, 0.25, pad.kind === 'final' ? 0x60a0ff : pad.kind === 'repair' ? C.greenLamp : C.lamp, { mat: 'emit', solid: false });
-  }
+  // Actual low-profile perimeter fixtures and tie-down fittings are instanced by PadDetails.
   B.footprint(s * 0.75 + 4);
   // 支撑结构
   if (style === 'roof') {
@@ -145,6 +143,13 @@ export function buildPad(B: PropBuilder, pad: PadDef, ctx: PropCtx): void {
   const wsGround = ctx.ground(B.w(wsx, 0, wsz)[0], B.w(wsx, 0, wsz)[2]);
   const onDeck = style === 'platform' || style === 'pier' || style === 'roof' || style === 'raised';
   const baseY = onDeck ? 0 : wsGround - y;
+  if (onDeck) {
+    // The windsock stands beyond the pad edge: give its mast a visible support
+    // instead of leaving the base floating outside rooftop/offshore platforms.
+    B.beam([s / 2 - 0.3, -0.22, -s / 2 + 0.3], [wsx, -0.22, wsz], 0.22, C.darkSteel, { mat: 'metal', solid: false });
+    B.beam([s / 2 - 0.3, -slabT - 1.5, -s / 2 + 0.3], [wsx, -0.22, wsz], 0.14, C.darkSteel, { mat: 'metal', solid: false });
+    B.box(wsx, -0.08, wsz, 0.7, 0.12, 0.7, C.darkSteel, { mat: 'metal', solid: false });
+  }
   const pole = 6;
   B.cyl(wsx, baseY + pole / 2, wsz, 0.08, 0.06, pole, C.white, 6, { mat: 'metal', solid: false });
   B.anchor('windsock', wsx, baseY + pole, wsz);

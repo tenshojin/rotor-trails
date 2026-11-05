@@ -61,6 +61,7 @@ export function windVector(dirFrom: number, speed: number, out: Vector3): Vector
 
 /** 周期性阵风包络：0..1。爬升 → 保持 → 衰减 → 平静，节奏固定，强度每周期略有不同。 */
 export function gustEnvelope(t: number, period: number, phase: number, seed: number): number {
+  validateGustPeriod(period);
   const u = (t + phase) / period;
   const cycle = Math.floor(u);
   const p = u - cycle;
@@ -74,9 +75,14 @@ export function gustEnvelope(t: number, period: number, phase: number, seed: num
 
 /** 距离下一次阵风开始的时间（秒）。 */
 export function timeToNextGust(t: number, period: number, phase: number): number {
+  validateGustPeriod(period);
   const u = (t + phase) / period;
   const p = u - Math.floor(u);
   return (1 - p) * period;
+}
+
+function validateGustPeriod(period: number): void {
+  if (!Number.isFinite(period) || period <= 0) throw new RangeError('阵风周期必须是有限正数');
 }
 
 export class WindField {
@@ -86,6 +92,15 @@ export class WindField {
   private seed: number;
 
   constructor(profile: WindProfile, zones: WindZoneDef[], ground: (x: number, z: number) => number, seed: number) {
+    if (!Object.values(profile).every(Number.isFinite)) throw new RangeError('风场参数必须是有限数值');
+    for (const zone of zones) {
+      const values = [...zone.a, ...zone.b, zone.radius, zone.feather, zone.yMin ?? 0, zone.yMax ?? 0, zone.dirFrom ?? 0, zone.speed ?? 0, zone.vertical ?? 0];
+      if (!values.every(Number.isFinite) || zone.radius < 0 || zone.feather < 0) throw new RangeError(`风区 ${zone.id} 的位置或范围无效`);
+      if (zone.gust) {
+        validateGustPeriod(zone.gust.period);
+        if (![zone.gust.amp, zone.gust.phase ?? 0, zone.gust.dirFrom ?? 0].every(Number.isFinite)) throw new RangeError(`风区 ${zone.id} 的阵风参数无效`);
+      }
+    }
     this.profile = { ...profile };
     this.zones = zones;
     this.ground = ground;
@@ -171,7 +186,8 @@ export class WindField {
     let gustIn: number | null = null;
     let gustDir = dirFrom;
     for (const zd of this.zones) {
-      const w = this.zoneWeight(zd, x, y, z);
+      // 反馈与实际采样使用同一有效权重，关闭风区时也关闭其提示。
+      const w = this.zoneWeight(zd, x, y, z) * Math.min(1, this.profile.zoneScale * 1.2);
       if (w > best) {
         best = w;
         zone = zd.name;

@@ -80,12 +80,20 @@ export class CloudPass {
     this.hist.value = this.rts[1 - this.cur].texture;
     const prev = r.getRenderTarget();
     r.setRenderTarget(this.rts[this.cur]);
-    this.quad.render(r);
-    r.setRenderTarget(prev);
+    try {
+      this.quad.render(r);
+    } finally {
+      r.setRenderTarget(prev);
+    }
     this.tex.value = this.rts[this.cur].texture;
     this.cur = 1 - this.cur;
     this.prevView.value.copy(cam.matrixWorldInverse);
     this.prevProj.value.copy(cam.projectionMatrix);
+  }
+
+  /** A lighting change invalidates both accumulated cloud frames. */
+  reset(): void {
+    this.warm = 2;
   }
 
   dispose(): void {

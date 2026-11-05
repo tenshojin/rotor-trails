@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Rotor Trails · 界面交互回归</title>
+  </head>
+  <body>
+    <div id="fixture"></div>
+    <main id="report" style="position:fixed;inset:0;z-index:100;background:#08111b;padding:32px;overflow:auto;user-select:text">
+      <h1>Rotor Trails · 界面交互回归</h1>
+      <p>使用浏览器的真实 DOM、焦点和事件，独立验证菜单与 HUD，不加载地图或启动飞行。</p>
+      <p id="summary" role="status">正在验证…</p>
+      <ol id="results" style="line-height:2"></ol>
+      <button class="btn" onclick="location.reload()">重新运行</button>
+    </main>
+    <script type="module" src="./ui-regression.ts"></script>
+  </body>
+</html>

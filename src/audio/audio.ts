@@ -3,6 +3,9 @@
 
 import type { AmbienceDef } from '../maps/types';
 
+const TURBINE_FREQUENCIES = [5600, 5640, 8400] as const;
+const volume = (value: number) => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+
 export interface AudioState {
   rpm: number;
   load: number; // 推力/重量
@@ -63,17 +66,22 @@ export class AudioEngine {
   private windGain!: GainNode;
   private rainGain!: GainNode;
   private rainLow!: GainNode;
-  private amb: Array<{ gain: GainNode; base: number }> = [];
+  private ambNodes: AudioNode[] = [];
+  private ambSources = new Set<AudioScheduledSourceNode>();
+  private transient = new Map<AudioScheduledSourceNode, AudioNode[]>();
+  private targets = new WeakMap<AudioParam, number>();
   private ambTimer = 0;
   private ambience: AmbienceDef = {};
   private volumes: Volumes = { master: 0.8, engine: 0.8, ambience: 0.7, alerts: 0.8 };
   private alertCooldown: Record<string, number> = {};
+  private paused = true;
   enabled = true;
 
   /** 必须在用户手势中调用（浏览器自动播放策略）。 */
   init(): void {
+    if (this.ctx?.state === 'closed') this.dispose();
     if (this.ctx) {
-      if (this.ctx.state === 'suspended') void this.ctx.resume();
+      if (this.ctx.state === 'suspended') this.resume();
       return;
     }
     const AC = (window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext) as typeof AudioContext | undefined;
@@ -88,23 +96,35 @@ export class AudioEngine {
       return;
     }
     const ctx = this.ctx;
-    this.white = noiseBuffer(ctx, 2);
-    this.brown = noiseBuffer(ctx, 3, true);
-    this.master = ctx.createGain();
-    this.master.connect(ctx.destination);
-    this.cabinFilter = ctx.createBiquadFilter();
-    this.cabinFilter.type = 'lowpass';
-    this.cabinFilter.frequency.value = 3800;
-    this.cabinFilter.connect(this.master);
-    this.engineBus = ctx.createGain();
-    this.engineBus.connect(this.cabinFilter);
-    this.ambBus = ctx.createGain();
-    this.ambBus.connect(this.cabinFilter);
-    this.alertBus = ctx.createGain();
-    this.alertBus.connect(this.master);
-    this.buildEngine();
-    this.buildWeather();
-    this.applyVolumes(this.volumes);
+    try {
+      this.white = noiseBuffer(ctx, 2);
+      this.brown = noiseBuffer(ctx, 3, true);
+      this.master = ctx.createGain();
+      this.master.gain.value = 0;
+      this.master.connect(ctx.destination);
+      this.cabinFilter = ctx.createBiquadFilter();
+      this.cabinFilter.type = 'lowpass';
+      this.cabinFilter.frequency.value = 3800;
+      this.cabinFilter.connect(this.master);
+      this.engineBus = ctx.createGain();
+      this.engineBus.gain.value = 0;
+      this.engineBus.connect(this.cabinFilter);
+      this.ambBus = ctx.createGain();
+      this.ambBus.gain.value = 0;
+      this.ambBus.connect(this.cabinFilter);
+      this.alertBus = ctx.createGain();
+      this.alertBus.connect(this.master);
+      this.buildEngine();
+      this.buildWeather();
+      this.applyVolumes(this.volumes);
+      this.setAmbience(this.ambience);
+      this.enabled = true;
+    } catch {
+      // Audio-node/buffer creation can fail after the context itself succeeds.
+      // Keep the game usable and close the partial graph instead of leaking it.
+      this.dispose();
+      this.enabled = false;
+    }
   }
 
   private loop(buf: AudioBuffer, rate = 1): AudioBufferSourceNode {
@@ -158,7 +178,7 @@ export class AudioEngine {
     hp.type = 'highpass';
     hp.frequency.value = 2000;
     hp.connect(this.turbineGain).connect(this.engineBus);
-    for (const f of [5600, 5640, 8400]) {
+    for (const f of TURBINE_FREQUENCIES) {
       const o = ctx.createOscillator();
       o.type = 'sine';
       o.frequency.value = f;
@@ -222,12 +242,19 @@ export class AudioEngine {
   /** 切换地图环境音。 */
   setAmbience(a: AmbienceDef): void {
     this.ambience = a;
-    if (!this.ctx) return;
-    for (const x of this.amb) x.gain.disconnect();
-    this.amb = [];
+    this.ambTimer = 0;
+    for (const source of this.ambSources) {
+      this.stopSource(source);
+      this.releaseTransient(source);
+    }
+    this.ambSources.clear();
+    for (const node of this.ambNodes) node.disconnect();
+    this.ambNodes = [];
+    if (!this.ctx || this.ctx.state === 'closed') return;
     const ctx = this.ctx;
     const addLoop = (buf: AudioBuffer, rate: number, type: BiquadFilterType, freq: number, q: number, level: number, lfoHz = 0) => {
       const s = this.loop(buf, rate);
+      this.ambSources.add(s);
       const f = ctx.createBiquadFilter();
       f.type = type;
       f.frequency.value = freq;
@@ -242,8 +269,10 @@ export class AudioEngine {
         lg.gain.value = level * 0.6;
         l.connect(lg).connect(g.gain);
         l.start();
+        this.ambSources.add(l);
+        this.ambNodes.push(lg);
       }
-      this.amb.push({ gain: g, base: level });
+      this.ambNodes.push(f, g);
     };
     if (a.sea) addLoop(this.brown, 0.8, 'lowpass', 600, 0.5, 0.25 * a.sea, 0.09);
     if (a.river) addLoop(this.white, 0.5, 'bandpass', 700, 0.6, 0.08 * a.river, 0.3);
@@ -252,54 +281,82 @@ export class AudioEngine {
   }
 
   applyVolumes(v: Volumes): void {
-    this.volumes = v;
+    this.volumes = { master: volume(v.master), engine: volume(v.engine), ambience: volume(v.ambience), alerts: volume(v.alerts) };
     if (!this.ctx) return;
-    this.master.gain.value = v.master;
-    this.engineBus.gain.value = v.engine;
-    this.ambBus.gain.value = v.ambience;
-    this.alertBus.gain.value = v.alerts;
+    const current = this.volumes;
+    this.smooth(this.master.gain, current.master, 0.03);
+    this.smooth(this.engineBus.gain, this.paused ? 0 : current.engine, 0.03);
+    this.smooth(this.ambBus.gain, this.paused ? 0 : current.ambience, 0.03);
+    this.smooth(this.alertBus.gain, current.alerts, 0.03);
+  }
+
+  private smooth(param: AudioParam, value: number, tc = 0.08): void {
+    if (!this.ctx || !Number.isFinite(value) || this.targets.get(param) === value) return;
+    param.setTargetAtTime(value, this.ctx.currentTime, tc);
+    this.targets.set(param, value);
   }
 
   /** 每帧更新持续声源。 */
   update(s: AudioState, dt: number): void {
+    this.paused = s.paused;
     const ctx = this.ctx;
-    if (!ctx) return;
-    const now = ctx.currentTime;
-    const k = (p: AudioParam, v: number, tc = 0.08) => p.setTargetAtTime(v, now, tc);
+    if (!ctx || ctx.state === 'closed') return;
+    this.smooth(this.engineBus.gain, s.paused ? 0 : this.volumes.engine, 0.1);
+    this.smooth(this.ambBus.gain, s.paused ? 0 : this.volumes.ambience, 0.1);
     if (s.paused) {
-      k(this.master.gain, 0, 0.1);
       return;
     }
-    k(this.master.gain, this.volumes.master, 0.2);
-    k(this.cabinFilter.frequency, s.inCockpit ? 3400 : 12000, 0.2);
+    this.smooth(this.cabinFilter.frequency, s.inCockpit ? 3400 : 12000, 0.2);
     const rpm = s.rpm;
     const load = Math.max(0, Math.min(1.6, s.load));
     // 拍击声：载荷越大、坡度越大、下降越快越明显
     const slap = Math.min(1, 0.25 + load * 0.45 + Math.abs(s.bank) * 0.5 + Math.max(0, s.descent - 2) * 0.08);
-    k(this.rotorLfo.frequency, 19 * rpm);
-    k(this.rotorNoiseGain.gain, 0.33 * rpm * (0.6 + slap * 0.6));
-    k(this.rotorFilter.frequency, 280 + slap * 520);
-    k(this.thump.frequency, 38 * rpm);
-    k(this.thumpGain.gain, 0.12 * rpm * (0.5 + load * 0.5));
-    for (let i = 0; i < this.turbine.length; i++) k(this.turbine[i].frequency, [5600, 5640, 8400][i] * (0.85 + 0.15 * rpm + 0.04 * s.power));
-    k(this.turbineGain.gain, 0.018 * Math.min(1, rpm * 1.2) * (0.6 + s.power * 0.6));
-    k(this.hum.frequency, 112 * (0.9 + 0.1 * rpm + 0.05 * s.power));
-    k(this.humGain.gain, 0.05 * rpm * (0.5 + s.power));
-    k(this.tailGain.gain, 0.05 * rpm);
+    this.smooth(this.rotorLfo.frequency, 19 * rpm);
+    this.smooth(this.rotorNoiseGain.gain, 0.33 * rpm * (0.6 + slap * 0.6));
+    this.smooth(this.rotorFilter.frequency, 280 + slap * 520);
+    this.smooth(this.thump.frequency, 38 * rpm);
+    this.smooth(this.thumpGain.gain, 0.12 * rpm * (0.5 + load * 0.5));
+    for (let i = 0; i < this.turbine.length; i++) this.smooth(this.turbine[i].frequency, TURBINE_FREQUENCIES[i] * (0.85 + 0.15 * rpm + 0.04 * s.power));
+    this.smooth(this.turbineGain.gain, 0.018 * Math.min(1, rpm * 1.2) * (0.6 + s.power * 0.6));
+    this.smooth(this.hum.frequency, 112 * (0.9 + 0.1 * rpm + 0.05 * s.power));
+    this.smooth(this.humGain.gain, 0.05 * rpm * (0.5 + s.power));
+    this.smooth(this.tailGain.gain, 0.05 * rpm);
     const ws = Math.min(1.5, s.airspeed / 55 + s.gust / 20);
-    k(this.windGain.gain, 0.5 * ws * ws, 0.2);
-    k(this.windFilter.frequency, 250 + s.airspeed * 22 + s.gust * 30, 0.2);
-    k(this.rainGain.gain, 0.22 * s.rain, 0.5);
-    k(this.rainLow.gain, 0.3 * Math.max(0, s.rain - 0.5), 0.5);
+    this.smooth(this.windGain.gain, 0.5 * ws * ws, 0.2);
+    this.smooth(this.windFilter.frequency, 250 + s.airspeed * 22 + s.gust * 30, 0.2);
+    this.smooth(this.rainGain.gain, 0.22 * s.rain, 0.5);
+    this.smooth(this.rainLow.gain, 0.3 * Math.max(0, s.rain - 0.5), 0.5);
     // 偶发环境音（海鸥、鸟鸣、蛙鸣）
     this.ambTimer -= dt;
     if (this.ambTimer <= 0) {
       this.ambTimer = 1.5 + Math.random() * 4;
       const a = this.ambience;
       if (a.gulls && Math.random() < a.gulls) this.chirp(1300, 2300, 0.35, 0.05, 'triangle');
-      if (a.birds && Math.random() < a.birds) for (let i = 0; i < 3; i++) setTimeout(() => this.chirp(2600 + Math.random() * 1500, 3800 + Math.random() * 900, 0.09, 0.025, 'sine'), i * 120);
+      if (a.birds && Math.random() < a.birds) for (let i = 0; i < 3; i++) this.chirp(2600 + Math.random() * 1500, 3800 + Math.random() * 900, 0.09, 0.025, 'sine', i * 0.12);
       if (a.insects && Math.random() < 0.4) this.chirp(160, 120, 0.25, 0.04, 'square');
     }
+  }
+
+  /** Release short effects as soon as they finish; scheduled birds belong to their map. */
+  private track(source: AudioScheduledSourceNode, nodes: AudioNode[], ambient = false): void {
+    this.transient.set(source, nodes);
+    if (ambient) this.ambSources.add(source);
+    source.onended = () => this.releaseTransient(source);
+  }
+
+  private releaseTransient(source: AudioScheduledSourceNode): void {
+    const nodes = this.transient.get(source);
+    if (!nodes) return;
+    this.transient.delete(source);
+    this.ambSources.delete(source);
+    source.onended = null;
+    source.disconnect();
+    for (const node of nodes) node.disconnect();
+  }
+
+  private stopSource(source: AudioScheduledSourceNode): void {
+    try { source.stop(); } catch { /* Already stopped, or a partially initialized source. */ }
+    source.disconnect();
   }
 
   private tone(freq: number, dur: number, peak: number, type: OscillatorType = 'sine', bus?: GainNode, delay = 0): void {
@@ -310,6 +367,7 @@ export class AudioEngine {
     o.frequency.value = freq;
     const g = ctx.createGain();
     o.connect(g).connect(bus ?? this.alertBus);
+    this.track(o, [g]);
     const t = ctx.currentTime + delay;
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(peak, t + 0.01);
@@ -318,17 +376,18 @@ export class AudioEngine {
     o.stop(t + dur + 0.05);
   }
 
-  private chirp(f0: number, f1: number, dur: number, peak: number, type: OscillatorType): void {
+  private chirp(f0: number, f1: number, dur: number, peak: number, type: OscillatorType, delay = 0): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const o = ctx.createOscillator();
     o.type = type;
-    const t = ctx.currentTime;
+    const t = ctx.currentTime + delay;
     o.frequency.setValueAtTime(f0, t);
     o.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.6);
     o.frequency.exponentialRampToValueAtTime(f0 * 1.1, t + dur);
     const g = ctx.createGain();
     o.connect(g).connect(this.ambBus);
+    this.track(o, [g], true);
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(peak, t + 0.02);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
@@ -341,14 +400,17 @@ export class AudioEngine {
     if (!ctx) return;
     const s = ctx.createBufferSource();
     s.buffer = brown ? this.brown : this.white;
+    // A thunder roll can last longer than the reusable noise buffer.
+    s.loop = true;
     const f = ctx.createBiquadFilter();
     f.type = type;
     f.frequency.value = freq;
     const g = ctx.createGain();
     s.connect(f).connect(g).connect(bus ?? this.engineBus);
+    this.track(s, [f, g], bus === this.ambBus);
     const t = ctx.currentTime + delay;
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(peak, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0001, peak), t + 0.008);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     s.start(t, Math.random() * 1.5);
     s.stop(t + dur + 0.05);
@@ -434,14 +496,31 @@ export class AudioEngine {
   }
 
   click(): void {
+    this.init();
     this.tone(1400, 0.05, 0.08, 'square');
   }
 
   suspend(): void {
-    void this.ctx?.suspend();
+    void this.ctx?.suspend().catch(() => undefined);
   }
 
   resume(): void {
-    void this.ctx?.resume();
+    void this.ctx?.resume().catch(() => undefined);
+  }
+
+  dispose(): void {
+    this.setAmbience({});
+    for (const source of this.transient.keys()) {
+      this.stopSource(source);
+      this.releaseTransient(source);
+    }
+    this.transient.clear();
+    const ctx = this.ctx;
+    this.ctx = null;
+    this.turbine = [];
+    this.alertCooldown = {};
+    this.targets = new WeakMap();
+    this.paused = true;
+    if (ctx) void ctx.close().catch(() => undefined);
   }
 }

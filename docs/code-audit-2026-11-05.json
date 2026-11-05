@@ -1,0 +1,247 @@
+{
+  "date": "2026-11-05",
+  "round": 2,
+  "scope": "Code correctness, lifecycle/resource ownership, high-frequency work, persistence and offline validation",
+  "tests": {
+    "total": 217,
+    "passed": 217,
+    "failed": 0,
+    "addedSinceRound1": 58,
+    "files": [
+      {
+        "file": "aircraft-resources.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "app-lifecycle.test.ts",
+        "status": "passed",
+        "tests": 15
+      },
+      {
+        "file": "audio.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "buffs.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "damage.test.ts",
+        "status": "passed",
+        "tests": 12
+      },
+      {
+        "file": "downwash.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "effect-resources.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "eye-adapt.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "flight.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "flow.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "heightfield.test.ts",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "input.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "instrument-lists.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "maps.test.ts",
+        "status": "passed",
+        "tests": 40
+      },
+      {
+        "file": "math-boundaries.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "mission-runtime.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "mission.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "model-assets.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "nav.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "pad-details.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "padLayout.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "pending.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "physics-resources.test.ts",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "physics.test.ts",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "props-resources.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "render-lifecycle.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "render-resources.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "render-state-recovery.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "renderReview.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "rockform.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "save.test.ts",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "terrain-quality.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "texture-loading.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "tutorial.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "ui-lifecycle.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "world-generation.test.ts",
+        "status": "passed",
+        "tests": 3
+      }
+    ]
+  },
+  "missionAcceptance": {
+    "total": 42,
+    "passed": 42,
+    "seconds": 200.61,
+    "crashed": false,
+    "collisions": 0,
+    "durability": 100,
+    "results": "acceptance-2026-11-05.json"
+  },
+  "typecheck": "passed",
+  "productionBuild": "passed",
+  "windowsLauncherCheck": "passed: Start-RotorTrails.cmd --check",
+  "diffWhitespace": "passed (CRLF-aware)",
+  "artifactPackage": {
+    "files": 61,
+    "buildAssets": 10,
+    "wasmAssets": 2,
+    "models": 9,
+    "missingFiles": 0
+  },
+  "browser": {
+    "performedThisRound": false,
+    "finalVisualReview": "pending",
+    "previousObservations": "Round 1 only; do not treat as verification of round 2 code changes"
+  },
+  "performance": {
+    "measuredGpuFpsImprovement": null,
+    "verifiedChanges": [
+      "21 consecutive setting updates coalesce to one storage write",
+      "100 removed collision proxies leave no retained wrappers",
+      "300 static audio frames do not repeat parameter scheduling",
+      "route and map-display points reuse stable data"
+    ]
+  },
+  "localChangesOnly": true,
+  "pushed": false,
+  "published": false,
+  "buildFiles": [
+    {
+      "file": "dist/assets/autopilot-C_011nAw.js",
+      "bytes": 5750,
+      "sha256": "83270b9538cc0a745c22b4c70a82d557000fede8ae676923d8b67d8e29d93c40"
+    },
+    {
+      "file": "dist/assets/index--1Q0Q8Kd.css",
+      "bytes": 19231,
+      "sha256": "e1348ec5b7bca4fb5bf00e1a86b2d5de759cc7e91be065f17608d52327535e58"
+    },
+    {
+      "file": "dist/assets/index-DEJrHaCq.js",
+      "bytes": 495613,
+      "sha256": "b9a8c25106477bf8a377ad4378a353b7dd59b14b3494a48e126870c977322559"
+    }
+  ]
+}

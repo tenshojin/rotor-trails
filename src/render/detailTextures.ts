@@ -3,6 +3,7 @@
 
 import * as THREE from 'three/webgpu';
 import { abs, cameraViewMatrix, dot, float, Fn, int, max, mix, normalize, normalViewGeometry, normalWorld, positionWorld, pow, sqrt, struct, texture, vec3, vec4 } from 'three/tsl';
+import { loadBitmapBatch } from './bitmapBatch';
 
 export const DETAIL = { plaster: 0, concrete: 1, corrugated: 2, planks: 3, stone: 4 } as const;
 /** 各层一个平铺单元的尺寸（米） */
@@ -13,23 +14,17 @@ let cache: Promise<THREE.DataArrayTexture | null> | null = null;
 
 export function loadDetailTextures(): Promise<THREE.DataArrayTexture | null> {
   cache ??= (async () => {
+    let bmps: ImageBitmap[] = [];
     try {
       const size = 512;
       const cv = document.createElement('canvas');
       cv.width = cv.height = size;
       const g = cv.getContext('2d', { willReadFrequently: true })!;
       const data = new Uint8Array(size * size * 4 * NAMES.length);
-      const bmps = await Promise.all(
-        NAMES.map(async (n) => {
-          const r = await fetch(new URL(`textures/detail/${n}.webp`, document.baseURI).href);
-          if (!r.ok) throw new Error(`${n}: HTTP ${r.status}`);
-          return createImageBitmap(await r.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
-        }),
-      );
+      bmps = await loadBitmapBatch(NAMES.map((n) => `textures/detail/${n}.webp`));
       bmps.forEach((b, i) => {
         g.drawImage(b, 0, 0, size, size);
         data.set(g.getImageData(0, 0, size, size).data, i * size * size * 4);
-        b.close();
       });
       const t = new THREE.DataArrayTexture(data, size, size, NAMES.length);
       t.format = THREE.RGBAFormat;
@@ -42,8 +37,11 @@ export function loadDetailTextures(): Promise<THREE.DataArrayTexture | null> {
       t.needsUpdate = true;
       return t;
     } catch (e) {
+      cache = null;
       console.warn('细节纹理加载失败：', e);
       return null;
+    } finally {
+      for (const bmp of bmps) bmp.close();
     }
   })();
   return cache;

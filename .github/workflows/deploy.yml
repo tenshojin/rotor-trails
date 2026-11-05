@@ -28,6 +28,10 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: 全路线与天气回归
+        run: npm run regress
+      - name: 六张地图的坠毁恢复回归
+        run: npm run regress:recovery
       - run: npm run build
       - name: 把第三方许可一起发布
         run: cp THIRD_PARTY_LICENSES.md dist/

@@ -132,6 +132,7 @@ export class DamageModel {
     this.episodes.clear();
     this.rotorCd = this.tailCd = 0;
     this.scrapeAcc = 0;
+    this.lastContactT = -10;
   }
 
   snapshot(): DamageSnapshot {
@@ -145,6 +146,7 @@ export class DamageModel {
     this.episodes.clear();
     this.rotorCd = this.tailCd = 0;
     this.scrapeAcc = 0;
+    this.lastContactT = -10;
   }
 
   repair(amount: number): number {

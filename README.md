@@ -1,5 +1,7 @@
 # Rotor Trails · 旋翼航迹
 
+本地最新改进见 [2026-11-05 接手优化记录](docs/optimization-2026-11-05.md)：三轮代码审计、检查点与暂停修复、设置和渲染工作量优化、资源失败回收、Blender 停机坪细节及可重复验收工具。
+
 第一人称拟真直升机闯关网页游戏。驾驶一架轻型直升机，在五张风格迥异的地图里执行运输、空投、巡查与精确降落任务：日本海湾群岛、美国西南峡谷、亚马孙雨林、挪威峡湾、喜马拉雅雪域。
 
 **在线试玩：https://tenshojin.github.io/rotor-trails/** （需要键盘和鼠标，推荐桌面版 Chrome / Edge 并开启硬件加速）
@@ -34,10 +36,14 @@
 
 ### 环境要求
 
-- [Node.js](https://nodejs.org/) 20 或更新版本（开发时使用 24.x）
+- [Node.js](https://nodejs.org/) 20.x 中的 20.19.0 及以上版本，或 22.12.0 及更高版本；不支持 21.x（开发时使用 24.x）
 - 桌面浏览器并开启硬件加速。推荐支持 WebGPU 的最新版 Chrome / Edge（Safari 26、Windows 上的 Firefox 也支持）；只支持 WebGL2 的浏览器同样能玩，画面效果相同、帧率略低
 
 ### 安装与运行
+
+Windows 本地已安装依赖时，可直接双击 `Start-RotorTrails.cmd`。每次启动都会检查并构建当前源码，然后在固定地址 `http://127.0.0.1:4185/` 打开浏览器，避免误运行旧构建。游玩时保留启动窗口；关闭窗口或按 Ctrl+C 即可结束服务。重复启动时若端口已占用，请打开已运行的游戏，或先关闭旧启动窗口；不会自动换端口，以免浏览器把进度保存在另一地址下。
+
+只检查环境并构建、不启动服务或打开浏览器，可运行 `Start-RotorTrails.cmd --check`；成功返回 0，失败返回非零状态。
 
 ```bash
 npm install
@@ -59,13 +65,18 @@ npm run dev
 | `npm run build` | 类型检查 + 生产构建，输出到 `dist/` |
 | `npm run preview` | 在 http://localhost:4173 预览生产构建 |
 | `npm run mapviz` | 生成地图俯视图并检查所有航线净空（输出到 `tmp/maps/`） |
+| `npm run regress` | 跨平台完整航线与天气验收（42 种情形，失败返回非零状态） |
+| `npm run regress:recovery` | 六张地图 × 两种检查点恢复：坠毁后恢复并完成主线（12 种情形） |
 | `npm run shots -- tools/steps/docs_shots.json docs/screenshots` | 用无头 Chrome 自动截图（需先 `npm run preview`） |
 
-自动驾驶回归（只通过飞行员输入驾驶，验证每张地图的每条路线、每种天气都能完成；需要 Git Bash 等 bash 环境，约 1–2 分钟）：
+自动驾驶回归只通过飞行员输入驾驶，验证正式地图的航线和天气组合，以及坠毁后的任务恢复。以下入口支持 Windows、macOS 和 Linux，运行时间取决于机器性能：
 
-```bash
-bash tools/regress.sh all
+```text
+npm run regress
+npm run regress:recovery
 ```
+
+旧版 `tools/regress.sh` 仍可在 Git Bash 等环境中使用。
 
 单独跑一张地图（bash 语法；PowerShell 中先执行 `$env:MAP="himalaya"; $env:PATHS="0,1"`）：
 
@@ -116,6 +127,8 @@ MAP=himalaya PATHS=0,1 npx vitest run --config vitest.tools.config.ts tools/auto
    座舱还要烘焙环境光遮蔽：`blender ... tools/blender/cockpit.py -- public/models/cockpit.glb art/out/cockpit_tex --bake`，然后运行 `tools/blender/ao_finish.py` 生成 `public/models/cockpit_ao.jpg`。
 
 模型文件缺失或加载失败时，游戏会退回程序生成的几何体，仍然可以玩。
+
+停机坪灯具与固定环可单独生成：`blender -b --factory-startup --python tools/blender/pad_fixtures.py -- public/models/pad_fixtures.glb --preview tmp/pad-fixtures`。游戏按材质批量绘制这些部件，灯光位置跟随停机坪朝向。
 
 ## 部署到 GitHub Pages
 

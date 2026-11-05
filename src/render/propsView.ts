@@ -33,7 +33,7 @@ export function getGlowTexture(): THREE.CanvasTexture {
   return glowTex;
 }
 
-function makeMaterials(detail: THREE.DataArrayTexture | null, map: MapDef): Record<MatKey, THREE.Material> {
+function makeMaterials(detail: THREE.DataArrayTexture | null, map: MapDef, ownedTextures: THREE.Texture[]): Record<MatKey, THREE.Material> {
   const noise = getNoiseTexture();
   // 岩石：顶点色 × 世界坐标噪声（明暗斑驳）+ 水平的岩层纹，表面用和地形岩壁相同的脊状浮雕（三平面投影，两个尺度）
   const rock = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
@@ -66,6 +66,7 @@ function makeMaterials(detail: THREE.DataArrayTexture | null, map: MapDef): Reco
     let sw: THREE.Node<'float'> = P.x.mul(R.dip[0]).add(P.z.mul(R.dip[1]));
     for (const [kx, kz, a, ph] of R.waves) sw = sw.add(sin(P.x.mul(kx).add(P.z.mul(kz)).add(ph)).mul(a));
     const lut = makeStrataTexture(R);
+    ownedTextures.push(lut);
     const y = P.y.add(sw).add(rn.sub(0.5).mul(4.0));
     rock.vertexColors = false;
     rock.colorNode = vec4(texture(lut, vec2(y.sub(R.y0).div(R.y1 - R.y0), 0.5)).rgb.mul(mott.mul(0.8).add(0.1)), 1.0);
@@ -143,6 +144,7 @@ export class PropsView {
   private flags: Sock[] = [];
   private glows: Glow[] = [];
   private flagMat: THREE.MeshStandardNodeMaterial;
+  private readonly sockMat: THREE.MeshStandardMaterial;
   private prayerMat: THREE.Material | null = null;
   private fallMats: THREE.Material[] = [];
   private fallMist: THREE.Sprite[] = [];
@@ -150,6 +152,10 @@ export class PropsView {
   private prayerSamples: THREE.Vector3[] = [];
   private flagUniforms = { uTime: uniform(0), uWindAmt: uniform(0.5) };
   private geos: THREE.BufferGeometry[] = [];
+  /** Map-specific lookups are owned here; detail/noise/glow atlases are shared. */
+  private readonly ownedTextures: THREE.Texture[] = [];
+  private disposed = false;
+  private readonly wind = new THREE.Vector3();
   /** 模型实例（几何体与材质属于模型库，由模型库释放） */
   private instanced: THREE.InstancedMesh[] = [];
   private lods: LodModel[] = [];
@@ -157,7 +163,7 @@ export class PropsView {
   lodScale = 1;
 
   constructor(world: WorldData, lib: ModelLib | null = null, detail: THREE.DataArrayTexture | null = null) {
-    this.materials = makeMaterials(detail, world.map);
+    this.materials = makeMaterials(detail, world.map, this.ownedTextures);
     // Blender 模型：同名实例合在一起做实例化绘制
     const byName = new Map<string, ModelInstance[]>();
     for (const inst of world.builder.models) {
@@ -210,7 +216,7 @@ export class PropsView {
     }
     // 动态对象
     const sockGeo = this.makeSockGeometry();
-    const sockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide });
+    const sockMat = this.sockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide });
     this.flagMat = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide });
     const FU = this.flagUniforms;
     {
@@ -447,6 +453,7 @@ export class PropsView {
       colors.push(red ? 0.85 : 0.95, red ? 0.25 : 0.95, red ? 0.12 : 0.95);
     }
     g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    this.geos.push(g);
     return g;
   }
 
@@ -487,13 +494,14 @@ export class PropsView {
       colors.push(r, gg, b);
     }
     g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    this.geos.push(g);
     return g;
   }
 
   /** windAt(x,y,z) 返回该处的空气速度（来自仿真风场）。 */
   update(t: number, camPos: THREE.Vector3, windAt: (p: THREE.Vector3, out: THREE.Vector3) => THREE.Vector3): void {
     for (const l of this.lods) l.update(camPos, this.lodScale);
-    const w = new THREE.Vector3();
+    const w = this.wind;
     for (const s of this.socks) {
       if (s.pos.distanceToSquared(camPos) > 2500 * 2500) continue;
       windAt(s.pos, w);
@@ -533,12 +541,18 @@ export class PropsView {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     for (const im of this.instanced) im.dispose();
     for (const g of this.geos) g.dispose();
     for (const m of Object.values(this.materials)) m.dispose();
     this.flagMat.dispose();
+    this.sockMat.dispose();
     this.prayerMat?.dispose();
     for (const m of this.fallMats) m.dispose();
     for (const s of this.fallMist) (s.material as THREE.Material).dispose();
+    for (const glow of this.glows) glow.sprite.material.dispose();
+    for (const texture of this.ownedTextures) texture.dispose();
+    this.group.clear();
   }
 }

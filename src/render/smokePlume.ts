@@ -73,7 +73,7 @@ export class SmokePlume {
 
     const P = attribute('aPuff', 'vec4');
     const I = attribute('aInfo', 'vec4');
-    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide });
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true });
     m.positionNode = P.xyz.add(this.uRight.mul(positionGeometry.x.mul(P.w.mul(2)))).add(this.uUp.mul(positionGeometry.y.mul(P.w.mul(2))));
     const q = uv().mul(2).sub(1).toVar();
     const rr = length(q);

@@ -5,10 +5,20 @@ import { App } from './game/app';
 import { initPhysics } from './sim/physics';
 import { UI } from './ui/menus';
 
+let currentApp: App | null = null;
+let bootDisposed = false;
+import.meta.hot?.dispose(() => {
+  bootDisposed = true;
+  currentApp?.dispose();
+});
+
 function webgl2Supported(): boolean {
   try {
     const c = document.createElement('canvas');
-    return !!c.getContext('webgl2');
+    const gl = c.getContext('webgl2');
+    const supported = !!gl;
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    return supported;
   } catch {
     return false;
   }
@@ -34,20 +44,28 @@ async function boot(): Promise<void> {
   try {
     await initPhysics();
   } catch (e) {
+    if (bootDisposed) return;
     hideSplash();
     new UI(root).compatError('物理引擎初始化失败：' + String(e));
     return;
   }
+  if (bootDisposed) return;
   hideSplash();
-  const app = new App(root);
-  (window as unknown as { __app: App }).__app = app;
-  // 巡检工具用：自动驾驶按需加载，不进主包
-  (window as unknown as { __loadAutopilot: () => Promise<unknown> }).__loadAutopilot = () => import('./sim/autopilot');
   try {
+    // Renderer/audio/input construction can also fail; keep the recovery screen
+    // available instead of leaving an empty page with an unhandled rejection.
+    const app = currentApp = new App(root);
+    (window as unknown as { __app: App }).__app = app;
+    // 巡检工具用：自动驾驶按需加载，不进主包
+    (window as unknown as { __loadAutopilot: () => Promise<unknown> }).__loadAutopilot = () => import('./sim/autopilot');
     await app.start();
   } catch (e) {
+    currentApp?.dispose();
+    currentApp = null;
+    if (bootDisposed) return;
     console.error(e);
     hideSplash();
+    root.replaceChildren();
     new UI(root).compatError('启动失败：' + String(e));
   }
 }

@@ -7,11 +7,20 @@ import { BUFFS } from '../sim/buffs';
 import { STATUS_LABEL } from '../sim/damage';
 import { LANDING_LIMITS } from '../sim/mission';
 import type { GameSession } from '../sim/session';
-import type { Settings } from '../game/settings';
+import { keyName, type Settings } from '../game/settings';
 import type { WorldView } from '../render/worldView';
 
 const SPEED_K = { kmh: 3.6, kt: 1.9438, ms: 1 };
 const SPEED_U = { kmh: 'km/h', kt: 'kt', ms: 'm/s' };
+const headingLabel = (degrees: number) => String(Math.round(wrap360(degrees)) % 360).padStart(3, '0');
+
+// 静止或悬停时大部分文字不变，不必每秒重建十余次 DOM。
+const markup = new WeakMap<HTMLElement, string>();
+function setMarkup(element: HTMLElement, value: string): void {
+  if (markup.get(element) === value) return;
+  element.innerHTML = value;
+  markup.set(element, value);
+}
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent?: HTMLElement, html = ''): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -50,6 +59,10 @@ export class Hud {
   showDebug = false;
   private proj = { x: 0, y: 0, behind: false };
   private pkPos = new THREE.Vector3();
+  private velocityMarker = new THREE.Vector3();
+  private targetMarker = new THREE.Vector3();
+  private disposed = false;
+  private toastTimers = new Map<HTMLElement, [ReturnType<typeof setTimeout>, ReturnType<typeof setTimeout>]>();
 
   constructor(parent: HTMLElement) {
     this.root = el('div', 'hud hidden', parent);
@@ -77,13 +90,20 @@ export class Hud {
     this.landCv.width = this.landCv.height = 200;
     this.landInfo = el('div', 'land-info', this.landing);
     this.toasts = el('div', 'hud-toasts', this.root);
+    this.toasts.setAttribute('role', 'status');
+    this.toasts.setAttribute('aria-live', 'polite');
     this.warn = el('div', 'hud-warn', this.root);
+    this.warn.setAttribute('role', 'alert');
+    this.warn.setAttribute('aria-atomic', 'true');
     this.hint = el('div', 'hud-hint', this.root);
     this.debug = el('div', 'hud-debug hidden', this.root);
   }
 
   show(on: boolean): void {
+    if (this.disposed) return;
     this.root.classList.toggle('hidden', !on);
+    if (on) this.lastText = -Infinity;
+    else this.clearToasts();
   }
 
   /** 完整 → 简洁 → 隐藏，返回新模式的名字 */
@@ -95,7 +115,7 @@ export class Hud {
   }
 
   setOpacity(o: number): void {
-    this.root.style.opacity = String(o);
+    this.root.style.setProperty('--hud-opacity', String(clamp(o, 0.3, 1)));
   }
 
   setHint(text: string): void {
@@ -104,23 +124,58 @@ export class Hud {
   }
 
   toast(text: string, level: 'info' | 'warn' | 'good' | 'bad' = 'info', ms = 3500): void {
+    if (this.disposed) return;
     const t = el('div', `toast ${level}`, this.toasts, text);
-    setTimeout(() => t.classList.add('out'), ms);
-    setTimeout(() => t.remove(), ms + 600);
-    while (this.toasts.children.length > 5) this.toasts.firstElementChild?.remove();
+    const duration = Number.isFinite(ms) ? Math.max(0, ms) : 3500;
+    this.toastTimers.set(t, [
+      setTimeout(() => t.classList.add('out'), duration),
+      setTimeout(() => this.removeToast(t), duration + 600),
+    ]);
+    while (this.toasts.children.length > 5) this.removeToast(this.toasts.firstElementChild as HTMLElement);
+  }
+
+  private removeToast(toast: HTMLElement): void {
+    const timers = this.toastTimers.get(toast);
+    if (timers) for (const timer of timers) clearTimeout(timer);
+    this.toastTimers.delete(toast);
+    toast.remove();
+  }
+
+  private clearToasts(): void {
+    for (const toast of this.toastTimers.keys()) this.removeToast(toast);
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.clearToasts();
+    this.overlay.width = this.overlay.height = 0;
+    this.headingCv.width = this.headingCv.height = 0;
+    this.landCv.width = this.landCv.height = 0;
+    this.root.remove();
   }
 
   resize(): void {
+    if (this.disposed) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     this.overlay.width = Math.floor(window.innerWidth * dpr);
     this.overlay.height = Math.floor(window.innerHeight * dpr);
     this.og.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.headingCv.width = Math.round(560 * dpr);
+    this.headingCv.height = Math.round(46 * dpr);
+    this.headingCv.getContext('2d')!.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.landCv.width = this.landCv.height = Math.round(200 * dpr);
+    this.landCv.getContext('2d')!.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
   update(s: GameSession, view: WorldView, set: Settings, t: number): void {
-    this.drawOverlay(s, view);
-    this.drawHeading(s);
-    if (t - this.lastText < 0.08) return;
+    if (this.disposed || this.root.classList.contains('hidden')) return;
+    if (this.mode !== 2) {
+      this.drawOverlay(s, view);
+      this.drawHeading(s);
+    }
+    if (t >= this.lastText && t - this.lastText < 0.08) return;
+    if (t < this.lastText) this.busyT = t;
     this.lastText = t;
     const tel = s.flight.telemetry;
     const k = SPEED_K[set.speedUnit];
@@ -131,14 +186,14 @@ export class Hud {
     const msl = s.altitudeMSL();
     const navInfo = s.nav.info;
     // 飞行数据
-    this.flight.innerHTML = `
+    setMarkup(this.flight, `
       <div class="row big"><span>地速</span><b>${Math.round(s.groundSpeed * k)}</b><em>${u}</em></div>
       <div class="row"><span>空速</span><b>${Math.round(tel.airspeed * k)}</b><em>${u}</em></div>
       <div class="row big ${s.agl < 10 ? 'amber' : ''}"><span>离地高度</span><b>${s.agl > 2500 ? '—' : s.agl.toFixed(s.agl < 20 ? 1 : 0)}</b><em>m</em></div>
       <div class="row"><span>海拔</span><b>${Math.round(msl)}</b><em>m</em></div>
       <div class="row ${Math.abs(vs) > 6 ? 'amber' : ''}"><span>垂直速度</span><b>${vs >= 0 ? '+' : ''}${vs.toFixed(1)}</b><em>m/s</em></div>
       <div class="row"><span>姿态</span><b class="sm">俯仰 ${pitch >= 0 ? '+' : ''}${pitch.toFixed(0)}° · 横滚 ${roll >= 0 ? '+' : ''}${roll.toFixed(0)}°</b></div>
-      <div class="row"><span>航向</span><b>${String(Math.round(wrap360(tel.heading * RAD))).padStart(3, '0')}°</b></div>`;
+      <div class="row"><span>航向</span><b>${headingLabel(tel.heading * RAD)}°</b></div>`);
     // 状态
     const d = s.damage.durability;
     const st = s.damage.status;
@@ -147,24 +202,24 @@ export class Hud {
     const wi = s.windInfo;
     const relWind = headingDelta(wrap360(tel.heading * RAD), wrap360(wi.dirFrom));
     const gustTxt = wi.gustIn !== null && wi.gustIn < 2.5 ? `<div class="gust-warn">阵风将至 ${wi.gustIn.toFixed(1)} s</div>` : '';
-    this.status.innerHTML = `
+    setMarkup(this.status, `
       <div class="row"><span>机体耐久</span><b class="${dc}">${Math.round(d)}</b><em class="${dc}">${STATUS_LABEL[st]}</em></div>
       <div class="meter ${dc}"><i style="width:${d}%"></i><s style="left:70%"></s><s style="left:30%"></s></div>
       <div class="row"><span>动力余量</span><b class="${margin < 0.1 ? 'amber' : ''}">${Math.round(margin * 100)}%</b><em>${tel.torqueLimited ? '<span class="amber">动力上限</span>' : `密度 ${(tel.density * 100).toFixed(0)}%`}</em></div>
       <div class="meter ${margin < 0.1 ? 'amber' : 'ok'}"><i style="width:${clamp(tel.powerFrac, 0, 1) * 100}%"></i><s style="left:${clamp(tel.hoverPowerFrac, 0, 1) * 100}%"></s></div>
-      <div class="row wind"><span>风</span><div class="warrow" style="transform:rotate(${relWind + 180}deg)">➤</div><b>${wi.speed.toFixed(0)}</b><em>m/s 来自 ${String(Math.round(wi.dirFrom)).padStart(3, '0')}°</em></div>
+      <div class="row wind"><span>风</span><div class="warrow" style="transform:rotate(${relWind + 180}deg)">➤</div><b>${wi.speed.toFixed(0)}</b><em>m/s 来自 ${headingLabel(wi.dirFrom)}°</em></div>
       <div class="row"><span>阵风</span><b class="sm">${wi.gust > 0.5 ? '+' + wi.gust.toFixed(0) + ' m/s' : '平稳'}</b><em>${wi.vertical > 1 ? '上升气流' : wi.vertical < -1 ? '下沉气流' : ''}</em></div>
       ${wi.zone ? `<div class="zone">风区：${wi.zone}</div>` : ''}${gustTxt}
       <div class="row"><span>悬停辅助</span><b class="sm ${tel.hover !== 'off' ? 'ok' : ''}">${tel.hover === 'off' ? '关闭' : tel.hover === 'braking' ? '减速中' : '定点保持'}</b></div>
       <div class="row"><span>辅助模式</span><b class="sm">${s.flight.assist.label}</b></div>
-      <div class="row"><span>载货</span><b class="sm">${s.mission.cargo} 箱</b></div>`;
+      <div class="row"><span>载货</span><b class="sm">${s.mission.cargo} 箱</b></div>`);
     // Buff
     const b = s.buffs;
     const slot = (cls: string, name: string, on: boolean, text: string, frac: number) =>
       `<div class="buff ${cls} ${on ? 'on' : ''}"><div class="bi"></div><div class="bt"><b>${name}</b><span>${text}</span></div><div class="bbar"><i style="width:${frac * 100}%"></i></div></div>`;
-    this.buffs.innerHTML =
-      slot('boost', '动力增强', b.boostActive || b.boostCharges > 0, b.boostActive ? `生效 ${b.boostTime.toFixed(1)} s` : b.boostCharges > 0 ? '已储备 · Shift 使用' : '未持有', b.boostActive ? b.boostTime / BUFFS.boost.duration : b.boostCharges > 0 ? 1 : 0) +
-      slot('shield', '免伤护盾', b.shieldActive, b.shieldActive ? `剩余 ${b.shieldTime.toFixed(1)} s` : '未激活', b.shieldTime / BUFFS.shield.maxDuration);
+    setMarkup(this.buffs,
+      slot('boost', '动力增强', b.boostActive || b.boostCharges > 0, b.boostActive ? `生效 ${b.boostTime.toFixed(1)} s` : b.boostCharges > 0 ? `已储备 · ${set.bindings.boost.map(keyName).join(' / ')} 使用` : '未持有', b.boostActive ? b.boostTime / BUFFS.boost.duration : b.boostCharges > 0 ? 1 : 0) +
+      slot('shield', '免伤护盾', b.shieldActive, b.shieldActive ? `剩余 ${b.shieldTime.toFixed(1)} s` : '未激活', b.shieldTime / BUFFS.shield.maxDuration));
     // 任务
     const cur = s.mission.current();
     if (cur) {
@@ -182,10 +237,10 @@ export class Hud {
       this.objHint.textContent = '';
     }
     const opts = s.mission.optional;
-    this.optList.innerHTML = opts.length
+    setMarkup(this.optList, opts.length
       ? `<div class="hud-label">可选任务 ${s.mission.optionalDone}/${opts.length}${s.nav.focus > 0 ? ' · 导航中' : ''}</div>` +
         opts.map((o) => `<div class="opt ${o.status === 'done' ? 'done' : ''}">${o.status === 'done' ? '✔' : '○'} ${o.def.title}${o.status !== 'done' && o.progress > 0 ? ` (${Math.round(o.progress * 100)}%)` : ''}</div>`).join('')
-      : '';
+      : '');
     // 导航文字
     const nav = navInfo;
     const dist = nav.distance > 1000 ? `${(nav.distance / 1000).toFixed(2)} km` : `${Math.round(nav.distance)} m`;
@@ -205,18 +260,18 @@ export class Hud {
     }
     let navText = this.navBox.querySelector('.nav-text') as HTMLDivElement | null;
     if (!navText) navText = el('div', 'nav-text', this.navBox);
-    navText.innerHTML = navHtml;
+    setMarkup(navText, navHtml);
     // 分岔
     if (nav.forks) {
       this.forks.classList.remove('hidden');
-      this.forks.innerHTML =
-        `<div class="hud-label">路线选择（飞向其中一条即可；N 键切换推荐）</div>` +
+      setMarkup(this.forks,
+        `<div class="hud-label">路线选择（飞向其中一条即可；${set.bindings.nav.map(keyName).join(' / ')} 键切换推荐）</div>` +
         nav.forks
           .map((f) => {
             const r = headingDelta(wrap360(tel.heading * RAD), f.bearing);
             return `<div class="fork ${f.preferred ? 'pref' : ''} tag-${f.tag}"><b>${f.label}</b><span>${f.detail}</span><em>${Math.round(f.distance)} m · ${Math.abs(r) < 8 ? '正前方' : (r > 0 ? '右 ' : '左 ') + Math.abs(Math.round(r)) + '°'}</em></div>`;
           })
-          .join('');
+          .join(''));
     } else this.forks.classList.add('hidden');
     // 告警
     const warns: string[] = [];
@@ -225,11 +280,11 @@ export class Hud {
     if (vs < -4 && s.agl < 12 && s.agl > 0.5) warns.push('<div class="w amber">下降过快</div>');
     if (s.weatherInCloud > 0.5) warns.push('<div class="w amber">在云中：依靠仪表与导航飞行</div>');
     if (st === 'critical') warns.push('<div class="w red">严重受损：前往维修点或谨慎飞行</div>');
-    this.warn.innerHTML = warns.join('');
+    setMarkup(this.warn, warns.join(''));
+    this.updateLanding(s, set);
     const busy = warns.length > 0 || !this.forks.classList.contains('hidden') || !this.landing.classList.contains('hidden') || s.groundSpeed < 8 || this.toasts.children.length > 0;
     if (busy) this.busyT = t;
     this.root.classList.toggle('hud-calm', t - this.busyT > 7);
-    this.updateLanding(s, set);
     if (this.showDebug) {
       this.debug.classList.remove('hidden');
       this.debug.textContent = `${view.info()} · trees ${s.treeProxyCount} · t ${s.t.toFixed(1)}`;
@@ -248,9 +303,11 @@ export class Hud {
     const showHover = hoverObj && hoverNear < 200;
     if (!showPad && !showHover) {
       this.landing.classList.add('hidden');
+      this.root.classList.remove('hud-approach');
       return;
     }
     this.landing.classList.remove('hidden');
+    this.root.classList.add('hud-approach');
     const tel = s.flight.telemetry;
     const k = SPEED_K[set.speedUnit];
     const target = showHover && (!showPad || hoverNear < near) ? { x: hoverObj!.center[0], y: hoverObj!.center[1], z: hoverObj!.center[2], half: hoverObj!.radius, name: hoverObj!.title, hover: true } : { x: pad!.pos[0], y: pad!.pos[1], z: pad!.pos[2], half: pad!.size / 2, name: pad!.name, hover: false };
@@ -261,7 +318,9 @@ export class Hud {
     const off = Math.hypot(s.body.pos.x - target.x, s.body.pos.z - target.z);
     const ok = (b: boolean) => (b ? '<i class="ok">✔</i>' : '<i class="bad">✘</i>');
     const L = LANDING_LIMITS;
-    this.landInfo.innerHTML = target.hover
+    const onPad = off <= target.half + L.offsetMargin;
+    const safe = descent <= L.descent && drift <= L.horizontal && att <= L.attitude && onPad;
+    setMarkup(this.landInfo, target.hover
       ? `<div><b>${target.name}</b></div>
         <div>相对目标高度 <b>${relH.toFixed(1)} m</b>（需 ${hoverObj!.minH}–${hoverObj!.maxH} m）</div>
         <div>水平偏移 <b>${off.toFixed(1)} m</b>（半径 ${hoverObj!.radius} m）</div>
@@ -271,8 +330,8 @@ export class Hud {
         <div>${ok(descent <= L.descent)} 下降速度 <b>${descent.toFixed(1)}</b> m/s（≤ ${L.descent}）</div>
         <div>${ok(drift <= L.horizontal)} 水平漂移 <b>${drift.toFixed(1)}</b> m/s（≤ ${L.horizontal}）</div>
         <div>${ok(att <= L.attitude)} 机身姿态 <b>${att.toFixed(0)}</b>°（≤ ${L.attitude}°）</div>
-        <div>${ok(off <= target.half - 1.5)} 位于坪内 偏移 <b>${off.toFixed(1)}</b> m</div>
-        <div class="land-verdict ${descent <= L.descent && drift <= L.horizontal && att <= L.attitude && off <= target.half - 1.5 ? 'ok' : 'bad'}">${descent <= L.descent && drift <= L.horizontal && att <= L.attitude && off <= target.half - 1.5 ? '符合安全着陆条件' : '暂不符合安全着陆条件'}</div>`;
+        <div>${ok(onPad)} 位于坪内 偏移 <b>${off.toFixed(1)}</b> m</div>
+        <div class="land-verdict ${safe ? 'ok' : 'bad'}">${safe ? '符合安全着陆条件' : '暂不符合安全着陆条件'}</div>`);
     void k;
     // 俯视悬停显示：机头朝上
     const g = this.landCv.getContext('2d')!;
@@ -346,7 +405,7 @@ export class Hud {
     const p = this.proj;
     // 速度矢量（飞行轨迹标记）
     if (s.groundSpeed > 4) {
-      const v = new THREE.Vector3().copy(s.body.vel).normalize().multiplyScalar(300).add(view.rig.camera.position);
+      const v = this.velocityMarker.copy(s.body.vel).normalize().multiplyScalar(300).add(view.rig.camera.position);
       view.project(v, p);
       if (!p.behind && p.x > 0 && p.y > 0 && p.x < W && p.y < H) {
         g.strokeStyle = 'rgba(120,255,170,0.85)';
@@ -382,15 +441,17 @@ export class Hud {
       g.fillText(`${pk.kind === 'boost' ? '动力' : pk.kind === 'shield' ? '护盾' : '维修'} ${Math.round(dist)} m`, p.x, p.y - 14);
     }
     if (nav.mode === 'complete') return;
-    const targets: Array<{ pos: THREE.Vector3; color: string; label: string }> = [];
-    if (nav.forks) nav.forks.forEach((f) => targets.push({ pos: new THREE.Vector3(...f.target), color: f.preferred ? '#38e8ff' : '#7fb8c8', label: f.label }));
-    else targets.push({ pos: new THREE.Vector3(...nav.target), color: nav.mode === 'optional' ? '#c08bff' : nav.mode === 'recover' ? '#ffb347' : '#38e8ff', label: nav.label });
-    for (const t of targets) {
-      view.project(t.pos, p);
-      const dist = t.pos.distanceTo(view.rig.camera.position);
+    const count = nav.forks?.length ?? 1;
+    for (let i = 0; i < count; i++) {
+      const fork = nav.forks?.[i];
+      const target = this.targetMarker.set(...(fork?.target ?? nav.target));
+      const color = fork ? fork.preferred ? '#38e8ff' : '#7fb8c8' : nav.mode === 'optional' ? '#c08bff' : nav.mode === 'recover' ? '#ffb347' : '#38e8ff';
+      const label = fork?.label ?? nav.label;
+      view.project(target, p);
+      const dist = target.distanceTo(view.rig.camera.position);
       const inside = !p.behind && p.x > 30 && p.y > 30 && p.x < W - 30 && p.y < H - 30;
-      g.fillStyle = t.color;
-      g.strokeStyle = t.color;
+      g.fillStyle = color;
+      g.strokeStyle = color;
       g.lineWidth = 2;
       g.font = '600 13px system-ui, sans-serif';
       g.textAlign = 'center';
@@ -402,7 +463,7 @@ export class Hud {
         g.lineTo(p.x - 11, p.y);
         g.closePath();
         g.stroke();
-        g.fillText(`${t.label} ${dist > 1000 ? (dist / 1000).toFixed(1) + ' km' : Math.round(dist) + ' m'}`, p.x, p.y - 18);
+        this.overlayLabel(`${label} ${dist > 1000 ? (dist / 1000).toFixed(1) + ' km' : Math.round(dist) + ' m'}`, p.x, p.y - 18, W);
       } else {
         // 屏幕边缘箭头
         const cx = W / 2;
@@ -428,15 +489,28 @@ export class Hud {
         g.closePath();
         g.fill();
         g.restore();
-        g.fillText(`${t.label} ${Math.round(dist)} m`, ex, ey + 26);
+        this.overlayLabel(`${label} ${dist > 1000 ? (dist / 1000).toFixed(1) + ' km' : Math.round(dist) + ' m'}`, ex, ey + 26, W);
       }
     }
   }
 
+  private overlayLabel(text: string, x: number, y: number, width: number): void {
+    const g = this.og;
+    const half = Math.min(width / 2 - 12, g.measureText(text).width / 2);
+    const cx = clamp(x, half + 12, width - half - 12);
+    g.save();
+    g.strokeStyle = 'rgba(2, 7, 12, 0.92)';
+    g.lineWidth = 4;
+    g.lineJoin = 'round';
+    g.strokeText(text, cx, y, width - 24);
+    g.fillText(text, cx, y, width - 24);
+    g.restore();
+  }
+
   private drawHeading(s: GameSession): void {
     const g = this.headingCv.getContext('2d')!;
-    const W = this.headingCv.width;
-    const H = this.headingCv.height;
+    const W = 560;
+    const H = 46;
     g.clearRect(0, 0, W, H);
     g.fillStyle = 'rgba(5,10,16,0.5)';
     g.fillRect(0, 0, W, H);
@@ -482,6 +556,6 @@ export class Hud {
     g.fillRect(W / 2 - 1, 0, 2, H);
     g.font = 'bold 14px system-ui, sans-serif';
     g.fillStyle = '#fff';
-    g.fillText(String(Math.round(hdg)).padStart(3, '0') + '°', W / 2 + 26, 42);
+    g.fillText(headingLabel(hdg) + '°', W / 2 + 26, 42);
   }
 }

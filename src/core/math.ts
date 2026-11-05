@@ -25,11 +25,13 @@ export function remap(v: number, a0: number, a1: number, b0: number, b1: number)
 }
 
 export function smoothstep(e0: number, e1: number, x: number): number {
+  if (e0 === e1) return x < e0 ? 0 : 1;
   const t = clamp01((x - e0) / (e1 - e0));
   return t * t * (3 - 2 * t);
 }
 
 export function smootherstep(e0: number, e1: number, x: number): number {
+  if (e0 === e1) return x < e0 ? 0 : 1;
   const t = clamp01((x - e0) / (e1 - e0));
   return t * t * t * (t * (t * 6 - 15) + 10);
 }

@@ -25,14 +25,17 @@ export interface LandingMetrics {
 }
 
 /** 安全着陆条件（同时用于 HUD 着陆辅助的绿/黄/红提示） */
-export const LANDING_LIMITS = { descent: 2.5, horizontal: 2.5, attitude: 12 };
+export const LANDING_LIMITS = { descent: 2.5, horizontal: 2.5, attitude: 12, offsetMargin: 0.5 };
 
 export function gradeLanding(descent: number, horizontal: number, attitudeDeg: number, offset: number, padHalf: number): LandingMetrics {
+  if (![descent, horizontal, attitudeDeg, offset, padHalf].every(Number.isFinite) || padHalf <= 0) {
+    return { descent, horizontal, attitudeDeg, offset, score: 0, grade: 'unsafe', safe: false, reasons: ['着陆数据无效，请重新进近'] };
+  }
   const reasons: string[] = [];
   if (descent > LANDING_LIMITS.descent) reasons.push(`下降速度过大（${descent.toFixed(1)} m/s）`);
   if (horizontal > LANDING_LIMITS.horizontal) reasons.push(`水平漂移过大（${horizontal.toFixed(1)} m/s）`);
   if (attitudeDeg > LANDING_LIMITS.attitude) reasons.push(`机身姿态过大（${attitudeDeg.toFixed(0)}°）`);
-  if (offset > padHalf + 0.5) reasons.push('未落在停机坪范围内');
+  if (offset > padHalf + LANDING_LIMITS.offsetMargin) reasons.push('未落在停机坪范围内');
   let score = 100;
   score -= Math.max(0, descent - 0.8) * 22;
   score -= Math.max(0, horizontal - 0.5) * 16;
@@ -103,6 +106,10 @@ function mkRT(def: ObjectiveDef): ObjectiveRT {
   };
 }
 
+function copyLanding(landing: LandingMetrics): LandingMetrics {
+  return { ...landing, reasons: [...landing.reasons] };
+}
+
 export class MissionRuntime {
   readonly def: MissionDef;
   readonly main: ObjectiveRT[];
@@ -142,8 +149,6 @@ export class MissionRuntime {
   goalOf(o: ObjectiveRT, pos: { x: number; y: number; z: number }): V3 {
     const d = o.def;
     if (d.kind === 'inspect' && d.route && d.route.length > 0) {
-      // 沿巡查航线前进（只在到达航线点附近时推进）
-      while (o.routeIdx < d.route.length - 1 && Math.hypot(pos.x - d.route[o.routeIdx][0], pos.z - d.route[o.routeIdx][2]) < 55) o.routeIdx++;
       return d.route[o.routeIdx];
     }
     if (d.kind === 'inspect') {
@@ -165,10 +170,10 @@ export class MissionRuntime {
   update(ctx: MissionContext, padHalf: (id: string) => number, padCenter: (id: string) => V3, out: MissionEvent[]): void {
     if (this.complete || this.locked) return;
     const cur = this.current();
-    for (const o of [...(cur ? [cur] : []), ...this.optional]) {
+    if (cur?.status === 'active') this.updateObjective(cur, false, ctx, padHalf, padCenter, out);
+    for (const o of this.optional) {
       if (o.status !== 'active') continue;
-      const isOpt = o !== cur;
-      this.updateObjective(o, isOpt, ctx, padHalf, padCenter, out);
+      this.updateObjective(o, true, ctx, padHalf, padCenter, out);
     }
     // 在后续任务的停机坪上着陆：提示锁定
     if (ctx.touchdown && ctx.touchdown.padId) {
@@ -237,6 +242,10 @@ export class MissionRuntime {
       } else o.hint = '';
       if (o.progress >= 1) this.finish(o, isOpt, null, out);
     } else {
+      // 只让固定仿真步推进巡查航线；HUD、地图和自动驾驶的目标查询保持只读。
+      if (d.route?.length) {
+        while (o.routeIdx < d.route.length - 1 && Math.hypot(ctx.pos.x - d.route[o.routeIdx][0], ctx.pos.z - d.route[o.routeIdx][2]) < 55) o.routeIdx++;
+      }
       let remaining = 0;
       d.points.forEach((p, i) => {
         if (o.visited[i]) return;
@@ -287,32 +296,33 @@ export class MissionRuntime {
   }
 
   snapshot(): MissionSnapshot {
-    const s = (o: ObjectiveRT) => ({ status: o.status, progress: o.progress, visited: [...o.visited], landing: o.landing ? { ...o.landing } : null, routeIdx: o.routeIdx });
+    const s = (o: ObjectiveRT) => ({ status: o.status, progress: o.progress, visited: [...o.visited], landing: o.landing ? copyLanding(o.landing) : null, routeIdx: o.routeIdx });
     return {
       index: this.index,
       cargo: this.cargo,
       main: this.main.map(s),
       optional: this.optional.map(s),
-      finalLanding: this.finalLanding,
-      landings: this.landings.map((l) => ({ ...l })),
+      finalLanding: this.finalLanding ? copyLanding(this.finalLanding) : null,
+      landings: this.landings.map(copyLanding),
     };
   }
 
   restore(s: MissionSnapshot): void {
+    this.lockedMsgT = -Infinity;
     this.index = s.index;
     this.cargo = s.cargo;
     const r = (o: ObjectiveRT, x: MissionSnapshot['main'][number]) => {
       o.status = x.status;
       o.progress = x.progress;
       o.visited = [...x.visited];
-      o.landing = x.landing ? { ...x.landing } : null;
+      o.landing = x.landing ? copyLanding(x.landing) : null;
       o.routeIdx = x.routeIdx ?? 0;
       o.hint = '';
     };
     this.main.forEach((o, i) => r(o, s.main[i]));
     this.optional.forEach((o, i) => r(o, s.optional[i]));
-    this.finalLanding = s.finalLanding;
-    this.landings = s.landings.map((l) => ({ ...l }));
+    this.finalLanding = s.finalLanding ? copyLanding(s.finalLanding) : null;
+    this.landings = s.landings.map(copyLanding);
     this.complete = this.index >= this.main.length;
   }
 }

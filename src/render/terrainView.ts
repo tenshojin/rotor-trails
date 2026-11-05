@@ -85,7 +85,7 @@ interface Chunk {
 
 export class TerrainView {
   readonly group = new THREE.Group();
-  readonly material: THREE.MeshStandardNodeMaterial;
+  material: THREE.MeshStandardNodeMaterial;
   private hf: Heightfield;
   private chunks: Chunk[] = [];
   private cache = new Map<string, THREE.BufferGeometry>();
@@ -95,7 +95,7 @@ export class TerrainView {
   shadowRange = 300;
   private far: THREE.Mesh | null = null;
 
-  constructor(map: MapDef, hf: Heightfield, uniforms: TerrainUniforms) {
+  constructor(map: MapDef, hf: Heightfield, private readonly uniforms: TerrainUniforms) {
     this.hf = hf;
     this.material = makeTerrainMaterial(uniforms);
     this.nChunks = Math.round((hf.res - 1) / CH);
@@ -121,6 +121,21 @@ export class TerrainView {
     }
     this.far = this.buildFar(map);
     if (this.far) this.group.add(this.far);
+  }
+
+  /** Rebuild only the shared shader when switching photo textures on or off.
+   * Geometry, LOD caches and the physical heightfield remain untouched.
+   * The caller owns and releases the texture arrays after this swap.
+   */
+  setLayers(layers: TerrainLayers | null): void {
+    if (layers === this.uniforms.layers) return;
+    const next = makeTerrainMaterial({ ...this.uniforms, layers });
+    const previous = this.material;
+    this.material = next;
+    this.uniforms.layers = layers;
+    for (const chunk of this.chunks) chunk.mesh.material = next;
+    if (this.far) this.far.material = next;
+    previous.dispose();
   }
 
   /**

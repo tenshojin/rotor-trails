@@ -25,6 +25,8 @@ const _q = new THREE.Quaternion();
 const _qh = new THREE.Quaternion();
 const _eul = new THREE.Euler(0, 0, 0, 'YXZ');
 const _off = new THREE.Vector3();
+const _target = new THREE.Vector3();
+const _forward = new THREE.Vector3();
 
 export class CameraRig {
   readonly camera: THREE.PerspectiveCamera;
@@ -78,7 +80,7 @@ export class CameraRig {
     if (s.headMotion && dt > 0) {
       _q.copy(quat).invert();
       const local = acc.applyQuaternion(_q);
-      const target = new THREE.Vector3(clamp(-local.x * 0.004, -0.05, 0.05), clamp(-local.y * 0.003, -0.04, 0.04), clamp(-local.z * 0.004, -0.05, 0.05));
+      const target = _target.set(clamp(-local.x * 0.004, -0.05, 0.05), clamp(-local.y * 0.003, -0.04, 0.04), clamp(-local.z * 0.004, -0.05, 0.05));
       this.head.x = damp(this.head.x, target.x, 6, dt);
       this.head.y = damp(this.head.y, target.y, 6, dt);
       this.head.z = damp(this.head.z, target.z, 6, dt);
@@ -113,11 +115,12 @@ export class CameraRig {
       cam.quaternion.copy(quat).multiply(_qh);
     } else {
       // 追尾视角：跟随航向，平滑
-      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
+      const fwd = _forward.set(0, 0, -1).applyQuaternion(quat);
       fwd.y = 0;
       if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
       fwd.normalize();
-      const want = pos.clone().addScaledVector(fwd, -17).add(new THREE.Vector3(0, 5.5, 0));
+      const want = _target.copy(pos).addScaledVector(fwd, -17);
+      want.y += 5.5;
       if (!this.chaseInit) {
         this.chasePos.copy(want);
         this.chaseInit = true;

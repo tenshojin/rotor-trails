@@ -58,7 +58,12 @@ def ob3(name, c, ax, ay, sx, sy, sz, m):
     """长方体：ax 为长度方向（水平），ay 为宽度方向，z 竖直。"""
     ax = Vector(ax).normalized()
     ay = Vector(ay).normalized()
-    return J.obox(name, c, ax, ay, ax.cross(ay).normalized() if ax.cross(ay).z > 0 else -ax.cross(ay).normalized(), sx, sy, sz, m)
+    ob = J.obox(name, c, ax, ay, ax.cross(ay).normalized() if ax.cross(ay).z > 0 else -ax.cross(ay).normalized(), sx, sy, sz, m)
+    # J.obox builds raw faces without UVs. Photo materials need the same metre-
+    # scaled projection as BK.bx, including plaster walls and granite steps.
+    if m and m.name.startswith('b_'):
+        BK.uv_world(ob)
+    return ob
 
 
 SIDES = [(Vector((0, -1, 0)), Vector((1, 0, 0))), (Vector((1, 0, 0)), Vector((0, 1, 0))), (Vector((0, 1, 0)), Vector((-1, 0, 0))), (Vector((-1, 0, 0)), Vector((0, -1, 0)))]

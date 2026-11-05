@@ -104,14 +104,27 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
   const dbg: PostDebug = (globalThis as { __postDebug?: PostDebug }).__postDebug ?? {};
   const pipeline = new THREE.RenderPipeline(renderer);
   const scenePass = pass(scene, camera);
-  const disposers: Array<{ dispose(): void }> = [scenePass];
+  const disposers: Array<{ dispose(): void }> = [scenePass, pipeline];
+  // convertToTexture creates its own render target for computed nodes. Effects
+  // only dispose their internal targets, not this caller-owned input texture.
+  const asTexture = (node: THREE.Node<'vec4'>): THREE.TextureNode => {
+    const tex = convertToTexture(node);
+    if ((tex as THREE.TextureNode & { isRTTNode?: boolean }).isRTTNode) disposers.push(tex);
+    return tex;
+  };
+  let disposed = false;
+  const dispose = (): void => {
+    if (disposed) return;
+    disposed = true;
+    for (let i = disposers.length - 1; i >= 0; i--) disposers[i].dispose();
+  };
   if (cfg.quality === 'low' && !cfg.rayTracing) {
     // 只有一个输出也显式设成多渲染目标：透明材质的 keepGBuffer 才能与它合并（否则会生成没有成员的结构体）
     scenePass.setMRT(mrt({ output }));
     // FXAA 要在色调映射与色彩空间转换之后做
     pipeline.outputColorTransform = false;
-    pipeline.outputNode = fxaa(grade(renderOutput(scenePass), dbg, float(1)));
-    return { pipeline, fog: null, hdr: () => scenePass.getTexture('output'), dispose: () => disposers.forEach((d) => d.dispose()) };
+    pipeline.outputNode = fxaa(asTexture(grade(renderOutput(scenePass), dbg, float(1))));
+    return { pipeline, fog: null, hdr: () => scenePass.getTexture('output'), dispose };
   }
   // 多渲染目标：WebGPU 默认每像素最多 32 字节，所以金属度放进法线纹理的 A 通道、粗糙度放进漫反射纹理的 A 通道
   const att: Record<string, THREE.Node> = { output, normal: cfg.rayTracing ? vec4(packNormalToRGB(normalView), metalness) : packNormalToRGB(normalView), velocity };
@@ -183,7 +196,7 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
   let hdr = (): THREE.Texture | null => scenePass.getTexture('output');
   let aaTex: THREE.TextureNode | null = null;
   if (dbg.traa !== false) {
-    const t = traa(composite, depth, vel, camera);
+    const t = traa(asTexture(composite), depth, vel, camera);
     disposers.push(t);
     aa = t;
     // 时间抗锯齿的结果已经叠好了雾和遮蔽，就是眼睛最后看到的亮度
@@ -196,7 +209,7 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     // 强度 0.5，单帧位移限制在画面的 3.5% 以内（急转头时不会拖出很长的条纹）
     const v = vel.xy.mul(0.5);
     const vClamped = v.mul(min(float(1), float(0.035).div(max(length(v), 1e-5))));
-    out = motionBlur(convertToTexture(aa), vClamped, int(cfg.quality === 'ultra' ? 12 : 8));
+    out = motionBlur(aaTex ?? asTexture(aa), vClamped, int(cfg.quality === 'ultra' ? 12 : 8));
   }
   // 时间抗锯齿让画面略微发软：补一道受限的锐化（结果不超出周围像素的明暗范围，边缘不会有白边）
   const sharp = aaTex && !cfg.motionBlur ? sharpen(aaTex, dbg.sharpen ?? 0.8) : out;
@@ -213,12 +226,12 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     const fogView = fogNode ? fogNode.getTextureNode() : vec4(0, 0, 0, 1);
     pipeline.outputNode =
       dbg.view === 'normal' ? vec4(nTex.rgb, 1) : dbg.view === 'velocity' ? vec4(vel.xy.mul(50).add(0.5), 0.5, 1) : dbg.view === 'fog' ? vec4(fogView.rgb.mul(4).add(0.25), 1) : dbg.view === 'fogT' ? vec4(vec3(fogView.a), 1) : dbg.view === 'cloud' ? cloudShadowDebug(screenUV) : vec4(color.rgb, 1);
-    return { pipeline, fog: fogNode, hdr, dispose: () => disposers.forEach((d) => d.dispose()) };
+    return { pipeline, fog: fogNode, hdr, dispose };
   }
   // 色调映射 + 色彩空间转换之后再调色（在显示空间里调对比度、饱和度更直观）
   pipeline.outputColorTransform = false;
   pipeline.outputNode = grade(renderOutput(out), dbg, outside);
-  return { pipeline, fog: fogNode, hdr, dispose: () => disposers.forEach((d) => d.dispose()) };
+  return { pipeline, fog: fogNode, hdr, dispose };
 }
 
 /** 受限的反锐化：中心像素减去周围四点的平均，再限制在这五个像素的明暗范围之内 */

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <base href="../">
+    <title>Rotor Trails · 渲染验收台</title>
+    <style>
+      #review { position:fixed; z-index:100; top:12px; left:12px; width:min(420px,calc(100vw - 24px)); max-height:calc(100dvh - 24px); overflow:auto; background:rgba(6,15,23,.96); border:1px solid #285264; border-radius:10px; padding:16px; box-shadow:0 8px 36px #0007; }
+      #review h1 { font-size:20px; margin:0; }
+      #review header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+      #review p { font-size:12px; line-height:1.65; color:#a8bdca; }
+      .review-grid { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+      .review-grid label { display:flex; flex-direction:column; gap:5px; font-size:12px; color:#bdd0db; }
+      #review select { width:100%; min-width:0; background:#112331; color:#e6eef4; border:1px solid #366072; border-radius:5px; padding:7px; font:inherit; }
+      #review .check { display:flex; gap:8px; align-items:center; font-size:13px; margin:10px 0; }
+      #review .actions { display:flex; flex-wrap:wrap; gap:7px; margin:12px 0; }
+      #review button { text-align:center; }
+      #review progress { width:100%; height:9px; accent-color:#38e8ff; }
+      #review-status { white-space:pre-wrap; font:12px/1.6 Consolas,monospace; color:#e6eef4; }
+      #review-log { max-height:140px; overflow:auto; font:12px/1.5 Consolas,monospace; white-space:pre-wrap; color:#ffc39d; user-select:text; }
+      #review-results { padding-left:22px; font-size:12px; line-height:1.7; max-height:180px; overflow:auto; user-select:text; }
+      #review.collapsed .review-body { display:none; }
+      #review.collapsed { width:auto; }
+      #review-note { position:fixed; bottom:8px; left:50%; transform:translateX(-50%); z-index:90; padding:5px 12px; background:#07121cd9; border-radius:6px; color:#c5d6df; font-size:12px; pointer-events:none; }
+      #review-json { width:100%; height:160px; background:#07121c; border:1px solid #285264; color:#c2e3ed; font:11px/1.5 Consolas,monospace; }
+      #review .artifact-link { display:block; margin:8px 0; overflow-wrap:anywhere; font-size:12px; }
+      #review .artifact-link[hidden] { display:none; }
+      #capture-output { margin:12px 0; padding:10px; border:1px solid #285264; border-radius:6px; }
+      #capture-preview { display:block; width:100%; height:auto; background:#000; }
+      #capture-caption { display:block; margin:8px 0; font-size:11px; overflow-wrap:anywhere; color:#b8d0df; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <aside id="review" aria-label="渲染验收工具">
+      <header><h1>渲染验收台</h1><button class="btn sm" id="collapse">收起工具</button></header>
+      <div class="review-body">
+        <p>与游戏共用完整渲染器。只使用内存存档、全程静音、不锁鼠标。点击加载后才启动 GPU；自动巡检需单独启动。</p>
+        <div class="review-grid">
+          <label>地图<select id="map"></select></label>
+          <label>天气<select id="weather"></select></label>
+          <label>时段<select id="time"></select></label>
+          <label>画质<select id="quality"></select></label>
+        </div>
+        <label class="check"><input type="checkbox" id="ray">开启屏幕空间光线追踪</label>
+        <label class="check"><input type="checkbox" id="hud">显示游戏 HUD</label>
+        <div class="actions"><button class="btn primary" id="load">加载场景</button><button class="btn" id="capture" disabled>生成画面 PNG</button></div>
+        <div class="actions"><button class="btn sm" data-view="cockpit" disabled>座舱视角</button><button class="btn sm" data-view="chase" disabled>追尾视角</button><button class="btn sm" data-look="left" disabled>向左看</button><button class="btn sm" data-look="center" disabled>视角回正</button><button class="btn sm" data-look="right" disabled>向右看</button></div>
+        <div class="actions"><button class="btn sm" data-pose="pad" disabled>停机坪近景</button><button class="btn sm" data-pose="dust" disabled>低空扬尘</button><button class="btn sm" data-pose="cruise" disabled>巡航机位</button></div>
+        <div class="actions"><button class="btn" id="auto">开始自动巡检</button><button class="btn" id="stop" disabled>停止巡检</button><button class="btn" id="export">更新 JSON 链接</button></div>
+        <a class="artifact-link" id="report-download" hidden download>验收 JSON 下载链接</a>
+        <figure id="capture-output" hidden>
+          <img id="capture-preview" alt="生成后的游戏画面预览">
+          <figcaption id="capture-caption"></figcaption>
+          <a class="artifact-link" id="capture-download" hidden download>PNG 下载链接</a>
+        </figure>
+        <p>自动流程：六张地图 → 同图白天/夜晚/白天 → 低/中/高/极高/低画质。勾选光追时再检查开启与关闭。每步稳定 2 秒、采样 3 秒；帧率只代表当前浏览器和窗口。</p>
+        <progress id="progress" max="1" value="0"></progress>
+        <p id="stage" role="status">等待加载场景</p>
+        <div id="review-status">尚未初始化</div>
+        <ol id="review-results"></ol>
+        <details><summary>错误与警告</summary><pre id="review-log">暂无</pre></details>
+        <details><summary>完整验收记录</summary><textarea id="review-json" readonly aria-label="完整验收 JSON"></textarea></details>
+      </div>
+    </aside>
+    <div id="review-note">本地验收页面 · 正式游戏存档不受影响</div>
+    <script type="module" src="tools/render-review.ts"></script>
+  </body>
+</html>

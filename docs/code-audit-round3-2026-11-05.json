@@ -1,0 +1,296 @@
+{
+  "date": "2026-11-05",
+  "round": 3,
+  "scope": "Constructor failure cleanup, render settings invalidation, asynchronous races, checkpoint safety, weather feedback, input and UI semantics",
+  "tests": {
+    "total": 266,
+    "passed": 266,
+    "failed": 0,
+    "files": [
+      {
+        "file": "aircraft-resources.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "app-lifecycle.test.ts",
+        "status": "passed",
+        "tests": 20
+      },
+      {
+        "file": "audio.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "buffs.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "checkpoint-safety.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "damage.test.ts",
+        "status": "passed",
+        "tests": 12
+      },
+      {
+        "file": "downwash.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "effect-resources.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "eye-adapt.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "flight.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "flow.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "heightfield.test.ts",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "input.test.ts",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "instrument-lists.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "maps.test.ts",
+        "status": "passed",
+        "tests": 40
+      },
+      {
+        "file": "math-boundaries.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "mission-runtime.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "mission.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "model-assets.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "nav.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "pad-details.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "padLayout.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "pending.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "physics-init.test.ts",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "physics-resources.test.ts",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "physics.test.ts",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "props-resources.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "render-lifecycle.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "render-resources.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "render-settings.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "render-state-recovery.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "renderReview.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "rockform.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "save.test.ts",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "session-lifecycle.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "terrain-quality.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "texture-loading.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "tutorial.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "ui-lifecycle.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "weather-boundaries.test.ts",
+        "status": "passed",
+        "tests": 19
+      },
+      {
+        "file": "world-generation.test.ts",
+        "status": "passed",
+        "tests": 3
+      }
+    ],
+    "elapsedSeconds": 59.006,
+    "addedSinceRound2": 49
+  },
+  "normalMissionAcceptance": {
+    "total": 42,
+    "passed": 42,
+    "failed": 0,
+    "files": 1,
+    "elapsedSeconds": 237.995
+  },
+  "crashRecoveryAcceptance": {
+    "total": 12,
+    "passed": 12,
+    "failed": 0,
+    "files": 1,
+    "elapsedSeconds": 84.711
+  },
+  "acceptanceDetails": "acceptance-round3-2026-11-05.json",
+  "acceptanceOutcome": {
+    "completed": 54,
+    "crashedAfterRecovery": 0,
+    "collisions": 0,
+    "finalDurability": 100
+  },
+  "typecheck": "passed",
+  "productionBuild": "passed",
+  "windowsLauncherCheck": "passed: Start-RotorTrails.cmd --check",
+  "diffWhitespace": "passed (CRLF-aware)",
+  "artifactPackage": {
+    "files": 61,
+    "buildAssets": 10,
+    "wasmAssets": 2,
+    "models": 9,
+    "missingFiles": 0
+  },
+  "dependencyAdvisoryCheck": {
+    "checkedAt": "2026-11-04T23:49:57.938Z",
+    "method": "npm registry bulk advisory check against locked versions",
+    "endpoint": "https://registry.npmjs.org/-/npm/v1/security/advisories/bulk",
+    "packageNames": 91,
+    "affected": [],
+    "advisories": {},
+    "limitation": "No affected versions were reported by the registry at check time; this is not proof of absence of undisclosed vulnerabilities."
+  },
+  "crossReview": {
+    "completed": true,
+    "runtime": "Reviewed independently; gust feedback mismatch found and fixed",
+    "renderer": "Reviewed independently; no current reachable multi-instance render path",
+    "appAndUi": "Reviewed independently; remapped key hint omissions found and fixed"
+  },
+  "performance": {
+    "measuredGpuFpsImprovement": null,
+    "verifiedChange": "20 audio/input/HUD/default-assist updates leave drawing buffer updates, shadow configuration, post construction and environment bake at their initial one call each"
+  },
+  "browser": {
+    "performedThisRound": false,
+    "finalVisualReview": "pending; prior browser origin access was declined",
+    "previousObservations": "Round 1 only, not a validation of final round 3 visuals"
+  },
+  "timings": "Suites ran concurrently; elapsed times are verification durations, not comparative performance measurements.",
+  "localChangesOnly": true,
+  "pushed": false,
+  "published": false,
+  "buildFiles": [
+    {
+      "file": "dist/assets/autopilot-tmfg-B0e.js",
+      "bytes": 5750,
+      "sha256": "2ce452bc676322c2b7c0bb6f3ca4e8f21ee7b591de39ee0606c08eca61b3fcad"
+    },
+    {
+      "file": "dist/assets/index--1Q0Q8Kd.css",
+      "bytes": 19231,
+      "sha256": "e1348ec5b7bca4fb5bf00e1a86b2d5de759cc7e91be065f17608d52327535e58"
+    },
+    {
+      "file": "dist/assets/index-DN_Tpnb7.js",
+      "bytes": 499845,
+      "sha256": "90724d4b8fb37d33900315cbc21266ea8dc0e2d613aac276072bceb5f049b10e"
+    }
+  ]
+}

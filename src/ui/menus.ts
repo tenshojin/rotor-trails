@@ -25,11 +25,17 @@ function h(html: string): HTMLDivElement {
 
 const stars = (n: number) => '★'.repeat(n) + '☆'.repeat(5 - n);
 const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), a[href], [tabindex="0"]';
 
 export class UI {
   readonly root: HTMLDivElement;
   private screen: HTMLDivElement | null = null;
   private modal: HTMLDivElement | null = null;
+  private modalReturnFocus: HTMLElement | null = null;
+  private modalCleanup: ((notify: boolean) => void) | null = null;
+  private disposed = false;
+  private panelId = 0;
   onClick: (() => void) | null = null;
 
   constructor(parent: HTMLElement) {
@@ -39,12 +45,39 @@ export class UI {
     this.root.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('button')) this.onClick?.();
     });
+    this.root.addEventListener('keydown', (e) => {
+      if (!this.modal || e.defaultPrevented) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        this.closeModal();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const items = Array.from(this.modal.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((item) => item.getClientRects().length > 0);
+      const first = items[0];
+      const last = items.at(-1);
+      if (!first || !last) {
+        e.preventDefault();
+        this.modal.focus();
+      } else if (e.shiftKey && (document.activeElement === first || !items.includes(document.activeElement as HTMLElement))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !this.modal.contains(document.activeElement))) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
   }
 
   private show(el: HTMLDivElement): HTMLDivElement {
+    if (this.disposed) return el;
+    this.closeModal();
     this.screen?.remove();
     this.screen = el;
     this.root.appendChild(el);
+    el.tabIndex = -1;
+    (el.querySelector<HTMLElement>('.primary, button:not([disabled]), [tabindex="0"]') ?? el).focus({ preventScroll: true });
     return el;
   }
 
@@ -58,16 +91,51 @@ export class UI {
     return !!this.modal;
   }
 
-  closeModal(): void {
+  closeModal(notify = true): void {
+    if (!this.modal) return;
     this.modal?.remove();
     this.modal = null;
+    if (this.screen) this.screen.inert = false;
+    const cleanup = this.modalCleanup;
+    this.modalCleanup = null;
+    cleanup?.(notify);
+    if (this.modalReturnFocus?.isConnected) this.modalReturnFocus.focus({ preventScroll: true });
+    this.modalReturnFocus = null;
   }
 
-  private openModal(el: HTMLDivElement): HTMLDivElement {
+  private openModal(el: HTMLDivElement, cleanup?: (notify: boolean) => void): HTMLDivElement {
+    if (this.disposed) {
+      cleanup?.(false);
+      return el;
+    }
     this.closeModal();
+    this.modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.modal = el;
+    this.modalCleanup = cleanup ?? null;
+    if (this.screen) this.screen.inert = true;
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    el.tabIndex = -1;
+    const heading = el.querySelector('h2');
+    if (heading) {
+      heading.id = `ui-dialog-${++this.panelId}`;
+      el.setAttribute('aria-labelledby', heading.id);
+    }
     this.root.appendChild(el);
+    (el.querySelector<HTMLElement>(FOCUSABLE) ?? el).focus({ preventScroll: true });
     return el;
+  }
+
+  /** Tear down without firing a settings-save/resume callback from a dead app. */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.modalReturnFocus = null;
+    this.screen?.remove();
+    this.screen = null;
+    this.closeModal(false);
+    this.onClick = null;
+    this.root.remove();
   }
 
   private bind(el: HTMLElement, handlers: Record<string, (btn: HTMLElement) => void>): void {
@@ -81,7 +149,7 @@ export class UI {
 
   compatError(msg: string): void {
     this.show(
-      h(`<div class="screen center"><div class="card narrow"><h1>无法启动 Rotor Trails</h1><p>${msg}</p>
+      h(`<div class="screen center"><div class="card narrow"><h1>无法启动 Rotor Trails</h1><p>${escapeHtml(msg)}</p>
       <p class="muted">需要支持 WebGL2 的桌面浏览器（推荐最新版 Chrome 或 Edge），并开启硬件加速。</p></div></div>`),
     );
   }
@@ -90,7 +158,7 @@ export class UI {
     const el = this.show(
       h(`<div class="screen main-menu">
         <div class="title-block">
-          <div class="logo">ROTOR TRAILS</div>
+          <h1 class="logo">ROTOR TRAILS</h1>
           <div class="logo-sub">旋翼航迹 · 第一人称拟真直升机</div>
         </div>
         <div class="menu-col">
@@ -110,12 +178,12 @@ export class UI {
     const cards = maps
       .map((m, i) => {
         const r = records[m.id];
-        return `<div class="map-card map-${m.id}" data-a="pick" data-i="${i}">
-          <div class="mc-head"><span class="mc-no">${m.id === 'training' ? '训练' : `第 ${maps.filter((x) => x.id !== 'training').indexOf(m) + 1} 关`}</span><span class="mc-stars" title="推荐难度">${stars(m.difficulty)}</span></div>
-          <div class="mc-name">${m.name}</div><div class="mc-sub">${m.subtitle}</div>
-          <div class="mc-desc">${m.description}</div>
-          <div class="mc-foot"><span>推荐：${ASSISTS[m.recommendedAssist].label}</span>${r?.completed ? `<span class="mc-best">最佳 ${r.bestRating} · ${r.bestScore}</span>` : '<span class="muted">未完成</span>'}</div>
-        </div>`;
+        return `<button type="button" class="map-card map-${m.id}" data-a="pick" data-i="${i}" aria-labelledby="map-name-${m.id}">
+          <span class="mc-head"><span class="mc-no">${m.id === 'training' ? '训练' : `第 ${maps.filter((x) => x.id !== 'training').indexOf(m) + 1} 关`}</span><span class="mc-stars" aria-label="推荐难度 ${m.difficulty} / 5">${stars(m.difficulty)}</span></span>
+          <span class="mc-name" id="map-name-${m.id}">${m.name}</span><span class="mc-sub">${m.subtitle}</span>
+          <span class="mc-desc">${m.description}</span>
+          <span class="mc-foot"><span>推荐：${ASSISTS[m.recommendedAssist].label}</span>${r?.completed ? `<span class="mc-best">最佳 ${r.bestRating} · ${r.bestScore}</span>` : '<span class="muted">未完成</span>'}</span>
+        </button>`;
       })
       .join('');
     const el = this.show(
@@ -149,20 +217,24 @@ export class UI {
           <p class="muted">预计主线 ${m.estMinutes[0]}–${m.estMinutes[1]} 分钟（不限时）。${rec?.completed ? `最佳评价 ${rec.bestRating}（${rec.bestScore} 分）${rec.bestTime ? ` · 最快 ${fmtTime(rec.bestTime)}（仅记录）` : ''}` : ''}</p>
         </div>
         <div class="brief-side">
-          <div class="card"><h3>天气</h3><div class="opts" data-group="weather">${m.weathers
-            .map((w) => `<div class="opt-card ${w.id === weather ? 'sel' : ''}" data-a="weather" data-v="${w.id}"><b>${w.label}</b><span>${w.desc}</span></div>`)
+          <div class="card"><h3 id="brief-weather">天气</h3><div class="opts" data-group="weather" role="group" aria-labelledby="brief-weather">${m.weathers
+            .map((w) => `<button type="button" class="opt-card ${w.id === weather ? 'sel' : ''}" data-a="weather" data-v="${w.id}" aria-pressed="${w.id === weather}"><b>${w.label}</b><span>${w.desc}</span></button>`)
             .join('')}</div></div>
-          <div class="card"><h3>时段</h3><div class="opts" data-group="time">${(Object.keys(TIME_OF_DAY) as TimeOfDay[])
-            .map((k) => `<div class="opt-card ${k === time ? 'sel' : ''}" data-a="time" data-v="${k}"><b>${TIME_OF_DAY[k].label}</b><span>${TIME_OF_DAY[k].desc}</span></div>`)
+          <div class="card"><h3 id="brief-time">时段</h3><div class="opts" data-group="time" role="group" aria-labelledby="brief-time">${(Object.keys(TIME_OF_DAY) as TimeOfDay[])
+            .map((k) => `<button type="button" class="opt-card ${k === time ? 'sel' : ''}" data-a="time" data-v="${k}" aria-pressed="${k === time}"><b>${TIME_OF_DAY[k].label}</b><span>${TIME_OF_DAY[k].desc}</span></button>`)
             .join('')}</div></div>
-          <div class="card"><h3>飞行辅助</h3><div class="opts" data-group="assist">${(Object.keys(ASSISTS) as AssistId[])
-            .map((k) => `<div class="opt-card ${k === assist ? 'sel' : ''}" data-a="assist" data-v="${k}"><b>${ASSISTS[k].label}${k === m.recommendedAssist ? ' · 推荐' : ''}</b><span>${ASSISTS[k].desc}</span></div>`)
+          <div class="card"><h3 id="brief-assist">飞行辅助</h3><div class="opts" data-group="assist" role="group" aria-labelledby="brief-assist">${(Object.keys(ASSISTS) as AssistId[])
+            .map((k) => `<button type="button" class="opt-card ${k === assist ? 'sel' : ''}" data-a="assist" data-v="${k}" aria-pressed="${k === assist}"><b>${ASSISTS[k].label}${k === m.recommendedAssist ? ' · 推荐' : ''}</b><span>${ASSISTS[k].desc}</span></button>`)
             .join('')}</div></div>
           <button class="btn primary big" data-a="start">开始飞行</button>
         </div>
       </div></div>`),
     );
-    const sel = (group: string, v: string) => el.querySelectorAll(`[data-group="${group}"] .opt-card`).forEach((c) => c.classList.toggle('sel', (c as HTMLElement).dataset.v === v));
+    const sel = (group: string, v: string) => el.querySelectorAll<HTMLElement>(`[data-group="${group}"] .opt-card`).forEach((c) => {
+      const selected = c.dataset.v === v;
+      c.classList.toggle('sel', selected);
+      c.setAttribute('aria-pressed', String(selected));
+    });
     this.bind(el, {
       weather: (b) => {
         weather = b.dataset.v!;
@@ -183,8 +255,10 @@ export class UI {
 
   loading(label: string, p: number): void {
     let el = this.screen?.classList.contains('loading') ? this.screen : null;
-    if (!el) el = this.show(h(`<div class="screen center loading"><div class="card narrow"><h2>正在准备地图</h2><div class="lbar"><i></i></div><div class="llabel"></div></div></div>`));
-    (el.querySelector('.lbar i') as HTMLElement).style.width = `${Math.round(p * 100)}%`;
+    if (!el) el = this.show(h(`<div class="screen center loading"><div class="card narrow"><h2>正在准备地图</h2><div class="lbar" role="progressbar" aria-label="地图准备进度" aria-valuemin="0" aria-valuemax="100"><i></i></div><div class="llabel" role="status"></div><p class="muted">正在生成地形与加载模型。首次进入地图可能需要稍等片刻。</p></div></div>`));
+    const percent = Math.round(Math.max(0, Math.min(1, Number.isFinite(p) ? p : 0)) * 100);
+    (el.querySelector('.lbar i') as HTMLElement).style.width = `${percent}%`;
+    el.querySelector('.lbar')?.setAttribute('aria-valuenow', String(percent));
     (el.querySelector('.llabel') as HTMLElement).textContent = label;
   }
 
@@ -311,7 +385,7 @@ export class UI {
           <li>风通过相对气流影响飞机：侧风会让飞机漂移，顶风降低地速、顺风增加地速。注意风向袋、旗帜、树木和右侧风速表。</li>
           <li>降落时看右下角“着陆辅助”：下降速度 ≤ 2.5 m/s、水平漂移 ≤ 2.5 m/s、姿态 ≤ 12° 且落在坪内才算安全着陆。</li>
           <li>耐久 70 以下性能逐渐下降，30 以下明显下降，但始终保留控制能力；可前往绿色维修坪或拾取绿色维修补给。</li>
-          <li>Buff：黄色闪电 = 动力增强（储存后按 Shift 使用）；蓝色六边形 = 免伤护盾（自动生效）；绿色十字 = 维修 +25。</li>
+          <li>Buff：黄色闪电 = 动力增强（储存后按 ${k('boost')} 使用）；蓝色六边形 = 免伤护盾（自动生效）；绿色十字 = 维修 +25。</li>
           <li>没有时间限制：可以慢慢探索、练习和欣赏风景。</li>
           <li>浏览器不允许网页拦截 Ctrl+W 等快捷键，所以默认键位里没有 Ctrl。在设置里改键时也请避开 Ctrl，否则和字母键一起按可能会关闭页面。</li>
         </ul></div>
@@ -323,20 +397,29 @@ export class UI {
   about(): void {
     const el = this.openModal(
       h(`<div class="modal"><div class="card wide"><div class="screen-head"><h2>关于与授权</h2><button class="btn ghost" data-a="close">关闭</button></div>
-      <p><b>Rotor Trails（旋翼航迹）</b> — 第一人称拟真直升机闯关游戏。全部地形、建筑、植被、纹理、仪表与音效均为程序化生成，没有使用外部美术或音频素材。</p>
+      <p><b>Rotor Trails（旋翼航迹）</b> — 第一人称拟真直升机闯关游戏。地形高度、仪表画面与音效由程序生成；驾驶舱、直升机外观、建筑与树木由本项目的 Blender 脚本建模。</p>
+      <p>地形与建筑使用 Poly Haven 的 CC0 照片材质。建模参照照片仅用于结构与比例参考，不随游戏分发。</p>
       <h3>第三方开源库</h3>
       <ul class="tips"><li>three.js — MIT License</li><li>Rapier（@dimforge/rapier3d-compat）— Apache License 2.0</li><li>开发工具：Vite（MIT）、TypeScript（Apache-2.0）、Vitest（MIT）</li></ul>
-      <p class="muted">许可证全文随游戏一起发布（网站根目录的 licenses.md），也可在仓库的 THIRD_PARTY_LICENSES.md 中查看。地图为虚构地形，仅体现日本海湾、美国西南峡谷、亚马孙雨林、挪威峡湾、尼泊尔高山的地貌特色，不对应真实地理位置。</p></div></div>`),
+      <p class="muted">可查看<a href="./licenses.md" target="_blank" rel="noopener">第三方素材与开源许可</a>。地图为虚构地形，仅体现日本海湾、美国西南峡谷、亚马孙雨林、挪威峡湾、尼泊尔高山的地貌特色，不对应真实地理位置。</p></div></div>`),
     );
     this.bind(el, { close: () => this.closeModal() });
   }
 
-  settings(cur: Settings, on: { change: (s: Settings) => void; capture: (cb: (code: string) => void) => void; close: () => void }): void {
+  settings(cur: Settings, on: { change: (s: Settings) => void; capture: (cb: (code: string) => void) => (() => void) | void; close: () => void }): void {
     const s: Settings = structuredClone(cur);
     let tab = 'controls';
+    let cancelCapture: (() => void) | void;
+    let captureVersion = 0;
+    let bindingNotice = '点击按键即可修改；按 Esc 取消。每个动作最多保留 3 个按键。';
+    const stopCapture = () => {
+      captureVersion++;
+      cancelCapture?.();
+      cancelCapture = undefined;
+    };
     const el = this.openModal(h(`<div class="modal"><div class="card wide settings"><div class="screen-head"><h2>设置</h2><button class="btn ghost" data-a="close">完成</button></div>
-      <div class="tabs"><button class="tab" data-a="tab" data-t="controls">操作</button><button class="tab" data-a="tab" data-t="video">画面</button><button class="tab" data-a="tab" data-t="audio">声音</button><button class="tab" data-a="tab" data-t="assist">辅助与显示</button></div>
-      <div class="tab-body"></div></div></div>`));
+      <div class="tabs" role="tablist" aria-label="设置分类"><button class="tab" id="settings-controls" role="tab" aria-controls="settings-panel" data-a="tab" data-t="controls">操作</button><button class="tab" id="settings-video" role="tab" aria-controls="settings-panel" data-a="tab" data-t="video">画面</button><button class="tab" id="settings-audio" role="tab" aria-controls="settings-panel" data-a="tab" data-t="audio">声音</button><button class="tab" id="settings-assist" role="tab" aria-controls="settings-panel" data-a="tab" data-t="assist">辅助与显示</button></div>
+      <div class="tab-body" id="settings-panel" role="tabpanel"></div><p class="settings-save muted">设置自动保存到此浏览器</p></div></div>`), (notify) => { stopCapture(); if (notify) on.close(); });
     const body = el.querySelector('.tab-body') as HTMLDivElement;
     const range = (key: keyof Settings, label: string, min: number, max: number, step: number, fmt: (v: number) => string) =>
       `<label class="set-row"><span>${label}</span><input type="range" data-k="${key}" min="${min}" max="${max}" step="${step}" value="${s[key] as number}"><em>${fmt(s[key] as number)}</em></label>`;
@@ -345,16 +428,22 @@ export class UI {
       `<label class="set-row"><span>${label}</span><select data-k="${key}">${opts.map(([v, l]) => `<option value="${v}" ${s[key] === v ? 'selected' : ''}>${l}</option>`).join('')}</select><em></em></label>`;
     const pct = (v: number) => `${Math.round(v * 100)}%`;
     const render = () => {
-      el.querySelectorAll('.tab').forEach((t) => t.classList.toggle('sel', (t as HTMLElement).dataset.t === tab));
+      el.querySelectorAll<HTMLElement>('.tab').forEach((t) => {
+        const selected = t.dataset.t === tab;
+        t.classList.toggle('sel', selected);
+        t.setAttribute('aria-selected', String(selected));
+        t.tabIndex = selected ? 0 : -1;
+      });
+      body.setAttribute('aria-labelledby', `settings-${tab}`);
       if (tab === 'controls') {
         const rows = (Object.keys(ACTION_LABEL) as Action[])
-          .map((a) => `<div class="bind-row"><span>${ACTION_LABEL[a]}</span><div>${s.bindings[a].map((c, i) => `<button class="key" data-a="rebind" data-act="${a}" data-i="${i}">${keyName(c)}</button>`).join('')}<button class="key add" data-a="rebind" data-act="${a}" data-i="${s.bindings[a].length}" title="添加备用按键">＋</button></div></div>`)
+          .map((a) => `<div class="bind-row"><span>${ACTION_LABEL[a]}</span><div>${s.bindings[a].map((c, i) => `<button class="key" data-a="rebind" data-act="${a}" data-i="${i}" aria-label="${ACTION_LABEL[a]}：${escapeHtml(keyName(c))}，点击改键">${escapeHtml(keyName(c))}</button>`).join('')}${s.bindings[a].length < 3 ? `<button class="key add" data-a="rebind" data-act="${a}" data-i="${s.bindings[a].length}" aria-label="为${ACTION_LABEL[a]}添加备用按键" title="添加备用按键">＋</button>` : ''}</div></div>`)
           .join('');
         body.innerHTML =
           range('mouseSensitivity', '鼠标灵敏度', 0.1, 4, 0.05, (v) => v.toFixed(2)) +
           check('invertY', '视角上下反转') +
           check('invertX', '视角左右反转') +
-          `<h3>按键绑定 <button class="btn sm ghost" data-a="resetKeys">恢复默认</button></h3><div class="bind-list">${rows}</div>`;
+          `<h3>按键绑定 <button class="btn sm ghost" data-a="resetKeys">恢复默认</button></h3><p class="binding-notice" role="status">${escapeHtml(bindingNotice)}</p><div class="bind-list">${rows}</div>`;
       } else if (tab === 'video') {
         body.innerHTML =
           select('quality', '画质', (Object.keys(QUALITY) as Array<keyof typeof QUALITY>).map((q) => [q, QUALITY[q].label])) +
@@ -365,27 +454,37 @@ export class UI {
           range('viewCenter', '座舱视点居中（0% = 右侧机长座位）', 0, 1, 0.05, pct) +
           range('shake', '镜头震动强度', 0, 1, 0.05, pct) +
           check('headMotion', '头部晃动（加速度引起）', '关闭后机体的真实运动仍会反映在画面上') +
-          check('motionBlur', '动态模糊', '默认关闭') +
+          check('motionBlur', '动态模糊', '中及以上画质，或开启光线追踪时生效；默认关闭') +
           check('navGuides', '三维航线标记', '在场景里显示光环和箭头，默认关闭（方向看 HUD 的菱形标记）') +
           check('eyeAdapt', '人眼适应', '看向明暗不同的地方时，曝光像眼睛一样慢慢调整；关闭后曝光固定。') +
           check('lightning', '闪电闪光', '对光敏感可关闭') +
-          '<p class="muted">低画质只减少远景细节、阴影和雨滴数量，不改变碰撞、导航或物理难度。抗锯齿开关在下次启动时生效。</p>';
+          '<p class="muted">低画质减少远景细节、阴影和雨滴数量，不改变碰撞、导航或物理难度。画面卡顿时，先降低画质或渲染分辨率，再关闭光线追踪。</p>';
       } else if (tab === 'audio') {
         body.innerHTML = range('volMaster', '总音量', 0, 1, 0.05, pct) + range('volEngine', '发动机与旋翼', 0, 1, 0.05, pct) + range('volAmbience', '环境与天气', 0, 1, 0.05, pct) + range('volAlerts', '告警与提示', 0, 1, 0.05, pct);
       } else {
         body.innerHTML =
           select('assist', '默认飞行辅助', (Object.keys(ASSISTS) as AssistId[]).map((a) => [a, ASSISTS[a].label])) +
           `<p class="muted">${ASSISTS[s.assist].desc}</p>` +
-          select('speedUnit', '速度单位', [
+          select('speedUnit', 'HUD 速度单位', [
             ['kmh', 'km/h'],
             ['kt', '节（kt）'],
             ['ms', 'm/s'],
           ]) +
           range('hudOpacity', 'HUD 不透明度', 0.3, 1, 0.05, pct) +
-          check('hints', '显示操作提示');
+          check('hints', '显示操作提示', '常规提示；教学与安全告警始终保留');
       }
     };
     render();
+    el.querySelector('.tabs')?.addEventListener('keydown', (event) => {
+      const e = event as KeyboardEvent;
+      const tabs = Array.from(el.querySelectorAll<HTMLButtonElement>('.tab'));
+      const current = tabs.indexOf(document.activeElement as HTMLButtonElement);
+      if (current < 0 || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+      e.preventDefault();
+      const index = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (current + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+      tabs[index].click();
+      tabs[index].focus();
+    });
     body.addEventListener('input', (e) => {
       const t = e.target as HTMLInputElement | HTMLSelectElement;
       const k = t.dataset.k as keyof Settings | undefined;
@@ -398,38 +497,56 @@ export class UI {
         if (em) em.textContent = k === 'fov' ? `${Math.round(Number(t.value))}°` : k === 'mouseSensitivity' ? Number(t.value).toFixed(2) : `${Math.round(Number(t.value) * 100)}%`;
       } else rec[k] = t.value;
       on.change(structuredClone(s));
-      if (k === 'assist') render();
+      if (k === 'assist') {
+        render();
+        body.querySelector<HTMLElement>('[data-k="assist"]')?.focus({ preventScroll: true });
+      }
     });
     this.bind(el, {
-      close: () => {
-        this.closeModal();
-        on.close();
-      },
+      close: () => this.closeModal(),
       tab: (b) => {
+        stopCapture();
         tab = b.dataset.t!;
         render();
       },
       resetKeys: () => {
+        stopCapture();
         s.bindings = structuredClone(DEFAULT_BINDINGS);
+        bindingNotice = '已恢复默认按键。';
         on.change(structuredClone(s));
         render();
+        body.querySelector<HTMLElement>('[data-a="resetKeys"]')?.focus({ preventScroll: true });
       },
       rebind: (b) => {
+        stopCapture();
         const act = b.dataset.act as Action;
         const i = Number(b.dataset.i);
+        const version = captureVersion;
+        render();
+        b = body.querySelector<HTMLElement>(`[data-a="rebind"][data-act="${act}"][data-i="${i}"]`)!;
         b.textContent = '按下新按键…';
         b.classList.add('wait');
-        on.capture((code) => {
-          if (code !== 'Escape' || act === 'pause') {
-            // 冲突处理：从其他动作中移除同一按键
-            for (const a of Object.keys(s.bindings) as Action[]) if (a !== act) s.bindings[a] = s.bindings[a].filter((c) => c !== code);
-            for (const a of Object.keys(s.bindings) as Action[]) if (s.bindings[a].length === 0) s.bindings[a] = [...DEFAULT_BINDINGS[a]].filter((c) => c !== code).slice(0, 1);
+        b.focus({ preventScroll: true });
+        body.querySelector('.binding-notice')!.textContent = `正在修改“${ACTION_LABEL[act]}”：按下新按键，或按 Esc 取消。`;
+        cancelCapture = on.capture((code) => {
+          if (version !== captureVersion || !el.isConnected) return;
+          cancelCapture = undefined;
+          const conflict = (Object.keys(s.bindings) as Action[]).find((a) => a !== act && s.bindings[a].includes(code));
+          if (code === 'Escape') {
+            bindingNotice = '已取消改键，原按键保留。';
+          } else if (conflict) {
+            bindingNotice = `${keyName(code)} 已用于“${ACTION_LABEL[conflict]}”，请先修改该动作，或选用其他按键。原按键保留。`;
+          } else if (/^(Control|Alt|Meta)/.test(code) || ['Tab', 'F5', 'F11', 'F12'].includes(code)) {
+            bindingNotice = `${keyName(code)} 是浏览器或菜单快捷键，请选用字母、数字、方向键或 Shift。原按键保留。`;
+          } else {
             const list = s.bindings[act].filter((_, j) => j !== i);
             list.splice(Math.min(i, list.length), 0, code);
             s.bindings[act] = Array.from(new Set(list)).slice(0, 3);
+            bindingNotice = `“${ACTION_LABEL[act]}”已设为 ${s.bindings[act].map(keyName).join(' / ')}。`;
             on.change(structuredClone(s));
           }
           render();
+          body.querySelector<HTMLElement>(`[data-a="rebind"][data-act="${act}"][data-i="${Math.min(i, s.bindings[act].length - 1)}"]`)?.focus({ preventScroll: true });
         });
       },
     });

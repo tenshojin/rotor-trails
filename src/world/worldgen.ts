@@ -60,6 +60,12 @@ function protectMask(map: MapDef): Float32Array {
 }
 
 export async function generateWorld(map: MapDef, withMesh: boolean, progress?: ProgressFn): Promise<WorldData> {
+  // 自动航点高度与补给绑定属于这次生成的结果，不应写回共享的地图配方。
+  map = {
+    ...map,
+    nodes: map.nodes.map((node) => ({ ...node, pos: [...node.pos] })),
+    pickups: map.pickups.map((pickup) => ({ ...pickup, pos: [...pickup.pos] })),
+  };
   progress?.(0.05, '生成地形');
   await tick();
   const hb = new HeightBuilder(map.size, map.res);
@@ -72,15 +78,15 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
       hb.paintCircle(2, p.pos[0], p.pos[2], p.size * 0.8 + 6, 6, 1);
     }
   }
+  const protection = map.erosion || map.rockForm || map.rivers?.length ? protectMask(map) : undefined;
   if (map.erosion) {
     progress?.(0.25, '雨水侵蚀');
     await tick();
-    erode(hb.data, map.res, map.seed, { droplets: map.erosion, waterLevel: map.waterLevel, mask: protectMask(map) });
+    erode(hb.data, map.res, map.seed, { droplets: map.erosion, waterLevel: map.waterLevel, mask: protection });
   }
-  if (map.rockForm) applyRockForm(hb.data, map.res, map.size, map.rockForm, protectMask(map));
+  if (map.rockForm) applyRockForm(hb.data, map.res, map.size, map.rockForm, protection!);
   if (map.rivers) {
-    const mask = protectMask(map);
-    for (const r of map.rivers) carveRiver(hb, r, mask);
+    for (const r of map.rivers) carveRiver(hb, r, protection!);
   }
   const terrain = hb.build();
   progress?.(0.45, '布置建筑与停机坪');

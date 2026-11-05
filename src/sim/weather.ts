@@ -1,7 +1,7 @@
 // 天气：参数化的天气状态 + 平滑过渡。天气决定能见度、降水、云、光照、风场基础参数。
 // 渲染层（天空/雾/雨/闪电）、音频层（雨声/风声）和仿真层（风）都读取同一份 WeatherParams。
 
-import { clamp, lerp } from '../core/math';
+import { clamp, lerp, wrap360 } from '../core/math';
 import type { WindProfile } from './wind';
 
 export type WeatherKind = 'clear' | 'lightRain' | 'storm' | 'fog' | 'lowCloud' | 'wind';
@@ -61,8 +61,15 @@ export function makeWeather(base: Partial<WeatherParams>): WeatherParams {
 }
 
 function lerpAngle(a: number, b: number, t: number): number {
-  let d = ((b - a + 540) % 360) - 180;
-  return (a + d * t + 360) % 360;
+  const d = wrap360(b - a + 180) - 180;
+  return wrap360(a + d * t);
+}
+
+const WEATHER_FIELDS = Object.keys(makeWeather({})) as Array<keyof WeatherParams>;
+
+function validateWeather(params: WeatherParams): void {
+  if (WEATHER_FIELDS.some((field) => !Number.isFinite(params[field]))) throw new RangeError('天气参数必须是有限数值');
+  if (params.visibility <= 0) throw new RangeError('天气能见度必须大于零');
 }
 
 export function lerpWeather(a: WeatherParams, b: WeatherParams, t: number, out: WeatherParams): WeatherParams {
@@ -109,6 +116,8 @@ export class WeatherState {
   changed: string | null = null;
 
   constructor(presets: WeatherPreset[], presetId: string) {
+    if (!presets.length) throw new Error('地图缺少天气预设');
+    for (const preset of presets) validateWeather(preset.params);
     this.presets = presets;
     this.preset = presets.find((p) => p.id === presetId) ?? presets[0];
     this.current = { ...this.preset.params };
@@ -124,6 +133,8 @@ export class WeatherState {
   transitionTo(id: string, duration: number): void {
     const p = this.presets.find((x) => x.id === id);
     if (!p) return;
+    if (!Number.isFinite(duration)) throw new RangeError('天气过渡时长必须是有限数值');
+    validateWeather(p.params);
     this.from = { ...this.current };
     this.to = { ...p.params };
     this.t = 0;
@@ -134,6 +145,7 @@ export class WeatherState {
 
   /** objectivesDone：已完成的主线任务数，用于动态天气的触发。 */
   update(dt: number, objectivesDone: number): void {
+    if (!Number.isFinite(dt) || dt < 0) return;
     const sch = this.preset.schedule;
     if (sch && this.scheduleIndex < sch.length && objectivesDone >= sch[this.scheduleIndex].afterObjective) {
       const s = sch[this.scheduleIndex];

@@ -6,6 +6,7 @@ import * as THREE from 'three/webgpu';
 import { attribute, materialColor, materialRoughness, step, uv, vec4 } from 'three/tsl';
 import { wetColor, wetRough, windowGlow } from './wetness';
 import { loadGltf } from './gltf';
+import { disposeTextures } from './disposeTextures';
 import type { ModelInstance } from '../world/propBuilder';
 
 /** 已有建筑模型库的地图（其余地图仍用程序几何体） */
@@ -81,12 +82,16 @@ export async function loadModelLib(file: string): Promise<ModelLib | null> {
       }
     });
     for (const t of texs) t.anisotropy = 8;
+    let disposed = false;
     return {
       templates,
       dispose() {
+        if (disposed) return;
+        disposed = true;
         for (const g of geos) g.dispose();
         for (const m of mats) m.dispose();
-        for (const t of texs) t.dispose();
+        disposeTextures(texs);
+        templates.clear();
       },
     };
   } catch (e) {

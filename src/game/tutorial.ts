@@ -65,7 +65,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       if (s.agl >= 58) st.flag = true;
       if (!st.flag) return Math.min(0.5, s.agl / 120);
       if (s.agl > 25 && s.agl < 35) st.t += dt;
-      else st.t = Math.max(0, st.t - dt);
+      else st.t = 0;
       return 0.5 + Math.min(0.5, st.t / 6);
     },
   },
@@ -75,6 +75,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     text: (k) => `按 <kbd>${k('hover')}</kbd> 开启悬停辅助：系统会<b>逐渐</b>降低水平速度并保持位置（不会瞬间停住）。定点保持 <b>5 秒</b>。悬停时可用 <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('strafeLeft')}</kbd><kbd>${k('strafeRight')}</kbd> 微调位置。`,
     check: (s, st, dt) => {
       if (s.flight.telemetry.hover === 'holding' && s.groundSpeed < 1.5) st.t += dt;
+      else st.t = 0;
       return Math.min(1, st.t / 5);
     },
   },
@@ -86,7 +87,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     check: (s, st, dt) => {
       const d = Math.hypot(s.body.pos.x + 420, s.body.pos.z + 150);
       if (d < 45 && s.groundSpeed < 2.5 && s.agl > 5) st.t += dt;
-      else st.t = Math.max(0, st.t - dt * 0.5);
+      else st.t = 0;
       return Math.min(1, st.t / 5);
     },
   },
@@ -105,10 +106,24 @@ export class Tutorial {
   done = false;
   private st: StepState = { t: 0, a: 0, b: 0, flag: false, startHeading: 0, accHeading: 0, lastHeading: 0 };
   private settings: Settings;
+  private cachedHtml = '';
+  private htmlKey = '';
   onStep: ((i: number) => void) | null = null;
 
   constructor(settings: Settings) {
     this.settings = settings;
+  }
+
+  setSettings(settings: Settings): void {
+    this.settings = settings;
+    this.htmlKey = '';
+  }
+
+  /** Rewinding the aircraft must not count its teleport as a completed turn. */
+  resumeStep(s: GameSession): void {
+    if (this.done) this.index = TUTORIAL_STEPS.length - 1;
+    this.done = false;
+    this.reset(s);
   }
 
   get step(): TutorialStep | null {
@@ -129,7 +144,7 @@ export class Tutorial {
   }
 
   skip(s: GameSession): void {
-    this.next(s);
+    if (!this.done) this.next(s);
   }
 
   private next(s: GameSession): void {
@@ -144,18 +159,25 @@ export class Tutorial {
 
   update(s: GameSession, dt: number): void {
     const step = this.step;
-    if (!step || this.done) return;
+    if (!step || this.done || !Number.isFinite(dt) || dt <= 0) return;
     this.progress = step.check(s, this.st, dt);
     if (this.progress >= 1) {
       this.st.b += dt;
       if (this.st.b > 0.6) this.next(s);
-    }
+    } else this.st.b = 0;
   }
 
   html(): string {
     const step = this.step;
     if (!step) return '';
+    const percent = Math.round(this.progress * 100);
+    const key = `${this.index}:${percent}`;
+    if (this.htmlKey === key) return this.cachedHtml;
+    this.htmlKey = key;
     const k = (a: keyof Settings['bindings']) => keyName(this.settings.bindings[a][0]);
-    return `<div class="tut-title">${step.title}</div><div class="tut-text">${step.text(k)}</div><div class="tut-bar"><i style="width:${Math.round(this.progress * 100)}%"></i></div><div class="tut-skip">按 <kbd>Enter</kbd> 跳过此步 · <kbd>Esc</kbd> 暂停/退出教学</div>`;
+    const enterBound = Object.values(this.settings.bindings).some((codes) => codes.includes('Enter'));
+    const skip = enterBound ? '在暂停菜单选择“跳过当前教学步骤”' : '按 <kbd>Enter</kbd> 跳过此步';
+    this.cachedHtml = `<div class="tut-title">${step.title}</div><div class="tut-text">${step.text(k)}</div><div class="tut-bar"><i style="width:${percent}%"></i></div><div class="tut-skip">${skip} · <kbd>${k('pause')}</kbd> 暂停/退出教学</div>`;
+    return this.cachedHtml;
   }
 }

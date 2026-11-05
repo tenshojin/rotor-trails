@@ -55,8 +55,11 @@ export function updateCloudShadowMap(renderer: THREE.WebGPURenderer, camPos: THR
   center.value.set(Math.round(_p.x / texel) * texel, Math.round(_p.z / texel) * texel);
   const prev = renderer.getRenderTarget();
   renderer.setRenderTarget(rt);
-  quad.render(renderer);
-  renderer.setRenderTarget(prev);
+  try {
+    quad.render(renderer);
+  } finally {
+    renderer.setRenderTarget(prev);
+  }
 }
 
 /**

@@ -58,15 +58,17 @@ const REFINE = 3;
 const FIELD_STEPS = 20;
 const FIELD_REFINE = 3;
 
-let depthShared: THREE.TextureNode | null = null;
+const depthShared = new Map<boolean, THREE.TextureNode>();
 
 /** 场景深度：水面、河流、烟幕共用一份拷贝（每多一份，渲染通道就要多中断一次；深度格式要和渲染通道一致） */
 export function sceneDepthNode(reversedDepth: boolean): THREE.TextureNode {
-  if (depthShared) return depthShared;
+  const cached = depthShared.get(reversedDepth);
+  if (cached) return cached;
   const depthCopy = new THREE.DepthTexture(1, 1);
   if (reversedDepth) depthCopy.type = THREE.FloatType;
-  depthShared = (viewportDepthTexture as unknown as (u: N<'vec2'>, l: null, d: THREE.DepthTexture) => THREE.TextureNode)(screenUV, null, depthCopy);
-  return depthShared;
+  const node = (viewportDepthTexture as unknown as (u: N<'vec2'>, l: null, d: THREE.DepthTexture) => THREE.TextureNode)(screenUV, null, depthCopy);
+  depthShared.set(reversedDepth, node);
+  return node;
 }
 
 /** 从 P0 沿 Rd 在地形高度图里走，返回 vec4(那里的颜色, 碰到了吗) */

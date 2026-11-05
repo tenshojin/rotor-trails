@@ -29,23 +29,27 @@ function defaults(): SaveData {
   return { version: SAVE_VERSION, settings: defaultSettings(), maps: {}, tutorialDone: false };
 }
 
+const MAP_IDS: readonly MapId[] = ['training', 'japan', 'canyon', 'amazon', 'fjord', 'himalaya'];
+const RATINGS = ['S', 'A', 'B', 'C', 'D'];
+const isSaveObject = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
+
 function sanitizeRecord(r: unknown): MapRecord | null {
   if (!r || typeof r !== 'object') return null;
   const o = r as Record<string, unknown>;
   return {
     completed: o.completed === true,
-    bestScore: typeof o.bestScore === 'number' && Number.isFinite(o.bestScore) ? o.bestScore : 0,
-    bestRating: typeof o.bestRating === 'string' ? o.bestRating.slice(0, 2) : '',
-    optionalDone: Array.isArray(o.optionalDone) ? o.optionalDone.filter((x): x is string => typeof x === 'string').slice(0, 20) : [],
+    bestScore: typeof o.bestScore === 'number' && Number.isFinite(o.bestScore) ? Math.max(0, o.bestScore) : 0,
+    bestRating: typeof o.bestRating === 'string' && RATINGS.includes(o.bestRating) ? o.bestRating : '',
+    optionalDone: Array.isArray(o.optionalDone) ? [...new Set(o.optionalDone.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length <= 100))].slice(0, 20) : [],
     runs: typeof o.runs === 'number' && Number.isFinite(o.runs) ? Math.max(0, Math.floor(o.runs)) : 0,
-    bestTime: typeof o.bestTime === 'number' && Number.isFinite(o.bestTime) ? o.bestTime : null,
+    bestTime: typeof o.bestTime === 'number' && Number.isFinite(o.bestTime) && o.bestTime > 0 ? o.bestTime : null,
   };
 }
 
 /** 迁移旧版本存档并校验。 */
 export function migrate(raw: unknown): SaveData {
   const d = defaults();
-  if (!raw || typeof raw !== 'object') return d;
+  if (!isSaveObject(raw)) return d;
   const o = raw as Record<string, unknown>;
   const version = typeof o.version === 'number' ? o.version : 0;
   if (version > SAVE_VERSION) {
@@ -54,9 +58,10 @@ export function migrate(raw: unknown): SaveData {
   d.settings = sanitizeSettings(version < 2 ? upgradeLegacyBindings(o.settings) : o.settings);
   d.tutorialDone = o.tutorialDone === true;
   if (o.maps && typeof o.maps === 'object') {
-    for (const [k, v] of Object.entries(o.maps as Record<string, unknown>)) {
-      const rec = sanitizeRecord(v);
-      if (rec) d.maps[k as MapId] = rec;
+    for (const k of MAP_IDS) {
+      if (!Object.hasOwn(o.maps, k)) continue;
+      const rec = sanitizeRecord((o.maps as Record<string, unknown>)[k]);
+      if (rec) d.maps[k] = rec;
     }
   }
   return d;
@@ -79,10 +84,6 @@ export class SaveStore {
     let st: StorageLike | null = null;
     try {
       st = storage !== undefined ? storage : window.localStorage;
-      if (st) {
-        const probe = '__rt_probe';
-        st.setItem(probe, '1');
-      }
     } catch {
       st = null;
     }
@@ -98,21 +99,37 @@ export class SaveStore {
     try {
       raw = st.getItem(SAVE_KEY);
     } catch {
-      raw = null;
+      // Do not replace an unreadable existing save with fresh defaults.
+      this.storage = null;
+      this.available = false;
+      this.warning = '浏览器本地存储不可用：无法读取进度，本次游戏不会覆盖原存档。';
+      this.data = defaults();
+      return;
     }
-    if (!raw) {
+    if (raw === null) {
       this.data = defaults();
       this.fresh = true;
       return;
     }
     try {
-      this.data = migrate(JSON.parse(raw));
+      const parsed: unknown = JSON.parse(raw);
+      if (!isSaveObject(parsed)) throw new Error('Invalid save root');
+      this.data = migrate(parsed);
+      if (typeof parsed.version === 'number' && parsed.version > SAVE_VERSION) {
+        // Reading compatible fields is useful, but an older client must never
+        // downgrade the version or delete fields that it does not understand.
+        this.storage = null;
+        this.available = false;
+        this.warning = '存档来自更新版本：已读取兼容的设置与进度，本次游戏不会覆盖原存档。';
+      }
     } catch {
-      this.warning = '检测到损坏的存档，已恢复为默认设置（原数据已备份）。';
       try {
         st.setItem(SAVE_KEY + '.corrupt', raw);
+        this.warning = '检测到损坏的存档，已恢复为默认设置（原数据已备份）。';
       } catch {
-        /* 忽略 */
+        this.warning = '检测到损坏的存档，已恢复为默认设置；原数据备份失败，暂不覆盖原存档。';
+        this.storage = null;
+        this.available = false;
       }
       this.data = defaults();
     }
@@ -122,8 +139,11 @@ export class SaveStore {
     if (!this.storage) return false;
     try {
       this.storage.setItem(SAVE_KEY, JSON.stringify({ ...this.data, version: SAVE_VERSION }));
+      this.available = true;
+      if (this.warning === '保存失败（存储空间已满或被禁止）。') this.warning = null;
       return true;
     } catch {
+      this.available = false;
       this.warning = '保存失败（存储空间已满或被禁止）。';
       return false;
     }
@@ -141,15 +161,17 @@ export class SaveStore {
   /** 记录一次通关结果，返回是否刷新最佳。 */
   recordResult(map: MapId, score: number, rating: string, optionalIds: string[], time: number): boolean {
     const r = this.record(map);
+    const first = !r.completed;
     r.runs++;
     r.completed = true;
-    const best = score > r.bestScore;
+    score = Number.isFinite(score) ? Math.max(0, score) : 0;
+    const best = first || score > r.bestScore;
     if (best) {
       r.bestScore = score;
-      r.bestRating = rating;
+      r.bestRating = RATINGS.includes(rating) ? rating : '';
     }
     for (const id of optionalIds) if (!r.optionalDone.includes(id)) r.optionalDone.push(id);
-    if (r.bestTime === null || time < r.bestTime) r.bestTime = time;
+    if (Number.isFinite(time) && time > 0 && (r.bestTime === null || time < r.bestTime)) r.bestTime = time;
     this.save();
     return best;
   }

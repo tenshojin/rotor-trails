@@ -168,6 +168,9 @@ const num = (v: unknown, lo: number, hi: number, d: number) => (typeof v === 'nu
 const bool = (v: unknown, d: boolean) => (typeof v === 'boolean' ? v : d);
 const pick = <T extends string>(v: unknown, opts: readonly T[], d: T): T => (typeof v === 'string' && (opts as readonly string[]).includes(v) ? (v as T) : d);
 
+/** Unknown/IME key events have no usable physical key and must not replace a binding. */
+export const isBindingCode = (value: unknown): value is string => typeof value === 'string' && value !== 'Unidentified' && /^[A-Za-z][A-Za-z0-9]{0,39}$/.test(value);
+
 /**
  * v1 存档 → v2：旧默认键位“下降 = 左 Ctrl / X、视角回正 = C”改为“下降 = C、视角回正 = Z”。
  * 只改动仍是旧默认值的条目；玩家自己改过的键位保持不变，新键已被其他操作占用时也不改。
@@ -180,10 +183,10 @@ export function upgradeLegacyBindings(rawSettings: unknown): unknown {
   const same = (v: unknown, codes: string[]) => Array.isArray(v) && v.length === codes.length && codes.every((c, i) => v[i] === c);
   const usedElsewhere = (code: string, except: string[]) =>
     Object.entries(bind).some(([k, v]) => !except.includes(k) && Array.isArray(v) && v.includes(code));
-  if (same(bind.down, ['ControlLeft', 'KeyX']) && !usedElsewhere('KeyC', ['down', 'center'])) {
+  if (same(bind.down, ['ControlLeft', 'KeyX']) && !usedElsewhere('KeyC', ['down', 'center']) &&
+      (!same(bind.center, ['KeyC']) || !usedElsewhere('KeyZ', ['center']))) {
     bind.down = ['KeyC'];
     if (same(bind.center, ['KeyC']) && !usedElsewhere('KeyZ', ['center'])) bind.center = ['KeyZ'];
-    else if (same(bind.center, ['KeyC'])) delete bind.center; // 回到默认（Z），避免与下降键冲突
   }
   return { ...(rawSettings as Record<string, unknown>), bindings: bind };
 }
@@ -197,7 +200,9 @@ export function sanitizeSettings(raw: unknown): Settings {
   if (r.bindings && typeof r.bindings === 'object') {
     for (const k of Object.keys(DEFAULT_BINDINGS) as Action[]) {
       const v = (r.bindings as Record<string, unknown>)[k];
-      if (Array.isArray(v) && v.every((x) => typeof x === 'string') && v.length > 0) bindings[k] = v.slice(0, 3) as string[];
+      if (Array.isArray(v) && v.length > 0 && v.every(isBindingCode)) {
+        bindings[k] = [...new Set(v as string[])].slice(0, 3);
+      }
     }
   }
   return {
@@ -229,8 +234,7 @@ export function sanitizeSettings(raw: unknown): Settings {
 }
 
 /** 按键代码的可读名称 */
-export function keyName(code: string): string {
-  const map: Record<string, string> = {
+const KEY_NAMES: Record<string, string> = {
     Space: '空格',
     ControlLeft: '左 Ctrl',
     ControlRight: '右 Ctrl',
@@ -246,8 +250,10 @@ export function keyName(code: string): string {
     Enter: '回车',
     Tab: 'Tab',
     Backspace: '退格',
-  };
-  if (map[code]) return map[code];
+};
+
+export function keyName(code: string): string {
+  if (KEY_NAMES[code]) return KEY_NAMES[code];
   if (code.startsWith('Key')) return code.slice(3);
   if (code.startsWith('Digit')) return code.slice(5);
   if (code.startsWith('Numpad')) return '小键盘 ' + code.slice(6);

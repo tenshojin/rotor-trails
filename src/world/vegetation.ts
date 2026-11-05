@@ -69,12 +69,28 @@ class ExclusionGrid {
         arr.push(f);
       }
   }
-  hit(x: number, z: number, r: number): boolean {
-    const k = Math.floor(x / this.cell) * 100003 + Math.floor(z / this.cell);
-    const arr = this.map.get(k);
+  private hitCell(ix: number, iz: number, x: number, z: number, r: number): boolean {
+    const arr = this.map.get(ix * 100003 + iz);
     if (!arr) return false;
-    for (const f of arr) if (Math.hypot(x - f.x, z - f.z) < f.r + r) return true;
+    for (const f of arr) {
+      const dx = x - f.x, dz = z - f.z, radius = f.r + r;
+      if (dx * dx + dz * dz < radius * radius) return true;
+    }
     return false;
+  }
+  hit(x: number, z: number, r: number): 'center' | 'neighbor' | null {
+    const cx = Math.floor(x / this.cell), cz = Math.floor(z / this.cell);
+    if (this.hitCell(cx, cz, x, z, r)) return 'center';
+    // 候选树冠也有半径：中心格没有占地，不代表相邻格的建筑不会被树冠覆盖。
+    const x0 = Math.floor((x - r) / this.cell), x1 = Math.floor((x + r) / this.cell);
+    const z0 = Math.floor((z - r) / this.cell), z1 = Math.floor((z + r) / this.cell);
+    for (let ix = x0; ix <= x1; ix++) {
+      for (let iz = z0; iz <= z1; iz++) {
+        if (ix === cx && iz === cz) continue;
+        if (this.hitCell(ix, iz, x, z, r)) return 'neighbor';
+      }
+    }
+    return null;
   }
 }
 
@@ -117,13 +133,17 @@ export function scatterTrees(map: MapDef, terrain: Heightfield, surface: Uint8Ar
         if (rule.wash && flow) w = Math.min(1, w * (1 - rule.wash) + rule.wash * Math.min(1, flowAt(flow, map.size, x, z) * 2.2));
         if (w <= 0 || rng.float() > w) continue;
         const s = rule.scale[0] + (rule.scale[1] - rule.scale[0]) * rng.float();
-        if (ex.hit(x, z, spec.crownR * s * 0.7)) continue;
+        const exclusion = ex.hit(x, z, spec.crownR * s * 0.7);
+        if (exclusion === 'center') continue;
+        // 新增的跨格/越界剔除仍消费旧版本的旋转随机数，后续实例位置不变。
+        const rotation = rng.float() * Math.PI * 2;
+        if (exclusion || x > half || z > half) continue;
         xs.push(x);
         ys.push(h - 0.2);
         zs.push(z);
         ss.push(s);
         ts.push(ti);
-        rs.push(rng.float() * Math.PI * 2);
+        rs.push(rotation);
       }
     }
   }
@@ -174,6 +194,7 @@ export function forTreesNear(t: TreeSet, x: number, z: number, r: number, fn: (i
   const c1x = Math.min(t.dim - 1, Math.floor((x + r + t.half) / t.cell));
   const c0z = Math.max(0, Math.floor((z - r + t.half) / t.cell));
   const c1z = Math.min(t.dim - 1, Math.floor((z + r + t.half) / t.cell));
+  const radiusSq = r * r;
   for (let cz = c0z; cz <= c1z; cz++)
     for (let cx = c0x; cx <= c1x; cx++) {
       const c = cz * t.dim + cx;
@@ -181,7 +202,8 @@ export function forTreesNear(t: TreeSet, x: number, z: number, r: number, fn: (i
       const n = t.cellCount[c];
       for (let k = 0; k < n; k++) {
         const i = t.order[s + k];
-        if (Math.hypot(t.x[i] - x, t.z[i] - z) <= r) fn(i);
+        const dx = t.x[i] - x, dz = t.z[i] - z;
+        if (dx * dx + dz * dz <= radiusSq) fn(i);
       }
     }
 }

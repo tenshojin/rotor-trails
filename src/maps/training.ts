@@ -84,7 +84,7 @@ export const TRAINING: MapDef = {
     optional: [],
   },
   pickups: [
-    { id: 'tr-boost', kind: 'boost', pos: [0, 45, -300], note: '演示：拾取后按 Shift 使用' },
+    { id: 'tr-boost', kind: 'boost', pos: [0, 45, -300], note: '演示：拾取后使用动力增强' },
     { id: 'tr-shield', kind: 'shield', pos: [-120, 50, -500] },
     { id: 'tr-repair', kind: 'repair', pos: [-380, 40, -330] },
   ],
@@ -117,6 +117,6 @@ export const TRAINING: MapDef = {
   sun: [215, 42],
   ambience: { birds: 0.5, wind: 0.4 },
   landmarks: [{ name: '机库', pos: [70, 10, 170] }],
-  briefing: ['按照屏幕提示完成每一步操作。', '任何时候都可以按 Esc 暂停、跳过当前步骤或退出教学。'],
+  briefing: ['按照屏幕提示完成每一步操作。', '可通过暂停菜单跳过当前步骤或退出教学。'],
   estMinutes: [5, 8],
 };

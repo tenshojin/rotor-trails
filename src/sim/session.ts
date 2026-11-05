@@ -16,6 +16,7 @@ import { Navigator, type NavSnapshot } from './nav';
 import { PhysicsWorld, initPhysics, type ContactReport } from './physics';
 import { WeatherState, type WeatherSnapshot } from './weather';
 import { WindField, type WindInfo } from './wind';
+import { obstacleTop } from './routeCheck';
 import type RAPIER from '@dimforge/rapier3d-compat';
 
 export const STEP = 1 / 60;
@@ -132,6 +133,7 @@ export class GameSession {
   private msgT: Record<string, number> = {};
   private boostEdge = false;
   private hoverEdge = false;
+  private disposed = false;
 
   static async create(world: WorldData, weatherId: string, assist: AssistId): Promise<GameSession> {
     await initPhysics();
@@ -145,41 +147,53 @@ export class GameSession {
     this.flight.setAssist(assist);
     this.phys = new PhysicsWorld(STEP);
     const P = this.phys;
-    P.addTerrain(world.terrain);
-    if (map.waterLevel !== null) P.addWater(map.waterLevel, map.size);
-    P.addBoundary(map.size / 2, world.terrain.maxH + 1500);
-    for (const c of world.colliders) {
-      if (c.kind === 'box') P.addBox(c.c[0], c.c[1], c.c[2], c.h[0], c.h[1], c.h[2], c.rotY, c.tag);
-      else if (c.kind === 'boxq') P.addBoxQ(c.c[0], c.c[1], c.c[2], c.h[0], c.h[1], c.h[2], { x: c.q[0], y: c.q[1], z: c.q[2], w: c.q[3] }, c.tag);
-      else if (c.kind === 'cyl') P.addCylinder(c.c[0], c.c[1], c.c[2], c.hh, c.r, c.tag);
-      else if (c.kind === 'ball') P.addBall(c.c[0], c.c[1], c.c[2], c.r, c.tag);
-      else P.addCapsule(c.c[0], c.c[1], c.c[2], c.hh, c.r, c.tag);
+    try {
+      P.addTerrain(world.terrain);
+      if (map.waterLevel !== null) P.addWater(map.waterLevel, map.size);
+      P.addBoundary(map.size / 2, world.terrain.maxH + 1500);
+      for (const c of world.colliders) {
+        if (c.kind === 'box') P.addBox(c.c[0], c.c[1], c.c[2], c.h[0], c.h[1], c.h[2], c.rotY, c.tag);
+        else if (c.kind === 'boxq') P.addBoxQ(c.c[0], c.c[1], c.c[2], c.h[0], c.h[1], c.h[2], { x: c.q[0], y: c.q[1], z: c.q[2], w: c.q[3] }, c.tag);
+        else if (c.kind === 'cyl') P.addCylinder(c.c[0], c.c[1], c.c[2], c.hh, c.r, c.tag);
+        else if (c.kind === 'ball') P.addBall(c.c[0], c.c[1], c.c[2], c.r, c.tag);
+        else P.addCapsule(c.c[0], c.c[1], c.c[2], c.hh, c.r, c.tag);
+      }
+      // 推进一步让静态碰撞体进入宽相位结构，保证第一帧的射线查询（离地高度、起落架）有效
+      P.world.step();
+      for (const p of map.pads) if (p.repair) this.repairUses[p.id] = p.repair.uses;
+      this.mission = new MissionRuntime(map.mission);
+      this.nav = new Navigator(map, world.terrain);
+      this.weather = new WeatherState(map.weathers, weatherId);
+      this.wind = new WindField(this.weather.windProfile(), map.windZones, world.ctx.ground, map.seed);
+      const spawnPad = world.pads.get(map.spawn.padId);
+      if (!spawnPad) throw new Error('出生停机坪不存在');
+      const pos = new Vector3(spawnPad.pos[0], spawnPad.pos[1] + 1.32, spawnPad.pos[2]);
+      const quat = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), -map.spawn.heading * DEG);
+      this.massApplied = this.totalMass();
+      P.createHeli(pos, quat, this.massApplied);
+      P.readBody(this.body);
+      copyBody(this.prev, this.body);
+      this.flight.resetTo(this.body, this.massApplied, this.altitudeMSL(), true);
+      this.gear.reset(true);
+      this.nav.setLeg(0, [pos.x, pos.y, pos.z]);
+      this.windInfo = this.wind.info(pos.x, pos.y, pos.z, 0);
+      this.saveCheckpoint('起点');
+    } catch (error) {
+      P.dispose();
+      throw error;
     }
-    // 推进一步让静态碰撞体进入宽相位结构，保证第一帧的射线查询（离地高度、起落架）有效
-    P.world.step();
-    for (const p of map.pads) if (p.repair) this.repairUses[p.id] = p.repair.uses;
-    this.mission = new MissionRuntime(map.mission);
-    this.nav = new Navigator(map, world.terrain);
-    this.weather = new WeatherState(map.weathers, weatherId);
-    this.wind = new WindField(this.weather.windProfile(), map.windZones, world.ctx.ground, map.seed);
-    const spawnPad = world.pads.get(map.spawn.padId);
-    if (!spawnPad) throw new Error('出生停机坪不存在');
-    const pos = new Vector3(spawnPad.pos[0], spawnPad.pos[1] + 1.32, spawnPad.pos[2]);
-    const quat = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), -map.spawn.heading * DEG);
-    this.massApplied = this.totalMass();
-    P.createHeli(pos, quat, this.massApplied);
-    P.readBody(this.body);
-    copyBody(this.prev, this.body);
-    this.flight.resetTo(this.body, this.massApplied, this.altitudeMSL(), true);
-    this.gear.reset(true);
-    this.nav.setLeg(0, [pos.x, pos.y, pos.z]);
-    this.windInfo = this.wind.info(pos.x, pos.y, pos.z, 0);
-    this.saveCheckpoint('起点');
   }
 
   dispose(): void {
-    this.phys.dispose();
-    this.treeProxies.clear();
+    if (this.disposed) return;
+    this.disposed = true;
+    try {
+      this.phys.dispose();
+    } finally {
+      this.treeProxies.clear();
+      this.contacts.length = 0;
+      this.events.length = 0;
+    }
   }
 
   totalMass(): number {
@@ -227,7 +241,7 @@ export class GameSession {
 
   /** 推进一个固定步长。 */
   step(): void {
-    if (this.state !== 'running') return;
+    if (this.disposed || this.state !== 'running') return;
     const dt = STEP;
     const b = this.body;
     copyBody(this.prev, b);
@@ -359,7 +373,7 @@ export class GameSession {
       if (d > BUFFS.pickupRadius) continue;
       const res = this.buffs.pickup(p.kind, this.damage.durability);
       if (res === 'alreadyHolding') {
-        this.msg('已持有一次动力增强（按 Shift 使用）', 'info', 'hold', 3);
+        this.msg('已持有一次动力增强，请先使用储备', 'info', 'hold', 3);
         continue;
       }
       if (res === 'full') {
@@ -535,12 +549,14 @@ export class GameSession {
    * 耐久至少 40（用于避免“最近检查点已严重受损”的死局，计入评分扣分）。
    */
   restoreCheckpoint(index: number, mode: 'exact' | 'safe'): void {
+    if (this.disposed) return;
     const cp = this.checkpoints[index];
     if (!cp) return;
     const s = cp.snap;
     // 丢弃之后的检查点
     this.checkpoints = this.checkpoints.slice(0, index + 1);
     this.t = s.t;
+    this.steps = Math.round(this.t / STEP);
     const b = this.body;
     b.pos.set(...s.body.pos);
     b.quat.set(...s.body.quat);
@@ -561,7 +577,8 @@ export class GameSession {
       b.vel.set(0, 0, 0);
       b.angVel.set(0, 0, 0);
       if (!grounded) {
-        const gh = this.world.ctx.ground(b.pos.x, b.pos.z);
+        // 只看地面会把拱下的合法检查点抬进上方结构，或抬到树冠内部。
+        const gh = obstacleTop(this.world, b.pos.x, b.pos.z, HELI.rotorRadius);
         b.pos.y = Math.max(b.pos.y, gh + 25);
       }
       if (this.damage.durability < 40) this.damage.durability = 40;
@@ -584,9 +601,21 @@ export class GameSession {
     this.crashCause = null;
     this.ditchT = 0;
     this.invertT = 0;
+    this.bodyContactT = -10;
+    this.msgT = {};
+    this.hoverEdge = this.boostEdge = false;
+    this.input.pitch = this.input.turn = this.input.lateral = this.input.vertical = 0;
     this.lastStatus = this.damage.status;
     this.settledTime = 0;
+    this.settledPad = null;
+    this.repairProgress = 0;
+    this.lastTouchdown = null;
+    this.terrainWarning = null;
+    this.contacts.length = 0;
     this.events = [];
+    this.wind.profile = this.weather.windProfile();
+    this.wind.sample(b.pos.x, b.pos.y, b.pos.z, this.t, this.windNow);
+    this.windInfo = this.wind.info(b.pos.x, b.pos.y, b.pos.z, this.t);
     for (const [, cols] of this.treeProxies) for (const c of cols) this.phys.removeCollider(c);
     this.treeProxies.clear();
     this.updateTreeProxies();
@@ -594,6 +623,7 @@ export class GameSession {
 
   /** 调试/测试：把飞机放到指定位置，以给定航向（度）和前向速度飞行。 */
   teleport(x: number, y: number, z: number, headingDeg: number, speed = 0): void {
+    if (this.disposed) return;
     const b = this.body;
     b.pos.set(x, y, z);
     b.quat.setFromAxisAngle(new Vector3(0, 1, 0), -headingDeg * DEG);

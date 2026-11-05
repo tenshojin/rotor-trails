@@ -1,0 +1,597 @@
+{
+  "date": "2026-11-05",
+  "suite": "42 route and weather combinations",
+  "passed": 42,
+  "total": 42,
+  "scope": "Deterministic autopilot mission completion and physical safety; not human playtesting or renderer validation",
+  "cases": [
+    {
+      "file": "amazon_clear_0-0.json",
+      "map": "amazon",
+      "weather": "clear",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 376.5833333333195
+    },
+    {
+      "file": "amazon_clear_0-1.json",
+      "map": "amazon",
+      "weather": "clear",
+      "paths": [
+        0,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 333.7166666666918
+    },
+    {
+      "file": "amazon_clear_1-0.json",
+      "map": "amazon",
+      "weather": "clear",
+      "paths": [
+        1,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 367.4666666666611
+    },
+    {
+      "file": "amazon_clear_1-1.json",
+      "map": "amazon",
+      "weather": "clear",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 326.0333333333655
+    },
+    {
+      "file": "amazon_dynamic_0-0.json",
+      "map": "amazon",
+      "weather": "dynamic",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 383.9999999999794
+    },
+    {
+      "file": "amazon_dynamic_1-1.json",
+      "map": "amazon",
+      "weather": "dynamic",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 330.16666666669505
+    },
+    {
+      "file": "amazon_rain_0-0.json",
+      "map": "amazon",
+      "weather": "rain",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 380.0833333333163
+    },
+    {
+      "file": "amazon_rain_1-1.json",
+      "map": "amazon",
+      "weather": "rain",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 326.25000000003195
+    },
+    {
+      "file": "amazon_storm_0-0.json",
+      "map": "amazon",
+      "weather": "storm",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 388.04999999997574
+    },
+    {
+      "file": "amazon_storm_1-1.json",
+      "map": "amazon",
+      "weather": "storm",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 327.9500000000304
+    },
+    {
+      "file": "canyon_clear_0-0.json",
+      "map": "canyon",
+      "weather": "clear",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 435.3499999999327
+    },
+    {
+      "file": "canyon_clear_0-1.json",
+      "map": "canyon",
+      "weather": "clear",
+      "paths": [
+        0,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 476.7333333332284
+    },
+    {
+      "file": "canyon_clear_1-0.json",
+      "map": "canyon",
+      "weather": "clear",
+      "paths": [
+        1,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 424.7999999999423
+    },
+    {
+      "file": "canyon_clear_1-1.json",
+      "map": "canyon",
+      "weather": "clear",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 466.06666666657145
+    },
+    {
+      "file": "canyon_gusty_0-0.json",
+      "map": "canyon",
+      "weather": "gusty",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 433.5999999999343
+    },
+    {
+      "file": "canyon_gusty_1-1.json",
+      "map": "canyon",
+      "weather": "gusty",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 438.0999999999302
+    },
+    {
+      "file": "canyon_windy_0-0.json",
+      "map": "canyon",
+      "weather": "windy",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 445.78333333325656
+    },
+    {
+      "file": "canyon_windy_1-1.json",
+      "map": "canyon",
+      "weather": "windy",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 451.24999999991826
+    },
+    {
+      "file": "fjord_clear_0-0.json",
+      "map": "fjord",
+      "weather": "clear",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 371.633333333324
+    },
+    {
+      "file": "fjord_clear_0-1.json",
+      "map": "fjord",
+      "weather": "clear",
+      "paths": [
+        0,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 477.48333333322773
+    },
+    {
+      "file": "fjord_clear_1-0.json",
+      "map": "fjord",
+      "weather": "clear",
+      "paths": [
+        1,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 414.74999999995146
+    },
+    {
+      "file": "fjord_clear_1-1.json",
+      "map": "fjord",
+      "weather": "clear",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 520.416666666522
+    },
+    {
+      "file": "fjord_crosswind_0-0.json",
+      "map": "fjord",
+      "weather": "crosswind",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 378.89999999998406
+    },
+    {
+      "file": "fjord_crosswind_1-1.json",
+      "map": "fjord",
+      "weather": "crosswind",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 519.2333333331898
+    },
+    {
+      "file": "fjord_fog_0-0.json",
+      "map": "fjord",
+      "weather": "fog",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 364.4166666666639
+    },
+    {
+      "file": "fjord_fog_1-1.json",
+      "map": "fjord",
+      "weather": "fog",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 508.3499999998663
+    },
+    {
+      "file": "himalaya_clear_0-0.json",
+      "map": "himalaya",
+      "weather": "clear",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 631.1666666664213
+    },
+    {
+      "file": "himalaya_clear_0-1.json",
+      "map": "himalaya",
+      "weather": "clear",
+      "paths": [
+        0,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 712.866666666347
+    },
+    {
+      "file": "himalaya_clear_1-0.json",
+      "map": "himalaya",
+      "weather": "clear",
+      "paths": [
+        1,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 631.0999999997547
+    },
+    {
+      "file": "himalaya_clear_1-1.json",
+      "map": "himalaya",
+      "weather": "clear",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 712.7666666663471
+    },
+    {
+      "file": "himalaya_lowcloud_0-0.json",
+      "map": "himalaya",
+      "weather": "lowcloud",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 632.3499999997535
+    },
+    {
+      "file": "himalaya_lowcloud_1-1.json",
+      "map": "himalaya",
+      "weather": "lowcloud",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 714.5166666663455
+    },
+    {
+      "file": "himalaya_windy_0-0.json",
+      "map": "himalaya",
+      "weather": "windy",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 643.8499999997431
+    },
+    {
+      "file": "himalaya_windy_1-1.json",
+      "map": "himalaya",
+      "weather": "windy",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 721.3166666663393
+    },
+    {
+      "file": "japan_breeze_0-0.json",
+      "map": "japan",
+      "weather": "breeze",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 431.14999999993654
+    },
+    {
+      "file": "japan_breeze_1-1.json",
+      "map": "japan",
+      "weather": "breeze",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 406.833333333292
+    },
+    {
+      "file": "japan_clear_0-0.json",
+      "map": "japan",
+      "weather": "clear",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 400.38333333329786
+    },
+    {
+      "file": "japan_clear_0-1.json",
+      "map": "japan",
+      "weather": "clear",
+      "paths": [
+        0,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 417.26666666661583
+    },
+    {
+      "file": "japan_clear_1-0.json",
+      "map": "japan",
+      "weather": "clear",
+      "paths": [
+        1,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 384.9999999999785
+    },
+    {
+      "file": "japan_clear_1-1.json",
+      "map": "japan",
+      "weather": "clear",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 401.2999999999637
+    },
+    {
+      "file": "japan_rain_0-0.json",
+      "map": "japan",
+      "weather": "rain",
+      "paths": [
+        0,
+        0
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 404.03333333329454
+    },
+    {
+      "file": "japan_rain_1-1.json",
+      "map": "japan",
+      "weather": "rain",
+      "paths": [
+        1,
+        1
+      ],
+      "completed": true,
+      "crashed": false,
+      "durability": 100,
+      "collisions": 0,
+      "simulatedSeconds": 402.2833333332961
+    }
+  ]
+}

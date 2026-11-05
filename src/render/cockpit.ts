@@ -10,6 +10,8 @@ import { loadGltf } from './gltf';
 import { STD_KEYS } from './modelLib';
 import { drawAnnunciator, drawAttitude, drawEfb, drawGps, drawVemdBottom, drawVemdTop, NEEDLE, type InstrumentData } from './instruments';
 import { getNoiseTexture } from './textures';
+import { modelResources } from './modelResources';
+import { disposeTextures } from './disposeTextures';
 
 /** 驾驶员眼点（机体坐标，右侧机长座位），与 tools/blender/cockpit_layout.py 的 EYE 一致；实际视点的左右位置由设置“座舱视点居中”调整 */
 export const EYE = new THREE.Vector3(0.45, 0.42, -1.0);
@@ -59,6 +61,8 @@ const SCREEN_SIZE: Record<Screen['kind'], [number, number]> = {
 };
 
 const _q = new THREE.Quaternion();
+const _controlEuler = new THREE.Euler(0, 0, 0, 'XZY');
+const _controlAxis = new THREE.Vector3(1, 0, 0);
 
 export class Cockpit {
   readonly root = new THREE.Group();
@@ -83,18 +87,37 @@ export class Cockpit {
   private textures: THREE.Texture[] = [];
   private lastDraw = -1;
   private lastSlow = -1;
+  private disposed = false;
+  private sourceResources: ReturnType<typeof modelResources> | null = null;
 
   constructor() {
     this.ready = this.load().catch((e) => {
+      this.dispose();
       console.warn('驾驶舱模型加载失败：', e);
     });
   }
 
   private async load(): Promise<void> {
-    const [gltf, ao] = await Promise.all([
+    const [modelResult, aoResult] = await Promise.allSettled([
       loadGltf(MODEL_URL),
-      new THREE.TextureLoader().loadAsync(new URL(AO_URL, document.baseURI).href).catch(() => null),
+      new THREE.TextureLoader().loadAsync(new URL(AO_URL, document.baseURI).href).catch((error) => {
+        console.warn('驾驶舱 AO 贴图加载失败，使用未烘焙遮蔽的材质：', error);
+        return null;
+      }),
     ]);
+    const ao = aoResult.status === 'fulfilled' ? aoResult.value : null;
+    if (modelResult.status === 'rejected') {
+      if (ao) disposeTextures([ao]);
+      throw modelResult.reason;
+    }
+    const gltf = modelResult.value;
+    const resources = modelResources(gltf.scene);
+    if (this.disposed) {
+      resources.dispose();
+      if (ao) disposeTextures([ao]);
+      return;
+    }
+    this.sourceResources = resources;
     if (ao) {
       ao.flipY = false; // 与 glTF 的 UV 方向一致
       ao.channel = 1;
@@ -112,7 +135,6 @@ export class Cockpit {
     scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.isMesh) {
-        this.geos.add(m.geometry);
         const name = m.name;
         // 座舱内部只进最近两层阴影（图层 2，见 sunShadows.ts）：远处地面上的机影由直升机外观模型负责，
         // 上百个座舱零件不必在外面两层阴影里各画一遍
@@ -148,13 +170,16 @@ export class Cockpit {
             const t = sm[k];
             if (t) {
               t.anisotropy = 8;
-              this.textures.push(t);
             }
           }
         }
         m.material = sm;
       }
     });
+    // Replaced glTF materials are no longer used; their maps remain owned by
+    // sourceResources and may be shared across several converted materials.
+    for (const material of resources.materials) material.dispose();
+    resources.materials.clear();
     scene.traverse((o) => {
       if (o.name.startsWith('ndl_')) {
         const axis = new THREE.Vector3().fromArray((o.userData.axis as number[] | undefined) ?? [0, 0.242, 0.97]).normalize();
@@ -270,8 +295,6 @@ export class Cockpit {
     tex.flipY = false; // glTF 模型的 UV 原点在左上角
     // 屏幕自发光但不受色调映射压暗；乘 0.9 让白天看起来不过曝
     const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false, color: new THREE.Color(0.9, 0.9, 0.9) });
-    const old = m.material as THREE.Material;
-    old.dispose();
     m.material = mat;
     m.castShadow = false;
     m.receiveShadow = false;
@@ -369,18 +392,18 @@ export class Cockpit {
   updateControls(stickPitch: number, stickRoll: number, collective: number, pedal: number): void {
     const c = this.ctl;
     if (c.cyclic) {
-      _q.setFromEuler(new THREE.Euler(-stickPitch * 0.2, 0, -stickRoll * 0.2, 'XZY'));
+      _q.setFromEuler(_controlEuler.set(-stickPitch * 0.2, 0, -stickRoll * 0.2));
       c.cyclic.obj.quaternion.copy(c.cyclic.base).premultiply(_q);
     }
     if (c.collective) {
-      _q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), collective * 0.3);
+      _q.setFromAxisAngle(_controlAxis, collective * 0.3);
       c.collective.obj.quaternion.copy(c.collective.base).premultiply(_q);
     }
     if (c.pedalL && c.pedalR) {
       // 踩右舵：右脚蹬向前、左脚蹬向后
-      _q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), pedal * 0.18);
+      _q.setFromAxisAngle(_controlAxis, pedal * 0.18);
       c.pedalL.obj.quaternion.copy(c.pedalL.base).premultiply(_q);
-      _q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -pedal * 0.18);
+      _q.setFromAxisAngle(_controlAxis, -pedal * 0.18);
       c.pedalR.obj.quaternion.copy(c.pedalR.base).premultiply(_q);
     }
   }
@@ -450,8 +473,19 @@ export class Cockpit {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     for (const g of this.geos) g.dispose();
     for (const m of this.mats) m.dispose();
-    for (const t of this.textures) t.dispose();
+    disposeTextures(this.textures);
+    this.sourceResources?.dispose();
+    this.geos.clear();
+    this.mats.clear();
+    this.textures.length = this.screens.length = this.wipers.length = this.pilotParts.length = 0;
+    this.needles.clear();
+    this.ctl = {};
+    this.root.clear();
+    this.minimap = null;
+    this.loaded = false;
   }
 }
