@@ -123,6 +123,8 @@ export class GameSession {
   readonly contacts: ContactReport[] = [];
   lastTouchdown: { metrics: LandingMetrics; t: number; padId: string | null } | null = null;
   assistId: AssistId;
+  /** 休闲模式：没有任务、补给和检查点，撞了也不算失败 */
+  readonly free: boolean;
   private cpId = 0;
   private ditchT = 0;
   private invertT = 0;
@@ -135,15 +137,16 @@ export class GameSession {
   private hoverEdge = false;
   private disposed = false;
 
-  static async create(world: WorldData, weatherId: string, assist: AssistId): Promise<GameSession> {
+  static async create(world: WorldData, weatherId: string, assist: AssistId, free = false): Promise<GameSession> {
     await initPhysics();
-    return new GameSession(world, weatherId, assist);
+    return new GameSession(world, weatherId, assist, free);
   }
 
-  private constructor(world: WorldData, weatherId: string, assist: AssistId) {
+  private constructor(world: WorldData, weatherId: string, assist: AssistId, free: boolean) {
     this.world = world;
     const map = world.map;
     this.assistId = assist;
+    this.free = free;
     this.flight.setAssist(assist);
     this.phys = new PhysicsWorld(STEP);
     const P = this.phys;
@@ -162,7 +165,9 @@ export class GameSession {
       P.world.step();
       for (const p of map.pads) if (p.repair) this.repairUses[p.id] = p.repair.uses;
       this.mission = new MissionRuntime(map.mission);
+      if (free) this.mission.cargo = 0;
       this.nav = new Navigator(map, world.terrain);
+      if (free) this.nav.info.mode = 'complete';
       this.weather = new WeatherState(map.weathers, weatherId);
       this.wind = new WindField(this.weather.windProfile(), map.windZones, world.ctx.ground, map.seed);
       const spawnPad = world.pads.get(map.spawn.padId);
@@ -320,7 +325,7 @@ export class GameSession {
     const shield = this.buffs.shieldActive;
     this.damage.processContacts(this.contacts, this.t, dt, speed, shield, dmg);
     for (const c of this.contacts) if (c.part !== 'skid' && c.tag.kind !== 'boundary') this.bodyContactT = this.t;
-    if (this.contacts.some((c) => c.tag.kind === 'boundary')) this.msg('已到达任务区域边界，请返回', 'warn', 'boundary', 3);
+    if (this.contacts.some((c) => c.tag.kind === 'boundary')) this.msg(this.free ? '已经飞到地图的边上了，掉头吧' : '已到达任务区域边界，请返回', 'warn', 'boundary', 3);
     let touchdown: { padId: string | null; metrics: LandingMetrics } | null = null;
     const td = this.gear.touchdown;
     if (td) {
@@ -365,6 +370,15 @@ export class GameSession {
     this.settledTime = settled ? this.settledTime + dt : 0;
     this.settledPad = this.settledTime > 0.4 ? (this.gear.surface?.padId ?? null) : null;
     const airborne = this.gear.contactCount === 0 && this.agl > 0.8;
+
+    // 休闲模式到这里就够了：磕碰慢慢恢复，没有补给、维修站、任务和导航
+    if (this.free) {
+      if (this.damage.durability < 100) this.damage.repair(dt * 4);
+      this.warnTerrain(speed);
+      if (this.steps % 8 === 0) this.updateTreeProxies();
+      if (this.steps % 6 === 0) this.windInfo = this.wind.info(b.pos.x, b.pos.y, b.pos.z, this.t);
+      return;
+    }
 
     // ---------- Buff 拾取 ----------
     for (const p of map.pickups) {
@@ -442,7 +456,19 @@ export class GameSession {
     this.nav.update(b.pos, speed, goal, cur?.def.title ?? '', focusObj ? { pos: this.mission.goalOf(focusObj, b.pos), label: focusObj.def.title } : null);
     if (this.nav.passedCheckpoint) this.saveCheckpoint(this.nav.passedCheckpoint.label ?? '检查点');
 
-    // ---------- 地形逼近警告（按当前速度预测 6 秒） ----------
+    this.warnTerrain(speed);
+
+    // ---------- 其他 ----------
+    if (this.steps % 8 === 0) this.updateTreeProxies();
+    this.stats.distance += Math.hypot(b.vel.x, b.vel.z) * dt;
+    this.stats.maxSpeed = Math.max(this.stats.maxSpeed, speed);
+    if (airborne) this.stats.flightTime += dt;
+    if (this.steps % 6 === 0) this.windInfo = this.wind.info(b.pos.x, b.pos.y, b.pos.z, this.t);
+  }
+
+  /** 地形逼近警告（按当前速度预测 6 秒） */
+  private warnTerrain(speed: number): void {
+    const b = this.body;
     this.terrainWarning = null;
     if (speed > 12 && this.agl > 6) {
       for (const tt of [2, 4, 6]) {
@@ -454,13 +480,6 @@ export class GameSession {
         }
       }
     }
-
-    // ---------- 其他 ----------
-    if (this.steps % 8 === 0) this.updateTreeProxies();
-    this.stats.distance += Math.hypot(b.vel.x, b.vel.z) * dt;
-    this.stats.maxSpeed = Math.max(this.stats.maxSpeed, speed);
-    if (airborne) this.stats.flightTime += dt;
-    if (this.steps % 6 === 0) this.windInfo = this.wind.info(b.pos.x, b.pos.y, b.pos.z, this.t);
   }
 
   /** 只为附近的树创建碰撞体（代理激活），保证大面积森林的物理开销可控。 */
@@ -639,6 +658,20 @@ export class GameSession {
     for (const [, cols] of this.treeProxies) for (const c of cols) this.phys.removeCollider(c);
     this.treeProxies.clear();
     this.updateTreeProxies();
+  }
+
+  /** 休闲模式：飞到某处悬停（x、z、离障碍物顶的高度、航向） */
+  hoverAt(x: number, clear: number, z: number, headingDeg: number): void {
+    const y = obstacleTop(this.world, x, z, HELI.rotorRadius + 4) + clear;
+    this.teleport(x, y, z, headingDeg, 0);
+    this.crashCause = null;
+    this.ditchT = 0;
+    this.invertT = 0;
+    this.bodyContactT = -10;
+    this.terrainWarning = null;
+    this.events = [];
+    this.damage.repair(100);
+    this.flight.setHover(true);
   }
 
   /** 当前关卡可用的“恢复选项”：最近检查点、较早的安全检查点（耐久 ≥ 30 且停在地面或低速）。 */

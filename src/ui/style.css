@@ -1378,6 +1378,71 @@ kbd.big.on {
     outline-color: transparent;
   }
 }
+/* 休闲飞行：没有任务和导航，只留航向带和一行读数；电影镜头里什么都不留 */
+.hud.hud-free .hud-obj,
+.hud.hud-free .hud-buffs,
+.hud.hud-free .hud-forks,
+.hud.hud-cine .hud-nav,
+.hud.hud-cine .hud-hint,
+.hud.hud-cine .panel,
+.hud.hud-cine .hud-overlay {
+  display: none;
+}
+.vistas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.vistas span {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+}
+.free-pause {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+.free-pause h3 {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.chip:hover,
+.chip:focus-visible {
+  border-color: var(--accent);
+}
+.chip.sel {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06131c;
+}
+.free-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 16px;
+}
+.free-actions .primary {
+  grid-column: 1 / -1;
+}
 /* 课程表 */
 .train {
   display: grid;

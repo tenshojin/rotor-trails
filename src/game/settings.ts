@@ -19,6 +19,7 @@ export type Action =
   | 'nav'
   | 'mapRange'
   | 'hud'
+  | 'cruise'
   | 'lookLeft'
   | 'lookRight'
   | 'lookUp'
@@ -41,6 +42,7 @@ export const ACTION_LABEL: Record<Action, string> = {
   nav: '切换导航目标 / 分岔推荐路线',
   mapRange: '切换地图范围',
   hud: 'HUD 显示（自动 / 完整 / 隐藏）',
+  cruise: '自动巡航 开/关（休闲模式）',
   lookLeft: '向左看（无鼠标锁定时）',
   lookRight: '向右看',
   lookUp: '向上看',
@@ -65,6 +67,7 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   nav: ['KeyN'],
   mapRange: ['KeyM'],
   hud: ['KeyU'],
+  cruise: ['KeyJ'],
   lookLeft: ['ArrowLeft'],
   lookRight: ['ArrowRight'],
   lookUp: ['ArrowUp'],

@@ -193,6 +193,13 @@ export interface AmbienceDef {
   gulls?: number;
 }
 
+/** 观景点（休闲模式）：at = [x, 离地高度, z]，look = 看向哪里 [x, z] */
+export interface Vista {
+  name: string;
+  at: V3;
+  look: [number, number];
+}
+
 export interface MapDef {
   id: MapId;
   name: string;
@@ -240,6 +247,8 @@ export interface MapDef {
   sunDusk?: [number, number];
   ambience: AmbienceDef;
   landmarks: Array<{ name: string; pos: V3 }>;
+  /** 休闲模式的观景点（第一个是出生点）；地标也会自动列进去 */
+  vistas?: Vista[];
   briefing: string[];
   /** 首次游玩估计的主线时长（分钟），仅用于说明 */
   estMinutes: [number, number];

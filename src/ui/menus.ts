@@ -155,7 +155,7 @@ export class UI {
     );
   }
 
-  main(opts: { warning: string | null; tutorialDone: boolean }, on: { play: () => void; tutorial: () => void; settings: () => void; help: () => void; about: () => void }): void {
+  main(opts: { warning: string | null; tutorialDone: boolean }, on: { play: () => void; free: () => void; tutorial: () => void; settings: () => void; help: () => void; about: () => void }): void {
     const el = this.show(
       h(`<div class="screen main-menu">
         <div class="title-block">
@@ -164,6 +164,7 @@ export class UI {
         </div>
         <div class="menu-col">
           <button class="btn primary" data-a="play">开始游戏</button>
+          <button class="btn" data-a="free">休闲飞行</button>
           <button class="btn" data-a="tutorial">飞行训练${opts.tutorialDone ? '' : ' <span class="tag">推荐先玩</span>'}</button>
           <button class="btn" data-a="settings">设置</button>
           <button class="btn" data-a="help">操作说明</button>
@@ -172,7 +173,7 @@ export class UI {
         <div class="menu-foot">${opts.warning ? `<div class="warnbox">${opts.warning}</div>` : ''}<span>v1.0 · 没有时间限制，按自己的节奏飞行</span></div>
       </div>`),
     );
-    this.bind(el, { play: on.play, tutorial: on.tutorial, settings: on.settings, help: on.help, about: on.about });
+    this.bind(el, { play: on.play, free: on.free, tutorial: on.tutorial, settings: on.settings, help: on.help, about: on.about });
   }
 
   /** 飞行训练的课程表 */
@@ -207,21 +208,21 @@ export class UI {
     this.bind(el, { next: on.next, again: on.again, menu: on.menu });
   }
 
-  mapSelect(maps: MapDef[], records: Partial<Record<string, MapRecord>>, on: { pick: (m: MapDef) => void; back: () => void }): void {
+  mapSelect(maps: MapDef[], records: Partial<Record<string, MapRecord>>, on: { pick: (m: MapDef) => void; back: () => void }, free = false): void {
     const cards = maps
       .map((m, i) => {
         const r = records[m.id];
         return `<button type="button" class="map-card map-${m.id}" data-a="pick" data-i="${i}" aria-labelledby="map-name-${m.id}">
           <span class="mc-img" style="background-image:url(ui/map_${m.id}.webp)" aria-hidden="true"></span>
-          <span class="mc-body"><span class="mc-head"><span class="mc-no">${m.id === 'training' ? '训练' : `第 ${maps.filter((x) => x.id !== 'training').indexOf(m) + 1} 关`}</span><span class="mc-stars" aria-label="推荐难度 ${m.difficulty} / 5">${stars(m.difficulty)}</span></span>
+          <span class="mc-body">${free ? `<span class="mc-head"><span class="mc-no">${m.region}</span></span>` : `<span class="mc-head"><span class="mc-no">${m.id === 'training' ? '训练' : `第 ${maps.filter((x) => x.id !== 'training').indexOf(m) + 1} 关`}</span><span class="mc-stars" aria-label="推荐难度 ${m.difficulty} / 5">${stars(m.difficulty)}</span></span>`}
           <span class="mc-name" id="map-name-${m.id}">${m.name}</span><span class="mc-sub">${m.subtitle}</span>
           <span class="mc-desc">${m.description}</span>
-          <span class="mc-foot"><span>推荐：${ASSISTS[m.recommendedAssist].label}</span>${r?.completed ? `<span class="mc-best">最佳 ${r.bestRating} · ${r.bestScore}</span>` : '<span class="muted">未完成</span>'}</span></span>
+          ${free ? '' : `<span class="mc-foot"><span>推荐：${ASSISTS[m.recommendedAssist].label}</span>${r?.completed ? `<span class="mc-best">最佳 ${r.bestRating} · ${r.bestScore}</span>` : '<span class="muted">未完成</span>'}</span>`}</span>
         </button>`;
       })
       .join('');
     const el = this.show(
-      h(`<div class="screen"><div class="screen-head"><button class="btn ghost" data-a="back">← 返回</button><h2>选择地图</h2><span class="muted">所有地图均可直接选择，无需解锁</span></div>
+      h(`<div class="screen"><div class="screen-head"><button class="btn ghost" data-a="back">← 返回</button><h2>${free ? '休闲飞行' : '选择地图'}</h2><span class="muted">${free ? '没有任务，没有计时，撞了也没关系。选一个想去的地方' : '所有地图均可直接选择，无需解锁'}</span></div>
       <div class="map-grid">${cards}</div></div>`),
     );
     this.bind(el, { pick: (b) => on.pick(maps[Number(b.dataset.i)]), back: on.back });
@@ -285,6 +286,88 @@ export class UI {
       },
       start: () => on.start(weather, assist, time),
       back: on.back,
+    });
+  }
+
+  /** 休闲飞行：选时段和天气 */
+  freeBrief(m: MapDef, settings: Settings, vistas: string[], on: { start: (weather: string, time: TimeOfDay) => void; back: () => void }): void {
+    void settings;
+    let weather = m.defaultWeather;
+    let time: TimeOfDay = 'dusk';
+    const el = this.show(
+      h(`<div class="screen"><div class="screen-head"><button class="btn ghost" data-a="back">← 返回</button><h2>${m.name}</h2><span class="muted">${m.region} · 休闲飞行</span></div>
+      <div class="brief">
+        <div class="brief-main card">
+          <div class="brief-hero" style="background-image:url(ui/map_${m.id}.webp)" aria-hidden="true"></div>
+          <p class="lead">${m.description}</p>
+          <h3>值得一去的地方</h3>
+          <p class="vistas">${vistas.map((v) => `<span>${v}</span>`).join('')}</p>
+          <p class="muted">飞行中按暂停键可以随时换时段、换天气，或者直接跳到这些地方。</p>
+        </div>
+        <div class="brief-side">
+          <div class="card"><h3 id="brief-time">时段</h3><div class="opts" data-group="time" role="group" aria-labelledby="brief-time">${(Object.keys(TIME_OF_DAY) as TimeOfDay[])
+            .map((k) => `<button type="button" class="opt-card ${k === time ? 'sel' : ''}" data-a="time" data-v="${k}" aria-pressed="${k === time}"><b>${TIME_OF_DAY[k].label}</b><span>${TIME_OF_DAY[k].desc}</span></button>`)
+            .join('')}</div></div>
+          <div class="card"><h3 id="brief-weather">天气</h3><div class="opts" data-group="weather" role="group" aria-labelledby="brief-weather">${m.weathers
+            .map((w) => `<button type="button" class="opt-card ${w.id === weather ? 'sel' : ''}" data-a="weather" data-v="${w.id}" aria-pressed="${w.id === weather}"><b>${w.label}</b><span>${w.desc}</span></button>`)
+            .join('')}</div></div>
+          <button class="btn primary big" data-a="start">起飞</button>
+        </div>
+      </div></div>`),
+    );
+    const sel = (group: string, v: string) => el.querySelectorAll<HTMLElement>(`[data-group="${group}"] .opt-card`).forEach((c) => {
+      const selected = c.dataset.v === v;
+      c.classList.toggle('sel', selected);
+      c.setAttribute('aria-pressed', String(selected));
+    });
+    this.bind(el, {
+      weather: (b) => {
+        weather = b.dataset.v!;
+        sel('weather', weather);
+      },
+      time: (b) => {
+        time = b.dataset.v as TimeOfDay;
+        sel('time', time);
+      },
+      start: () => on.start(weather, time),
+      back: on.back,
+    });
+  }
+
+  /** 休闲飞行的暂停菜单 */
+  freePause(o: { map: MapDef; time: TimeOfDay; weather: string; vistas: string[]; cruise: boolean }, on: { resume: () => void; time: (t: TimeOfDay) => void | Promise<void>; weather: (id: string) => void; vista: (i: number) => void; cruise: () => void; settings: () => void; help: () => void; quit: () => void }): void {
+    const chip = (a: string, v: string, label: string, sel: boolean) => `<button type="button" class="chip ${sel ? 'sel' : ''}" data-a="${a}" data-v="${v}" aria-pressed="${sel}">${label}</button>`;
+    const el = this.show(
+      h(`<div class="screen center dim"><div class="card free-pause"><h2>${o.map.name}</h2>
+      <h3>时段</h3><div class="chips" data-group="time">${(Object.keys(TIME_OF_DAY) as TimeOfDay[]).map((k) => chip('time', k, TIME_OF_DAY[k].label, k === o.time)).join('')}</div>
+      <h3>天气</h3><div class="chips" data-group="weather">${o.map.weathers.map((w) => chip('weather', w.id, w.label, w.id === o.weather)).join('')}</div>
+      <h3>去这些地方</h3><div class="chips">${o.vistas.map((v, i) => chip('vista', String(i), v, false)).join('')}</div>
+      <div class="free-actions"><button class="btn primary" data-a="resume">继续飞行</button>
+      <button class="btn" data-a="cruise">${o.cruise ? '关闭自动巡航' : '自动巡航（看风景）'}</button>
+      <button class="btn" data-a="settings">设置</button>
+      <button class="btn" data-a="help">操作说明</button>
+      <button class="btn ghost" data-a="quit">回主菜单</button></div></div></div>`),
+    );
+    const sel = (group: string, v: string) => el.querySelectorAll<HTMLElement>(`[data-group="${group}"] .chip`).forEach((c) => {
+      const selected = c.dataset.v === v;
+      c.classList.toggle('sel', selected);
+      c.setAttribute('aria-pressed', String(selected));
+    });
+    this.bind(el, {
+      resume: on.resume,
+      time: (b) => {
+        sel('time', b.dataset.v!);
+        void on.time(b.dataset.v as TimeOfDay);
+      },
+      weather: (b) => {
+        sel('weather', b.dataset.v!);
+        on.weather(b.dataset.v!);
+      },
+      vista: (b) => on.vista(Number(b.dataset.v)),
+      cruise: on.cruise,
+      settings: on.settings,
+      help: on.help,
+      quit: on.quit,
     });
   }
 
@@ -423,7 +506,8 @@ export class UI {
           <tr><td>${k('view')}</td><td>切换座舱/追尾视角</td></tr>
           <tr><td>${k('nav')}</td><td>切换导航目标（主线/可选任务）；分岔处切换推荐路线</td></tr>
           <tr><td>${k('mapRange')}</td><td>切换座舱地图显示范围</td></tr>
-          <tr><td>${k('hud')}</td><td>HUD 显示：完整 / 简洁（只留航向带和目标标记）/ 隐藏（想看风景、截图的时候）</td></tr>
+          <tr><td>${k('hud')}</td><td>HUD 显示：自动（平稳飞行时收起）/ 完整 / 隐藏（想看风景、截图的时候）</td></tr>
+          <tr><td>${k('cruise')}</td><td>自动巡航（休闲飞行）：沿着景点自己飞，动任何飞行键就交回给你</td></tr>
           <tr><td>${k('pause')}</td><td>暂停</td></tr></table></div>
         <div><h3>飞行要点</h3><ul class="tips">
           <li>直升机有真实的重量和惯性：加速、减速、转弯都需要时间和空间，<b>高速时请提前减速</b>。</li>

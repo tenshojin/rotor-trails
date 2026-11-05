@@ -219,12 +219,12 @@ export class NavView {
     const cur = s.mission.current();
     this.lampOn = 0;
     this.smokeOn = false;
-    if (show && cur) this.placeObjective(cur.def, cur.visited, s, t, camPos);
+    if (show && cur && !s.free) this.placeObjective(cur.def, cur.visited, s, t, camPos);
     for (let i = this.lampOn; i < this.lamps.length; i++) this.lamps[i].visible = false;
     this.updateSmoke(dt, s, cam);
     // 补给无人机
     for (const [id, p] of this.pickups) {
-      p.obj.visible = !s.pickupsTaken.has(id);
+      p.obj.visible = !s.free && !s.pickupsTaken.has(id);
       if (!p.obj.visible) continue;
       // 悬停时的轻微漂移
       p.obj.position.set(p.base.x + Math.sin(t * 0.7 + p.base.z) * 0.5, p.base.y + Math.sin(t * 1.3 + p.base.x) * 0.4, p.base.z + Math.cos(t * 0.6 + p.base.x) * 0.5);

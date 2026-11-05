@@ -11,6 +11,8 @@ export interface CameraSettings {
   eyeX: number;
   shake: number; // 0..1
   headMotion: boolean;
+  /** 地面高度（电影镜头要躲开地形） */
+  ground?: (x: number, z: number) => number;
 }
 
 /** 眼睛相对颈椎转轴的位置（米）：前方、上方 */
@@ -32,13 +34,19 @@ export class CameraRig {
   readonly camera: THREE.PerspectiveCamera;
   yaw = 0;
   pitch = DEFAULT_PITCH;
-  mode: 'cockpit' | 'chase' = 'cockpit';
+  mode: 'cockpit' | 'chase' | 'cinema' = 'cockpit';
   private recenter = false;
   private head = new THREE.Vector3();
   private impact = 0;
   private chasePos = new THREE.Vector3();
   private chaseInit = false;
   private prevVel = new THREE.Vector3();
+  /** 电影镜头：第几个镜头、拍了多久、机位、焦距（竖直视角） */
+  private shot = -1;
+  private shotT = 0;
+  private cine = new THREE.Vector3();
+  private cineFov = 40;
+  private cineAim = new THREE.Vector3();
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(72, aspect, 0.05, 30000);
@@ -63,8 +71,78 @@ export class CameraRig {
     this.impact = Math.min(1.5, this.impact + strength);
   }
 
+  /**
+   * 电影镜头：像风光片那样一个镜头接一个镜头，切换时才换机位。
+   *   0 飞越：机位在前方的地面附近，等直升机飞过去（长焦，背后是远山）
+   *   1 伴飞：贴在侧面一起飞（中焦）
+   *   2 高空：远远地从后上方看，直升机只是风景里的一个小点（广角）
+   */
+  private cinema(dt: number, pos: THREE.Vector3, vel: THREE.Vector3, ground: (x: number, z: number) => number): void {
+    this.shotT += dt;
+    const sp = Math.hypot(vel.x, vel.z);
+    const fx = sp > 3 ? vel.x / sp : 0;
+    const fz = sp > 3 ? vel.z / sp : -1;
+    const dist = this.cine.distanceTo(pos);
+    const kind = ((this.shot % 3) + 3) % 3;
+    // 山挡住了直升机，这个镜头就不能用了
+    const hidden = (): boolean => {
+      for (let k = 0.15; k < 0.95; k += 0.2) {
+        _target.lerpVectors(this.cine, pos, k);
+        if (ground(_target.x, _target.z) + 3 > _target.y) return true;
+      }
+      return false;
+    };
+    const over = this.shot < 0 || (this.shotT > 1 && hidden()) || (kind === 0 ? this.shotT > 4 && (dist > 300 || this.shotT > 18) : this.shotT > (kind === 1 ? 13 : 10));
+    if (over) {
+      this.shot++;
+      this.shotT = 0;
+      const next = this.shot % 3;
+      // 左右交替，别总在同一边
+      const side = this.shot % 2 === 0 ? 1 : -1;
+      if (next === 0) {
+        const ahead = 110 + sp * 5;
+        const x = pos.x + fx * ahead - fz * side * 46;
+        const z = pos.z + fz * ahead + fx * side * 46;
+        // 比直升机低一点就够了：再低就是对着天空拍它的肚子
+        this.cine.set(x, Math.max(ground(x, z) + 7, pos.y - 9), z);
+        this.cineFov = 30;
+      } else if (next === 1) {
+        this.cineFov = 44;
+      } else {
+        this.cineFov = 58;
+      }
+      this.cineAim.copy(pos);
+    }
+    const now = this.shot % 3;
+    const side = this.shot % 2 === 0 ? 1 : -1;
+    if (now === 1) {
+      const x = pos.x - fx * 15 - fz * side * 24;
+      const z = pos.z - fz * 15 + fx * side * 24;
+      _target.set(x, Math.max(ground(x, z) + 5, pos.y + 3), z);
+      this.cine.lerp(_target, this.shotT < 0.05 ? 1 : 1 - Math.exp(-dt * 3));
+    } else if (now === 2) {
+      const x = pos.x - fx * 95 - fz * side * 40;
+      const z = pos.z - fz * 95 + fx * side * 40;
+      _target.set(x, Math.max(ground(x, z) + 12, pos.y + 42), z);
+      this.cine.lerp(_target, this.shotT < 0.05 ? 1 : 1 - Math.exp(-dt * 1.2));
+    }
+    // 取景跟得慢一点，不要死死钉在直升机上
+    this.cineAim.lerp(pos, 1 - Math.exp(-dt * 4));
+    this.camera.position.copy(this.cine);
+    this.camera.lookAt(this.cineAim);
+  }
+
   update(dt: number, t: number, pos: THREE.Vector3, quat: THREE.Quaternion, vel: THREE.Vector3, rpmLoad: number, s: CameraSettings): void {
     const cam = this.camera;
+    if (this.mode === 'cinema') {
+      this.cinema(dt, pos, vel, s.ground ?? (() => -1e4));
+      this.prevVel.copy(vel);
+      if (cam.fov !== this.cineFov) {
+        cam.fov = this.cineFov;
+        cam.updateProjectionMatrix();
+      }
+      return;
+    }
     if (cam.fov !== s.fov) {
       cam.fov = s.fov;
       cam.updateProjectionMatrix();
@@ -136,7 +214,8 @@ export class CameraRig {
     }
   }
 
-  setMode(m: 'cockpit' | 'chase'): void {
+  setMode(m: 'cockpit' | 'chase' | 'cinema'): void {
+    this.shot = -1;
     this.mode = m;
     this.chaseInit = false;
   }

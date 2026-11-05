@@ -8,6 +8,10 @@ export class InstrumentLists {
   readonly pickups: InstrumentData['pickups'] = [];
 
   update(session: GameSession): void {
+    if (session.free) {
+      this.route.length = this.objectives.length = this.pickups.length = 0;
+      return;
+    }
     const route = this.route;
     const start = route[0] ??= [0, 0];
     start[0] = session.body.pos.x;

@@ -8,6 +8,7 @@ import { CAUSE_LABEL } from '../sim/damage';
 import { GRADE_LABEL } from '../sim/mission';
 import { computeScore } from '../sim/scoring';
 import { GameSession, STEP, type GameEvent } from '../sim/session';
+import { ScenicCruise, vistasOf } from '../sim/cruise';
 import { FixedStepper } from '../core/stepper';
 import { WorldView } from '../render/worldView';
 import { DEFAULT_PITCH } from '../render/cameraRig';
@@ -33,6 +34,8 @@ interface RunConfig {
   tutorial: boolean;
   /** 教学从第几课开始 */
   lesson?: number;
+  /** 休闲模式：没有任务，随便飞 */
+  free?: boolean;
   /** 时段（只影响画面） */
   time?: TimeOfDay;
 }
@@ -110,6 +113,8 @@ export class App {
   private readonly instrumentLists = new InstrumentLists();
   private loadingRun = false;
   private loadWarning: string | null = null;
+  /** 休闲模式的自动巡航 */
+  private cruise: ScenicCruise | null = null;
   private tutorialHtml = '';
   private readonly tutorialCtx: TutorialCtx = { yaw: 0, pitch: 0, held: (a) => this.input.is(a), dragLook: false };
   private controlHintHtml = '';
@@ -286,7 +291,7 @@ export class App {
       const tp = params.get('time');
       const assist = params.get('assist');
       const weather = m.weathers.find((w) => w.id === params.get('weather'))?.id ?? m.defaultWeather;
-      await this.startRun({ map: m, weather, assist: assist === 'novice' || assist === 'standard' || assist === 'challenge' ? assist : this.settings.assist, tutorial: auto.id === 'training' && params.get('tutorial') !== '0', lesson: Number(params.get('lesson') ?? 0) || 0, time: isTimeOfDay(tp) ? tp : 'day' });
+      await this.startRun({ map: m, weather, assist: assist === 'novice' || assist === 'standard' || assist === 'challenge' ? assist : this.settings.assist, tutorial: auto.id === 'training' && params.get('tutorial') !== '0' && params.get('free') !== '1', lesson: Number(params.get('lesson') ?? 0) || 0, free: params.get('free') === '1', time: isTimeOfDay(tp) ? tp : 'day' });
       if (params.get('autostart') === '1') this.beginFlight();
     } else {
       this.mainMenu();
@@ -345,6 +350,7 @@ export class App {
       { warning: [this.loadWarning, touchOnlyWarning(), gpuWarning(this.gpu), this.save.warning].filter(Boolean).join('<br>') || null, tutorialDone: this.save.data.tutorialDone },
       {
         play: () => this.mapSelect(),
+        free: () => this.freeSelect(),
         tutorial: () => this.trainingMenu(),
         settings: () => this.openSettings(),
         help: () => this.ui.help(this.settings.bindings),
@@ -359,6 +365,20 @@ export class App {
     this.ui.training(LESSONS, this.save.data.lessonsDone, {
       start: (lesson) => void this.startRun({ map: getMap('training'), weather: 'clear', assist: 'novice', tutorial: true, lesson }),
       back: () => this.mainMenu(),
+    });
+  }
+
+  /** 休闲飞行：选地图 → 选时段和天气 → 直接在空中开始 */
+  freeSelect(): void {
+    this.state = 'menu';
+    const list = [...CAMPAIGN.filter((id) => MAPS.find((m) => m.id === id)).map((id) => getMap(id)), getMap('training')];
+    this.ui.mapSelect(list, {}, { pick: (m) => this.freeBrief(m), back: () => this.mainMenu() }, true);
+  }
+
+  freeBrief(m: MapDef): void {
+    this.ui.freeBrief(m, this.settings, vistasOf(m).map((v) => v.name), {
+      start: (weather, time) => void this.startRun({ map: m, weather, assist: 'novice', tutorial: false, free: true, time }),
+      back: () => this.freeSelect(),
     });
   }
 
@@ -412,7 +432,9 @@ export class App {
   private refreshControlHint(): void {
     const k = (a: keyof Settings['bindings']) => keyName(this.settings.bindings[a][0]);
     const html = this.settings.hints && !this.tutorial && this.state === 'playing'
-      ? `<kbd>${k('hover')}</kbd> 悬停 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('nav')}</kbd> 导航 · <kbd>${k('pause')}</kbd> 暂停`
+      ? this.run?.free
+        ? `<kbd>${k('cruise')}</kbd> 自动巡航 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('hud')}</kbd> 显示仪表 · <kbd>${k('pause')}</kbd> 换时段、天气、景点`
+        : `<kbd>${k('hover')}</kbd> 悬停 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('nav')}</kbd> 导航 · <kbd>${k('pause')}</kbd> 暂停`
       : '';
     if (html === this.controlHintHtml) return;
     this.controlHintHtml = html;
@@ -471,7 +493,7 @@ export class App {
       this.world = w;
     }
     this.ui.loading('初始化物理', 0.98, cfg.map);
-    const session = await GameSession.create(this.world, cfg.weather, cfg.assist);
+    const session = await GameSession.create(this.world, cfg.weather, cfg.assist, cfg.free === true);
     if (this.disposed) {
       session.dispose();
       return;
@@ -483,6 +505,10 @@ export class App {
     this.tutorial = cfg.tutorial ? new Tutorial(this.settings) : null;
     this.tutorialHtml = '';
     this.hud.setTutorial?.(null);
+    this.hud.setFree?.(cfg.free === true);
+    this.hud.setCinema?.(false);
+    this.cruise = null;
+    if (cfg.free) this.goToVista(session, 0);
     this.audio.setAmbience(cfg.map.ambience);
     this.stepper.reset();
     this.view.rig.setMode('cockpit');
@@ -496,8 +522,8 @@ export class App {
     const k = (a: keyof Settings['bindings']) => keyName(this.settings.bindings[a][0]);
     const controls = this.settings.hints ? `<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>${k('pause')}</kbd> 暂停` : '';
     this.ui.clickToStart(
-      cfg.tutorial ? `第 ${(cfg.lesson ?? 0) + 1} 课 · ${LESSONS[cfg.lesson ?? 0].title}` : cfg.map.name,
-      cfg.tutorial ? '跟着屏幕下方的提示做，每次只学一个动作。' : `${this.session.mission.current()?.def.title ?? ''}${controls}`,
+      cfg.tutorial ? `第 ${(cfg.lesson ?? 0) + 1} 课 · ${LESSONS[cfg.lesson ?? 0].title}` : cfg.free ? `休闲飞行 · ${cfg.map.name}` : cfg.map.name,
+      cfg.tutorial ? '跟着屏幕下方的提示做，每次只学一个动作。' : cfg.free ? `没有任务，没有计时。想去哪儿就去哪儿，懒得飞就按 <kbd>${k('cruise')}</kbd> 让它自己飞。` : `${this.session.mission.current()?.def.title ?? ''}${controls}`,
       () => this.beginFlight(),
     );
   }
@@ -609,6 +635,10 @@ export class App {
     this.input.clear();
     this.input.exitLock();
     this.audio.update(this.audioState(true), 0);
+    if (this.run?.free) {
+      this.freePause();
+      return;
+    }
     this.ui.pause(
       { tutorial: !!this.tutorial, checkpoints: this.session.restoreOptions() },
       {
@@ -624,6 +654,70 @@ export class App {
         },
       },
     );
+  }
+
+  /** 休闲模式的暂停菜单：时段、天气、景点都在这里换 */
+  private freePause(): void {
+    const s = this.session;
+    const run = this.run;
+    if (!s || !run) return;
+    const vistas = vistasOf(run.map);
+    this.ui.freePause(
+      { map: run.map, time: run.time ?? 'day', weather: s.weather.preset.id, vistas: vistas.map((v) => v.name), cruise: !!this.cruise },
+      {
+        resume: () => this.resume(),
+        time: (t) => this.freeTime(t),
+        weather: (id) => {
+          s.weather.preset = run.map.weathers.find((w) => w.id === id) ?? s.weather.preset;
+          s.weather.transitionTo(id, 5);
+        },
+        vista: (i) => {
+          this.goToVista(s, i);
+          this.resume();
+        },
+        cruise: () => {
+          this.toggleCruise();
+          this.resume();
+        },
+        settings: () => this.openSettings(),
+        help: () => this.ui.help(this.settings.bindings),
+        quit: () => this.quitToMenu(),
+      },
+    );
+  }
+
+  /** 换时段：夜里多一盏着陆灯，所有材质要重新编译，所以进出夜晚时等它编译完 */
+  private async freeTime(t: TimeOfDay): Promise<void> {
+    const run = this.run;
+    if (!run) return;
+    const night = (run.time ?? 'day') === 'night' || t === 'night';
+    run.time = t;
+    this.view.setTimeOfDay(t);
+    if (night) await this.warmUp();
+  }
+
+  /** 到某个景点：悬停在那里，朝着要看的方向 */
+  private goToVista(s: GameSession, i: number): void {
+    const v = vistasOf(s.world.map)[i];
+    if (!v) return;
+    this.cruise = null;
+    const heading = (Math.atan2(v.look[0] - v.at[0], -(v.look[1] - v.at[2])) * 180) / Math.PI;
+    s.hoverAt(v.at[0], v.at[1], v.at[2], heading);
+    this.view.rig.yaw = 0;
+    this.view.rig.pitch = DEFAULT_PITCH;
+  }
+
+  private toggleCruise(): void {
+    const s = this.session;
+    const run = this.run;
+    if (!s || !run?.free) return;
+    if (this.cruise) {
+      this.cruise = null;
+      this.hud.toast('自动巡航：关闭，你来飞', 'info', 2500);
+    } else {
+      this.cruise = new ScenicCruise(s, vistasOf(run.map));
+      this.hud.toast('自动巡航：开启。动任何一个飞行键就交回给你', 'info', 3500);
+    }
   }
 
   resume(): void {
@@ -659,14 +753,17 @@ export class App {
     this.session?.dispose();
     this.session = null;
     this.tutorial = null;
+    this.cruise = null;
     this.hud.setTutorial?.(null);
+    this.hud.setFree?.(false);
+    this.hud.setCinema?.(false);
     this.failTimer = this.completeTimer = -1;
     this.audio.update(this.audioState(true), 0);
     this.audio.setAmbience({});
     this.mainMenu();
   }
 
-  private onEdge(a: 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud'): void {
+  private onEdge(a: 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise'): void {
     const s = this.session;
     if (a === 'pause') {
       if (this.state === 'playing') this.pause();
@@ -679,7 +776,15 @@ export class App {
     }
     else if (a === 'boost') s.useBoost();
     else if (a === 'center') this.view.rig.center();
-    else if (a === 'view') this.view.rig.setMode(this.view.rig.mode === 'cockpit' ? 'chase' : 'cockpit');
+    else if (a === 'cruise') this.toggleCruise();
+    else if (a === 'view') {
+      // 休闲模式多一个电影镜头
+      const rig = this.view.rig;
+      const next = rig.mode === 'cockpit' ? 'chase' : rig.mode === 'chase' && this.run?.free ? 'cinema' : 'cockpit';
+      rig.setMode(next);
+      this.hud.setCinema?.(next === 'cinema');
+      if (next === 'cinema') this.hud.toast('电影镜头', 'info', 1500);
+    }
     else if (a === 'nav') s.cycleNav();
     else if (a === 'hud') this.hud.toast(`HUD：${this.hud.cycleMode()}`, 'info', 1500);
     else if (a === 'mapRange') {
@@ -761,7 +866,13 @@ export class App {
       this.failTimer -= dt;
       if (this.failTimer <= 0) {
         if (this.tutorial && s) this.tutorialRecover(s);
-        else this.showFailure();
+        else if (this.run?.free && s) {
+          // 休闲模式没有失败：回到刚才那里的上空
+          this.failTimer = -1;
+          this.cruise = null;
+          s.hoverAt(s.body.pos.x, 60, s.body.pos.z, s.flight.telemetry.heading * 57.29578);
+          this.hud.toast('没关系，继续飞', 'info', 2500);
+        } else this.showFailure();
       }
     }
     if (this.state === 'playing' && this.completeTimer > 0) {
@@ -795,6 +906,12 @@ export class App {
     s.input.lateral = I.axis('strafeLeft', 'strafeRight');
     s.input.vertical = I.axis('down', 'up');
     this.tutorial?.filter(s.input);
+    if (this.cruise) {
+      if (s.input.pitch || s.input.turn || s.input.lateral || s.input.vertical) {
+        this.cruise = null;
+        this.hud.toast('已取消自动巡航，你来飞', 'info', 2500);
+      } else this.cruise.update();
+    }
     const [dx, dy] = I.takeLook(dt);
     if (dx || dy) this.view.rig.look(dx, dy);
   }
@@ -870,7 +987,11 @@ export class App {
       switch (e.type) {
         case 'damage': {
           const d = e.ev;
-          if (d.blocked) {
+          // 休闲模式不提耐久，磕一下有声音和震动就够了
+          if (this.run?.free) {
+            A.impact(d.severity * 0.5);
+            this.view.rig.kick(Math.min(1, d.amount / 20));
+          } else if (d.blocked) {
             if (this.t - this.lastBlocked > 1.5) hud.toast(`护盾吸收了碰撞（${CAUSE_LABEL[d.cause]}）`, 'info', 2000);
             this.lastBlocked = this.t;
             A.impact(d.severity * 0.5);
@@ -904,6 +1025,7 @@ export class App {
           if (e.padId && e.metrics.safe) hud.toast(`接地：${GRADE_LABEL[e.metrics.grade]}（下降 ${e.metrics.descent.toFixed(1)} m/s）`, 'info', 2200);
           break;
         case 'status':
+          if (this.run?.free) break;
           if (e.status === 'damaged' && e.prev === 'normal') {
             A.alert('damaged');
             hud.toast('机体受损：动力与爬升性能开始下降', 'warn', 4000);

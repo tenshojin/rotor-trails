@@ -243,6 +243,11 @@ export const TRAINING: MapDef = {
   sun: [215, 42],
   ambience: { birds: 0.5, wind: 0.4 },
   landmarks: [{ name: '机库', pos: [70, 10, 170] }],
+  vistas: [
+    { name: '谷地全景', at: [120, 130, 420], look: [-40, -900] },
+    { name: '小机场', at: [320, 45, 300], look: [-60, 100] },
+    { name: '北面的雪山', at: [-40, 120, -420], look: [100, -1500] },
+  ],
   briefing: ['按照屏幕提示完成每一步操作。', '可通过暂停菜单跳过当前步骤或退出教学。'],
   estMinutes: [5, 8],
 };

@@ -61,6 +61,8 @@ export class Hud {
   /** 教学时只露出学到的部分（null = 不在教学里） */
   private tut: TutorialHud | null = null;
   private tutKey = '';
+  /** 休闲模式：没有任务和导航，平时只留航向和一行读数 */
+  private free = false;
   showDebug = false;
   private proj = { x: 0, y: 0, behind: false };
   private pkPos = new THREE.Vector3();
@@ -117,6 +119,16 @@ export class Hud {
     this.root.classList.toggle('hud-full', this.mode === 1);
     this.root.classList.toggle('hud-off', this.mode === 2);
     return ['自动', '完整', '隐藏'][this.mode];
+  }
+
+  setFree(on: boolean): void {
+    this.free = on;
+    this.root.classList.toggle('hud-free', on);
+  }
+
+  /** 电影镜头里什么都不显示 */
+  setCinema(on: boolean): void {
+    this.root.classList.toggle('hud-cine', on);
   }
 
   /** 教学：露出哪些部分、这一步要看哪里 */
@@ -277,7 +289,8 @@ export class Hud {
     const rel = headingDelta(wrap360(tel.heading * RAD), nav.bearing);
     const dirTxt = Math.abs(rel) < 8 ? '正前方' : `${rel > 0 ? '右' : '左'} ${Math.abs(Math.round(rel))}°`;
     let navHtml = '';
-    if (nav.mode === 'complete') navHtml = '<div class="nav-main">任务完成</div>';
+    if (this.free) navHtml = `<div class="nav-main">${Math.round(s.groundSpeed * k)} ${u} · 离地 ${s.agl > 2500 ? '—' : Math.round(s.agl)} m</div>`;
+    else if (nav.mode === 'complete') navHtml = '<div class="nav-main">任务完成</div>';
     else {
       const alt = `${Math.round(nav.targetAlt + s.world.map.altitudeOffset)} m`;
       navHtml = `<div class="nav-main"><span class="nav-path">${nav.pathLabel}</span> 下一点：<b>${nav.label}</b> · ${dist} · ${dirTxt}</div>
@@ -312,7 +325,7 @@ export class Hud {
     if (st === 'critical') warns.push('<div class="w red">严重受损：前往维修点或谨慎飞行</div>');
     setMarkup(this.warn, warns.join(''));
     this.updateLanding(s, set);
-    const busy = warns.length > 0 || !this.forks.classList.contains('hidden') || !this.landing.classList.contains('hidden') || s.groundSpeed < 8 || this.toasts.children.length > 0;
+    const busy = this.free ? warns.length > 0 : warns.length > 0 || !this.forks.classList.contains('hidden') || !this.landing.classList.contains('hidden') || s.groundSpeed < 8 || this.toasts.children.length > 0;
     if (busy) this.busyT = t;
     this.root.classList.toggle('hud-calm', this.mode === 0 && !this.tut && t - this.busyT > 6);
     if (this.showDebug) {
@@ -322,6 +335,11 @@ export class Hud {
   }
 
   private updateLanding(s: GameSession, set: Settings): void {
+    if (this.free && this.mode !== 1) {
+      this.landing.classList.add('hidden');
+      this.root.classList.remove('hud-approach');
+      return;
+    }
     const pad = s.landingTarget();
     const cur = s.mission.current();
     const hoverObj = cur && cur.def.kind === 'hover' ? cur.def : null;
@@ -430,7 +448,7 @@ export class Hud {
     const W = window.innerWidth;
     const H = window.innerHeight;
     g.clearRect(0, 0, W, H);
-    if (s.state !== 'running') return;
+    if (s.state !== 'running' || this.free) return;
     const nav = s.nav.info;
     const p = this.proj;
     // 速度矢量（飞行轨迹标记）

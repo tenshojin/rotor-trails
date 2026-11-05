@@ -47,7 +47,7 @@ const map = {
 } as unknown as MapDef;
 
 const menu = (ui: UI) => ui.main({ warning: null, tutorialDone: false }, {
-  play: () => {}, tutorial: () => {}, settings: () => ui.settings(defaultSettings(), { change: () => {}, capture: () => {}, close: () => {} }),
+  play: () => {}, free: () => {}, tutorial: () => {}, settings: () => ui.settings(defaultSettings(), { change: () => {}, capture: () => {}, close: () => {} }),
   help: () => ui.help(defaultSettings().bindings), about: () => ui.about(),
 });
 

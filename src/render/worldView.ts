@@ -719,7 +719,7 @@ export class WorldView {
       this.heli.update(f.t, f.dt, s.state === 'crashed' ? Math.max(0, tel.rotorRpm * 0.3) : tel.rotorRpm);
       const eyeX = EYE.x * (1 - set.viewCenter);
       this.cockpit.setPilotOffset(eyeX - EYE.x);
-      this.rig.update(f.dt, f.t, _pos, _quat, _vel, load, { fov: set.fov, eyeX, shake: set.shake, headMotion: set.headMotion });
+      this.rig.update(f.dt, f.t, _pos, _quat, _vel, load, { fov: set.fov, eyeX, shake: set.shake, headMotion: set.headMotion, ground: (x, z) => Math.max(s.world.ctx.ground(x, z), s.world.map.waterLevel ?? -1e9) });
       const cockpitView = this.rig.mode === 'cockpit';
       this.heli.rimDim = this.tod === 'night' ? 0 : 1;
       this.heli.setCockpitView(cockpitView);
