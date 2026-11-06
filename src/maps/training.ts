@@ -88,7 +88,7 @@ export const TRAINING: MapDef = {
   seed: SEED,
   altitudeOffset: 30,
   waterLevel: null,
-  dissect: { grid: 257, steps: 34, k: 0.03, maxCut: 150 },
+  dissect: { grid: 321, steps: 44, k: 0.06, maxCut: 230 },
   erosion: 240000,
   pavedMask: true,
   buildTerrain(b) {

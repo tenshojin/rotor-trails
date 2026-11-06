@@ -15,6 +15,7 @@ registerProps({
 
 export const FLAT: MapDef = {
   ...TRAINING,
+  dissect: undefined,
   id: 'training',
   name: '测试平地',
   size: 8192,

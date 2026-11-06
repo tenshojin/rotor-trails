@@ -542,8 +542,9 @@ export class TreeView {
           const c2 = texture(noise, wp.mul(0.034).add(0.37)).b;
           const lump = float(1).sub(c1.mul(c1).mul(1.25)).mul(0.62).add(float(1).sub(c2.mul(c2).mul(1.25)).mul(0.38)).toVar();
           // （近处两级的树叶互相遮挡、接收阴影，比这一级暗得多：密林里要压下来，不然一圈暗树围着一片亮树）
-          const gain = this.bigTrees > 50000 ? 0.7 : 1;
-          albedo = albedo.mul(mix(float(0.42 * gain), float(1.32 * gain), lump)).mul(vec3(0.62, 0.95, 0.58));
+          const dense = this.bigTrees > 50000;
+          const gain = dense ? 0.7 : 1.25;
+          albedo = albedo.mul(mix(float(0.42 * gain), float(1.32 * gain), lump)).mul(dense ? vec3(0.62, 0.95, 0.58) : vec3(0.92, 1.0, 0.82));
           const rim = float(1).sub(abs(dot(normalViewGeometry, normalize(positionView.negate()))));
           cover = step(rim.mul(rim).mul(0.86), lump);
         } else if (this.bigTrees > 50000) {
