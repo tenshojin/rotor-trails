@@ -18,9 +18,7 @@ import { PhysicsWorld, initPhysics, type ContactReport } from './physics';
 import { WeatherState, type WeatherSnapshot } from './weather';
 import { WindField, type WindInfo } from './wind';
 import { obstacleTop } from './routeCheck';
-import { RescueRuntime, rescueMission, type RescueSnapshot } from './rescue';
 import { Heightfield } from './terrain';
-import type { RescueDef } from '../maps/types';
 import type RAPIER from '@dimforge/rapier3d-compat';
 
 export const STEP = 1 / 60;
@@ -55,7 +53,6 @@ export interface SessionSnapshot {
   pickupsTaken: string[];
   repairUses: Record<string, number>;
   grounded: boolean;
-  rescue?: RescueSnapshot;
 }
 
 export interface Checkpoint {
@@ -143,9 +140,6 @@ export class GameSession {
   sys: Systems | null = null;
   /** 休闲模式：没有任务、补给和检查点，撞了也不算失败 */
   readonly free: boolean;
-  /** 救援模式：伤员的状况 */
-  readonly rescue: RescueRuntime | null;
-  private lastVy = 0;
   private cpId = 0;
   private ditchT = 0;
   private invertT = 0;
@@ -158,17 +152,16 @@ export class GameSession {
   private hoverEdge = false;
   private disposed = false;
 
-  static async create(world: WorldData, weatherId: string, assist: AssistId, free = false, rescue?: RescueDef): Promise<GameSession> {
+  static async create(world: WorldData, weatherId: string, assist: AssistId, free = false): Promise<GameSession> {
     await initPhysics();
-    return new GameSession(world, weatherId, assist, free, rescue);
+    return new GameSession(world, weatherId, assist, free);
   }
 
-  private constructor(world: WorldData, weatherId: string, assist: AssistId, free: boolean, rescue?: RescueDef) {
+  private constructor(world: WorldData, weatherId: string, assist: AssistId, free: boolean) {
     this.world = world;
     const map = world.map;
     this.assistId = assist;
     this.free = free;
-    this.rescue = rescue ? new RescueRuntime(rescue) : null;
     this.flight.setAssist(assist);
     if (assist === 'sim') {
       // 冷舱：一切都关着，旋翼不转
@@ -193,16 +186,16 @@ export class GameSession {
       // 推进一步让静态碰撞体进入宽相位结构，保证第一帧的射线查询（离地高度、起落架）有效
       P.world.step();
       for (const p of map.pads) if (p.repair) this.repairUses[p.id] = p.repair.uses;
-      this.mission = new MissionRuntime(rescue ? rescueMission(rescue, world.pads) : map.mission);
+      this.mission = new MissionRuntime(map.mission);
       if (free) this.mission.cargo = 0;
       this.nav = new Navigator(map, world.terrain);
       if (free) this.nav.info.mode = 'complete';
       this.weather = new WeatherState(map.weathers, weatherId);
       this.wind = new WindField(this.weather.windProfile(), map.windZones, world.ctx.ground, map.seed);
-      const spawnPad = world.pads.get(rescue?.start ?? map.spawn.padId);
+      const spawnPad = world.pads.get(map.spawn.padId);
       if (!spawnPad) throw new Error('出生停机坪不存在');
       const pos = new Vector3(spawnPad.pos[0], spawnPad.pos[1] + 1.32, spawnPad.pos[2]);
-      const quat = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), -(rescue?.heading ?? map.spawn.heading) * DEG);
+      const quat = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), -map.spawn.heading * DEG);
       this.massApplied = this.totalMass();
       P.createHeli(pos, quat, this.massApplied);
       P.readBody(this.body);
@@ -407,7 +400,6 @@ export class GameSession {
       touchdown = { padId, metrics };
       this.lastTouchdown = { metrics, t: this.t, padId };
       this.damage.processTouchdown(td.descent, this.sideLoad(td.horizontal), attDeg, shield, dmg);
-      if (this.mission.cargo > 0) this.rescue?.bump(td.descent);
       this.events.push({ type: 'touchdown', metrics, padId, surface: td.tag.kind });
     }
     // 落水 / 侧翻：致命事件
@@ -505,16 +497,7 @@ export class GameSession {
       (id) => this.pad(id)?.pos ?? [0, 0, 0],
       mev,
     );
-    for (const e of mev) {
-      this.events.push({ type: 'mission', ev: e });
-      if (this.rescue && e.type === 'cargo' && e.action === 'unload') this.rescue.deliver();
-    }
-    if (this.rescue) {
-      // 机身感受到的加速度：竖直方向速度的变化，不算重力
-      const ay = (b.vel.y - this.lastVy) / dt;
-      this.lastVy = b.vel.y;
-      this.rescue.update(dt, this.mission.cargo > 0, ay);
-    }
+    for (const e of mev) this.events.push({ type: 'mission', ev: e });
     if (this.mission.cargo * HELI.crateMass + HELI.massBase !== this.massApplied) {
       this.massApplied = this.totalMass();
       this.phys.setHeliMass(this.massApplied);
@@ -648,7 +631,6 @@ export class GameSession {
       pickupsTaken: [...this.pickupsTaken],
       repairUses: { ...this.repairUses },
       grounded: this.gear.weightOnSkids > 0.55,
-      rescue: this.rescue?.snapshot(),
     };
   }
 
@@ -684,7 +666,6 @@ export class GameSession {
     this.weather.restore(s.weather);
     this.pickupsTaken = new Set(s.pickupsTaken);
     this.repairUses = { ...s.repairUses };
-    if (s.rescue) this.rescue?.restore(s.rescue);
     const grounded = s.grounded;
     if (mode === 'safe') {
       const fwd = new Vector3(0, 0, -1).applyQuaternion(b.quat);

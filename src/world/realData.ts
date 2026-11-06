@@ -116,7 +116,7 @@ export async function loadRealTrees(def: RealTerrainDef, terrain: Heightfield, k
   return packTrees(terrain, xs, ys, zs, ss, ts, rs);
 }
 
-/** 外圈的影像只有 10 米一个像素，认不出树。降落点周围按高度和坡度种一片，飞到跟前才不是一片光地 */
+/** 外圈的影像只有 10 米一个像素，认不出树。几个景点周围按高度和坡度种一片，飞到跟前才不是一片光地 */
 export function outerForest(map: MapDef, terrain: Heightfield, trees: TreeSet, extent: number): TreeSet {
   const forest = map.outerForest;
   if (!forest?.length) return trees;
@@ -130,20 +130,19 @@ export function outerForest(map: MapDef, terrain: Heightfield, trees: TreeSet, e
   let seed = 12345;
   const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   for (const f of forest) {
-    const pad = map.pads.find((p) => p.id === f.pad);
-    if (!pad) continue;
-    const keep = f.keep ?? pad.size * 0.75 + 14;
+    const [cx, cz] = f.at;
+    const floor = terrain.heightAt(cx, cz) - 120;
     for (let i = 0; i < 9000; i++) {
       const a = rnd() * Math.PI * 2;
-      // 中间密，往外慢慢稀，从天上看不是一个圆
-      const d = keep + R * Math.pow(rnd(), 0.7) * (0.75 + 0.25 * Math.sin(a * 3 + pad.pos[0]));
-      const x = pad.pos[0] + Math.cos(a) * d;
-      const z = pad.pos[2] + Math.sin(a) * d;
+      // 中间留一块空地落得下去；往外慢慢稀，从天上看不是一个圆
+      const d = 60 + R * Math.pow(rnd(), 0.7) * (0.75 + 0.25 * Math.sin(a * 3 + cx));
+      const x = cx + Math.cos(a) * d;
+      const z = cz + Math.sin(a) * d;
       const k = f.kinds[(rnd() * f.kinds.length) | 0];
       const size = f.scale[0] + rnd() * (f.scale[1] - f.scale[0]);
       if (Math.abs(x) < terrain.half && Math.abs(z) < terrain.half) continue;
       // 崖边的陡坡和谷底不种
-      if (terrain.slopeAt(x, z) > 0.12 || terrain.heightAt(x, z) < pad.pos[1] - 120) continue;
+      if (terrain.slopeAt(x, z) > 0.12 || terrain.heightAt(x, z) < floor) continue;
       xs.push(x);
       ys.push(terrain.heightAt(x, z) - 0.2);
       zs.push(z);
@@ -167,40 +166,6 @@ export function sampleGrid(g: RealGrid, x: number, z: number): number | null {
   const o = iz * g.res + ix;
   const d = g.data;
   return (d[o] * (1 - u) + d[o + 1] * u) * (1 - v) + (d[o + g.res] * (1 - u) + d[o + g.res + 1] * u) * v;
-}
-
-/** 这一块地的平均高度 */
-export function meanHeight(g: RealGrid, x: number, z: number, r: number): number {
-  let sum = 0;
-  let n = 0;
-  for (let dz = -r; dz <= r; dz += g.cell) {
-    for (let dx = -r; dx <= r; dx += g.cell) {
-      const h = sampleGrid(g, x + dx, z + dz);
-      if (h === null) continue;
-      sum += h;
-      n++;
-    }
-  }
-  return n ? sum / n : (sampleGrid(g, x, z) ?? 0);
-}
-
-/** 把网格上的一块地压平到某个高度，外面一圈渐变回去（物理和画面用的是同一份数据） */
-export function flattenGrid(g: RealGrid, x: number, z: number, radius: number, y: number, blend: number): void {
-  const R = radius + blend;
-  const n = g.res;
-  const i0 = Math.max(0, Math.floor((x - R + g.half) / g.cell));
-  const i1 = Math.min(n - 1, Math.ceil((x + R + g.half) / g.cell));
-  const j0 = Math.max(0, Math.floor((z - R + g.half) / g.cell));
-  const j1 = Math.min(n - 1, Math.ceil((z + R + g.half) / g.cell));
-  for (let j = j0; j <= j1; j++) {
-    for (let i = i0; i <= i1; i++) {
-      const d = Math.hypot(i * g.cell - g.half - x, j * g.cell - g.half - z);
-      if (d > R) continue;
-      const t = Math.min(1, Math.max(0, (d - radius) / blend));
-      const k = 1 - t * t * (3 - 2 * t);
-      g.data[j * n + i] += (y - g.data[j * n + i]) * k;
-    }
-  }
 }
 
 function downsample(g: RealGrid, step: number): Heightfield {

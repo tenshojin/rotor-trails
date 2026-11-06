@@ -11,8 +11,6 @@ export interface ScoreInput {
   finalLanding: LandingMetrics | null;
   /** 使用“安全恢复”的次数 */
   safeRecoveries: number;
-  /** 救援模式：伤员送到时的平均状况（0..100） */
-  patient?: number;
 }
 
 export interface ScoreResult {
@@ -29,16 +27,13 @@ export const SCORE = {
   collisionCap: -180,
   landingMax: 200,
   safeRecovery: -60,
-  /** 救援模式：伤员状况每 1% 值几分 */
-  patient: 3,
   thresholds: { S: 1050, A: 900, B: 760, C: 620 },
 };
 
 export function computeScore(s: ScoreInput): ScoreResult {
   const b: ScoreResult['breakdown'] = [];
   b.push({ label: '主线任务', value: s.mainDone ? SCORE.main : 0, note: s.mainDone ? '完成' : '未完成' });
-  if (s.patient !== undefined) b.push({ label: '伤员状况', value: Math.round(s.patient * SCORE.patient), note: `${Math.round(s.patient)}%` });
-  else b.push({ label: '可选任务', value: s.optionalDone * SCORE.perOptional, note: `${s.optionalDone}/${s.optionalTotal}` });
+  b.push({ label: '可选任务', value: s.optionalDone * SCORE.perOptional, note: `${s.optionalDone}/${s.optionalTotal}` });
   b.push({ label: '剩余耐久', value: Math.round(Math.max(0, s.durability) * SCORE.durability), note: `${Math.round(s.durability)}` });
   b.push({ label: '碰撞', value: Math.max(SCORE.collisionCap, s.collisions * SCORE.collision), note: `${s.collisions} 次` });
   const landing = s.finalLanding ? Math.round((s.finalLanding.score / 100) * SCORE.landingMax) : 0;

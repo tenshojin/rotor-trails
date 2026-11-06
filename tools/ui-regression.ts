@@ -4,7 +4,7 @@ import { UI } from '../src/ui/menus';
 import { Hud } from '../src/ui/hud';
 import { defaultSettings, type Settings } from '../src/game/settings';
 import { LESSONS } from '../src/game/tutorial';
-import type { MapDef, RescueDef } from '../src/maps/types';
+import type { MapDef } from '../src/maps/types';
 import type { GameSession } from '../src/sim/session';
 import type { WorldView } from '../src/render/worldView';
 
@@ -48,7 +48,7 @@ const map = {
 } as unknown as MapDef;
 
 const menu = (ui: UI) => ui.main({ warning: null, tutorialDone: false }, {
-  play: () => {}, rescue: () => {}, free: () => {}, tutorial: () => {}, settings: () => ui.settings(defaultSettings(), { change: () => {}, capture: () => {}, close: () => {} }),
+  play: () => {}, free: () => {}, tutorial: () => {}, settings: () => ui.settings(defaultSettings(), { change: () => {}, capture: () => {}, close: () => {} }),
   help: () => ui.help(defaultSettings().bindings), about: () => ui.about(),
 });
 
@@ -89,28 +89,6 @@ await test('地图卡片使用原生按钮，选择对应地图', (ui) => {
   card.click();
   assert(picked === map, '选择结果错误');
   assert(find<HTMLElement>('.screen').scrollWidth <= find<HTMLElement>('.screen').clientWidth, '地图选择页横向溢出');
-});
-
-await test('救援任务：四趟任务都列出来，简报能选时段、天气和辅助，窄屏不溢出', (ui) => {
-  const rescues = [
-    { id: 'a', title: '第一趟', summary: '短', stars: 2, km: 33, minutes: [12, 20], start: 'p', heading: 0, golden: 40, stops: [{ pad: 'p', task: '接人', radio: '说', what: 'load' }, { pad: 'q', task: '吊运', radio: '说', what: 'hoist' }] },
-    { id: 'b', title: '第二趟', summary: '长', stars: 5, km: 104, minutes: [45, 65], start: 'p', heading: 0, golden: 45, stops: [{ pad: 'p', task: '回去', radio: '说' }] },
-  ] as RescueDef[];
-  const m = { ...map, rescues };
-  let picked: RescueDef | null = null;
-  ui.rescueSelect(m, { b: { bestScore: 900, bestRating: 'A', bestTime: 600, runs: 1 } }, { pick: (r) => (picked = r), back: () => {} });
-  assert(fixture.querySelectorAll('.rescue-card').length === 2, '任务没有列全');
-  assert(find<HTMLElement>('.rescue-card[data-i="1"]').textContent!.includes('最佳 A'), '成绩没有显示');
-  assert(find<HTMLElement>('.screen').scrollWidth <= find<HTMLElement>('.screen').clientWidth, '救援选择页横向溢出');
-  click('.rescue-card[data-i="0"]');
-  assert(picked === rescues[0], '选择结果错误');
-  let started: unknown[] = [];
-  ui.rescueBrief(m, rescues[0], defaultSettings(), { start: (...a) => (started = a), back: () => {} });
-  assert(find<HTMLElement>('.obj-list').textContent!.includes('悬停吊运'), '吊运没有写在航线里');
-  click('[data-a="assist"][data-v="sim"]');
-  click('[data-a="start"]');
-  assert(started[1] === 'sim', '飞行辅助没有传出去');
-  assert(find<HTMLElement>('.screen').scrollWidth <= find<HTMLElement>('.screen').clientWidth, '救援简报页横向溢出');
 });
 
 await test('课程表从第一节没学的课开始，也能直接选任何一课', (ui) => {
