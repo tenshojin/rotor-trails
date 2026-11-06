@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { DownwashView } from '../src/render/downwash';
-import { WASH } from '../src/render/atmosphere';
+import { addWashWind, DownwashView } from '../src/render/downwash';
+import { WASH, WASH_Y } from '../src/render/atmosphere';
 import { getSmokeTexture } from '../src/render/navView';
 import { TRAINING } from '../src/maps/training';
 import type { MapDef } from '../src/maps/types';
@@ -16,7 +16,7 @@ vi.mock('../src/render/navView', async () => {
 function fixture() {
   const map: MapDef = { ...TRAINING, pads: [], waterLevel: null };
   const s = {
-    body: { pos: new THREE.Vector3(0, 2, 0) },
+    body: { pos: new THREE.Vector3(0, 2, 0), vel: new THREE.Vector3() },
     world: { terrain: { heightAt: () => 0 } },
     flight: { telemetry: { rotorRpm: 1 } },
     wind: { sample: (_x: number, _y: number, _z: number, _t: number, out: THREE.Vector3) => out.set(1, 0, 0.2) },
@@ -78,6 +78,42 @@ describe('rotor downwash batching', () => {
       expect(mesh.geometry.instanceCount).toBe(1);
       expect(mesh.geometry.getAttribute('washColor').getW(0)).toBe(0);
       expect(mesh.geometry.getAttribute('washPuff').getW(0)).toBe(0);
+    } finally { view.dispose(); }
+  });
+
+  it('旋翼气流：贴地时满强度，飞高了不再贴地散开，飞快了力度变小', () => {
+    const { view, s, step } = fixture();
+    try {
+      step();
+      expect(WASH.value.z).toBe(1);
+      const hover = WASH.value.w;
+      expect(hover).toBeGreaterThan(0.5);
+      expect(WASH_Y.value).toBeGreaterThan(2);
+      s.body.pos.y = 120;
+      step();
+      expect(WASH.value.z).toBe(0);
+      expect(WASH.value.w).toBeCloseTo(hover);
+      s.body.pos.y = 2;
+      s.body.vel.set(50, 0, 0);
+      step();
+      expect(WASH.value.w).toBeLessThan(hover * 0.5);
+      // 气柱落到地面时飞机已经飞过去了
+      expect(WASH.value.x).toBeLessThan(0);
+      s.flight.telemetry.rotorRpm = 0;
+      step();
+      expect(WASH.value.w).toBe(0);
+    } finally { view.dispose(); }
+  });
+
+  it('旋翼气流把风向袋往外吹，远处没有影响', () => {
+    const { view, step } = fixture();
+    try {
+      step();
+      const near = addWashWind(new THREE.Vector3(15, 0, 0), new THREE.Vector3());
+      expect(near.x).toBeGreaterThan(5);
+      expect(Math.abs(near.z)).toBeLessThan(0.01);
+      const far = addWashWind(new THREE.Vector3(200, 0, 0), new THREE.Vector3(1, 0, 0));
+      expect(far.x).toBe(1);
     } finally { view.dispose(); }
   });
 
