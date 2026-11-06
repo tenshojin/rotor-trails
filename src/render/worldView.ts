@@ -475,7 +475,7 @@ export class WorldView {
       this.grass = new GroundCover(world, forestTex);
       this.scene.add(this.grass.group);
       if (map.rivers) {
-        this.rivers = new RiverView(map.rivers, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true, field, this.sky);
+        this.rivers = new RiverView([...map.rivers, ...(map.farRivers ?? [])], (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true, field, this.sky);
         this.scene.add(this.rivers.group);
       }
       this.clouds = new CloudLayer(map.size);

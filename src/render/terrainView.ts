@@ -283,7 +283,7 @@ export class TerrainView {
       const cz = Math.max(-hf.half, Math.min(hf.half, z));
       const edge = hf.heightAt(cx, cz);
       const out = Math.max(Math.abs(x) - hf.half, Math.abs(z) - hf.half, 0);
-      const t = Math.min(1, out / 900);
+      const t = Math.min(1, out / (map.farBlend ?? 900));
       const farH = map.farTerrain ? map.farTerrain(x, z) : edge;
       return edge + (farH - edge) * t * t * (3 - 2 * t) - 2 - Math.min(6, out * 0.02);
     };

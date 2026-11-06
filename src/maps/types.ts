@@ -226,6 +226,10 @@ export interface MapDef {
   farTerrain?(x: number, z: number): number;
   /** 远景地形铺到多远（地图边长的倍数，缺省 1.6） */
   farExtent?: number;
+  /** 地图边缘接到远景要过渡多远（米，缺省 900）：远景和地图能对上的（比如河谷接着往外走）要短，否则中间是一道长坡 */
+  farBlend?: number;
+  /** 地图外面的河（只有画面，不改地形） */
+  farRivers?: RiverDef[];
   spawn: { padId: string; heading: number };
   pads: PadDef[];
   props: PropDef[];

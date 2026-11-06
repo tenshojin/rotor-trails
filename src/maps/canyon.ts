@@ -6,7 +6,7 @@ import { smoothstep } from '../core/math';
 import { makeWeather } from '../sim/weather';
 import type { Vec2 } from '../sim/terrain';
 import type { RockFormDef } from '../world/rockForm';
-import { PathSampler, riverLine } from './routeUtil';
+import { farRiverLine, PathSampler, polylineDist, riverLine } from './routeUtil';
 import type { MapDef, RouteNodeDef, V3 } from './types';
 
 /**
@@ -145,6 +145,24 @@ const BUTTES: Array<[number, number, number, number]> = [
   [5000, 900, 280, 400],
 ];
 
+/** 峡谷出了地图还在往前走：两头接着挖（否则在地图边上被一道长坡堵死） */
+const FAR_W: Vec2[] = [
+  [-2111, 1240],
+  [-2600, 1340],
+  [-3100, 1190],
+  [-3650, 1300],
+  [-4300, 1090],
+  [-5400, 1210],
+];
+const FAR_E: Vec2[] = [
+  [2111, -1296],
+  [2620, -1230],
+  [3120, -1430],
+  [3720, -1340],
+  [4420, -1610],
+  [5400, -1500],
+];
+
 function farLand(x: number, z: number): number {
   let h = plateau(x, z);
   for (const [cx, cz, r, ph] of BUTTES) {
@@ -155,6 +173,14 @@ function farLand(x: number, z: number): number {
     const cliff = smoothstep(1.0, 0.86, d);
     const talus = smoothstep(1.25, 0.98, d) * 0.22;
     h = Math.max(h, PLATEAU + ph * Math.max(cliff, talus) + 7 * n2.fbm(x / 240, z / 240, 2));
+  }
+  for (const [path, floor] of [[FAR_W, floorAt(0)], [FAR_E, floorAt(MAINP.len)]] as const) {
+    const d = polylineDist(path as unknown as Vec2[], x, z, 330);
+    const fw = 74 + 18 * n.noise(x / 420, z / 420);
+    const ww = WALL + 24 * n.noise(x / 380, 3.3);
+    if (d >= fw + ww) continue;
+    if (d < fw) h = Math.min(h, floor + 3 * smoothstep(fw * 0.55, fw, d));
+    else h = Math.min(h, floor + (h - floor) * terrace((d - fw) / ww + 0.04 * n2.noise(x / 40, z / 40), 3));
   }
   return h;
 }
@@ -234,25 +260,8 @@ const NODES: RouteNodeDef[] = [
   { id: 'c-m2', pos: [Math.round((LEDGE[0] + MESA[0]) / 2 + 60), 485, Math.round((LEDGE[2] + MESA[2]) / 2)], radius: 60, speed: 25, label: '台地边缘' },
 ];
 
-export const CANYON: MapDef = {
-  id: 'canyon',
-  name: '赤岩峡谷',
-  subtitle: '美国西南部 · 峡谷与台地',
-  region: '科罗拉多高原（虚构）',
-  description: '红色砂岩台地上切出一条蜿蜒的大峡谷。为谷底研究站运送补给、巡查传感器、在峭壁岩架投放设备，最后降落在高耸的天空台地之巅。',
-  difficulty: 3,
-  recommendedAssist: 'standard',
-  size: 4096,
-  res: 1025,
-  seed: SEED,
-  altitudeOffset: 1500,
-  waterLevel: null,
-  erosion: 200000,
-  rockForm: ROCK,
-  rivers: [
-    {
-      // 谷底的河：泥沙不多的时候是灰绿色，绕着研究站和岩拱的石脚流
-      pts: riverLine(
+/** 谷底的河（两头接着流到地图外面，见 farRivers） */
+const MAIN_RIVER = riverLine(
         MAINP,
         40,
         MAINP.len - 40,
@@ -271,7 +280,27 @@ export const CANYON: MapDef = {
             return [p[0] + 12, p[1] + 6, 22];
           }),
         ],
-      ),
+      );
+
+export const CANYON: MapDef = {
+  id: 'canyon',
+  name: '赤岩峡谷',
+  subtitle: '美国西南部 · 峡谷与台地',
+  region: '科罗拉多高原（虚构）',
+  description: '红色砂岩台地上切出一条蜿蜒的大峡谷。为谷底研究站运送补给、巡查传感器、在峭壁岩架投放设备，最后降落在高耸的天空台地之巅。',
+  difficulty: 3,
+  recommendedAssist: 'standard',
+  size: 4096,
+  res: 1025,
+  seed: SEED,
+  altitudeOffset: 1500,
+  waterLevel: null,
+  erosion: 200000,
+  rockForm: ROCK,
+  rivers: [
+    {
+      // 谷底的河：泥沙不多的时候是灰绿色，绕着研究站和岩拱的石脚流
+      pts: MAIN_RIVER,
       depth: 1.6,
       bank: 18,
       deep: 0x3e5a4c,
@@ -316,7 +345,13 @@ export const CANYON: MapDef = {
     b.paintPath(1, CANYON_MAIN, 7, 5, 0.7);
     b.paint(0, (x, z, h) => (h < 125 ? 0.6 * (1 - smoothstep(95, 125, h)) * (0.6 + 0.4 * n.noise(x / 50, z / 50)) : 0));
   },
+  farRivers: [
+    // （远景的网格太粗，挖不出河床，水面放在地面上）
+    { pts: [...farRiverLine(FAR_W, 4096, floorAt(0) + 0.6, 11).reverse(), MAIN_RIVER[0]], depth: 1.6, bank: 18, deep: 0x3e5a4c, shallow: 0x7a8064, speed: 1.6 },
+    { pts: [MAIN_RIVER[MAIN_RIVER.length - 1], ...farRiverLine(FAR_E, 4096, floorAt(MAINP.len) + 0.6, 11)], depth: 1.6, bank: 18, deep: 0x3e5a4c, shallow: 0x7a8064, speed: 1.6 },
+  ],
   farTerrain: farLand,
+  farBlend: 240,
   farExtent: 5,
   spawn: { padId: 'C-visitor', heading: 110 },
   pads: [

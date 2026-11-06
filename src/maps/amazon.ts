@@ -4,7 +4,7 @@ import { Perlin2 } from '../core/noise';
 import { headingOf, smoothstep } from '../core/math';
 import { makeWeather } from '../sim/weather';
 import type { Vec2 } from '../sim/terrain';
-import { PathSampler } from './routeUtil';
+import { polylineDist, PathSampler } from './routeUtil';
 import type { MapDef, RouteNodeDef, V3 } from './types';
 
 const SEED = 4401;
@@ -56,6 +56,64 @@ const tribHalf = (s: number) => 34 + 6 * Math.sin(s / 260);
 function base(x: number, z: number): number {
   const hills = 70 * Math.pow(Math.max(0, n.fbm(x / 900 + 3, z / 900 - 2, 4) + 0.15), 1.5);
   return 14 + 7 * n.fbm(x / 260, z / 260, 4) + hills + 3 * n2.fbm(x / 60, z / 60, 2);
+}
+
+/** 河出了地图还在流（不然河在地图边上收成一个死水湖） */
+const FAR_WATER: Array<{ path: Vec2[]; half: number; depth: number }> = [
+  {
+    path: [
+      [-2200, 380],
+      [-2640, 300],
+      [-3050, 520],
+      [-3600, 410],
+      [-4300, 640],
+      [-5600, 480],
+    ],
+    half: 100,
+    depth: 9,
+  },
+  {
+    path: [
+      [2200, -220],
+      [2620, -60],
+      [3100, -280],
+      [3700, -140],
+      [4400, -380],
+      [5600, -260],
+    ],
+    half: 100,
+    depth: 9,
+  },
+  {
+    path: [
+      [-900, 2200],
+      [-1020, 2700],
+      [-860, 3250],
+      [-1100, 4100],
+    ],
+    half: 18,
+    depth: 3,
+  },
+];
+
+/** 地图外面：看不到一棵棵树，地面直接抬到树冠的高度（否则地图边上的林子像一堵墙，外面是一块平地） */
+function farForest(x: number, z: number): number {
+  let h = base(x, z);
+  let toWater = Infinity;
+  for (const r of FAR_WATER) {
+    const d = polylineDist(r.path, x, z, r.half + 340);
+    if (d === Infinity) continue;
+    const dn = Math.max(0, d + 11 * n.noise(x / 66, z / 66) + 5 * n2.noise(x / 23, z / 23));
+    toWater = Math.min(toWater, Math.max(0, dn - r.half));
+    if (dn < r.half) h = Math.min(h, -r.depth * (1 - (dn / r.half) ** 2) - 0.5);
+    else {
+      const e = dn - r.half;
+      const shore = -0.5 + 5 * smoothstep(0, 1, e / 10);
+      if (e < 230) h = Math.min(h, shore + (h - shore) * smoothstep(92, 230, e));
+    }
+  }
+  const beyond = Math.max(Math.abs(x), Math.abs(z)) - 2048;
+  return h + 26 * smoothstep(0, 170, beyond) * smoothstep(60, 240, toWater);
 }
 
 function nrm(p: PathSampler, s: number): Vec2 {
@@ -149,7 +207,8 @@ export const AMAZON: MapDef = {
     b.paint(0, (x, z, h) => (h > -0.5 && h < 2.2 ? 1 - smoothstep(1.0, 2.2, h) : 0));
     b.paint(0, (x, z, h) => (h > 1.6 && h < 4.5 ? 0.3 * (1 - smoothstep(2.6, 4.5, h)) * (0.5 + 0.5 * n.noise(x / 40, z / 40)) : 0));
   },
-  farTerrain: base,
+  farTerrain: farForest,
+  farBlend: 200,
   spawn: { padId: 'A-base', heading: Math.round(headingOf(RIVER_AT_START[0] - START[0], RIVER_AT_START[1] - START[2])) },
   pads: [
     { id: 'A-base', name: '河岸基地', pos: [START[0], 5.45, START[2]], size: 20, kind: 'start', style: 'ground' },

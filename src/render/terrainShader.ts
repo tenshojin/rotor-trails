@@ -448,7 +448,8 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       const dome = clamp(float(1).sub(f1.mul(f1).mul(1.7)), 0.0, 1.0);
       const hue = mx_noise_float(P.xz.mul(0.012)).mul(0.5).add(0.5);
       const fine = mx_noise_float(P.xz.mul(0.35)).mul(0.5).add(0.5);
-      const canopy = mix(vec3(0.052, 0.104, 0.046), vec3(0.1, 0.16, 0.052), hue).mul(dome.mul(0.75).add(0.35)).mul(fine.mul(0.3).add(0.85));
+      // （地图外面没有真树，只有这一层：要和树冠之间的阴影一起算，比地图里压得更暗，边上才接得上）
+      const canopy = mix(vec3(0.052, 0.104, 0.046), vec3(0.1, 0.16, 0.052), hue).mul(dome.mul(0.75).add(0.35)).mul(fine.mul(0.3).add(0.85)).mul(mix(float(1), float(0.72), outK));
       col.assign(mix(col, canopy, canopyK));
       // 树冠起伏的法线（用 Worley 距离在 x / z 方向的差分）
       const e = 0.6;
