@@ -16,21 +16,6 @@
 | [pmndrs/drei soft shadows](https://github.com/pmndrs/drei/blob/master/src/core/softShadows.tsx)、[PCSS 示例](https://gkjohnson.github.io/threejs-sandbox/pcss/index.html) | WebGL 上的软阴影 | 都是 GLSL，不能用在 WebGPU 节点材质上。太阳的角直径只有 0.53°，飞行视角下半影只有几厘米到十几厘米，收益很小，改做接触阴影 |
 | [Tzathas 2024](https://diglib.eg.org/handle/10.1111/cgf15033)、[Schott 2023](https://history.siggraph.org/?p=132308) | 河流功率法则的地形生成 | 思路**采用**，自己实现在 `src/world/fluvial.ts` |
 
-## 能不能接入 DLSS 5
+## DLSS 5
 
-**结论：网页版接不了，桌面版目前也接不了，要等 NVIDIA 放出 SDK。**
-
-- [NVIDIA 的开发者文章](https://developer.nvidia.com/blog/whats-new-for-game-developers-dlss-5-with-3d-guided-neural-rendering-nvidia-ace-updates-and-new-rtx-kit-capabilities/)说 DLSS 5 是管线最后一步的神经渲染，输入是画面颜色和运动向量，在 RTX 50 系（含笔记本）本地运行。文章里没有 SDK、Streamline 或引擎插件的集成说明，只有登记接收更新的入口。
-- 公开的 [Streamline](https://github.com/NVIDIA-RTX/Streamline/releases) 走的是 DirectX / Vulkan 原生接口，我查到的公开开发者插件停在 [DLSS 4.5](https://wccftech.com/nvidia-dlss-4-5-streamline-plugin-rtx-neural-texture-compression-sdk-available-game-devs/)。
-- 浏览器的 WebGPU 碰不到显卡驱动里的 DLSS 接口，网页也不能加载本地动态库。
-- 有人做了[在浏览器里跑 DLSS 5 的演示](https://www.tweaktown.com/news/113613/a-modder-got-dlss-5-running-inside-a-web-browser/index.html)，但不是官方的，报道里说它可能用了泄露的二进制或提取的权重，只能看模型，速度也不够玩游戏。来源和授权都不清楚，**不能用**。
-
-### 以后想接的路线
-
-1. 在 NVIDIA 开发者网站登记接收 DLSS 更新（要用你自己的账号，许可条款也要你自己看和接受）。
-2. 等 SDK 公开后，做一个 Windows 桌面版外壳：用 Dawn（Chrome 的 WebGPU 实现）跑现在的渲染代码，从外壳里拿到 D3D12 纹理交给 Streamline。Electron 现成的共享纹理接口是[导入成 VideoFrame](https://github-redirect.dependabot.com/electron/electron/pull/42001)，不能直接接到 WebGPU，所以外壳要自己写原生部分。
-3. 游戏这边要提供的数据已经有：线性 HDR 颜色、运动向量和深度。
-
-### 现在能做的
-
-浏览器里最接近的是 three.js 的 `TAAUNode`（时间超分）。这台电脑 1080p 极高画质每帧约 8~9 ms，暂时不缺性能；DLSS 5 真正吸引人的是光照和材质的观感，这部分这一轮用物理大气、GT7 色调映射和实时环境光来提升。
+调研后决定不做。DLSS 走的是 DirectX / Vulkan 原生接口，网页接不了；[NVIDIA 的文章](https://developer.nvidia.com/blog/whats-new-for-game-developers-dlss-5-with-3d-guided-neural-rendering-nvidia-ace-updates-and-new-rtx-kit-capabilities/)里也没有公开的 SDK。网上那个浏览器演示不是官方的，来源和授权都不清楚。浏览器里能做的是时间超分：设置里的“渲染分辨率”低于 100% 时走 three.js 的 `TAAUNode`。

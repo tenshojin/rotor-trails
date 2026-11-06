@@ -73,7 +73,7 @@ export function sceneDepthNode(reversedDepth: boolean): THREE.TextureNode {
 }
 
 /** 从 P0 沿 Rd 在地形高度图里走，返回 vec4(那里的颜色, 碰到了吗) */
-function fieldMarch(P0: N<'vec3'>, Rd: N<'vec3'>, f: ReflectField): N<'vec4'> {
+function fieldMarch(P0: N<'vec3'>, Rd: N<'vec3'>, f: ReflectField, frame: N<'float'>): N<'vec4'> {
   const hTex = texture(f.height);
   const cTex = texture(f.color);
   const fTex = texture(f.far);
@@ -90,7 +90,8 @@ function fieldMarch(P0: N<'vec3'>, Rd: N<'vec3'>, f: ReflectField): N<'vec4'> {
     const tMax = min(float(Math.max(f.top, f.farTop)).sub(P0.y).div(Rd.y), float(S * 2.4)).toVar();
     // 步子越走越大：近处的山脊不能跨过去，远处的山够大
     const inc = float(1 / FIELD_STEPS);
-    const u = inc.mul(interleavedGradientNoise(screenCoordinate.xy).mul(0.7).add(0.3)).toVar();
+    // （抖动每帧不同，时间抗锯齿才抹得平，否则倒影里是一片固定的网点）
+    const u = inc.mul(interleavedGradientNoise(screenCoordinate.xy.add(frame)).mul(0.7).add(0.3)).toVar();
     const t0 = float(0).toVar();
     const t1 = tMax.mul(pow(u, 1.6)).toVar();
     const hit = float(0).toVar();
@@ -188,7 +189,7 @@ export function screenMirror(nW: N<'vec3'>, foam: N<'float'>, depthNode: THREE.T
     const far = vec4(0).toVar();
     if (field) {
       If(k.lessThan(0.995).and(live.greaterThan(0.01)), () => {
-        far.assign(fieldMarch(P0, Rd, field));
+        far.assign(fieldMarch(P0, Rd, field, (sky.u.frame as unknown as N<'float'>).mul(5.588238)));
       });
     }
     const wFar = far.a.mul(live).mul(float(1).sub(k));

@@ -580,7 +580,7 @@ export class UI {
           select('quality', '画质', (Object.keys(QUALITY) as Array<keyof typeof QUALITY>).map((q) => [q, QUALITY[q].label])) +
           check('rayTracing', '光线追踪', '沿地形追踪真实光线：山谷、岩壁、机腹接到地面反上来的彩色光，金属映出地形，舱内光线随脚下的地面变化。进图时多算一秒，飞行时几乎不占性能') +
           check('volumetric', '体积雾与光束', '贴地薄雾、穿过树林与云缝的光束（丁达尔效应）；中画质及以上生效') +
-          range('renderScale', '渲染分辨率', 0.5, 1, 0.05, pct) +
+          range('renderScale', '渲染分辨率（低于 100% 时用时间超分还原清晰度）', 0.5, 1, 0.05, pct) +
           range('fov', '视野范围（FOV）', 50, 100, 1, (v) => `${Math.round(v)}°`) +
           range('viewCenter', '座舱视点居中（0% = 右侧机长座位）', 0, 1, 0.05, pct) +
           range('shake', '镜头震动强度', 0, 1, 0.05, pct) +

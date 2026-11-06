@@ -596,6 +596,7 @@ export class TreeView {
     // 视野的边界进出不对称：已经在画的树要转出更远才摘掉，稍微转一下头不用搬动一大片
     const cosHalf = Math.cos(1.15);
     const cosKeep = Math.cos(1.35);
+    // （最远一级的体块树冠不投影：试过，影子是一块块圆边，树冠看上去像荷叶。远处林子的明暗交给接触阴影，见 post.ts）
     const shadowLods = this.modeled ? 2 : 1;
     const put = (set: LodMeshes, n: number, i: number, big: number, ti: number): void => {
       q.setFromAxisAngle(up, T.rot[i]);

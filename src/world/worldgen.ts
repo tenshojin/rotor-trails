@@ -98,6 +98,7 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
       carveRiver(hb, r, protection!);
     }
   }
+  map.paintFinal?.(hb);
   const terrain = hb.build();
   progress?.(0.45, '布置建筑与停机坪');
   await tick();

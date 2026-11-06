@@ -218,6 +218,8 @@ export interface MapDef {
   /** 地表掩码 A 通道画的是水泥地（港区），不是积雪 */
   pavedMask?: boolean;
   /** 水力侵蚀的雨滴数（见 world/erosion.ts）；缺省不做 */
+  /** 地形全部定下来之后再画的地表（积雪这种按高度算的：切出来的山沟不能还留着原来山顶的雪） */
+  paintFinal?: (b: HeightBuilder) => void;
   /** 河流下切（见 world/fluvial.ts）：切出树枝状的水系，放在雨滴侵蚀之前 */
   dissect?: { grid: number; steps: number; k: number; maxCut: number; m?: number; creep?: number; talus?: number; soft?: (x: number, z: number) => number };
   erosion?: number;

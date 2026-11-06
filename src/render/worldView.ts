@@ -235,7 +235,7 @@ export class WorldView {
       if (this.rivers) this.rivers.ssr.value = mirror;
     }
     if (force || previous?.lightning !== s.lightning) this.lightning.enabled = s.lightning;
-    if (qualityChanged || previous?.rayTracing !== s.rayTracing || previous?.motionBlur !== s.motionBlur || previous?.volumetric !== s.volumetric) this.buildPost();
+    if (qualityChanged || previous?.rayTracing !== s.rayTracing || previous?.motionBlur !== s.motionBlur || previous?.volumetric !== s.volumetric || previous?.renderScale !== s.renderScale) this.buildPost();
     if (qualityChanged || previous?.renderScale !== s.renderScale) this.resize();
     else this.syncCameraProjection();
     this.appliedSettings = { quality: s.quality, renderScale: s.renderScale, rayTracing: s.rayTracing, motionBlur: s.motionBlur, volumetric: s.volumetric, navGuides: s.navGuides, lightning: s.lightning };
@@ -338,9 +338,9 @@ export class WorldView {
   private buildPost(): void {
     if (!this.ready) return;
     const s = this.settings;
-    const key = `${s.quality}_${s.rayTracing}_${s.motionBlur}_${s.volumetric}`;
+    const key = `${s.quality}_${s.rayTracing}_${s.motionBlur}_${s.volumetric}_${s.renderScale}`;
     if (key === this.postKey && this.post) return;
-    const next = buildPost(this.renderer, this.scene, this.rig.camera, this.sun, { quality: s.quality, rayTracing: s.rayTracing, motionBlur: s.motionBlur, volumetric: s.volumetric });
+    const next = buildPost(this.renderer, this.scene, this.rig.camera, this.sun, { quality: s.quality, rayTracing: s.rayTracing, motionBlur: s.motionBlur, volumetric: s.volumetric, upscale: s.quality === 'low' ? 1 : s.renderScale });
     const previous = this.post;
     this.post = next;
     this.postKey = key;
@@ -351,7 +351,8 @@ export class WorldView {
     const c = this.renderer.domElement;
     const w = Math.max(1, c.clientWidth || window.innerWidth);
     const h = Math.max(1, c.clientHeight || window.innerHeight);
-    const dpr = Math.min(window.devicePixelRatio || 1, QUALITY[this.settings.quality].pixelRatio) * this.settings.renderScale;
+    // 低画质没有时间抗锯齿，只能靠浏览器放大；其他档用时间超分（见 post.ts），画布始终是屏幕分辨率
+    const dpr = Math.min(window.devicePixelRatio || 1, QUALITY[this.settings.quality].pixelRatio) * (this.settings.quality === 'low' ? this.settings.renderScale : 1);
     if (w !== this.renderWidth || h !== this.renderHeight || dpr !== this.pixelRatio) {
       // One resize notification, even when both viewport and display DPR change.
       this.renderer.setDrawingBufferSize(w, h, dpr);

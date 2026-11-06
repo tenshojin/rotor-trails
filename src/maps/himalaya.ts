@@ -221,9 +221,9 @@ export const HIMALAYA: MapDef = {
     b.flatten(COL_STATION[0], COL_STATION[2], 22, COL_STATION[1], 30);
     b.flatten(SUMMIT[0], SUMMIT[2], 26, SUMMIT[1], 35);
     // 积雪：高处与缓坡
-    b.paint(3, (x, z, h) => smoothstep(1050, 1250, h + 120 * n.noise(x / 200, z / 200)));
     b.paint(0, (x, z, h) => (h < 700 ? 0.5 * (0.5 + 0.5 * n2.noise(x / 80, z / 80)) * (1 - smoothstep(400, 700, h)) : 0));
   },
+  paintFinal: (b) => void b.paint(3, (x, z, h) => smoothstep(1050, 1250, h + 120 * n.noise(x / 200, z / 200))),
   farTerrain: farRange,
   farExtent: 5,
   spawn: { padId: 'H-base', heading: 60 },

@@ -361,7 +361,7 @@ export const CANYON: MapDef = {
   ],
   farTerrain: farLand,
   farBlend: 240,
-  farExtent: 5,
+  farExtent: 18,
   spawn: { padId: 'C-visitor', heading: 110 },
   pads: [
     { id: 'C-visitor', name: '峡谷游客中心', pos: [-1480, 308.45, 820], size: 22, kind: 'start', style: 'ground' },

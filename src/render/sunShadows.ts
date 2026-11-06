@@ -52,7 +52,9 @@ export class SunShadows {
     l.castShadow = true;
     l.shadow.mapSize.set(mapSize, mapSize);
     l.shadow.camera.near = 1;
-    l.shadow.camera.far = 6000;
+    // 最外一层阴影框的斜对角有七八千米；太阳低时还要多留出山的距离。超过远平面的地面按反向深度比较会被判成“在影子里”，
+    // 高空和黄昏时远处的地面整块变暗
+    l.shadow.camera.far = 30000;
     l.shadow.bias = -0.00005;
     l.shadow.normalBias = NORMAL_BIAS[0];
     scene.add(l, l.target);

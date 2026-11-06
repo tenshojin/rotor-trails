@@ -18,6 +18,7 @@ import { clamp, convertToTexture, screenSize, Fn, If, diffuseColor, dot, float, 
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
+import { taau } from 'three/addons/tsl/display/TAAUNode.js';
 import { traa } from 'three/addons/tsl/display/TRAANode.js';
 import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 import type { SunShadows } from './sunShadows';
@@ -58,6 +59,8 @@ export interface PostConfig {
   motionBlur?: boolean;
   /** 体积雾与光束（中及以上画质） */
   volumetric?: boolean;
+  /** 渲染分辨率（小于 1 时用时间超分还原到屏幕分辨率） */
+  upscale?: number;
 }
 
 export interface Post {
@@ -179,6 +182,9 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     const t = att[k] ? scenePass.getTexture(k) : null;
     if (t) t.type = THREE.UnsignedByteType;
   }
+  // 时间超分：场景和后期都按较低的分辨率算，每帧的采样位置错开一点，累积几帧还原出全分辨率（three 的 TAAU，思路和 FSR2 一样）
+  const up = cfg.upscale ?? 1;
+  if (up < 1) scenePass.setResolutionScale(up);
   const color = scenePass.getTextureNode('output');
   const depth = scenePass.getTextureNode('depth');
   const vel = scenePass.getTextureNode('velocity');
@@ -193,7 +199,7 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     const q = cfg.quality;
     const aoPass = ao(depth, sceneNormal, camera);
     // 半分辨率的 GTAO 在远处（天空、远海）升采样时会出现竖条纹，所以各档都用全分辨率、只调采样数
-    aoPass.resolutionScale = dbg.aoScale ?? 1;
+    aoPass.resolutionScale = dbg.aoScale ?? up;
     aoPass.radius.value = 1.6;
     aoPass.distanceExponent.value = 1.5;
     aoPass.thickness.value = 2;
@@ -243,7 +249,9 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
   let hdr = (): THREE.Texture | null => scenePass.getTexture('output');
   let aaTex: THREE.TextureNode | null = null;
   if (dbg.traa !== false) {
-    const t = traa(asTexture(composite), depth, vel, camera);
+    const beauty = asTexture(composite);
+    if (up < 1) (beauty as THREE.TextureNode & { setResolutionScale(s: number): void }).setResolutionScale(up);
+    const t = (up < 1 ? taau : traa)(beauty, depth, vel, camera);
     disposers.push(t);
     aa = t;
     // 时间抗锯齿的结果已经叠好了雾和遮蔽，就是眼睛最后看到的亮度

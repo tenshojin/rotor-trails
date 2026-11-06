@@ -30,6 +30,7 @@ const T_STEPS = 40;
 const M_STEPS = 20;
 const S_STEPS = 32;
 const M_DIRS = 8;
+const SKY_CHROMA = 0.74;
 
 export interface SkyParams {
   /** 气溶胶的多少（1 = 干净的晴天，2~4 = 有霾） */
@@ -294,9 +295,11 @@ export class SkyModel {
         const az = (Math.PI * (x + 0.5)) / SKY_W;
         this.integrate(az, el, o);
         const k = (y * SKY_W + x) * 4;
-        this.sky[k] = o[0];
-        this.sky[k + 1] = o[1];
-        this.sky[k + 2] = o[2];
+        // 只算三个波长，蓝得比真实的连续光谱艳：往亮度收一点（阳光的颜色也是同样的道理，见 sky.ts）
+        const l = 0.2126 * o[0] + 0.7152 * o[1] + 0.0722 * o[2];
+        this.sky[k] = l + (o[0] - l) * SKY_CHROMA;
+        this.sky[k + 1] = l + (o[1] - l) * SKY_CHROMA;
+        this.sky[k + 2] = l + (o[2] - l) * SKY_CHROMA;
         this.sky[k + 3] = 1;
       }
     }

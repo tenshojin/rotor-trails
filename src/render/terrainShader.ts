@@ -292,6 +292,8 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       }
       ws.assign(max(ws, 1e-3));
       col.assign(acc.div(ws));
+      // 岩石照片的层线到了几公里外混叠成一道道细横线，像扫描线：远处换成平均色，明暗由地形的起伏和大块噪声给
+      col.assign(mix(col, c3(L.biome[5]).mul(n1.mul(0.55).add(0.72)), smoothstep(900.0, 2600.0, length(P.sub(cameraPosition))).mul(rockW).mul(0.85)));
       if (U.rockForm && U.strataLUT) {
         // 地层：岩石的颜色按地层表查（层线和地形的台阶对得上，绕山连续），照片材质只留明暗细节
         const R = U.rockForm;
@@ -406,7 +408,10 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       return vec4(wn, hgt);
     };
     const cavOf = (s: number, o: number) => texture(U.relief, vec2(P.z, Py).div(s).add(o)).a.mul(tw.x).add(texture(U.relief, P.xz.div(s).add(o)).a.mul(tw.y)).add(texture(U.relief, vec2(P.x, Py).div(s).add(o)).a.mul(tw.z));
-    const rA = relief(230.0, 0.0);
+    const rA0 = relief(230.0, 0.0);
+    // 几公里外 230 米一格的浮雕只有几十个像素，里面的细层线排成一道道扫描线：换成五倍大的一层
+    const farRelief = smoothstep(1100.0, 3000.0, length(P.sub(cameraPosition))).toVar();
+    const rA = mix(rA0, relief(1180.0, 0.19), farRelief);
     const rB = relief(71.0, 0.41);
     // 最细的一层（19 米平铺）：岩面上的裂隙和小棱角，只在中近距离看得出
     const rC = relief(19.0, 0.73);
@@ -419,7 +424,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const shade = float(1).sub(cavS.mul(0.26)).sub(cavL.mul(0.2)).add(rH.sub(0.46).mul(mix(float(0.1), float(0.7), rockK)));
     col.mulAssign(clamp(shade, 0.66, 1.4).mul(float(1).sub(snowW.mul(0.5))).add(snowW.mul(0.5)));
     // 裂缝和岩层下面的凹处：太阳照不进去，是岩壁上最黑的地方
-    const cav = cavOf(71.0, 0.41).mul(footK.mul(0.75)).add(cavOf(19.0, 0.73).mul(footC.mul(0.65))).add(cavOf(230.0, 0.0).mul(0.42));
+    const cav = cavOf(71.0, 0.41).mul(footK.mul(0.75)).add(cavOf(19.0, 0.73).mul(footC.mul(0.65))).add(mix(cavOf(230.0, 0.0), cavOf(1180.0, 0.19), farRelief).mul(0.42));
     col.mulAssign(float(1).sub(clamp(cav, 0.0, 1.0).mul(rockK).mul(0.34)));
     // 水痕：雨水顺着岩壁往下淌，留下一道道深色的竖纹（矿物、地衣），这是崖壁远看最抢眼的纹理
     const seep = texture(noise, vec2(P.x.add(P.z).mul(0.0047), P.y.mul(0.00035))).r.mul(0.62).add(texture(noise, vec2(P.x.sub(P.z).mul(0.019), P.y.mul(0.0011).add(0.3))).g.mul(0.38));

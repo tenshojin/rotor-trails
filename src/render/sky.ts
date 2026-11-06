@@ -17,7 +17,7 @@ import { getNoiseTexture } from './textures';
 /** 大气顶上的太阳照度（场景单位）：天空的亮度、地面的阳光都按它算，两者的比例才是真的 */
 const SUN_E = 4.4;
 /** 天空比真实略亮一点（相机里的天空，比肉眼对比弱） */
-const SKY_GAIN = 1.5;
+const SKY_GAIN = 1.8;
 
 /**
  * 体积云的共享参数：天空里看到的云、地面上的云影、体积雾里的云影（光束）用同一份，三者始终对得上。
@@ -394,7 +394,9 @@ export class SkyDome {
   constructor(sunAzimuthDeg: number, sunElevationDeg: number, fogTint: number, groundTint: number, night = false, haze = 1.6) {
     this.fogTint = c(fogTint);
     this.groundTint = c(groundTint);
-    this.air = { haze, albedo: [this.groundTint.r, this.groundTint.g, this.groundTint.b] };
+    // （地面反上来的光给天空带的颜色很淡，直接用地表的绿色，地平线会发绿）
+    const grey = Math.min(0.3, (this.groundTint.r + this.groundTint.g + this.groundTint.b) / 3);
+    this.air = { haze, albedo: [grey, grey, grey] };
     this.lut.name = 'SkyView';
     this.lut.magFilter = THREE.LinearFilter;
     this.lut.minFilter = THREE.LinearFilter;

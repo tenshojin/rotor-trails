@@ -89,9 +89,10 @@ describe('render settings invalidation', () => {
     expect(f.sun.setShadows).toHaveBeenCalledOnce();
     f.settings.renderScale = 0.75;
     f.view.applySettings(f.settings);
-    expect(f.renderer.setDrawingBufferSize).toHaveBeenLastCalledWith(1280, 720, 1.125);
-    expect(f.sun.updateFrustums).toHaveBeenCalledOnce();
-    expect(buildPost).toHaveBeenCalledTimes(2);
+    // 画布还是屏幕分辨率，场景按 75% 画，由时间超分还原：只重建后期管线
+    expect(f.renderer.setDrawingBufferSize).toHaveBeenCalledOnce();
+    expect(buildPost).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(buildPost).mock.lastCall?.[4]).toMatchObject({ upscale: 0.75 });
   });
 
   it('forces the current quality onto newly constructed map objects without recreating an unchanged post graph', () => {

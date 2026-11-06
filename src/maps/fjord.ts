@@ -294,8 +294,8 @@ export const FJORD_MAP: MapDef = {
     });
     b.flatten(HEAD[0], HEAD[2], 96, HEAD[1], 70);
     b.paint(0, (_x, _z, h) => (h > -1 && h < 3 ? 1 - smoothstep(1.5, 3, h) : 0));
-    b.paint(3, (x, z, h) => (h > 680 ? smoothstep(680, 760, h + 40 * n.noise(x / 150, z / 150)) : 0));
   },
+  paintFinal: (b) => void b.paint(3, (x, z, h) => (h > 680 ? smoothstep(680, 760, h + 40 * n.noise(x / 150, z / 150)) : 0)),
   farTerrain: far,
   farExtent: 4,
   spawn: { padId: 'F-mouth', heading: 0 },
