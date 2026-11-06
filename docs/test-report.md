@@ -18,7 +18,7 @@
 | 其他画质 | 低画质、WebGL 回退各进一次图 | 都能进，没有报错；低画质不画散布 |
 | 带 HUD 飞行 | 休闲飞行自动巡航 54 秒，超仿真冷舱 | 画面正常；座舱里看到的地面和外面的镜头一致 |
 | 帧时间 | 1080p 极高，不限帧，显卡空闲（nvidia-smi 1%） | 巡航 p50 10.7 ms / p99 22.5 ms；离地 60 米穿林 p50 13.3 ms / p99 37.1 ms；离地 400 米 p50 10.3 ms / p99 27 ms；都没有超过 50 ms 的帧。同样条件下赤岩峡谷 p50 8.9 ms / p99 12.4 ms |
-| 全量 | `npm test`、`npm run regress`、`npm run regress:recovery`、`tools/cruise.tool.ts`、`tools/rescue.tool.ts`、`tools/ui-regression.html` 两种宽度 | 384 / 384、42 / 42、12 / 12、6 / 6（0 碰撞）、4 / 4（0 碰撞）、15 / 15 |
+| 全量 | `npm test`、`npm run regress`、`npm run regress:recovery`、`tools/cruise.tool.ts`、`tools/bigmap.tool.ts`、`tools/ui-regression.html` 两种宽度 | 373 / 373、42 / 42、12 / 12、6 / 6（0 碰撞）、3 / 3、14 / 14 |
 
 没有真人试玩。灌木、碎石、树的观感只看了截图，飞行中的抖动和时间抗锯齿的残影没有人眼看过。
 
