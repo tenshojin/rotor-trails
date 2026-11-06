@@ -18,7 +18,6 @@ export class PadDetails {
 
   constructor(map: MapDef) {
     for (const pad of map.pads) {
-      if (pad.style === 'field') continue;
       for (const [x, z] of padLightOffsets(pad.size)) {
         const pos = padWorld(pad, x, 0.015, z);
         this.positions.lamp_housing.push(pos);

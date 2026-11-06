@@ -37,7 +37,6 @@ function gather(world: WorldData): Lamp[] {
   }
   // 停机坪四周一圈边灯
   for (const p of world.map.pads) {
-    if (p.style === 'field') continue;
     for (const [x, z] of padLightOffsets(p.size)) out.push({ pos: padWorld(p, x, 0.15, z), size: 0.55, color: PAD, pool: 0 });
   }
   return out;

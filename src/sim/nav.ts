@@ -197,8 +197,7 @@ export class Navigator {
     }
     const paths = this.paths();
     if (paths.length === 0) {
-      // 没有设计好的航线（救援）：直飞目标
-      this.direct(pos, goal, goalLabel, Math.hypot(pos.x - goal[0], pos.z - goal[2]) < 320 ? 'approach' : 'route');
+      this.direct(pos, goal, goalLabel, 'route');
       return info;
     }
 

@@ -21,6 +21,29 @@ function encode(h: Float64Array, n: number, base: number, step: number): ArrayBu
 
 const level = (size: number, res: number, base: number, step: number): RealLevelDef => ({ size, res, heights: 'x', image: 'y', base, step });
 
+describe('超大地图', () => {
+  it('核心区用精细高程，飞出去以后接外面一层', () => {
+    const core = new Heightfield(100, 11, new Float32Array(121).fill(50));
+    core.outer = new Heightfield(400, 11, new Float32Array(121).fill(80));
+    expect(core.heightAt(0, 0)).toBe(50);
+    expect(core.heightAt(49, -49)).toBe(50);
+    expect(core.heightAt(60, 0)).toBe(80);
+    expect(core.heightAt(0, -150)).toBe(80);
+  });
+
+  it('大峡谷能飞的范围就是中圈，比核心区大', () => {
+    expect(GRAND_CANYON.flightSize).toBe(GRAND_CANYON.real!.levels[1].size);
+    expect(GRAND_CANYON.flightSize!).toBeGreaterThan(GRAND_CANYON.size);
+  });
+
+  it('外圈的树种在能飞的范围里，核心区不重复种', () => {
+    for (const f of GRAND_CANYON.outerForest!) {
+      expect(Math.max(Math.abs(f.at[0]), Math.abs(f.at[1]))).toBeLessThan(GRAND_CANYON.flightSize! / 2);
+      expect(Math.max(Math.abs(f.at[0]), Math.abs(f.at[1]))).toBeGreaterThan(GRAND_CANYON.size / 2);
+    }
+  });
+});
+
 describe('真实地形数据', () => {
   afterEach(() => vi.unstubAllGlobals());
 
