@@ -451,7 +451,8 @@ export class RealTerrain {
       const body = mix(vec3(0.05, 0.095, 0.06), vec3(0.011, 0.062, 0.05), deep);
       // 白浪：比周围的水亮一截的地方（影像上的水面本身就有亮有暗，不能看绝对亮度）
       const calm = dot(texture(image, uv0).bias(float(5)).rgb, LUMW);
-      const foam0 = smoothstep(1.2, 1.75, dot(col, LUMW).div(max(calm, 0.02)));
+      // （外圈的河面掩码 20 米一格，比影像粗：岸上亮的石头和沙洲落在水里，不能都当白浪，看起来像一河冰块）
+      const foam0 = smoothstep(core ? 1.2 : 1.9, core ? 1.75 : 2.8, dot(col, LUMW).div(max(calm, 0.02)));
       // 白浪在翻：两层噪声朝不同方向走，一团团地出现又散开
       const churn = texture(noise, P.xz.div(9.0).add(vec2(t.mul(0.19), t.mul(-0.11)))).r.mul(texture(noise, P.xz.div(3.7).sub(vec2(t.mul(0.31), t.mul(0.16)))).g);
       const foam = clamp(foam0.mul(churn.mul(3.4).add(0.25)), 0.0, 0.92).toVar();

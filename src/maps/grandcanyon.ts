@@ -32,7 +32,7 @@ export const GRAND_CANYON: MapDef = {
     credit: '高程：USGS 3DEP；影像：USDA NAIP 2023（经 USGS The National Map）。美国政府公有领域数据。',
     levels: [
       { size: 10240, res: 4097, heights: 'core.dem', image: 'core.webp', base: 724, step: 0.05 },
-      { size: 40960, res: 2049, heights: 'mid.dem', image: 'mid.webp', base: 647, step: 0.1 },
+      { size: 40960, res: 4097, heights: 'mid.dem', image: 'mid.webp', base: 647, step: 0.1 },
       { size: 163840, res: 1025, heights: 'far.dem', image: 'far.webp', base: 39, step: 0.25 },
     ],
     // 倾角是拟合的：让崖壁的高度分布最集中（往北每公里抬升约 16 米，和两岸的地层高差对得上）

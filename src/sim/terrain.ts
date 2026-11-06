@@ -119,8 +119,16 @@ export class Heightfield {
   toRapierHeights(): Float32Array {
     const r = this.res;
     const out = new Float32Array(r * r);
-    for (let iz = 0; iz < r; iz++) {
-      for (let ix = 0; ix < r; ix++) out[iz + ix * r] = this.data[iz * r + ix];
+    // 行列互换：一小块一小块地搬，一千多万格的大图才不会一直在缓存外面跳
+    const B = 64;
+    for (let z0 = 0; z0 < r; z0 += B) {
+      const z1 = Math.min(z0 + B, r);
+      for (let x0 = 0; x0 < r; x0 += B) {
+        const x1 = Math.min(x0 + B, r);
+        for (let iz = z0; iz < z1; iz++) {
+          for (let ix = x0; ix < x1; ix++) out[iz + ix * r] = this.data[iz * r + ix];
+        }
+      }
     }
     return out;
   }

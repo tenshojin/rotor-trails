@@ -109,7 +109,7 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
   }
   map.paintFinal?.(hb);
   const terrain = hb.build();
-  if (real && map.flightSize) terrain.outer = real.sunOuter;
+  if (real && map.flightSize) terrain.outer = real.outer;
   progress?.(0.45, '布置建筑与停机坪');
   await tick();
   const waterLevel = map.waterLevel;

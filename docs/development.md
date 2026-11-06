@@ -64,11 +64,11 @@ MAP=himalaya PATHS=0,1 npx vitest run --config vitest.tools.config.ts tools/auto
 地形数据已经生成好提交在 `public/real/` 下。要换地方或者重新处理：
 
 ```bash
-python tools/real/fetch_grandcanyon.py art/src/real/grandcanyon
+python -I tools/real/fetch_grandcanyon.py art/src/real/grandcanyon
 python -I tools/real/prep_grandcanyon.py art/src/real/grandcanyon public/real/grandcanyon --sun 100 41
 ```
 
-第一步从 USGS The National Map 下载约 130 MB（放在 `art/src/real/`，不进仓库）。第二步大约八分钟，要有 numpy、scipy、Pillow。`--sun` 是拍摄时的太阳方位和高度，不写就从照片和高程里自动拟合。
+第一步从 USGS The National Map 下载约 230 MB（放在 `art/src/real/`，不进仓库）。外圈是后来换细的（10 米高程、5 米影像），已有旧数据的话单独下到一个子目录，`prep_grandcanyon.py` 看到 `mid10` 就用它：`python -I tools/real/fetch_grandcanyon.py art/src/real/grandcanyon/mid10 mid`。第二步大约十五分钟，内存要留 8 GB，要有 numpy、scipy、Pillow。`--sun` 是拍摄时的太阳方位和高度，不写就从照片和高程里自动拟合。
 
 第二步生成高程、影像、岩层色表、树，还有核心区和外圈的辅助图（`sky_river.webp`、`sky_river_mid.webp`）和地面散布的疏密图（`scatter.webp`）。跑完看一下 `public/real/grandcanyon/meta.json` 的 `bases`，要和 `src/maps/grandcanyon.ts` 里每层的 `base` 一样：河面压平之后最低点可能变，差一米整张图的高度都错（`tests/real-data.test.ts` 会查）。
 

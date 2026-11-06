@@ -1,5 +1,6 @@
 # 下载大峡谷的真实高程和航拍影像（只取需要的范围，走 USGS 官方的 ImageServer）。
 # 运行：python -I tools/real/fetch_grandcanyon.py art/src/real/grandcanyon
+#      只下外圈：python -I tools/real/fetch_grandcanyon.py art/src/real/grandcanyon/mid10 mid
 # 已经下好的块会跳过，中断了重新跑就行。
 #
 # 来源（都是美国政府公有领域数据，使用时注明来源）：
@@ -19,6 +20,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else 'art/src/real/grandcanyon'
+# 只下某一层：core、mid、far
+ONLY = sys.argv[2] if len(sys.argv) > 2 else None
 os.makedirs(OUT, exist_ok=True)
 
 DEM = 'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage'
@@ -70,7 +73,7 @@ def tiles(total, n):
 def job_list():
     jobs = []
     # 高程：网格点在像元中心，所以范围比地图外扩半格
-    for name, size, samples, n in (('core', CORE, 4097, 3), ('mid', MID, 2049, 2), ('far', FAR, 1025, 1)):
+    for name, size, samples, n in (('core', CORE, 4097, 3), ('mid', MID, 4097, 3), ('far', FAR, 1025, 1)):
         cell = size / (samples - 1)
         x0 = E0 - size / 2 - cell / 2
         y1 = N0 + size / 2 + cell / 2
@@ -80,7 +83,7 @@ def job_list():
                 q = dict(bbox=','.join(f'{v:.3f}' for v in bbox), bboxSR=26912, imageSR=26912, size=f'{pw},{ph}', format='tiff', pixelType='F32', noData=-9999, interpolation='RSP_BilinearInterpolation', f='image')
                 jobs.append((f'dem_{name}_{r}{c}.tif', DEM, q, dict(px=px, py=py, w=pw, h=ph, total=samples, cell=cell)))
     # 影像：像素铺满整个范围
-    for name, size, px_total, n in (('core', CORE, 8192, 4), ('mid', MID, 4096, 2), ('far', FAR, 2048, 1)):
+    for name, size, px_total, n in (('core', CORE, 8192, 4), ('mid', MID, 8192, 4), ('far', FAR, 2048, 1)):
         m = size / px_total
         x0 = E0 - size / 2
         y1 = N0 + size / 2
@@ -89,7 +92,7 @@ def job_list():
                 bbox = (x0 + px * m, y1 - (py + ph) * m, x0 + (px + pw) * m, y1 - py * m)
                 q = dict(bbox=','.join(f'{v:.3f}' for v in bbox), bboxSR=26912, imageSR=26912, size=f'{pw},{ph}', format='jpg', compressionQuality=92, interpolation='RSP_BilinearInterpolation', f='image')
                 jobs.append((f'naip_{name}_{r}{c}.jpg', NAIP, q, dict(px=px, py=py, w=pw, h=ph, total=px_total, cell=m)))
-    return jobs
+    return [j for j in jobs if ONLY is None or f'_{ONLY}_' in j[0]]
 
 
 lock = threading.Lock()

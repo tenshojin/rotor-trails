@@ -20,9 +20,11 @@ export interface RealData {
   /** 核心区 10 米一格的副本：雾、倒影、光照这些低频的东西不需要全分辨率 */
   low: Heightfield;
   lowSurface: Uint8Array;
-  /** 阳光的山影：核心区 5 米一格，再往外用中圈，影子一直算到几十公里外 */
+  /** 阳光的山影：核心区 5 米一格，再往外用中圈（20 米一格），影子一直算到几十公里外。两张一样大 */
   sunInner: Heightfield;
   sunOuter: Heightfield;
+  /** 中圈全分辨率：地面高度和外圈的物理都用它，要和画出来的地形一致 */
+  outer: Heightfield;
   /** 地图外某点的地面高度（只有画面用） */
   heightAt(x: number, z: number): number;
 }
@@ -168,6 +170,9 @@ export function sampleGrid(g: RealGrid, x: number, z: number): number | null {
   return (d[o] * (1 - u) + d[o + 1] * u) * (1 - v) + (d[o + g.res] * (1 - u) + d[o + g.res + 1] * u) * v;
 }
 
+/** 山影高度图一边多少格 */
+const SUN_CELLS = 2048;
+
 function downsample(g: RealGrid, step: number): Heightfield {
   const n = (g.res - 1) / step + 1;
   const out = new Float32Array(n * n);
@@ -182,8 +187,10 @@ export function buildRealData(def: RealTerrainDef, levels: RealGrid[]): RealData
     levels,
     low,
     lowSurface: new Uint8Array(low.res * low.res * 4),
-    sunInner: downsample(levels[0], (levels[0].res - 1) / (levels[1].res - 1)),
-    sunOuter: new Heightfield(levels[1].size, levels[1].res, levels[1].data),
+    // （山影的贴图左右各放一张，宽度不能超过 8192；影子也不需要 10 米的精度）
+    sunInner: downsample(levels[0], (levels[0].res - 1) / SUN_CELLS),
+    sunOuter: downsample(levels[1], (levels[1].res - 1) / SUN_CELLS),
+    outer: new Heightfield(levels[1].size, levels[1].res, levels[1].data),
     heightAt(x, z) {
       for (const g of levels) {
         const h = sampleGrid(g, x, z);

@@ -21,14 +21,19 @@ OUT = sys.argv[2]
 os.makedirs(OUT, exist_ok=True)
 G = json.load(open(os.path.join(SRC, 'grid.json'), encoding='utf-8'))
 R_EARTH = 6371000.0
+# 外圈：10 米高程、5 米影像（fetch_grandcanyon.py 单独下到 mid10 目录）。没有这个目录的话就在主目录里
+MID_SRC = os.path.join(SRC, 'mid10') if os.path.isdir(os.path.join(SRC, 'mid10')) else SRC
+GM = json.load(open(os.path.join(MID_SRC, 'grid.json'), encoding='utf-8'))
+MID_CELL = 10.0
+MID_PX = 5.0
 
 
-def mosaic(prefix, total, channels):
+def mosaic(prefix, total, channels, src=SRC, grid=G):
     a = np.zeros((total, total, channels), np.float32) if channels > 1 else np.zeros((total, total), np.float32)
-    for name, t in G['tiles'].items():
+    for name, t in grid['tiles'].items():
         if not name.startswith(prefix):
             continue
-        im = Image.open(os.path.join(SRC, name))
+        im = Image.open(os.path.join(src, name))
         p = np.asarray(im.convert('RGB') if channels == 3 else im, dtype=np.float32)
         a[t['py']:t['py'] + t['h'], t['px']:t['px'] + t['w']] = p
     return a
@@ -584,7 +589,7 @@ def sky_view(h, cell):
 
 
 def aux_map(h, river, cell, step, name):
-    """辅助图（核心区 5 米一格，外圈 20 米）：R 岩缝和小沟，G 河面，B 看得到的天空。无损：三个通道互不相干，不能有色度抽样"""
+    """辅助图（核心区 5 米一格，外圈 20 米，都是 2048 像素）：R 岩缝和小沟，G 河面，B 看得到的天空。无损：三个通道互不相干，不能有色度抽样"""
     h5 = h[::step, ::step].astype(np.float32)
     cell = step * cell
     sky = sky_view(h5, cell)
@@ -642,7 +647,7 @@ def river_mask(h, alb, cell, ref=None):
     gy, gx = np.gradient(hh, cell)
     slope = np.hypot(gx, gy)
     fine = cell < 5
-    # 一块地要多大才算：按面积。外圈 20 米一格，河才四五格宽，开运算不能做多了
+    # 一块地要多大才算：按面积。外圈的格子大，河才十来格宽，开运算不能做多了
     area = lambda m2: m2 / (cell * cell)
     low = hh < float(h.min()) + 60
     m = (slope < 0.012) & low
@@ -677,7 +682,7 @@ def river_mask(h, alb, cell, ref=None):
         band &= deep
         even = True
     water = ((sat > s0 * 0.86) & near & even) | (band & ((sat > s0 * 0.62) | (lum < l0 * 0.4)))
-    # 外圈的河只有四五格宽，颜色有时认不出来：紧贴一公里内最低处的地方，不看颜色也算
+    # 外圈的河只有十来格宽，颜色有时认不出来：紧贴一公里内最低处的地方，不看颜色也算
     water = (ndimage.binary_opening(water, iterations=3) if fine else water | ((hh < floor + 3) & deep)) | keep
     lab, k = ndimage.label(water, structure=np.ones((3, 3)))
     size = ndimage.sum(water, lab, np.arange(1, k + 1))
@@ -768,12 +773,11 @@ def find_trees(h, alb, px_cell, limit=150000):
 def main():
     print('高程')
     core = merge_lidar(fill_nodata(mosaic('dem_core', 4097, 1)))
-    mid = fill_nodata(mosaic('dem_mid', 2049, 1))
+    mid = fill_nodata(mosaic('dem_mid', 4097, 1, MID_SRC, GM))
     far = fill_nodata(mosaic('dem_far', 1025, 1))
     print('  核心', core.min(), core.max(), ' 中圈', mid.min(), mid.max(), ' 远圈', far.min(), far.max())
     print('影像')
     img0 = srgb_to_lin(mosaic('naip_core', 8192, 3) / 255)
-    img1 = srgb_to_lin(mosaic('naip_mid', 4096, 3) / 255)
     img2 = srgb_to_lin(mosaic('naip_far', 2048, 3) / 255)
     print('太阳')
     if '--sun' in sys.argv:
@@ -801,10 +805,17 @@ def main():
     a0, lut = delight(img0, core, 2.5, 1.25, az, el, amb, '核心')
     del img0
     # 外面两层的高度范围更大（比如北缘的森林）：表要重算，只在核心区的高度范围内用核心区的表
-    a1, lut1 = delight(img1, mid, 20.0, 10.0, az, el, amb, '中圈')
+    # （外圈的影像和核心区一样大，内存吃紧：核心区的结果先放到硬盘上，外圈的影像这时候才读进来）
+    spill = os.path.join(SRC, '_a0.npy')
+    np.save(spill, a0)
+    del a0
+    img1 = srgb_to_lin(mosaic('naip_mid', 8192, 3, MID_SRC, GM) / 255)
+    a1, lut1 = delight(img1, mid, MID_CELL, MID_PX, az, el, amb, '中圈')
     del img1
     a2, _ = delight(img2, far, 160.0, 80.0, az, el, amb, '远圈', lut1)
     del img2
+    a0 = np.load(spill)
+    os.remove(spill)
     # 亮度和颜色不再调：航拍的色调本来就是对的。以前提过亮度和饱和度，片岩成了土黄色，林下的土成了柠檬黄
     print('  中位数', float(np.median(a0 @ LUM)), float(np.median(a1 @ LUM)), float(np.median(a2 @ LUM)))
     for a in (a0, a1, a2):
@@ -815,14 +826,14 @@ def main():
     core = flatten_river(core, river, 2.5)
     aux_map(core, river, 2.5, 2, 'sky_river.webp')
     # 外圈也能飞：河不能一出核心区就变回影像上的颜色
-    river1, _ = river_mask(mid, a1, 20.0, tone)
-    mid = flatten_river(mid, river1, 20.0)
-    aux_map(mid, river1, 20.0, 1, 'sky_river_mid.webp')
+    river1, _ = river_mask(mid, a1, MID_CELL, tone)
+    mid = flatten_river(mid, river1, MID_CELL)
+    aux_map(mid, river1, MID_CELL, 2, 'sky_river_mid.webp')
     find_trees(core, a0, 1.25)
     scatter_map(core, a0, river)
     calm_river(a0, river)
     sharpen(a0, 1.5, 0.6)
-    sharpen(a1, 1.2, 0.35)
+    sharpen(a1, 1.4, 0.45)
     blend_edge(a0, a1, G['core'], G['mid'])
     blend_edge(a1, a2, G['mid'], G['far'])
     print('写文件')
