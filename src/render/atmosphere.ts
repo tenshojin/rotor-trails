@@ -6,7 +6,7 @@
 // 参数是共享的 uniform 节点，由 WorldView 每帧更新。
 
 import * as THREE from 'three/webgpu';
-import { acos, cameraPosition, clamp, dot, exp, float, fog, Fn, length, max, mix, positionWorld, select, sqrt, uniform, vec2, vec4 } from 'three/tsl';
+import { acos, cameraPosition, clamp, dot, exp, float, fog, Fn, length, max, mix, positionWorld, select, sqrt, uniform, vec2, vec3, vec4 } from 'three/tsl';
 
 /** 旋翼下洗：x、z（桨毂的位置）、贴地的强度、树梢的强度（0..1）。草和树的顶点着色器用它（见 render/downwash.ts） */
 export const WASH = uniform(new THREE.Vector4(0, 0, 0, 0));
@@ -32,6 +32,8 @@ export const FOG = {
   cloud: uniform(0),
   /** 水面碎光的强度（月光比阳光弱，但碎光不能跟着曝光一起放大） */
   glint: uniform(1),
+  /** 薄雾的色偏：离得不太远时散射进来的主要是空气分子散射的蓝光，所以远山是蓝的；再远才是地平线的颜色 */
+  thin: uniform(new THREE.Color(1, 1, 1)),
 };
 
 /** 这个方向上地平线的天色（dir 不必是单位向量）。 */
@@ -53,7 +55,7 @@ export const fogColorFactor = Fn(() => {
   const hk = select(FOG.heightK.greaterThan(0), clamp(exp(max(h, 0).negate().mul(FOG.heightK)), 0.16, 1.0), float(1));
   const d = FOG.density.mul(hk);
   const factor = float(1).sub(exp(d.mul(d).add(FOG.cloud.mul(FOG.cloud)).negate().mul(dist).mul(dist)));
-  return vec4(ringColor(dir), factor);
+  return vec4(ringColor(dir).mul(mix(FOG.thin as unknown as THREE.Node<'vec3'>, vec3(1), sqrt(factor))), factor);
 });
 
 /** 场景雾节点：scene.fogNode = sceneFog() */

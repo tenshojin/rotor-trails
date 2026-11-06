@@ -6,6 +6,7 @@ import type { MapDef, PadDef, V3 } from '../maps/types';
 import { obstacleTop } from '../sim/routeCheck';
 import { HeightBuilder, type Heightfield } from '../sim/terrain';
 import { erode } from './erosion';
+import { dissect } from './fluvial';
 import { PropBuilder, type ColliderSpec } from './propBuilder';
 import { carveRiver, settleRiver } from './river';
 import { applyRockForm } from './rockForm';
@@ -79,7 +80,12 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
       hb.paintCircle(2, p.pos[0], p.pos[2], p.size * 0.8 + 6, 6, 1);
     }
   }
-  const protection = map.erosion || map.rockForm || map.rivers?.length ? protectMask(map) : undefined;
+  const protection = map.erosion || map.dissect || map.rockForm || map.rivers?.length ? protectMask(map) : undefined;
+  if (map.dissect) {
+    progress?.(0.15, '河流下切');
+    await tick();
+    dissect(hb.data, map.res, { ...map.dissect, size: map.size, waterLevel: map.waterLevel, mask: protection, seed: map.seed });
+  }
   if (map.erosion) {
     progress?.(0.25, '雨水侵蚀');
     await tick();

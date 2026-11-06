@@ -14,7 +14,7 @@
 // 反射在屋檐和门板边上是一排锯齿；接触阴影在白色机身上是一片噪点。
 
 import * as THREE from 'three/webgpu';
-import { clamp, convertToTexture, screenSize, Fn, If, diffuseColor, dot, float, getViewPosition, int, length, max, min, luminance, metalness, mix, mrt, normalize, normalView, output, packNormalToRGB, pass, perspectiveDepthToViewZ, reference, renderOutput, roughness, sample, screenUV, smoothstep, uniform, unpackRGBToNormal, vec2, vec3, vec4, velocity, vibrance } from 'three/tsl';
+import { clamp, convertToTexture, screenSize, Fn, If, diffuseColor, dot, float, getViewPosition, int, length, max, min, luminance, metalness, mix, mrt, normalize, normalView, output, packNormalToRGB, pass, perspectiveDepthToViewZ, reference, renderOutput, roughness, sample, screenUV, smoothstep, uniform, unpackRGBToNormal, vec2, vec3, vec4, velocity, vibrance, toneMappingExposure, Break, interleavedGradientNoise, Loop, screenCoordinate } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
@@ -24,6 +24,7 @@ import type { SunShadows } from './sunShadows';
 import { applyVolumetricFog, FOG_QUALITY, volumetricFog, type VolumetricFogNode } from './volumetricFog';
 import { cloudShadowDebug } from './cloudShadowMap';
 import { giBounce, giReflect } from './giField';
+import { gt7ToneMapping } from './toneMap';
 import { fixInstancedVelocity } from './instancing';
 
 export type QualityTier = 'low' | 'medium' | 'high' | 'ultra';
@@ -71,6 +72,51 @@ export interface Post {
 /** 月光下人眼看不出多少颜色（0 = 白天，1 = 夜晚）：暗处往蓝灰靠，灯光和屏幕够亮，保持原色 */
 export const SCOTOPIC = uniform(0);
 
+/** 屏幕空间接触阴影：太阳方向（世界坐标）、阴影压暗多少、帧序号（抖动） */
+export const CONTACT = { sun: uniform(new THREE.Vector3(0, 1, 0)), strength: uniform(0.4), frame: uniform(0) };
+
+/** 走几步（够用的最少步数：抖动由时间抗锯齿抹平） */
+const CONTACT_STEPS = 10;
+
+/**
+ * 接触阴影：沿太阳方向在画面的深度里走一小段，碰到东西就算在影子里。
+ * 阴影贴图离得远了一格好几米，树、石头、屋檐落在地上的影子就糊没了（远处一级的树干脆不进阴影贴图）；
+ * 这一段的长度随距离变长，远处一棵棵树、一道道山棱也有自己的影子，画面立刻有了层次。
+ */
+function contactShadow(depth: THREE.TextureNode, nTex: THREE.TextureNode, camera: THREE.PerspectiveCamera): THREE.Node<'float'> {
+  const near = reference('near', 'float', camera);
+  const far = reference('far', 'float', camera);
+  const projInv = uniform(camera.projectionMatrixInverse);
+  const proj = uniform(camera.projectionMatrix);
+  const toView = uniform(camera.matrixWorldInverse);
+  return Fn(() => {
+    const P = getViewPosition(screenUV, depth.sample(screenUV).r, projInv).toVar();
+    const dist = P.z.negate().toVar();
+    const sunV = normalize(toView.mul(vec4(CONTACT.sun, 0.0)).xyz).toVar();
+    const facing = smoothstep(0.02, 0.3, dot(unpackRGBToNormal(nTex.sample(screenUV).rgb), sunV));
+    const occ = float(0).toVar();
+    If(facing.greaterThan(0.01).and(dist.lessThan(3200.0)).and(dist.greaterThan(6.0)), () => {
+      const len = clamp(dist.mul(0.045), 1.0, 70.0).toVar();
+      const bias = dist.mul(0.0012).add(0.03).toVar();
+      const thick = len.mul(0.7).add(0.6).toVar();
+      const jit = interleavedGradientNoise(screenCoordinate.add(CONTACT.frame.mul(5.588238))).toVar();
+      Loop(CONTACT_STEPS, ({ i }: { i: THREE.Node<'int'> }) => {
+        const s = float(i).add(jit).div(CONTACT_STEPS);
+        const Q = P.add(sunV.mul(len.mul(s).mul(s).add(bias))).toVar();
+        const c = proj.mul(vec4(Q, 1.0)).toVar();
+        const uvq = vec2(c.x.div(c.w).mul(0.5).add(0.5), float(0.5).sub(c.y.div(c.w).mul(0.5))).toVar();
+        const sz = perspectiveDepthToViewZ(depth.sample(uvq).r, near, far).negate();
+        const dz = Q.z.negate().sub(sz).toVar();
+        If(dz.greaterThan(bias).and(dz.lessThan(thick)).and(uvq.x.greaterThan(0.0)).and(uvq.x.lessThan(1.0)).and(uvq.y.greaterThan(0.0)).and(uvq.y.lessThan(1.0)), () => {
+          occ.assign(1);
+          Break();
+        });
+      });
+    });
+    return occ.mul(facing).mul(float(1).sub(smoothstep(2000.0, 3200.0, dist)));
+  })();
+}
+
 /** 开发调试：window.__postDebug = { ao, aoScale, aoTemporal, traa } 覆盖默认值（重建管线后生效） */
 interface PostDebug {
   ao?: boolean;
@@ -87,6 +133,11 @@ interface PostDebug {
   fog?: boolean;
   /** 直接显示某个通道：normal / velocity / color / fog / gi / albedo */
   view?: string;
+  /** 接触阴影 */
+  contact?: boolean;
+  /** 色调映射：gt7（默认）/ neutral / agx / aces */
+  tone?: string;
+  toneK?: number;
 }
 
 export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, shadows: SunShadows, cfg: PostConfig): Post {
@@ -113,7 +164,7 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     scenePass.setMRT(mrt({ output }));
     // FXAA 要在色调映射与色彩空间转换之后做
     pipeline.outputColorTransform = false;
-    pipeline.outputNode = fxaa(asTexture(grade(renderOutput(scenePass), dbg, float(1))));
+    pipeline.outputNode = fxaa(asTexture(grade(display(scenePass, dbg), dbg, float(1))));
     return { pipeline, fog: null, hdr: () => scenePass.getTexture('output'), dispose };
   }
   // 多渲染目标：WebGPU 默认每像素最多 32 字节，所以金属度放进法线纹理的 A 通道、粗糙度放进漫反射纹理的 A 通道
@@ -151,6 +202,10 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     disposers.push(aoPass);
     aoK = mix(float(1), aoPass.r, outside.mul(0.85));
     composite = vec4(color.rgb.mul(aoK), color.a);
+  }
+  if ((cfg.quality === 'high' || cfg.quality === 'ultra') && dbg.contact !== false && new URLSearchParams(globalThis.location?.search ?? '').get('contact') !== '0') {
+    const shade = contactShadow(depth, nTex, camera).mul(CONTACT.strength).mul(outside);
+    composite = vec4(composite.rgb.mul(float(1).sub(shade)), composite.a);
   }
   let giView: THREE.Node<'vec3'> | null = null;
   let albedoView: THREE.Node<'vec3'> | null = null;
@@ -222,8 +277,20 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
   }
   // 色调映射 + 色彩空间转换之后再调色（在显示空间里调对比度、饱和度更直观）
   pipeline.outputColorTransform = false;
-  pipeline.outputNode = grade(renderOutput(out), dbg, outside);
+  pipeline.outputNode = grade(display(out, dbg), dbg, outside);
   return { pipeline, fog: fogNode, hdr, dispose };
+}
+
+/** 线性 HDR → 显示器：曝光、色调映射、sRGB */
+function display(c: THREE.Node<'vec4'>, dbg: PostDebug): THREE.Node<'vec4'> {
+  const q = new URLSearchParams(globalThis.location?.search ?? '');
+  const mode = dbg.tone ?? q.get('tone') ?? 'gt7';
+  if (mode === 'neutral') return renderOutput(c);
+  if (mode === 'agx') return renderOutput(c, THREE.AgXToneMapping);
+  if (mode === 'aces') return renderOutput(c, THREE.ACESFilmicToneMapping);
+  const k = Number(q.get('toneK') ?? dbg.toneK ?? 1.9);
+  const exposure = toneMappingExposure as unknown as THREE.Node<'float'>;
+  return renderOutput(vec4(gt7ToneMapping(c.rgb.mul(exposure).mul(k)), c.a), THREE.NoToneMapping);
 }
 
 /** 受限的反锐化：中心像素减去周围四点的平均，再限制在这五个像素的明暗范围之内 */
@@ -247,8 +314,8 @@ function sharpen(src: THREE.TextureNode, amount: number): THREE.Node<'vec4'> {
  * 高光略暖 / 暗部略冷的分离色调，以及很轻的暗角——让画面通透而不发灰，又不至于像滤镜。
  */
 function grade(c: THREE.Node<'vec4'>, dbg: PostDebug, outside: THREE.Node<'float'>): THREE.Node<'vec4'> {
-  const contrast = dbg.contrast ?? 1.2;
-  const vib = dbg.vibrance ?? 0.2;
+  const contrast = dbg.contrast ?? 1.08;
+  const vib = dbg.vibrance ?? 0.12;
   const rgb0 = clamp(c.rgb, 0.0, 1.0);
   // S 曲线：以 0.5 为中点的对比度，再与原值按 contrast 混合，避免暗部死黑
   const s = rgb0.sub(0.5).mul(contrast).add(0.5);
@@ -262,6 +329,6 @@ function grade(c: THREE.Node<'vec4'>, dbg: PostDebug, outside: THREE.Node<'float
   rgb = rgb.add(mix(vec3(-0.008, 0.0, 0.014), vec3(0.012, 0.004, -0.01), smoothstep(0.15, 0.85, l)));
   // 暗角
   const d = screenUV.sub(0.5).mul(vec2(1.0, 0.82));
-  rgb = rgb.mul(float(1).sub(dot(d, d).mul(dbg.vignette ?? 0.32)));
+  rgb = rgb.mul(float(1).sub(dot(d, d).mul(dbg.vignette ?? 0.22)));
   return vec4(clamp(rgb, 0.0, 1.0), c.a);
 }

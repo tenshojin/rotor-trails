@@ -17,7 +17,8 @@ const RW_Z = -130;
 const RW_L = 860;
 
 function base(x: number, z: number): number {
-  const r = Math.hypot(x, z + 60);
+  // 谷地顺着小河南北走向（不是一个圆盆），边上的山脚进进出出
+  const r = Math.hypot(x - 90 * n.noise(z / 760, 2.1), (z + 60) * 0.66) + 190 * n.noise(x / 560 + 4, z / 560) + 80 * n2.noise(x / 210, z / 210 + 3);
   // 谷底的缓坡 → 牧场 → 林山。训练航线在谷底上空，山要到 700 m 以外才起来
   const roll = 5 * n.fbm(x / 210, z / 210, 3) * smoothstep(300, 640, r);
   const foot = 70 * Math.pow(Math.max(0, n2.fbm(x / 640 + 3, z / 640, 3) + 0.5), 1.5) * smoothstep(560, 1000, r);
@@ -87,6 +88,7 @@ export const TRAINING: MapDef = {
   seed: SEED,
   altitudeOffset: 30,
   waterLevel: null,
+  dissect: { grid: 257, steps: 34, k: 0.03, maxCut: 150 },
   erosion: 240000,
   pavedMask: true,
   buildTerrain(b) {
@@ -236,6 +238,7 @@ export const TRAINING: MapDef = {
     strata: 0,
     beachTop: -100,
     snowLine: 1150,
+    air: 1.1,
     rockSlope: 0.3,
     waterDeep: 0x1d4560,
     waterShallow: 0x3c7a86,

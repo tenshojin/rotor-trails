@@ -47,7 +47,9 @@ function coastX(z: number): number {
   }
   // 地图外面海岸线也不是一条直线（从高处能一直看到几十公里外）
   const beyond = smoothstep(2200, 3400, Math.abs(z));
-  return x + 70 * n.fbm(z / 320, 4.2, 3) + 45 * n2.fbm(z / 110, 1.7, 2) + beyond * (420 * Math.sin(z / 1500 + 1) + 210 * Math.sin(z / 620));
+  // 海湾和岬角（港口、海岸维修站两处的岸线不动）
+  const bays = smoothstep(260, 620, Math.abs(z - 880)) * smoothstep(140, 420, Math.abs(z + 1000));
+  return x + 70 * n.fbm(z / 320, 4.2, 3) + 45 * n2.fbm(z / 110, 1.7, 2) + bays * 230 * n2.fbm(z / 640 + 9, 1.3, 3) + beyond * (420 * Math.sin(z / 1500 + 1) + 210 * Math.sin(z / 620));
 }
 
 function island(x: number, z: number, cx: number, cz: number, rx: number, rz: number, rot: number, peak: number, sharp = 1.5, wobble = 0.22): number {
@@ -123,6 +125,7 @@ export const JAPAN: MapDef = {
   seed: SEED,
   altitudeOffset: 0,
   waterLevel: 0,
+  dissect: { grid: 385, steps: 32, k: 0.03, maxCut: 110 },
   erosion: 150000,
   pavedMask: true,
   buildTerrain(b) {
@@ -370,6 +373,7 @@ export const JAPAN: MapDef = {
     strata: 0,
     beachTop: 2.6,
     snowLine: 9999,
+    air: 1.7,
     rockSlope: 0.4,
     waterDeep: 0x123f5e,
     waterShallow: 0x2a8a96,

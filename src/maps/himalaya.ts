@@ -13,15 +13,15 @@ import type { MapDef, RouteNodeDef, V3 } from './types';
 const ROCK: RockFormDef = {
   y0: -200,
   y1: 5200,
-  dip: [0.3, 0.16],
+  dip: [0.48, 0.3],
   waves: [
     [0.0011, -0.0008, 60, 1.3],
     [0.0006, 0.0017, 34, 0.2],
     [-0.0029, 0.0023, 12, 3.1],
   ],
-  bench: 0.6,
+  bench: 0.34,
   slope: [0.8, 1.7],
-  tint: 0.8,
+  tint: 0.5,
   talus: 3.2,
   warp: [
     [14, 170],
@@ -169,6 +169,7 @@ export const HIMALAYA: MapDef = {
   seed: SEED,
   altitudeOffset: ALT0,
   waterLevel: null,
+  dissect: { grid: 385, steps: 40, k: 0.05, maxCut: 900 },
   erosion: 220000,
   rockForm: ROCK,
   rivers: [
@@ -387,6 +388,7 @@ export const HIMALAYA: MapDef = {
     strata: 0,
     beachTop: -100,
     snowLine: 1150,
+    air: 0.7,
     rockSlope: 0.4,
     waterDeep: 0x2a4a6a,
     waterShallow: 0x5a8aa0,

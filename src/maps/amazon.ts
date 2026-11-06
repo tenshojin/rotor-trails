@@ -26,27 +26,36 @@ const RIVER: Vec2[] = [
   [1860, -280],
   [2200, -220],
 ];
-const TRIB: Vec2[] = [
-  [-200, -1700],
-  [40, -1250],
-  [210, -930],
-  [400, -700],
-  [640, -560],
-  [820, -360],
-  [960, -150],
-];
+// （雨林的河没有直的：泥沙在弯道一边冲一边积，河道一路摆来摆去）
+const TRIB: Vec2[] = smoothPath(
+  [
+    [-200, -1700],
+    [40, -1250],
+    [210, -930],
+    [400, -700],
+    [640, -560],
+    [820, -360],
+    [960, -150],
+  ],
+  45,
+  30,
+);
 const OXBOW: Vec2[] = [
   [-60, 780],
   [140, 930],
   [400, 900],
   [500, 730],
 ];
-const CREEK: Vec2[] = [
-  [-900, 2200],
-  [-760, 1500],
-  [-640, 1000],
-  [-520, 420],
-];
+const CREEK: Vec2[] = smoothPath(
+  [
+    [-900, 2200],
+    [-760, 1500],
+    [-640, 1000],
+    [-520, 420],
+  ],
+  45,
+  58,
+);
 
 const RP = new PathSampler(RIVER);
 const TP = new PathSampler(TRIB);
@@ -368,6 +377,7 @@ export const AMAZON: MapDef = {
     strata: 0,
     beachTop: 1.5,
     snowLine: 9999,
+    air: 2.3,
     rockSlope: 0.55,
     waterDeep: 0x4a3e22,
     waterShallow: 0x7a6a40,

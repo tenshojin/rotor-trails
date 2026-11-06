@@ -43,6 +43,7 @@ import { getNoiseTexture } from './textures';
 import { VFOG } from './volumetricFog';
 import { loadGltf } from './gltf';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { layerTable, strataWarp, type RockFormDef } from '../world/rockForm';
 import { TREE_SPECS, TREE_TYPES, type TreeSet } from '../world/vegetation';
 import type { TreeType } from '../maps/types';
 
@@ -402,6 +403,9 @@ export class TreeView {
   private lastPos = new THREE.Vector3(1e9, 0, 0);
   private lastDir = new THREE.Vector3();
   private lastT = -10;
+  /** 地层（有的话，石块的颜色按它所在的那一层来：崖顶是白岩，崖下是红岩） */
+  private readonly form: RockFormDef | null;
+  private readonly layers: ReturnType<typeof layerTable> | null;
   /** 每棵树换细节级的距离都错开一点（距离平方的系数）：不错开的话，换级的地方是一道整齐的圆弧 */
   private spread: Float32Array;
   private uniforms: WindUniforms = makeWindUniforms();
@@ -424,8 +428,10 @@ export class TreeView {
     this.rebuild = true;
   }
 
-  constructor(trees: TreeSet, lib: TreeLib | null = null, rock = 0x8a8278) {
+  constructor(trees: TreeSet, lib: TreeLib | null = null, rock = 0x8a8278, form: RockFormDef | null = null) {
     this.trees = trees;
+    this.form = form;
+    this.layers = form ? layerTable(form) : null;
     // 风化的石头颜色比新鲜岩面灰一些、暗一些
     rockTint.setHex(rock);
     const grey = (rockTint.r + rockTint.g + rockTint.b) / 3;
@@ -599,6 +605,14 @@ export class TreeView {
       set.meshes[0].setMatrixAt(n, m4);
       if (set.tinted.length) {
         const col = treeColor(T.x[i], T.z[i], ti);
+        if (ti === BOULDER && this.form && this.layers) {
+          const f = this.form;
+          const L = this.layers;
+          const q = Math.min(L.at.length - 1, Math.max(0, (T.y[i] + strataWarp(f, T.x[i], T.z[i]) - f.y0) | 0));
+          col.setHex(f.bands[L.band[L.at[q]]].c);
+          // （模型本身是中性灰，和 rockTint 一样按亮度拉回来）
+          col.multiplyScalar(((0.85 / Math.max(0.03, (col.r + col.g + col.b) / 3)) * (0.78 + hash(T.x[i], T.z[i], 5.1) * 0.4)));
+        }
         for (const m of set.tinted) m.setColorAt(n, col);
       }
       set.dirty.push(n);

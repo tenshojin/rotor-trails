@@ -16,7 +16,7 @@ import { NavView } from './navView';
 import { PropsView } from './propsView';
 import { SkyDome } from './sky';
 import { FOG, sceneFog } from './atmosphere';
-import { buildPost, protectTransparent, SCOTOPIC, type Post } from './post';
+import { buildPost, protectTransparent, CONTACT, SCOTOPIC, type Post } from './post';
 import { markNearShadow, SunShadows } from './sunShadows';
 import type { MapDef } from '../maps/types';
 import { loadTerrainLayers, type TerrainLayers } from './terrainLayers';
@@ -49,6 +49,7 @@ export interface FrameInfo {
 }
 
 const _cabinGlow = new THREE.Color(0.018, 0.0132, 0.0102);
+const _white = new THREE.Color(1, 1, 1);
 const _cloudGrey = new THREE.Color(0.86, 0.88, 0.9);
 const _ground = new THREE.Color();
 const _groundLit = new THREE.Color();
@@ -434,11 +435,12 @@ export class WorldView {
       this.terrain = new TerrainView(map, world.terrain, this.terrainUniforms);
       this.scene.add(this.terrain.group);
       const [sunAz, sunEl] = sunFor(map, this.tod);
-      this.sky = new SkyDome(sunAz, sunEl, map.biome.fogTint, map.biome.grass, this.tod === 'night');
+      this.sky = new SkyDome(sunAz, sunEl, map.biome.fogTint, map.biome.grass, this.tod === 'night', map.biome.air);
       this.eye.setMax(this.tod === 'night' ? 3.6 : EYE_DEFAULT.max);
       this.updateLandingLight();
       this.sun.csm.lightMargin = 400 + 1800 * (1 - this.sky.dayK);
       setSunMap(world.terrain, this.sky.sunDir, field.farGrid);
+      this.sky.setLand(field.color, map.size);
       this.eye.snap();
       this.scene.add(this.sky.mesh);
       // 雾的基准高度：地图最低处（有水面时取水面）
@@ -466,7 +468,7 @@ export class WorldView {
       this.props = new PropsView(world, this.modelLib, detail);
       this.props.lodScale = QUALITY[this.settings.quality].terrainLod;
       this.scene.add(this.props.group);
-      this.trees = new TreeView(world.trees, treeLib, map.biome.rock);
+      this.trees = new TreeView(world.trees, treeLib, map.biome.rock, map.rockForm ?? null);
       this.scene.add(this.trees.group);
       this.nav = new NavView(map, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true);
       this.nav.guides = this.settings.navGuides;
@@ -581,7 +583,9 @@ export class WorldView {
 
   private updateEnv(w: WeatherParams, t: number): void {
     if (!this.sky) return;
-    const key = `${w.overcast.toFixed(1)}_${w.rain.toFixed(1)}_${Math.round(Math.log(w.visibility) * 2)}_${this.settings.quality}_${this.tod}`;
+    // 飞出几百米换一次：下半球映的是脚下的地表（实时的 HDRI）
+    const cp = this.rig.camera.position;
+    const key = `${w.overcast.toFixed(1)}_${w.rain.toFixed(1)}_${Math.round(Math.log(w.visibility) * 2)}_${this.settings.quality}_${this.tod}_${Math.round(cp.x / 500)}_${Math.round(cp.z / 500)}`;
     // 第一张环境贴图不等：从“没有环境贴图”变成“有”时所有材质都要重新编译，越早越好
     if (key === this.envKey || (this.envRT && t - this.envT < 2)) return;
     const envScene = new THREE.Scene();
@@ -589,7 +593,7 @@ export class WorldView {
     envScene.add(m);
     if (!this.pmrem) return;
     // 环境贴图里不画太阳圆盘（阳光的高光由方向光负责，否则光滑表面上会出现两个太阳）
-    const endBake = this.sky.beginEnvBake();
+    const endBake = this.sky.beginEnvBake(this.world ? cp.y - this.world.terrain.heightAt(cp.x, cp.z) : 300);
     // 大小不变时写回同一张贴图：换一张新贴图的话，场景里所有材质都要重新编译（天气变化时会卡好几秒）
     const size = QUALITY[this.settings.quality].envSize;
     const old = this.envRT;
@@ -603,7 +607,7 @@ export class WorldView {
     this.envT = t;
     this.envSize = size;
     this.scene.environment = this.envRT.texture;
-    this.scene.environmentIntensity = 0.55;
+    this.scene.environmentIntensity = 0.9;
     if (old !== this.envRT) old?.dispose();
   }
 
@@ -783,6 +787,8 @@ export class WorldView {
       C.ring.forEach((k, i) => (FOG.ring[i].value as THREE.Color).copy(k).lerp(_cloudGrey, this.inCloud));
       FOG.cloud.value = (1.65 / 90) * this.inCloud;
       FOG.heightK.value = 1 / 1100;
+      // 晴天的远山偏蓝，太阳低、阴天时这一层色偏就没有了
+      FOG.thin.value.setRGB(0.76, 0.88, 1.14).lerp(_white, Math.max(1 - this.sky.dayK, w.overcast, this.tod === 'night' ? 1 : 0));
       FOG.baseY.value = this.fogBaseY;
       // 体积雾（光束）：贴地薄雾的浓度随能见度与降雨变化，湿润的地图更浓；雾团随风飘动
       VFOG.sun.value.copy(C.sun).multiplyScalar(C.sunIntensity);
@@ -805,6 +811,10 @@ export class WorldView {
       const lampK = this.tod === 'night' ? 1 : this.tod === 'dusk' ? 0.42 : this.tod === 'dawn' ? 0.2 : 0;
       if (this.nav) this.nav.flare = lampK;
       SCOTOPIC.value = this.tod === 'night' ? 1 : 0;
+      CONTACT.sun.value.copy(this.sky.sunDir);
+      // 影子的深浅：阳光越强（晴天、白天）越明显；阴天没有影子
+      CONTACT.strength.value = (this.tod === 'night' ? 0.2 : 0.46) * Math.max(0, 1 - w.overcast * 1.1);
+      CONTACT.frame.value = (CONTACT.frame.value + 1) % 64;
       // 光线追踪的全局光照：上面的太阳、天空都更新过了才能算；天气变暗时反弹光跟着变弱，天光反上来的那部分还在
       if (set.rayTracing && this.giDirty && !this.compiling) {
         bakeGi(this.renderer);

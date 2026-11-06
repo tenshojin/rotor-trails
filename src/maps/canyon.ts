@@ -303,6 +303,7 @@ export const CANYON: MapDef = {
   seed: SEED,
   altitudeOffset: 1500,
   waterLevel: null,
+  dissect: { grid: 385, steps: 30, k: 0.03, maxCut: 170 },
   erosion: 200000,
   rockForm: ROCK,
   rivers: [
@@ -512,6 +513,7 @@ export const CANYON: MapDef = {
     strataColors: [0xb85f3e, 0xd9935c, 0x9a4630, 0xe6c08a],
     beachTop: -100,
     snowLine: 9999,
+    air: 1.0,
     rockSlope: 0.3,
     waterDeep: 0x2a4a5a,
     waterShallow: 0x5a8a8a,

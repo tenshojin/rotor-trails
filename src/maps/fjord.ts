@@ -12,15 +12,15 @@ import type { MapDef, RouteNodeDef, V3 } from './types';
 const ROCK: RockFormDef = {
   y0: -120,
   y1: 3500,
-  dip: [0.17, -0.24],
+  dip: [0.42, -0.55],
   waves: [
     [0.0013, 0.0009, 26, 0.7],
     [-0.0007, 0.0021, 15, 2.1],
     [0.0037, 0.0029, 6, 4.0],
   ],
-  bench: 0.62,
+  bench: 0.24,
   slope: [0.75, 1.7],
-  tint: 0.82,
+  tint: 0.42,
   warp: [
     [10, 150],
     [4, 46],
@@ -249,6 +249,7 @@ export const FJORD_MAP: MapDef = {
   seed: SEED,
   altitudeOffset: 0,
   waterLevel: 0,
+  dissect: { grid: 385, steps: 34, k: 0.022, maxCut: 240 },
   erosion: 260000,
   rockForm: ROCK,
   buildTerrain(b) {
@@ -438,6 +439,7 @@ export const FJORD_MAP: MapDef = {
     strata: 0,
     beachTop: 2.2,
     snowLine: 800,
+    air: 1.0,
     rockSlope: 0.33,
     waterDeep: 0x1b3f50,
     waterShallow: 0x2a5e62,

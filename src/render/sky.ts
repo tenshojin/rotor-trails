@@ -1,24 +1,23 @@
-// 天空穹顶：Preetham 大气散射（晴空颜色随太阳位置变化：太阳一侧地平线更亮更暖、天顶深蓝）
+// 天空穹顶：物理大气（见 skyModel.ts：瑞利、米氏、臭氧和多次散射的查找表，亮度是真算出来的）
 // + 阴天/暴雨/低能见度时向灰色过渡 + 云 + 高亮太阳圆盘（供泛光）+ 闪电。
 // 云分两种：高画质用光线步进的体积积云（三维噪声塑形，向太阳方向步进算自阴影，
 // Henyey-Greenstein 相函数的逆光银边 + “粉末”效应的暗边）；低、中画质用平面投影的二维云层。
 // 同一个材质也渲染进 PMREM 环境贴图，给所有 PBR 材质提供与天气一致的环境光与反射。
-// 天空在地平线处的颜色在 CPU 端用同一套公式算出，作为大气雾的颜色（远山与天空自然衔接）。
-// 散射公式参照 three.js examples/jsm/objects/Sky.js（MIT）。
+// 天空在地平线处的颜色从同一张表里取，作为大气雾的颜色（远山与天空自然衔接），阳光的颜色和强度也是。
 
 import * as THREE from 'three/webgpu';
-import { abs, acos, atan, Break, clamp, cos, dot, exp, float, floor, Fn, fract, hash, If, int, interleavedGradientNoise, length, Loop, luminance, max, min, mix, normalize, positionLocal, pow, screenCoordinate, screenUV, select, sin, smoothstep, step, texture, texture3D, uniform, vec2, vec3, vec4 } from 'three/tsl';
+import { abs, acos, asin, atan, Break, clamp, dot, exp, float, floor, Fn, fract, hash, If, int, interleavedGradientNoise, length, Loop, max, min, mix, normalize, positionLocal, pow, screenCoordinate, screenUV, select, sign, sin, smoothstep, sqrt, step, texture, texture3D, uniform, vec2, vec3, vec4 } from 'three/tsl';
 import { RING_N, ringColor } from './atmosphere';
 import { getCloudNoise3D } from './cloudNoise';
 import { CloudPass } from './cloudPass';
 import type { WeatherParams } from '../sim/weather';
+import { SKY_H, SKY_W, SkyModel } from './skyModel';
 import { getNoiseTexture } from './textures';
 
-const TOTAL_RAYLEIGH = [5.804542996261093e-6, 1.3562911419845635e-5, 3.0265902468824876e-5];
-const MIE_CONST = [1.8399918514433978e14, 2.7798023919660528e14, 4.0790479543861094e14];
-const CUTOFF = 1.6110731556870734;
-const STEEP = 1.5;
-const EE = 1000;
+/** 大气顶上的太阳照度（场景单位）：天空的亮度、地面的阳光都按它算，两者的比例才是真的 */
+const SUN_E = 4.4;
+/** 天空比真实略亮一点（相机里的天空，比肉眼对比弱） */
+const SKY_GAIN = 1.5;
 
 /**
  * 体积云的共享参数：天空里看到的云、地面上的云影、体积雾里的云影（光束）用同一份，三者始终对得上。
@@ -82,21 +81,24 @@ export function cloudDensity(p: THREE.Node<'vec3'>, fineDetail = false): THREE.N
 }
 
 /** 天空着色用的 uniform 节点（CPU 端每帧更新 .value） */
-function makeSkyUniforms(sunDir: THREE.Vector3, wind: THREE.Vector2) {
+function makeSkyUniforms(sunDir: THREE.Vector3, wind: THREE.Vector2, lut: THREE.Texture) {
   return {
     sunDir: uniform(sunDir),
-    betaR: uniform(new THREE.Vector3()),
-    betaM: uniform(new THREE.Vector3()),
-    sunE: uniform(0),
-    mieG: uniform(0.8),
-    skyScale: uniform(1),
+    /** 烘焙环境贴图时地平线以下用的真实地表：颜色图、地图边长、照到地面的光（已除以 π）、镜头离地高度 */
+    land: texture(BLANK),
+    landSize: uniform(0),
+    landLight: uniform(new THREE.Color()),
+    eyeH: uniform(300),
+    /** 天空查找表（见 skyModel.ts）、太阳的水平方向 */
+    skyLut: texture(lut),
+    sunFlat: uniform(new THREE.Vector2(0, 1)),
+    /** 晴空天顶的颜色 */
+    zenith: uniform(new THREE.Color()),
     ovZenith: uniform(new THREE.Color()),
     ovHorizon: uniform(new THREE.Color()),
     overcast: uniform(0),
     haze: uniform(new THREE.Color()),
     hazeK: uniform(0),
-    /** 暮光带的强度（太阳越低越明显） */
-    belt: uniform(0),
     ground: uniform(new THREE.Color()),
     sunColor: uniform(new THREE.Color()),
     sunVis: uniform(1),
@@ -135,7 +137,7 @@ function makeSkyUniforms(sunDir: THREE.Vector3, wind: THREE.Vector2) {
 type SkyU = ReturnType<typeof makeSkyUniforms>;
 
 /** 夜空的颜色：白天的天空乘上它 */
-const NIGHT_TINT = new THREE.Color(0.0095, 0.0125, 0.0215);
+const NIGHT_TINT = new THREE.Color(0.021, 0.025, 0.04);
 
 /** 星星：按方向分格抽签，每格最多一颗，亮度和颜色各不相同，暗的多亮的少；银河是一条斜着的光带 */
 function starField(d: THREE.Node<'vec3'>, noise: THREE.Texture, t: THREE.Node<'float'>): THREE.Node<'vec3'> {
@@ -169,35 +171,24 @@ function starField(d: THREE.Node<'vec3'>, noise: THREE.Texture, t: THREE.Node<'f
   })();
 }
 
-/** Preetham 晴空：d 方向的大气散射颜色 */
-function preethamNode(U: SkyU) {
-  const PI_ = Math.PI;
+const BLANK = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+BLANK.needsUpdate = true;
+
+/** 晴空：d 方向的大气颜色（查表，见 skyModel.ts） */
+function clearSky(U: SkyU) {
   return Fn(([d]: [THREE.Node<'vec3'>]) => {
     const dd = vec3(d);
-    const za = acos(max(0.0, dd.y));
-    const inv = float(1).div(cos(za).add(float(0.15).mul(pow(float(93.885).sub(za.mul(180 / PI_)), -1.253))));
-    const Fex = exp(U.betaR.mul(8.4e3 * 1).mul(inv).add(U.betaM.mul(1.25e3).mul(inv)).negate());
-    const ct = dot(dd, U.sunDir);
-    const rp = float(0.05968310365946075).mul(float(1).add(pow(ct.mul(0.5).add(0.5), 2.0)));
-    const g2 = U.mieG.mul(U.mieG);
-    const mp = float(0.07957747154594767).mul(float(1).sub(g2).div(pow(float(1).sub(U.mieG.mul(2).mul(ct)).add(g2), 1.5)));
-    const bt = U.betaR.mul(rp).add(U.betaM.mul(mp)).div(U.betaR.add(U.betaM));
-    const Lin = pow(U.sunE.mul(bt).mul(float(1).sub(Fex)), vec3(1.5)).toVar();
-    Lin.mulAssign(mix(vec3(1.0), pow(U.sunE.mul(bt).mul(Fex), vec3(0.5)), clamp(pow(float(1).sub(U.sunDir.y), 5.0), 0.0, 1.0)));
-    const c = Lin.add(Fex.mul(0.1)).mul(0.04).add(vec3(0.0, 0.0003, 0.00075));
-    const base = pow(c, vec3(1.0 / 2.4)).mul(U.skyScale).toVar();
-    // 暮光带：太阳很低时，背对太阳那一边的地平线上方是一条粉紫色的光带（Preetham 模型里没有）
-    const flat = normalize(vec3(dd.x, 0.0, dd.z));
-    const sunF = normalize(vec3(U.sunDir.x, 0.0, U.sunDir.z));
-    const anti = max(dot(flat, sunF).negate().mul(0.5).add(0.5), 0.0);
-    const k = pow(anti, 1.6).mul(float(1).sub(smoothstep(0.03, 0.3, dd.y))).mul(U.belt);
-    return mix(base, luminance(base).mul(vec3(1.32, 0.98, 1.02)), k);
+    const flat = dd.xz.div(max(length(dd.xz), 1e-4));
+    const u = acos(clamp(dot(flat, U.sunFlat), -1, 1)).div(Math.PI);
+    const el = asin(clamp(dd.y, -1, 1));
+    const v = sign(el).mul(sqrt(abs(el).div(Math.PI / 2))).mul(0.5).add(0.5);
+    return U.skyLut.sample(vec2(u, v)).level(float(0)).rgb.mul(SUN_E * SKY_GAIN);
   });
 }
 
 /** 天空颜色（线性 HDR，色调映射在后期统一做）。d：视线方向（单位向量）。 */
 function skyColorNode(U: SkyU, noise: THREE.Texture, cloudTex: THREE.TextureNode) {
-  const preetham = preethamNode(U);
+  const clear = clearSky(U);
   const fbm = (p: THREE.Node<'vec2'>) => {
     let sum: THREE.Node<'float'> = float(0);
     let a = 0.5;
@@ -213,14 +204,19 @@ function skyColorNode(U: SkyU, noise: THREE.Texture, cloudTex: THREE.TextureNode
     const d = normalize(positionLocal);
     const h = d.y;
     const dh = normalize(vec3(d.x, max(h, 0.0), d.z));
-    const col = vec3(preetham(dh)).toVar();
+    const col = vec3(clear(dh)).toVar();
     // 阴天：天顶与地平线之间的灰色渐变
     const ov = mix(U.ovHorizon, U.ovZenith, pow(clamp(h, 0.0, 1.0), 0.5));
     col.assign(mix(col, ov, U.overcast));
     // 低能见度：地平线附近被雾霾吞没
     col.assign(mix(col, U.haze, U.hazeK.mul(float(1).sub(smoothstep(0.0, 0.35, h)))));
     // 地平线以下（远景地形之外）：贴着地平线的那一段就是地平线的天色（雾也是这个颜色），再往下才是地面的颜色
-    col.assign(mix(col, U.ground, smoothstep(-0.03, -0.2, h)));
+    // 烘焙环境贴图（实时的 HDRI）时，下半球就是脚下真实的地表：机身底部、屋檐下映出的是这里的林子、雪地、海面
+    const hitDist = U.eyeH.div(max(h.negate(), 0.03));
+    const landUv = U.camPos.xz.add(d.xz.mul(hitDist)).div(max(U.landSize, 1.0)).add(0.5);
+    const landCol = U.land.sample(landUv).level(float(0)).rgb.mul(U.landLight);
+    const useLand = float(1).sub(U.disc).mul(step(1.0, U.landSize)).mul(step(0.0, landUv.x)).mul(step(landUv.x, 1.0)).mul(step(0.0, landUv.y)).mul(step(landUv.y, 1.0));
+    col.assign(mix(col, mix(U.ground, landCol, useLand), smoothstep(-0.03, -0.2, h)));
     const sd = max(dot(d, U.sunDir), 0.0);
     // 云层（平面投影，地平线处变薄）
     const hh = max(h, 0.0);
@@ -246,7 +242,7 @@ function skyColorNode(U: SkyU, noise: THREE.Texture, cloudTex: THREE.TextureNode
     const moonFace = texture(noise, d.xz.mul(26.0)).r.mul(0.5).add(0.62);
     const discK = mix(float(38.0), moonFace.mul(11.0), U.night);
     const glowK = mix(float(1.2), float(0.09), U.night);
-    const wideK = mix(float(0.12), float(0.018), U.night);
+    const wideK = mix(float(0.05), float(0.018), U.night);
     col.addAssign(U.sunColor.mul(disc.mul(discK).mul(U.disc).add(pow(sd, 400.0).mul(glowK).mul(U.disc)).add(pow(sd, 24.0).mul(wideK))).mul(U.sunVis));
     // 高空卷云：万米高空的冰晶云，一缕一缕顺着高空风拉长，薄到能透出蓝天，在积云之上给天空添一层纵深
     const ciuv = d.xz.div(hh.add(0.08));
@@ -378,32 +374,36 @@ export class SkyDome {
   private fogTint: THREE.Color;
   private groundTint: THREE.Color;
   private windOffset = new THREE.Vector2();
-  private betaR = new THREE.Vector3();
-  private betaM = new THREE.Vector3();
-  private sunE = 0;
-  private readonly mieG = 0.8;
-  private skyScale = 1;
+  private readonly model = new SkyModel();
+  private readonly lutData = new Uint16Array(SKY_W * SKY_H * 4);
+  private readonly lut = new THREE.DataTexture(this.lutData, SKY_W, SKY_H, THREE.RGBAFormat, THREE.HalfFloatType);
+  /** 这张图的大气：气溶胶多少（1 = 很干净）、地面反照率 */
+  private air = { haze: 1.6, albedo: [0.15, 0.15, 0.15] as [number, number, number] };
   /** 太阳高度带来的“白天程度”：0 = 贴着地平线，1 = 高于约 25°（清晨、黄昏时天空、阳光、环境光都更暗） */
   dayK = 1;
-  private belt = 0;
   /** 1 = 夜晚 */
   night = 0;
   /** 晴空的天顶/地平线/朝阳地平线颜色与阳光透射（只与太阳位置、浑浊度有关，加载时算一次） */
-  private clear = { zenith: new THREE.Color(), horizon: new THREE.Color(), horizonSun: new THREE.Color(), sunTint: new THREE.Color() };
+  private clear = { zenith: new THREE.Color(), horizon: new THREE.Color(), horizonSun: new THREE.Color(), sunTint: new THREE.Color(), sunGain: 1 };
   private readonly clearRing = Array.from({ length: RING_N }, () => new THREE.Color());
   /** 地平线一圈每个方向和太阳方向的余弦 */
   private readonly ringSun: number[] = new Array(RING_N).fill(0);
   /** 太阳的水平方向（x、z） */
   readonly sunFlat = new THREE.Vector2(0, 1);
 
-  constructor(sunAzimuthDeg: number, sunElevationDeg: number, fogTint: number, groundTint: number, night = false) {
+  constructor(sunAzimuthDeg: number, sunElevationDeg: number, fogTint: number, groundTint: number, night = false, haze = 1.6) {
     this.fogTint = c(fogTint);
     this.groundTint = c(groundTint);
+    this.air = { haze, albedo: [this.groundTint.r, this.groundTint.g, this.groundTint.b] };
+    this.lut.name = 'SkyView';
+    this.lut.magFilter = THREE.LinearFilter;
+    this.lut.minFilter = THREE.LinearFilter;
+    this.lut.generateMipmaps = false;
+    this.lut.wrapS = this.lut.wrapT = THREE.ClampToEdgeWrapping;
     this.setSun(sunAzimuthDeg, sunElevationDeg);
-    this.u = makeSkyUniforms(this.sunDir, this.windOffset);
+    this.u = makeSkyUniforms(this.sunDir, this.windOffset, this.lut);
+    this.u.sunFlat.value = this.sunFlat;
     this.setNight(night);
-    this.u.betaR.value = this.betaR;
-    this.u.betaM.value = this.betaM;
     this.material = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false });
     this.clouds = new CloudPass(volumetricClouds(this.u));
     this.material.colorNode = skyColorNode(this.u, getNoiseTexture(), this.clouds.tex);
@@ -437,76 +437,49 @@ export class SkyDome {
     const el = (elDeg * Math.PI) / 180;
     this.sunDir.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el)).normalize();
     this.dayK = Math.max(0, Math.min(1, (elDeg - 1.5) / 23.5));
-    this.setAtmosphere(2.4, 1.6, 0.005);
+    this.setAtmosphere();
   }
 
-  /** 大气参数：浑浊度（越大越朦胧发白）、瑞利系数（越大越蓝）、米氏系数 */
-  private setAtmosphere(turbidity: number, rayleigh: number, mie: number): void {
-    this.betaR.set(TOTAL_RAYLEIGH[0], TOTAL_RAYLEIGH[1], TOTAL_RAYLEIGH[2]).multiplyScalar(rayleigh);
-    const k = 0.434 * (0.2 * turbidity * 10e-18) * mie;
-    this.betaM.set(MIE_CONST[0] * k, MIE_CONST[1] * k, MIE_CONST[2] * k);
-    const zc = Math.max(-1, Math.min(1, this.sunDir.y));
-    this.sunE = EE * Math.max(0, 1 - Math.exp(-((CUTOFF - Math.acos(zc)) / STEEP)));
-    // 亮度标定：与太阳垂直方向的地平线亮度约 0.62（与场景的光照强度匹配）
-    this.skyScale = 1;
-    const side = new THREE.Vector3(-this.sunDir.z, 0.06, this.sunDir.x).normalize();
-    const L = this.radiance(side, new THREE.Color());
-    // 太阳很低时天空整体更暗（清晨、黄昏）
-    this.skyScale = (0.62 * (0.4 + 0.6 * this.dayK ** 0.7)) / Math.max(0.05, 0.2126 * L.r + 0.7152 * L.g + 0.0722 * L.b);
-    const sunFlat = new THREE.Vector3(this.sunDir.x, 0.03, this.sunDir.z).normalize();
-    this.radiance(new THREE.Vector3(0, 1, 0), this.clear.zenith);
-    this.radiance(side, this.clear.horizon);
-    this.radiance(sunFlat, this.clear.horizonSun);
-    // 地平线一圈（高度 0，和穹顶在地平线处算出来的一样）
+  /** 按太阳位置重算大气（查找表、地平线一圈的颜色、阳光的颜色） */
+  private setAtmosphere(): void {
+    const m = this.model;
+    m.update(this.sunDir.y, { haze: this.air.haze, albedo: this.air.albedo, altitude: 0.4 });
+    for (let i = 0; i < this.lutData.length; i++) this.lutData[i] = THREE.DataUtils.toHalfFloat(m.sky[i]);
+    this.lut.needsUpdate = true;
     const fl = Math.hypot(this.sunDir.x, this.sunDir.z) || 1;
     const fx = this.sunDir.x / fl;
     const fz = this.sunDir.z / fl;
     this.sunFlat.set(fx, fz);
-    this.belt = (1 - this.dayK) ** 2 * 0.72;
+    const side = new THREE.Vector3(-this.sunDir.z, 0.06, this.sunDir.x).normalize();
+    const sunward = new THREE.Vector3(this.sunDir.x, 0.03, this.sunDir.z).normalize();
+    this.radiance(new THREE.Vector3(0, 1, 0), this.clear.zenith);
+    this.radiance(side, this.clear.horizon);
+    this.radiance(sunward, this.clear.horizonSun);
+    // 地平线一圈（高度 0，和穹顶在地平线处算出来的一样）
     for (let i = 0; i < RING_N; i++) {
       const g = Math.PI * (i / (RING_N - 1)) ** 2;
       _ringDir.set(fx * Math.cos(g) - fz * Math.sin(g), 0, fz * Math.cos(g) + fx * Math.sin(g));
       this.radiance(_ringDir, this.clearRing[i]);
       this.ringSun[i] = Math.max(0, _ringDir.dot(this.sunDir));
     }
-    // 阳光颜色：太阳方向的大气透射（太阳越低越暖）
-    const inv = this.invOptical(Math.acos(Math.max(0.0, this.sunDir.y)));
-    const t = (i: 0 | 1 | 2) => Math.exp(-([this.betaR.x, this.betaR.y, this.betaR.z][i] * 8.4e3 * inv + [this.betaM.x, this.betaM.y, this.betaM.z][i] * 1.25e3 * inv));
-    const tr = t(0);
-    const tg = t(1);
-    const tb = t(2);
-    const m = Math.max(tr, tg, tb);
-    this.clear.sunTint.setRGB(tr / m, tg / m, tb / m);
+    // 阳光：太阳方向的大气透过率。只算三个波长的话红得太过（真实的光谱是连续的），往亮度收一点
+    const t = m.sunTransmittance([0, 0, 0]);
+    const l = 0.2126 * t[0] + 0.7152 * t[1] + 0.0722 * t[2];
+    const k = 0.74;
+    const r = l + (t[0] - l) * k;
+    const g = l + (t[1] - l) * k;
+    const bl = l + (t[2] - l) * k;
+    const top = Math.max(r, g, bl, 1e-4);
+    this.clear.sunTint.setRGB(r / top, g / top, bl / top);
+    this.clear.sunGain = top;
   }
 
-  private invOptical(za: number): number {
-    return 1 / (Math.cos(za) + 0.15 * Math.pow(93.885 - (za * 180) / Math.PI, -1.253));
-  }
-
-  /** 与着色器 preetham() 相同的公式（CPU 端），返回线性颜色 */
+  /** 查表（和着色器的取法一样），返回线性颜色 */
   private radiance(d: THREE.Vector3, out: THREE.Color): THREE.Color {
-    const za = Math.acos(Math.max(0, d.y));
-    const inv = this.invOptical(za);
-    const ct = d.dot(this.sunDir);
-    const rp = 0.05968310365946075 * (1 + Math.pow(ct * 0.5 + 0.5, 2));
-    const g = this.mieG;
-    const mp = 0.07957747154594767 * ((1 - g * g) / Math.pow(1 - 2 * g * ct + g * g, 1.5));
-    const fade = Math.min(1, Math.max(0, Math.pow(1 - this.sunDir.y, 5)));
-    const ch = (bR: number, bM: number, add: number) => {
-      const Fex = Math.exp(-(bR * 8.4e3 * inv + bM * 1.25e3 * inv));
-      const bt = (bR * rp + bM * mp) / (bR + bM);
-      let Lin = Math.pow(this.sunE * bt * (1 - Fex), 1.5);
-      Lin *= 1 + (Math.pow(this.sunE * bt * Fex, 0.5) - 1) * fade;
-      return Math.pow((Lin + 0.1 * Fex) * 0.04 + add, 1 / 2.4) * this.skyScale;
-    };
-    out.setRGB(ch(this.betaR.x, this.betaM.x, 0), ch(this.betaR.y, this.betaM.y, 0.0003), ch(this.betaR.z, this.betaM.z, 0.00075));
-    // 暮光带（和着色器里的一样）
-    const fl = Math.hypot(d.x, d.z) * Math.hypot(this.sunDir.x, this.sunDir.z) || 1;
-    const anti = Math.max(0, (-(d.x * this.sunDir.x + d.z * this.sunDir.z) / fl) * 0.5 + 0.5);
-    const t = Math.min(1, Math.max(0, (d.y - 0.03) / 0.27));
-    const k = anti ** 1.6 * (1 - t * t * (3 - 2 * t)) * this.belt;
-    const lum = 0.2126 * out.r + 0.7152 * out.g + 0.0722 * out.b;
-    return out.setRGB(out.r + (lum * 1.32 - out.r) * k, out.g + (lum * 0.98 - out.g) * k, out.b + (lum * 1.02 - out.b) * k);
+    const fl = Math.hypot(d.x, d.z);
+    const ca = fl > 1e-4 ? (d.x * this.sunFlat.x + d.z * this.sunFlat.y) / fl : 1;
+    const o = this.model.radiance(Math.acos(Math.max(-1, Math.min(1, ca))), Math.asin(Math.max(-1, Math.min(1, d.y))), [0, 0, 0]);
+    return out.setRGB(o[0] * SUN_E * SKY_GAIN, o[1] * SUN_E * SKY_GAIN, o[2] * SUN_E * SKY_GAIN);
   }
 
   /** 根据天气计算天空与光照颜色。flash：闪电亮度 0..1。 */
@@ -519,16 +492,16 @@ export class SkyDome {
     const ovZen = c(0x7a828c).lerp(c(0x4a525c), storm);
     const ovHor = c(0xa6adb4).lerp(this.fogTint, 0.25).lerp(c(0x70787f), storm);
     // （太阳低的时候霾也暗下去、带上天色，不能一直是白天的灰白色）
-    const haze = c(0xc9cfd4).lerp(this.fogTint, 0.35).lerp(this.clear.horizon, 1 - this.dayK).lerp(ovHor, oc);
+    const haze = c(0xc9cfd4).lerp(this.fogTint, 0.35).multiplyScalar(0.62).lerp(this.clear.horizon, 1 - this.dayK).lerp(ovHor, oc);
     C.zenith.copy(this.clear.zenith).lerp(ovZen, oc);
     C.horizon.copy(this.clear.horizon).lerp(ovHor, oc).lerp(haze, fogK * 0.8);
     C.fog.copy(C.horizon);
     C.fogSun.copy(this.clear.horizonSun).lerp(ovHor, oc).lerp(haze, fogK * 0.8);
     C.ground.copy(this.groundTint).multiplyScalar(0.55).lerp(C.horizon, 0.55);
     const sunVis = Math.max(0, 1 - oc * 0.92) * (1 - fogK * 0.55);
-    C.sun.copy(this.clear.sunTint).lerp(c(0xfff3e4), 0.25);
-    // 太阳越低，穿过的大气越厚：直射光变弱（6° 时约为正午的六成，同时由大气透射变成橙红）
-    C.sunIntensity = 3.3 * (0.12 + 0.88 * sunVis) * (0.32 + 0.68 * this.dayK ** 0.65);
+    C.sun.copy(this.clear.sunTint);
+    // 太阳越低，穿过的大气越厚：直射光变弱、变红（都来自大气透过率）
+    C.sunIntensity = SUN_E * this.clear.sunGain * (0.12 + 0.88 * sunVis);
     C.hemiSky.copy(C.zenith).lerp(C.horizon, 0.5);
     C.hemiGround.copy(this.groundTint).multiplyScalar(0.6);
     C.hemiIntensity = (0.5 + 0.6 * oc) * (0.45 + 0.55 * this.dayK) + flash * 2.5;
@@ -552,6 +525,7 @@ export class SkyDome {
     }
     for (const k of C.ring) k.lerp(C.fog, skyFog);
     const u = this.u;
+    u.zenith.value.copy(this.clear.zenith);
     u.ovZenith.value.copy(ovZen);
     u.ovHorizon.value.copy(ovHor);
     u.overcast.value = oc;
@@ -559,14 +533,11 @@ export class SkyDome {
     u.skyFog.value = skyFog;
     u.fogCol.value.copy(C.fog);
     u.hazeK.value = hazeK;
-    u.belt.value = this.night ? 0 : this.belt;
     u.ground.value.copy(C.ground);
     u.sunColor.value.copy(C.sun);
     // 云和天空里的光按“太阳的亮度”写的：月光要弱得多
     if (this.night) u.sunColor.value.multiplyScalar(0.13);
     u.sunVis.value = sunVis;
-    u.sunE.value = this.sunE;
-    u.skyScale.value = this.skyScale;
     u.cloudLit.value.copy(c(0xf6f7f9)).lerp(c(0x9aa0a8), oc).lerp(c(0x585e66), storm);
     u.cloudDark.value.copy(c(0xa3abb7)).lerp(c(0x6c727a), oc).lerp(c(0x30353c), storm);
     if (this.night) {
@@ -616,11 +587,12 @@ export class SkyDome {
    */
   reflectedSky(d: THREE.Node<'vec3'>, uvs: Array<THREE.Node<'vec2'>>, cloudK: THREE.Node<'float'>): THREE.Node<'vec3'> {
     const U = this.u;
-    const preetham = preethamNode(U);
     const tex = this.clouds.tex;
     return Fn(() => {
       const h = d.y;
-      const col = vec3(preetham(normalize(vec3(d.x, max(h, 0.0), d.z)))).toVar();
+      // 水面着色器的贴图数已经到了上限（每个阶段 16 张）：这里不查天空表，用地平线一圈的颜色和天顶的颜色插出来。
+      // 倒影里的天本来就被波浪抹开了，看不出区别
+      const col = mix(ringColor(d), U.zenith, pow(clamp(h, 0.0, 1.0), 0.42)).toVar();
       col.assign(mix(col, mix(U.ovHorizon, U.ovZenith, pow(clamp(h, 0.0, 1.0), 0.5)), U.overcast));
       col.assign(mix(col, U.haze, U.hazeK.mul(float(1).sub(smoothstep(0.0, 0.35, h)))));
       const sd = max(dot(d, U.sunDir), 0.0);
@@ -636,8 +608,19 @@ export class SkyDome {
     })();
   }
 
+  /** 地面的颜色图（烘焙环境贴图时当下半球） */
+  setLand(color: THREE.Texture, size: number): void {
+    this.u.land.value = color;
+    this.u.landSize.value = size;
+  }
+
   /** 烘焙环境贴图时：CloudPass 的纹理是屏幕空间的，这里改用二维云层；返回的函数用来恢复 */
-  beginEnvBake(): () => void {
+  beginEnvBake(eyeH = 300): () => void {
+    const C = this.colors;
+    this.u.eyeH.value = Math.max(40, eyeH);
+    // 平地接到的光：阳光 + 天光
+    const k = (C.sunIntensity * Math.max(0, this.sunDir.y)) / Math.PI;
+    this.u.landLight.value.setRGB(C.sun.r * k + C.zenith.r * 0.8, C.sun.g * k + C.zenith.g * 0.8, C.sun.b * k + C.zenith.b * 0.8);
     const steps = this.u.steps.value;
     const tex = this.u.useTex.value;
     this.u.useTex.value = 0;

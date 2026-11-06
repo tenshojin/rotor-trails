@@ -171,6 +171,8 @@ export interface BiomeDef {
   beachTop: number;
   /** 积雪线（世界 y） */
   snowLine: number;
+  /** 空气里的气溶胶（1 = 很干净，雨林的湿热空气 2 以上，高原不到 1），决定天色和太阳周围发白的程度 */
+  air?: number;
   /** 岩石出现的坡度阈值（1-n.y） */
   rockSlope: number;
   waterDeep: number;
@@ -216,6 +218,8 @@ export interface MapDef {
   /** 地表掩码 A 通道画的是水泥地（港区），不是积雪 */
   pavedMask?: boolean;
   /** 水力侵蚀的雨滴数（见 world/erosion.ts）；缺省不做 */
+  /** 河流下切（见 world/fluvial.ts）：切出树枝状的水系，放在雨滴侵蚀之前 */
+  dissect?: { grid: number; steps: number; k: number; maxCut: number; m?: number; creep?: number; talus?: number; soft?: (x: number, z: number) => number };
   erosion?: number;
   /** 岩层（见 world/rockForm.ts）：陡坡改成硬层成崖、软层成坡的剖面，并按同一张地层表上色 */
   rockForm?: RockFormDef;
