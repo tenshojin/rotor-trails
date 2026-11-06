@@ -6,7 +6,7 @@
 // 太阳在一局里不动，所以只算一次。
 
 import * as THREE from 'three/webgpu';
-import { float, Fn, mix, smoothstep, step, texture, uniform, vec2, vec3 } from 'three/tsl';
+import { clamp, float, Fn, max, mix, smoothstep, step, texture, uniform, vec2, vec3 } from 'three/tsl';
 import { Perlin2 } from '../core/noise';
 import type { Heightfield } from '../sim/terrain';
 
@@ -18,8 +18,11 @@ empty.needsUpdate = true;
 const heightTex = texture(empty);
 const mapSize = uniform(1);
 const active = uniform(0);
+/** 外面一层的边长（0 = 没有）。真实地形的视野有几十公里：贴图左半边是里层，右半边是外层，还是只占一张贴图的位置 */
+const outerSize = uniform(0);
 /** 阴影边缘的软硬（米，竖直方向）：太阳越低，同样的高度差在地面上拉得越长 */
 const SOFT = 10;
+const soft = uniform(SOFT);
 const ragged = new Perlin2(907);
 
 let current: THREE.DataTexture | null = null;
@@ -100,18 +103,32 @@ export function bakeShadowHeights(t: Heightfield, sunDir: THREE.Vector3, far: Fa
   return U;
 }
 
-/** 换地图或换时段时调用 */
-export function setSunMap(t: Heightfield, sunDir: THREE.Vector3, far: FarGrid | null = null): void {
+/**
+ * 换地图或换时段时调用。outer：地图外面还有一层（真实地形），两层必须一样大。
+ * 真实地形的高程本身就是碎的，不用再加碎边
+ */
+export function setSunMap(t: Heightfield, sunDir: THREE.Vector3, far: FarGrid | null = null, outer: Heightfield | null = null): void {
   const n = t.res;
-  const U = bakeShadowHeights(t, sunDir, far);
-  const half = new Uint16Array(n * n);
-  // 影子的边缘不是一条尺子画的直线：投影的山脊本身是碎的，高度图一格 4 米又把它抹平了，这里把碎的感觉补回来
-  for (let z = 0; z < n; z++)
-    for (let x = 0; x < n; x++) {
-      const i = z * n + x;
-      half[i] = THREE.DataUtils.toHalfFloat(U[i] + ragged.fbm((x * t.cell) / 90, (z * t.cell) / 90, 4) * 26);
-    }
-  const tex = new THREE.DataTexture(half, n, n, THREE.RedFormat, THREE.HalfFloatType);
+  const W = outer ? n * 2 : n;
+  const half = new Uint16Array(W * n);
+  if (outer) {
+    const U = bakeShadowHeights(t, sunDir, { h: outer.data, res: outer.res, size: outer.size });
+    const V = bakeShadowHeights(outer, sunDir, far);
+    for (let z = 0; z < n; z++)
+      for (let x = 0; x < n; x++) {
+        half[z * W + x] = THREE.DataUtils.toHalfFloat(U[z * n + x]);
+        half[z * W + n + x] = THREE.DataUtils.toHalfFloat(V[z * n + x]);
+      }
+  } else {
+    const U = bakeShadowHeights(t, sunDir, far);
+    // 影子的边缘不是一条尺子画的直线：投影的山脊本身是碎的，高度图一格 4 米又把它抹平了，这里把碎的感觉补回来
+    for (let z = 0; z < n; z++)
+      for (let x = 0; x < n; x++) {
+        const i = z * n + x;
+        half[i] = THREE.DataUtils.toHalfFloat(U[i] + ragged.fbm((x * t.cell) / 90, (z * t.cell) / 90, 4) * 26);
+      }
+  }
+  const tex = new THREE.DataTexture(half, W, n, THREE.RedFormat, THREE.HalfFloatType);
   tex.name = 'SunHeight';
   tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearFilter;
@@ -122,23 +139,37 @@ export function setSunMap(t: Heightfield, sunDir: THREE.Vector3, far: FarGrid | 
   current = tex;
   heightTex.value = tex;
   mapSize.value = t.size;
+  outerSize.value = outer ? outer.size : 0;
+  soft.value = outer ? 3 : SOFT;
   active.value = 1;
 }
 
 export function clearSunMap(): void {
   active.value = 0;
+  outerSize.value = 0;
   heightTex.value = empty;
   current?.dispose();
   current = null;
 }
 
+/** 查这一点的阴影面高度。x：贴图里的值，y：这一点在不在贴图范围内 */
+const shadowHeightAt = (p: THREE.Node<'vec3'>): THREE.Node<'vec2'> => {
+  const a = p.xz.div(mapSize).add(0.5);
+  const b = p.xz.div(max(outerSize, 1)).add(0.5);
+  const inA = step(a.x.sub(0.5).abs(), float(0.5)).mul(step(a.y.sub(0.5).abs(), float(0.5)));
+  const hasOuter = step(1, outerSize);
+  const inB = step(b.x.sub(0.5).abs(), float(0.5)).mul(step(b.y.sub(0.5).abs(), float(0.5))).mul(hasOuter);
+  // 两半贴在一起，取样时别跨过中缝
+  const ax = mix(a.x, clamp(a.x, 0.001, 0.999).mul(0.5), hasOuter);
+  const uv = mix(vec2(clamp(b.x, 0.001, 0.999).mul(0.5).add(0.5), b.y), vec2(ax, a.y), inA);
+  return vec2(heightTex.sample(uv).level(float(0)).r, max(inA, inB));
+};
+
 /** p（世界坐标）能不能被太阳照到：1 = 照得到，0 = 在山影里。只算地图范围内的山 */
 export const terrainSun = Fn(([pIn]: [THREE.Node<'vec3'>]) => {
   const p = vec3(pIn);
-  const uv = p.xz.div(mapSize).add(0.5);
-  const inside = step(uv.x.sub(0.5).abs(), float(0.5)).mul(step(uv.y.sub(0.5).abs(), float(0.5)));
-  const s = heightTex.sample(vec2(uv)).level(float(0)).r;
-  return mix(float(1), smoothstep(s.sub(SOFT * 2), s, p.y), inside.mul(active));
+  const q = shadowHeightAt(p).toVar();
+  return mix(float(1), smoothstep(q.x.sub(soft.mul(2)), q.x, p.y), q.y.mul(active));
 });
 
 /**
@@ -147,8 +178,6 @@ export const terrainSun = Fn(([pIn]: [THREE.Node<'vec3'>]) => {
  */
 export const terrainSunHaze = Fn(([pIn]: [THREE.Node<'vec3'>]) => {
   const p = vec3(pIn);
-  const uv = p.xz.div(mapSize).add(0.5);
-  const inside = step(uv.x.sub(0.5).abs(), float(0.5)).mul(step(uv.y.sub(0.5).abs(), float(0.5)));
-  const s = heightTex.sample(vec2(uv)).level(float(0)).r;
-  return mix(float(1), smoothstep(s.sub(190), s.add(70), p.y), inside.mul(active));
+  const q = shadowHeightAt(p).toVar();
+  return mix(float(1), smoothstep(q.x.sub(190), q.x.add(70), p.y), q.y.mul(active));
 });

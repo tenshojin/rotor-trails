@@ -7,7 +7,7 @@ import type { WeatherPreset } from '../sim/weather';
 import type { WindZoneDef } from '../sim/wind';
 
 export type V3 = [number, number, number];
-export type MapId = 'training' | 'japan' | 'canyon' | 'amazon' | 'fjord' | 'himalaya';
+export type MapId = 'training' | 'japan' | 'canyon' | 'amazon' | 'fjord' | 'himalaya' | 'grandcanyon';
 
 export type PadKind = 'start' | 'delivery' | 'repair' | 'final' | 'helipad';
 export type PadStyle = 'ground' | 'roof' | 'pier' | 'platform' | 'ledge' | 'raised';
@@ -204,8 +204,39 @@ export interface Vista {
   look: [number, number];
 }
 
+/** 真实地形的一层：高程网格 + 航拍影像（public/<base> 下面），见 tools/real/prep_grandcanyon.py */
+export interface RealLevelDef {
+  /** 边长（米） */
+  size: number;
+  /** 网格点数（2 的幂 + 1） */
+  res: number;
+  heights: string;
+  image: string;
+  /** 高度的基准和量化步长（米） */
+  base: number;
+  step: number;
+}
+
+export interface RealTerrainDef {
+  base: string;
+  levels: RealLevelDef[];
+  /** 数据来源：地图里要写明 */
+  credit: string;
+  /** 从影像里认出来的树 */
+  trees?: string;
+  /** 岩层色表：按高度排的一条颜色（崖壁上的贴图被拉长了，靠它补回层次） */
+  /** dip：地层不是完全水平的，高度 + x·dip[0] + z·dip[1] 才是这层岩石的位置 */
+  strata?: { image: string; y0: number; y1: number; dip: [number, number] };
+  /** 核心区 5 米一格的辅助图：R 岩缝，G 河面，B 看得到的天空 */
+  aux?: string;
+}
+
 export interface MapDef {
   id: MapId;
+  /** 树叶的整体偏色（默认不偏） */
+  leafTint?: [number, number, number];
+  /** 真实地形：高度和地表都来自测绘数据，不走程序生成 */
+  real?: RealTerrainDef;
   name: string;
   subtitle: string;
   region: string;

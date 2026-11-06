@@ -23,6 +23,8 @@ import { markNearShadow, SunShadows } from './sunShadows';
 import type { MapDef } from '../maps/types';
 import { loadTerrainLayers, type TerrainLayers } from './terrainLayers';
 import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrainView';
+import { RealTerrain } from './realTerrain';
+import { loadAux, loadRealImages, loadStrata, realFarGrid } from './realImages';
 import { makeForestTexture, makeGroundHeightTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
 import { fogMaps, VFOG } from './volumetricFog';
 import { addWashWind, DownwashView } from './downwash';
@@ -114,7 +116,7 @@ export class WorldView {
   // 地图相关
   world: WorldData | null = null;
   sky: SkyDome | null = null;
-  terrain: TerrainView | null = null;
+  terrain: TerrainView | RealTerrain | null = null;
   terrainUniforms: TerrainUniforms | null = null;
   private terrainTexSize = 0;
   private terrainRequestedSize: number | null = null;
@@ -273,7 +275,7 @@ export class WorldView {
     if (size === this.terrainTexSize) return;
     const replace = (layers: TerrainLayers | null): void => {
       const previous = uniforms.layers;
-      terrain.setLayers(layers);
+      (terrain as TerrainView).setLayers(layers);
       if (previous) {
         this.mapTextures = this.mapTextures.filter((t) => t !== previous.color && t !== previous.normal);
         previous.color.dispose();
@@ -326,7 +328,8 @@ export class WorldView {
       this.eye.setMax(tod === 'night' ? 3.6 : EYE_DEFAULT.max);
       this.updateLandingLight();
       if (changed) {
-        setSunMap(this.world.terrain, this.sky.sunDir, this.farGrid);
+        const real = this.world.real;
+        setSunMap(real?.sunInner ?? this.world.terrain, this.sky.sunDir, this.farGrid, real?.sunOuter);
         this.sky.clouds.reset();
         this.giDirty = true;
       }
@@ -426,19 +429,23 @@ export class WorldView {
       const tick = () => new Promise<void>((r) => setTimeout(r, 0));
       progress?.(0.82, '构建地形网格');
       await tick();
-      const surfaceTex = makeSurfaceTexture(world.surface, world.terrain.res);
+      // 真实地形的网格有 1600 万格：雾、倒影、光照这些低频的东西用 10 米一格的副本
+      const real = world.real;
+      const lowT = real ? real.low : world.terrain;
+      const lowSurface = real ? real.lowSurface : world.surface;
+      const surfaceTex = makeSurfaceTexture(lowSurface, lowT.res);
       const forestTex = makeForestTexture(world.trees, map.size, world.flow);
       // 体积雾：贴地薄雾按离地高度变淡、林区更浓
-      const groundTex = makeGroundHeightTexture(world.terrain, map.waterLevel);
-      const macroTex = makeTerrainMacroTexture(world.terrain);
+      const groundTex = makeGroundHeightTexture(lowT, map.waterLevel);
+      const macroTex = makeTerrainMacroTexture(lowT);
       this.mapTextures.push(surfaceTex, forestTex, groundTex, macroTex);
       await loadRockRelief();
       // 水面倒影飞出画面后接着走的地形图
-      const field = makeReflectField(map, world.terrain, world.trees, world.surface, macroTex.image.data as Uint8Array, forestTex.image.data as Uint8Array);
+      const field = makeReflectField(map, lowT, world.trees, lowSurface, macroTex.image.data as Uint8Array, forestTex.image.data as Uint8Array);
       this.mapTextures.push(field.height, field.color, field.far);
       setGiMap(field, map.waterLevel);
-      this.farGrid = field.farGrid;
-      this.giDirty = true;
+      this.farGrid = real ? realFarGrid(real) : field.farGrid;
+      this.giDirty = !real;
       fogMaps.height = groundTex;
       fogMaps.forest = forestTex;
       VFOG.mapSize.value = map.size;
@@ -447,16 +454,32 @@ export class WorldView {
       if (layers) this.mapTextures.push(layers.color, layers.normal);
       layersTaken = true;
       this.terrainTexSize = layers ? texSize : 0;
-      this.terrainUniforms = makeTerrainUniforms(map, world.terrain, surfaceTex, forestTex, macroTex, layers);
-      if (this.terrainUniforms.strataLUT) this.mapTextures.push(this.terrainUniforms.strataLUT);
-      this.terrain = new TerrainView(map, world.terrain, this.terrainUniforms);
+      if (real) {
+        progress?.(0.86, '加载航拍影像');
+        const images = await loadRealImages(real.def, (this.renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend ? 16 : 8);
+        const strata = await loadStrata(real.def);
+        const aux = await loadAux(real.def);
+        this.mapTextures.push(...images);
+        if (strata) this.mapTextures.push(strata);
+        if (aux) this.mapTextures.push(aux);
+        this.terrain = new RealTerrain(real, images, strata, aux, layers);
+        // 大峡谷的视野有上百公里
+        this.rig.camera.far = 240000;
+        this.rig.camera.updateProjectionMatrix();
+      } else {
+        this.terrainUniforms = makeTerrainUniforms(map, world.terrain, surfaceTex, forestTex, macroTex, layers);
+        if (this.terrainUniforms.strataLUT) this.mapTextures.push(this.terrainUniforms.strataLUT);
+        this.terrain = new TerrainView(map, world.terrain, this.terrainUniforms);
+        this.rig.camera.far = 30000;
+        this.rig.camera.updateProjectionMatrix();
+      }
       this.scene.add(this.terrain.group);
       const [sunAz, sunEl] = sunFor(map, this.tod);
       this.sky = new SkyDome(sunAz, sunEl, map.biome.fogTint, map.biome.grass, this.tod === 'night', map.biome.air);
       this.eye.setMax(this.tod === 'night' ? 3.6 : EYE_DEFAULT.max);
       this.updateLandingLight();
       this.sun.csm.lightMargin = 400 + 1800 * (1 - this.sky.dayK);
-      setSunMap(world.terrain, this.sky.sunDir, field.farGrid);
+      setSunMap(real ? real.sunInner : world.terrain, this.sky.sunDir, this.farGrid, real?.sunOuter);
       this.sky.setLand(field.color, map.size);
       this.eye.snap();
       this.scene.add(this.sky.mesh);
@@ -485,7 +508,7 @@ export class WorldView {
       this.props = new PropsView(world, this.modelLib, detail);
       this.props.lodScale = QUALITY[this.settings.quality].terrainLod;
       this.scene.add(this.props.group);
-      this.trees = new TreeView(world.trees, treeLib, map.biome.rock, map.rockForm ?? null);
+      this.trees = new TreeView(world.trees, treeLib, map.biome.rock, map.rockForm ?? null, map.leafTint);
       this.scene.add(this.trees.group);
       this.nav = new NavView(map, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true);
       this.nav.guides = this.settings.navGuides;
@@ -496,15 +519,17 @@ export class WorldView {
       this.scene.add(this.lamps.group);
       this.padDetails = new PadDetails(map);
       this.scene.add(this.padDetails.group);
-      this.grass = new GroundCover(world, forestTex, field.color, GRASS_MID[this.settings.quality] ?? 0);
-      this.scene.add(this.grass.group);
+      if (!real) {
+        this.grass = new GroundCover(world, forestTex, field.color, GRASS_MID[this.settings.quality] ?? 0);
+        this.scene.add(this.grass.group);
+      }
       if (map.rivers) {
         this.rivers = new RiverView([...map.rivers, ...(map.farRivers ?? [])], (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true, field, this.sky);
         this.scene.add(this.rivers.group);
       }
       this.clouds = new CloudLayer(map.size);
       this.scene.add(this.clouds.group);
-      this.minimap = makeMinimapCanvas(map, world.terrain, world.trees);
+      this.minimap = makeMinimapCanvas(map, lowT, world.trees);
       this.cockpit.minimap = this.minimap;
       if (!this.cockpit.loaded || !this.heli.extLoaded) {
         progress?.(0.92, '加载直升机模型');
@@ -898,7 +923,8 @@ export class WorldView {
         markNearShadow(this.scene);
       }
       this.updateEnv(w, f.t);
-      this.terrain?.update(cp);
+      if (this.terrain instanceof RealTerrain) this.terrain.update(cp, cam);
+      else this.terrain?.update(cp);
       if (this.terrainUniforms) this.terrainUniforms.uWet.value = w.wetness;
       WET.value = w.wetness;
       this.water?.update(f.t, _w.x, _w.z, Math.hypot(_w.x, _w.z), w.rain);

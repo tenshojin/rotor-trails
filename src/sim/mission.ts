@@ -129,7 +129,8 @@ export class MissionRuntime {
     this.main = def.main.map(mkRT);
     this.optional = def.optional.map(mkRT);
     this.cargo = def.startCargo;
-    this.main[0].status = 'active';
+    // 只有休闲飞行的地图没有主线任务
+    if (this.main[0]) this.main[0].status = 'active';
     for (const o of this.optional) o.status = 'active';
   }
 

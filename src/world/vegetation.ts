@@ -166,6 +166,11 @@ export function scatterTrees(map: MapDef, terrain: Heightfield, surface: Uint8Ar
       }
     }
   }
+  return packTrees(terrain, xs, ys, zs, ss, ts, rs, ghosts);
+}
+
+/** 把一批树排进空间网格 */
+export function packTrees(terrain: Heightfield, xs: number[], ys: number[], zs: number[], ss: number[], ts: number[], rs: number[], ghosts: number[] = []): TreeSet {
   const count = xs.length;
   const cell = 64;
   const dim = Math.ceil(terrain.size / cell) + 1;

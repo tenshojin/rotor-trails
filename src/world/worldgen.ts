@@ -5,6 +5,7 @@ import { makeFlowMap, type FlowMap } from './flow';
 import type { MapDef, PadDef, V3 } from '../maps/types';
 import { obstacleTop } from '../sim/routeCheck';
 import { HeightBuilder, type Heightfield } from '../sim/terrain';
+import { loadRealData, loadRealTrees, type RealData } from './realData';
 import { erode } from './erosion';
 import { dissect } from './fluvial';
 import { PropBuilder, type ColliderSpec } from './propBuilder';
@@ -15,6 +16,8 @@ import { PROP_FNS } from './props/index';
 import { scatterTrees, type TreeSet } from './vegetation';
 
 export interface WorldData {
+  /** 真实地形的原始数据 */
+  real?: RealData;
   map: MapDef;
   terrain: Heightfield;
   surface: Uint8Array;
@@ -68,9 +71,15 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
     pickups: map.pickups.map((pickup) => ({ ...pickup, pos: [...pickup.pos] })),
     rivers: map.rivers?.map((river) => ({ ...river, pts: river.pts.map((p): [number, number, number, number] => [p[0], p[1], p[2], p[3]]) })),
   };
-  progress?.(0.05, '生成地形');
+  progress?.(0.05, map.real ? '下载真实地形' : '生成地形');
   await tick();
   const hb = new HeightBuilder(map.size, map.res);
+  const real = map.real ? await loadRealData(map.real) : undefined;
+  if (real) {
+    hb.data.set(real.levels[0].data);
+    // 地图外面的远景和阳光的山影都从测绘数据里取
+    map.farTerrain = (x, z) => real.heightAt(x, z);
+  }
   map.buildTerrain(hb);
   // 地面停机坪：压平地形（坪面略高于地面）
   for (const p of map.pads) {
@@ -129,9 +138,12 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
   }
   progress?.(0.65, '种植植被');
   await tick();
-  const flow = makeFlowMap(terrain, map.waterLevel);
-  const trees = scatterTrees(map, terrain, hb.surface, B.footprints, flow);
-  const world: WorldData = { map, terrain, surface: hb.surface, flow, builder: B, colliders: B.colliders, trees, pads, ctx };
+  const flow = makeFlowMap(real ? real.low : terrain, map.waterLevel);
+  const keepOut = map.pads.map((p): [number, number, number] => [p.pos[0], p.pos[2], p.size * 0.75 + 14]);
+  const trees = (map.real && (await loadRealTrees(map.real, terrain, keepOut))) || scatterTrees(map, terrain, hb.surface, B.footprints, flow);
+  // 画面用的最细一层换成压平停机坪之后的高度，和物理碰撞面是同一份数据
+  const realView = real && { ...real, levels: [{ ...real.levels[0], data: terrain.data }, ...real.levels.slice(1)] };
+  const world: WorldData = { map, terrain, surface: hb.surface, flow, builder: B, colliders: B.colliders, trees, pads, ctx, real: realView };
   resolveAutoAltitudes(world);
   attachPickupsToNodes(world);
   progress?.(0.8, '完成');

@@ -304,6 +304,7 @@ export class UI {
           <h3>值得一去的地方</h3>
           <p class="vistas">${vistas.map((v) => `<span>${v}</span>`).join('')}</p>
           <p class="muted">飞行中按暂停键可以随时换时段、换天气，或者直接跳到这些地方。</p>
+          ${m.real ? `<p class="muted">${m.real.credit}</p>` : ''}
         </div>
         <div class="brief-side">
           <div class="card"><h3 id="brief-time">时段</h3><div class="opts" data-group="time" role="group" aria-labelledby="brief-time">${(Object.keys(TIME_OF_DAY) as TimeOfDay[])
@@ -538,9 +539,10 @@ export class UI {
       h(`<div class="modal"><div class="card wide"><div class="screen-head"><h2>关于与授权</h2><button class="btn ghost" data-a="close">关闭</button></div>
       <p><b>Rotor Trails（旋翼航迹）</b> — 第一人称拟真直升机闯关游戏。地形高度、仪表画面与音效由程序生成；驾驶舱、直升机外观、建筑与树木由本项目的 Blender 脚本建模。</p>
       <p>地形与建筑使用 Poly Haven 的 CC0 照片材质。建模参照照片仅用于结构与比例参考，不随游戏分发。</p>
+      <p>“大峡谷”地图的高程来自 USGS 3D Elevation Program，影像来自 USDA National Agriculture Imagery Program（2023 年，经 USGS The National Map 分发），均为美国政府公有领域数据，courtesy of the U.S. Geological Survey。</p>
       <h3>第三方开源库</h3>
       <ul class="tips"><li>three.js — MIT License</li><li>Rapier（@dimforge/rapier3d-compat）— Apache License 2.0</li><li>开发工具：Vite（MIT）、TypeScript（Apache-2.0）、Vitest（MIT）</li></ul>
-      <p class="muted">可查看<a href="./licenses.md" target="_blank" rel="noopener">第三方素材与开源许可</a>。地图为虚构地形，仅体现日本海湾、美国西南峡谷、亚马孙雨林、挪威峡湾、尼泊尔高山的地貌特色，不对应真实地理位置。</p></div></div>`),
+      <p class="muted">可查看<a href="./licenses.md" target="_blank" rel="noopener">第三方素材与开源许可</a>。除大峡谷外，地图都是虚构地形，仅体现日本海湾、美国西南峡谷、亚马孙雨林、挪威峡湾、尼泊尔高山的地貌特色，不对应真实地理位置。</p></div></div>`),
     );
     this.bind(el, { close: () => this.closeModal() });
   }

@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { AudioEngine } from '../audio/audio';
-import { MAPS, CAMPAIGN, getMap } from '../maps/index';
+import { REAL_MAPS, MAPS, CAMPAIGN, getMap } from '../maps/index';
 import type { MapDef } from '../maps/types';
 import { CAUSE_LABEL } from '../sim/damage';
 import { GRADE_LABEL } from '../sim/mission';
@@ -291,7 +291,7 @@ export class App {
       this.save.save();
     }
     const params = new URLSearchParams(location.search);
-    const auto = MAPS.find((m) => m.id === params.get('map'));
+    const auto = [...MAPS, ...REAL_MAPS].find((m) => m.id === params.get('map'));
     if (!auto) {
       // 菜单背景：训练场的黄昏
       this.view.setTimeOfDay('dusk');
@@ -313,7 +313,7 @@ export class App {
       const tp = params.get('time');
       const assist = params.get('assist');
       const weather = m.weathers.find((w) => w.id === params.get('weather'))?.id ?? m.defaultWeather;
-      await this.startRun({ map: m, weather, assist: assist === 'novice' || assist === 'standard' || assist === 'challenge' || assist === 'sim' ? assist : this.settings.assist, tutorial: auto.id === 'training' && params.get('tutorial') !== '0' && params.get('free') !== '1', lesson: Number(params.get('lesson') ?? 0) || 0, free: params.get('free') === '1', time: isTimeOfDay(tp) ? tp : 'day' });
+      await this.startRun({ map: m, weather, assist: assist === 'novice' || assist === 'standard' || assist === 'challenge' || assist === 'sim' ? assist : this.settings.assist, tutorial: auto.id === 'training' && params.get('tutorial') !== '0' && params.get('free') !== '1', lesson: Number(params.get('lesson') ?? 0) || 0, free: params.get('free') === '1' || !!m.real, time: isTimeOfDay(tp) ? tp : 'day' });
       if (params.get('autostart') === '1') this.beginFlight();
     } else {
       this.mainMenu();
@@ -394,7 +394,7 @@ export class App {
   freeSelect(): void {
     this.state = 'menu';
     const list = [...CAMPAIGN.filter((id) => MAPS.find((m) => m.id === id)).map((id) => getMap(id)), getMap('training')];
-    this.ui.mapSelect(list, {}, { pick: (m) => this.freeBrief(m), back: () => this.mainMenu() }, true);
+    this.ui.mapSelect([...REAL_MAPS, ...list], {}, { pick: (m) => this.freeBrief(m), back: () => this.mainMenu() }, true);
   }
 
   freeBrief(m: MapDef): void {
@@ -535,7 +535,8 @@ export class App {
     this.hud.setFree?.(cfg.free === true);
     this.hud.setCinema?.(false);
     this.cruise = null;
-    if (cfg.free) this.goToVista(session, 0);
+    // 超仿真是冷舱启动，要停在坪上；休闲飞行直接从第一个景点开始
+    if (cfg.free && cfg.assist !== 'sim') this.goToVista(session, 0);
     this.audio.setAmbience(cfg.map.ambience);
     this.stepper.reset();
     this.view.rig.setMode('cockpit');

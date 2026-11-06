@@ -1,0 +1,458 @@
+// 真实地形的渲染：三层嵌套的高程网格，一共几百平方公里到两万多平方公里，靠一块 64×64 的网格反复用。
+// 做法是 CDLOD：每层一棵四叉树，每帧按距离选出要画的块，一次实例化绘制画完。
+//   顶点着色器从高度贴图取高度。块的边长是 2 的幂倍的格子，顶点正好落在格点上，不需要插值，
+//   所以最细一级和物理碰撞面完全重合。
+//   快到下一级的距离时，奇数顶点的高度慢慢滑到粗一级网格上的位置（几何变形），看不到跳变。
+// 法线不用顶点法线：高度差在 CPU 上算成一张带 mipmap 的法线图，远处的粗网格上也有细节，太阳一动整个峡谷的明暗都跟着变。
+
+import * as THREE from 'three/webgpu';
+import { abs, attribute, cameraPosition, cameraViewMatrix, clamp, dot, float, Fn, int, ivec2, length, max, min, mix, mod, normalize, normalWorld, positionGeometry, positionWorld, pow, smoothstep, sqrt, texture, textureLoad, time, vec2, vec3, vec4 } from 'three/tsl';
+import type { RealData, RealGrid } from '../world/realData';
+import { FOG } from './atmosphere';
+import { disposeTextures } from './disposeTextures';
+import { terrainSun } from './sunMap';
+import type { TerrainLayers } from './terrainLayers';
+import { getNoiseTexture } from './textures';
+import { VFOG } from './volumetricFog';
+
+/** 每块的格数 */
+const C = 64;
+/** 最多同时画多少块 */
+const MAX_PATCH = 1024;
+/** 一格多大时切到下一级：离镜头 RANGE × 格长的地方，一格大约占 6 个像素 */
+const RANGE = 140;
+
+type N<T extends string> = THREE.Node<T>;
+
+export interface RealLevelTextures {
+  image: THREE.Texture;
+}
+
+interface Level {
+  grid: RealGrid;
+  /** 这一层四叉树有几级（0 最细） */
+  depth: number;
+  /** minY, maxY 的金字塔：mm[k] 是第 k 级，每块两个数 */
+  mm: Float32Array[];
+  height: THREE.DataTexture;
+  normal: THREE.DataTexture;
+  mesh: THREE.Mesh;
+  geo: THREE.InstancedBufferGeometry;
+  patches: THREE.InstancedBufferAttribute;
+  /** 里面那一层占的范围（半边长），这一层在它里面不画 */
+  hole: number;
+}
+
+/** 一块 (C+1)² 的网格，四周加一圈往下垂的裙边，遮住不同层、不同级之间的细缝。position = (列, 是否裙边, 行) */
+function patchGeometry(): { position: THREE.BufferAttribute; index: THREE.BufferAttribute } {
+  const n = C + 1;
+  const pos: number[] = [];
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) pos.push(i, 0, j);
+  const idx: number[] = [];
+  // 对角线走 (x0, z1)-(x1, z0)，和物理高度场（Rapier）的三角剖分一致
+  for (let j = 0; j < C; j++)
+    for (let i = 0; i < C; i++) {
+      const a = j * n + i;
+      const b = a + 1;
+      const c = a + n;
+      const d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  const edge = (from: (k: number) => number, flip: boolean) => {
+    const base = pos.length / 3;
+    for (let k = 0; k < n; k++) {
+      const v = from(k);
+      pos.push(pos[v * 3], 1, pos[v * 3 + 2]);
+    }
+    for (let k = 0; k < C; k++) {
+      const a = from(k);
+      const b = from(k + 1);
+      const c = base + k;
+      const d = base + k + 1;
+      if (flip) idx.push(a, b, c, b, d, c);
+      else idx.push(a, c, b, b, c, d);
+    }
+  };
+  edge((k) => k, true);
+  edge((k) => C * n + k, false);
+  edge((k) => k * n, false);
+  edge((k) => k * n + C, true);
+  return { position: new THREE.BufferAttribute(new Float32Array(pos), 3), index: new THREE.BufferAttribute(new Uint32Array(idx), 1) };
+}
+
+/** 高度差算成法线图：R、G 是法线的 x、z，y 由它们算回来。8 位够用：影像本身的细节盖住了量化 */
+function normalTexture(g: RealGrid): THREE.DataTexture {
+  const n = g.res;
+  const out = new Uint8Array(n * n * 2);
+  const d = g.data;
+  const k = 1 / (2 * g.cell);
+  for (let z = 0; z < n; z++) {
+    const zu = z > 0 ? z - 1 : z;
+    const zd = z < n - 1 ? z + 1 : z;
+    for (let x = 0; x < n; x++) {
+      const xl = x > 0 ? x - 1 : x;
+      const xr = x < n - 1 ? x + 1 : x;
+      const sx = (d[z * n + xr] - d[z * n + xl]) * k;
+      const sz = (d[zd * n + x] - d[zu * n + x]) * k;
+      const m = 1 / Math.sqrt(1 + sx * sx + sz * sz);
+      const o = (z * n + x) * 2;
+      out[o] = Math.round((-sx * m * 0.5 + 0.5) * 255);
+      out[o + 1] = Math.round((-sz * m * 0.5 + 0.5) * 255);
+    }
+  }
+  const t = new THREE.DataTexture(out, n, n, THREE.RGFormat, THREE.UnsignedByteType);
+  t.name = 'RealNormal';
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.anisotropy = 8;
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  t.needsUpdate = true;
+  return t;
+}
+
+function heightTexture(g: RealGrid): THREE.DataTexture {
+  const t = new THREE.DataTexture(g.data, g.res, g.res, THREE.RedFormat, THREE.FloatType);
+  t.name = 'RealHeight';
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  return t;
+}
+
+function pyramid(g: RealGrid): Float32Array[] {
+  const out: Float32Array[] = [];
+  const cells = g.res - 1;
+  let nb = cells / C;
+  const base = new Float32Array(nb * nb * 2);
+  for (let bz = 0; bz < nb; bz++)
+    for (let bx = 0; bx < nb; bx++) {
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let z = bz * C; z <= (bz + 1) * C; z += 2)
+        for (let x = bx * C; x <= (bx + 1) * C; x += 2) {
+          const h = g.data[z * g.res + x];
+          if (h < lo) lo = h;
+          if (h > hi) hi = h;
+        }
+      base[(bz * nb + bx) * 2] = lo - 2;
+      base[(bz * nb + bx) * 2 + 1] = hi + 2;
+    }
+  out.push(base);
+  while (nb > 1) {
+    const prev = out[out.length - 1];
+    const m = nb / 2;
+    const cur = new Float32Array(m * m * 2);
+    for (let z = 0; z < m; z++)
+      for (let x = 0; x < m; x++) {
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+          const o = ((z * 2 + dz) * nb + x * 2 + dx) * 2;
+          lo = Math.min(lo, prev[o]);
+          hi = Math.max(hi, prev[o + 1]);
+        }
+        cur[(z * m + x) * 2] = lo;
+        cur[(z * m + x) * 2 + 1] = hi;
+      }
+    out.push(cur);
+    nb = m;
+  }
+  return out;
+}
+
+const _box = new THREE.Box3();
+const _frustum = new THREE.Frustum();
+const _m = new THREE.Matrix4();
+
+export class RealTerrain {
+  readonly group = new THREE.Group();
+  lodScale = 1;
+  shadowRange = 300;
+  private levels: Level[] = [];
+  private mats: THREE.Material[] = [];
+  private shadow: { mesh: THREE.Mesh; geo: THREE.InstancedBufferGeometry; patches: THREE.InstancedBufferAttribute; level: Level } | null = null;
+  private count = 0;
+
+  constructor(
+    private readonly data: RealData,
+    images: THREE.Texture[],
+    private readonly strata: THREE.Texture | null,
+    private readonly aux: THREE.Texture | null,
+    private readonly layers: TerrainLayers | null,
+  ) {
+    const { position, index } = patchGeometry();
+    const grids = data.levels;
+    grids.forEach((g, i) => {
+      const height = heightTexture(g);
+      const normal = normalTexture(g);
+      const geo = new THREE.InstancedBufferGeometry();
+      geo.setAttribute('position', position);
+      geo.setIndex(index);
+      const patches = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PATCH * 4), 4);
+      geo.setAttribute('tileInfo', patches);
+      geo.instanceCount = 0;
+      const level: Level = {
+        grid: g,
+        depth: Math.round(Math.log2((g.res - 1) / C)) + 1,
+        mm: pyramid(g),
+        height,
+        normal,
+        mesh: null as unknown as THREE.Mesh,
+        geo,
+        patches,
+        hole: i > 0 ? grids[i - 1].half : 0,
+      };
+      const mat = this.material(level, images[i], i === 0);
+      this.mats.push(mat);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.frustumCulled = false;
+      mesh.receiveShadow = i < 2;
+      mesh.castShadow = false;
+      mesh.matrixAutoUpdate = false;
+      level.mesh = mesh;
+      this.levels.push(level);
+      this.group.add(mesh);
+    });
+    // 投影只要镜头附近的一小片：单独一份实例，不进主画面的颜色
+    const L0 = this.levels[0];
+    const sg = new THREE.InstancedBufferGeometry();
+    sg.setAttribute('position', position);
+    sg.setIndex(index);
+    const sp = new THREE.InstancedBufferAttribute(new Float32Array(256 * 4), 4);
+    sg.setAttribute('tileInfo', sp);
+    sg.instanceCount = 0;
+    // 只要位置：阴影通道不需要地表的颜色
+    const sm = new THREE.MeshBasicNodeMaterial();
+    sm.positionNode = (L0.mesh.material as THREE.MeshStandardNodeMaterial).positionNode;
+    sm.colorWrite = false;
+    sm.depthWrite = false;
+    this.mats.push(sm);
+    const mesh = new THREE.Mesh(sg, sm);
+    mesh.frustumCulled = false;
+    mesh.castShadow = true;
+    mesh.receiveShadow = false;
+    mesh.matrixAutoUpdate = false;
+    mesh.renderOrder = -10;
+    this.shadow = { mesh, geo: sg, patches: sp, level: L0 };
+    this.group.add(mesh);
+  }
+
+  private material(lv: Level, image: THREE.Texture, core: boolean): THREE.MeshStandardNodeMaterial {
+    const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0 });
+    const g = lv.grid;
+    const last = g.res - 1;
+    m.positionNode = Fn(() => {
+      const v = positionGeometry;
+      // 名字别叫 patch：那是 WGSL 的保留字，整个着色器都会编译失败
+      const p = attribute<'vec4'>('tileInfo', 'vec4');
+      const st = p.z;
+      const ix = p.x.add(v.x.mul(st)).toVar();
+      const iz = p.y.add(v.z.mul(st)).toVar();
+      const load = (a: N<'float'>, b: N<'float'>): N<'float'> => textureLoad(lv.height, ivec2(int(min(a, last)), int(min(b, last)))).r;
+      const h0 = load(ix, iz).toVar();
+      // 粗一级网格上这个顶点的高度：奇数顶点落在粗网格的边上，取两头的平均。斜边的方向和三角剖分一致
+      const oi = mod(v.x, 2.0);
+      const oj = mod(v.z, 2.0);
+      const dj = oj.mul(oi.mul(2.0).sub(1.0));
+      const hA = load(ix.sub(oi.mul(st)), iz.add(dj.mul(st)));
+      const hB = load(ix.add(oi.mul(st)), iz.sub(dj.mul(st)));
+      const x = ix.mul(g.cell).sub(g.half).toVar();
+      const z = iz.mul(g.cell).sub(g.half).toVar();
+      const d = length(vec3(x, h0, z).sub(cameraPosition));
+      const k = clamp(d.div(p.w).sub(0.62).div(0.3), 0.0, 1.0);
+      const y = mix(h0, hA.add(hB).mul(0.5), k).sub(v.y.mul(st.mul(g.cell * 1.5).add(3.0)));
+      return vec3(x, y, z);
+    })();
+    const noise = getNoiseTexture();
+    const strata = this.strata;
+    const st = this.data.def.strata;
+    const L = this.layers;
+    const P = positionWorld;
+    const LUMW = vec3(0.2126, 0.7152, 0.0722);
+    const uv0 = P.xz.div(g.size).add(0.5).toVar();
+    const nTex = texture(lv.normal, uv0);
+    const nx = nTex.r.mul(2.0).sub(1.0);
+    const nz = nTex.g.mul(2.0).sub(1.0);
+    const N0 = normalize(vec3(nx, sqrt(max(float(1).sub(nx.mul(nx)).sub(nz.mul(nz)), 0.0)), nz)).toVar();
+    const dist = length(P.sub(cameraPosition)).toVar();
+    // （层与层之间的过渡烘在影像里了，见 prep_grandcanyon.py 的 blend_edge）
+    let col: N<'vec3'> = texture(image, uv0).rgb;
+    // 真正的崖壁：航拍是从正上方拍的，接近竖直的面在照片上只有一条缝，贴上去是一道道竖着拉长的条纹。
+    // 这里的地层几乎是水平的，同一高度就是同一层岩石：颜色改从岩层色表里查，明暗只取照片的低频。
+    // 不到七十度的坡照片拍得清清楚楚，不能动
+    const wob = texture(noise, P.xz.div(47.0)).r.sub(0.5);
+    const wall = smoothstep(0.6, 0.86, float(1).sub(N0.y).add(wob.mul(0.2))).toVar();
+    const tw = pow(abs(N0), vec3(4.0)).toVar();
+    const twn = tw.div(tw.x.add(tw.z).add(0.0001)).toVar();
+    if (strata && st) {
+      const yy = P.y.add(P.x.mul(st.dip[0])).add(P.z.mul(st.dip[1])).toVar();
+      // 层面不是尺子画的
+      const ys = yy.add(texture(noise, P.xz.div(1400.0)).g.sub(0.5).mul(16.0)).add(texture(noise, P.xz.div(190.0)).r.sub(0.5).mul(3.0)).toVar();
+      const layUV = vec2(ys.sub(st.y0).div(st.y1 - st.y0), 0.5).toVar();
+      const lay = texture(strata, layUV).rgb;
+      const flat = texture(strata, layUV).level(float(5)).rgb;
+      const low = texture(image, uv0).bias(float(4)).rgb;
+      const shade = clamp(dot(low, LUMW).div(max(dot(flat, LUMW), 0.02)), 0.72, 1.28);
+      // 雨水顺着崖壁流下来的痕迹：竖着的长条，有的深有的浅
+      const run = P.x.add(P.z.mul(1.37));
+      const varnish = texture(noise, vec2(run.mul(0.0043), ys.mul(0.00037))).r.sub(0.5).mul(0.5).add(texture(noise, vec2(run.mul(0.019), ys.mul(0.0011))).g.sub(0.5).mul(0.3));
+      col = mix(col, lay.mul(shade).mul(varnish.add(1.0)), wall);
+    }
+    const aux = core && this.aux ? texture(this.aux, uv0) : null;
+    const wet: N<'float'> = aux ? smoothstep(0.3, 0.7, aux.g).toVar() : float(0);
+    const flatK = float(1).sub(wall).mul(float(1).sub(wet)).toVar();
+    let N: N<'vec3'> = N0;
+    if (L) {
+      // 近处的石头和土：1.25 米一个像素，低空飞过时不够。细节层只取明暗和法线，颜色还是航拍的
+      const kN = float(1).sub(smoothstep(90.0, 900.0, dist)).toVar();
+      const kF = float(1).sub(smoothstep(500.0, 3600.0, dist)).toVar();
+      // 崖壁上看得见重复的距离比平地近：大面积的竖直面最怕贴图一格一格排着
+      const kW = float(1).sub(smoothstep(60.0, 420.0, dist)).toVar();
+      const at = (t: THREE.Texture, uv: N<'vec2'>, l: number): N<'vec4'> => texture(t, uv).depth(int(l));
+      const lum = (c: N<'vec4'>, l: number): N<'float'> => clamp(dot(c.rgb, LUMW).div(L.meanLum[l]), 0.4, 1.8);
+      const nxy = (c: N<'vec4'>): N<'vec2'> => c.rg.mul(2.0).sub(1.0);
+      const u0 = P.xz.div(L.tiles[0]);
+      const u1 = P.xz.div(L.tiles[1] * 3.7).add(0.37);
+      const ux = vec2(P.z, P.y.negate()).div(L.tiles[2]);
+      const uz = vec2(P.x, P.y.negate()).div(L.tiles[2]).add(0.41);
+      const g0 = at(L.color, u0, 0);
+      const g1 = at(L.color, u1, 1);
+      const wx = at(L.color, ux, 2);
+      const wz = at(L.color, uz, 2);
+      const a = twn.x;
+      const b = float(1).sub(a);
+      const wallLum = lum(wx, 2).mul(a).add(lum(wz, 2).mul(b));
+      const gain = mix(float(1), lum(g0, 0), kN.mul(flatK).mul(0.8)).mul(mix(float(1), lum(g1, 1), kF.mul(flatK).mul(0.55))).mul(mix(float(1), wallLum, kW.mul(wall).mul(0.8)));
+      col = col.mul(gain);
+      const n0 = nxy(at(L.normal, u0, 0));
+      const n1 = nxy(at(L.normal, u1, 1));
+      const mx = nxy(at(L.normal, ux, 2));
+      const mz = nxy(at(L.normal, uz, 2));
+      const flatN = vec3(n0.x, 0.0, n0.y).mul(kN.mul(0.55)).add(vec3(n1.x, 0.0, n1.y).mul(kF.mul(0.32))).mul(flatK);
+      const wallN = vec3(0.0, mx.y, mx.x).mul(a).add(vec3(mz.x, mz.y, 0.0).mul(b)).mul(kW.mul(0.7).mul(wall));
+      N = normalize(N0.add(flatN).add(wallN));
+    }
+    // 山坳里和谷底看到的天空少，散射光也少
+    let ao: N<'float'> = float(1);
+    let sky: N<'float'> = float(1);
+    if (aux) {
+      const fade = smoothstep(g.half * 0.93, g.half * 0.995, max(abs(P.x), abs(P.z)));
+      sky = mix(aux.b, float(1), fade).toVar();
+      ao = sky.mul(float(1).sub(aux.r.mul(0.6).mul(float(1).sub(fade))));
+    }
+    // 河：激光测绘把水面压平了，影像里是泥沙的绿褐色和急流的白浪。这里把光滑度和水波补上
+    let rough: N<'float'> = float(0.92);
+    if (aux) {
+      const t = time;
+      const w1 = texture(noise, P.xz.div(61.0).add(vec2(t.mul(0.013), t.mul(0.004)))).rg.sub(0.5);
+      const w2 = texture(noise, P.xz.div(17.0).sub(vec2(t.mul(0.03), t.mul(-0.011)))).rg.sub(0.5);
+      // 远处的小波浪看不见，只剩平均下来的镜面：波浪留着的话，掠射的视线全被打到地面上，看不到天空的倒影
+      const near = float(1).sub(smoothstep(60.0, 500.0, dist)).mul(0.8).add(0.2);
+      const ripple = w1.mul(0.05).add(w2.mul(0.04)).mul(near);
+      N = mix(N, normalize(vec3(ripple.x, 1.0, ripple.y)), wet);
+      rough = mix(rough, float(0.1), wet);
+      // 影像里的颜色偏土黄（泥沙和反光混在一起），水体本身要深得多
+      col = mix(col, col.mul(0.32).add(vec3(0.012, 0.03, 0.026)), wet);
+      // 水面不用散射光的遮挡：天空的倒影不能被算成“山坳里暗”
+      ao = mix(ao, float(1), wet);
+    }
+    m.colorNode = vec4(col, 1);
+    m.roughnessNode = rough;
+    m.normalNode = normalize(cameraViewMatrix.mul(vec4(N, 0.0)).xyz);
+    m.aoNode = ao;
+    // 背阴的岩壁被对面晒着太阳的岩壁照亮：暖色的光在峡谷里来回反射，影子才不是一片蓝黑
+    const shadeK = float(1).sub(terrainSun(P));
+    const backK = clamp(float(0.32).sub(dot(normalize(normalWorld), FOG.sunDir)), 0.0, 1.0);
+    m.emissiveNode = col.mul(VFOG.sun).mul(shadeK.mul(float(1.2).sub(sky)).mul(0.14).add(backK.mul(0.1)));
+    return m;
+  }
+
+  private emit(l: Level, k: number, bx: number, bz: number): void {
+    if (this.count >= MAX_PATCH) return;
+    const a = l.patches.array as Float32Array;
+    const o = this.count * 4;
+    const step = 1 << k;
+    a[o] = bx * C * step;
+    a[o + 1] = bz * C * step;
+    a[o + 2] = step;
+    // 到这个距离时已经完全变成下一级的形状
+    a[o + 3] = RANGE * l.grid.cell * step * 2 * this.lodScale;
+    this.count++;
+  }
+
+  private walk(l: Level, k: number, bx: number, bz: number, cam: THREE.Vector3): void {
+    const nb = (l.grid.res - 1) / (C << k);
+    const span = C * (1 << k) * l.grid.cell;
+    const x0 = -l.grid.half + bx * span;
+    const z0 = -l.grid.half + bz * span;
+    // 完全在里面一层的范围内：不画
+    if (l.hole > 0 && x0 >= -l.hole && x0 + span <= l.hole && z0 >= -l.hole && z0 + span <= l.hole) return;
+    const o = (bz * nb + bx) * 2;
+    _box.min.set(x0, l.mm[k][o], z0);
+    _box.max.set(x0 + span, l.mm[k][o + 1], z0 + span);
+    if (!_frustum.intersectsBox(_box)) return;
+    const overlap = l.hole > 0 && x0 < l.hole && x0 + span > -l.hole && z0 < l.hole && z0 + span > -l.hole;
+    const dist = _box.distanceToPoint(cam);
+    const near = k > 0 && dist < RANGE * l.grid.cell * (1 << k) * this.lodScale;
+    if (k > 0 && (near || overlap)) {
+      for (let dz = 0; dz < 2; dz++) for (let dx = 0; dx < 2; dx++) this.walk(l, k - 1, bx * 2 + dx, bz * 2 + dz, cam);
+      return;
+    }
+    this.emit(l, k, bx, bz);
+  }
+
+  update(cam: THREE.Vector3, camera?: THREE.Camera): void {
+    if (camera) _frustum.setFromProjectionMatrix(_m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), camera.coordinateSystem, (camera as unknown as { reversedDepth?: boolean }).reversedDepth);
+    for (const l of this.levels) {
+      this.count = 0;
+      this.walk(l, l.depth - 1, 0, 0, cam);
+      l.geo.instanceCount = this.count;
+      l.patches.clearUpdateRanges();
+      l.patches.addUpdateRange(0, this.count * 4);
+      l.patches.needsUpdate = true;
+    }
+    this.updateShadow(cam);
+  }
+
+  /** 镜头附近的地形投影：固定用粗一级的块，太阳的影子不需要 2.5 米的精度 */
+  private updateShadow(cam: THREE.Vector3): void {
+    const s = this.shadow;
+    if (!s) return;
+    const l = s.level;
+    const k = 2;
+    const span = C * (1 << k) * l.grid.cell;
+    const nb = (l.grid.res - 1) / (C << k);
+    const R = Math.ceil(Math.min(2400, Math.max(600, this.shadowRange * 1.4)) / span);
+    const cx = Math.floor((cam.x + l.grid.half) / span);
+    const cz = Math.floor((cam.z + l.grid.half) / span);
+    const a = s.patches.array as Float32Array;
+    let n = 0;
+    for (let z = cz - R; z <= cz + R; z++)
+      for (let x = cx - R; x <= cx + R; x++) {
+        if (x < 0 || z < 0 || x >= nb || z >= nb || n >= 256) continue;
+        const o = n * 4;
+        a[o] = x * C * (1 << k);
+        a[o + 1] = z * C * (1 << k);
+        a[o + 2] = 1 << k;
+        a[o + 3] = 1e9;
+        n++;
+      }
+    s.geo.instanceCount = n;
+    s.patches.clearUpdateRanges();
+    s.patches.addUpdateRange(0, n * 4);
+    s.patches.needsUpdate = true;
+  }
+
+  dispose(): void {
+    for (const l of this.levels) {
+      l.geo.dispose();
+      disposeTextures([l.height, l.normal]);
+    }
+    this.shadow?.geo.dispose();
+    for (const m of this.mats) m.dispose();
+    this.group.clear();
+    this.levels.length = 0;
+  }
+}

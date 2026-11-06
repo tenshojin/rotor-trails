@@ -277,3 +277,9 @@ Copyright 2020 Dimforge EURL
    See the License for the specific language governing permissions and
    limitations under the License.
 ```
+
+## 真实地形数据（大峡谷地图）
+
+- 高程：USGS 3D Elevation Program (3DEP)，courtesy of the U.S. Geological Survey。公有领域。
+- 航拍影像：USDA National Agriculture Imagery Program (NAIP) 2023，经 USGS The National Map 分发，USDA Farm Production and Conservation Business Center, Geospatial Enterprise Operations。公有领域。
+- 下载和处理脚本：`tools/real/`。影像里拍摄时的光照已用高程反算去除，崖壁颜色由影像按高度统计得到。USGS、USDA 与本游戏没有关联，也没有为它背书。
