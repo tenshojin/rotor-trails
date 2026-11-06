@@ -303,6 +303,9 @@ export class RealTerrain {
     const aux = core && this.aux ? texture(this.aux, uv0) : null;
     const wet: N<'float'> = aux ? smoothstep(0.3, 0.7, aux.g).toVar() : float(0);
     const flatK = float(1).sub(wall).mul(float(1).sub(wet)).toVar();
+    // 飞低了，航拍里的树和灌木是地上一团团糊的暗斑。立体的树和实时的影子已经在那儿了，暗斑要抹淡
+    const blot = texture(image, uv0).bias(float(3.5)).rgb.mul(0.94);
+    col = mix(col, max(col, blot), float(1).sub(smoothstep(30.0, 320.0, dist)).mul(flatK));
     let N: N<'vec3'> = N0;
     if (L) {
       // 近处的石头和土：1.25 米一个像素，低空飞过时不够。细节层只取明暗和法线，颜色还是航拍的
