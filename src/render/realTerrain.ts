@@ -313,8 +313,8 @@ export class RealTerrain {
       const layUV = vec2(ys.sub(st.y0).div(st.y1 - st.y0), 0.5).toVar();
       if (st.basement) schist = float(1).sub(smoothstep(st.basement - 20, st.basement + 20, ys)).mul(smoothstep(0.15, 0.38, float(1).sub(N0.y))).toVar();
       const lay4 = texture(strata, layUV);
-      // （色表里的颜色是定了的；饱和度在这里收一点，正午的红墙不能像荧光的）
-      const lay = mix(vec3(dot(lay4.rgb, LUMW)), lay4.rgb, 0.84).toVar();
+      // （色表里的颜色是定了的；饱和度在这里收一点，正午的红墙不能像荧光的；影子里的蓝天光又把红照得发粉，蓝色压一点）
+      const lay = mix(vec3(dot(lay4.rgb, LUMW)), lay4.rgb, 0.84).mul(vec3(1.03, 0.98, 0.88)).toVar();
       const flat = texture(strata, layUV).level(float(5)).rgb;
       // 透明通道是这一层岩石有多硬（0.5~1）。往上一点比往下一点硬，这里就是突出的岩层的底面，朝下、暗
       const du = 0.9 / (st.y1 - st.y0);

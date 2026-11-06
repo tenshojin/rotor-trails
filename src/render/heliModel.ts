@@ -266,11 +266,18 @@ export class HeliModel {
     }
     this.extResources = resources;
     for (const o of this.proc) o.visible = false;
+    // 白漆的反照率 0.8 太高：山和水都暗，曝光开得大，追尾视角里机身一片死白，看不出形状
+    const whitened = new Set<THREE.Material>();
     scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
       m.castShadow = true;
       m.receiveShadow = true;
+      const paint = m.material as THREE.MeshStandardMaterial;
+      if (paint.name === 'cp_paint' && !whitened.has(paint)) {
+        paint.color.multiplyScalar(0.72);
+        whitened.add(paint);
+      }
     });
     this.root.add(body);
     // 主旋翼：桨毂与桨叶放进一个随转速旋转的子组（桨毂位置与程序旋翼相同）

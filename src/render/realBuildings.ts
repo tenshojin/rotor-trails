@@ -160,8 +160,10 @@ export class RealBuildings {
     m.roughnessNode = mix(float(0.85), float(0.18), pane);
     // 夜里一部分窗户亮着灯：按窗户的格子取随机数
     const cellId = vec2(floor(info.y.div(3.8)), floor(info.x.div(3.2)));
-    const lit = step(0.55, fract(sin(dot(cellId, vec2(12.9898, 78.233)).add(info.w.mul(3.1))).mul(43758.5453)));
-    m.emissiveNode = vec3(1.0, 0.56, 0.24).mul(pane.mul(lit).mul(this.night).mul(1.1));
+    const roll = fract(sin(dot(cellId, vec2(12.9898, 78.233)).add(info.w.mul(3.1))).mul(43758.5453)).toVar();
+    // 有的屋亮，有的暗，有的是冷一点的灯
+    const lit = step(0.55, roll).mul(roll.sub(0.55).mul(2.2).add(0.35));
+    m.emissiveNode = mix(vec3(1.0, 0.56, 0.24), vec3(0.85, 0.72, 0.5), step(0.9, roll)).mul(pane.mul(lit).mul(this.night).mul(1.3));
     this.mat = m;
     const mesh = new THREE.Mesh(this.geo, m);
     mesh.castShadow = true;
