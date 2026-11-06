@@ -211,11 +211,16 @@ function buildTree(type: TreeType): [THREE.BufferGeometry, THREE.BufferGeometry]
         merge([trunk(S.trunkH + 1, S.trunkR, 0xd8d4c8, 6), blob(S.crownR, S.crownRy, 0, S.crownY, 0, 1, 0.5, 0x6b8a3a), blob(S.crownR * 0.6, S.crownRy * 0.6, 0.8, S.crownY + 1.6, 0.5, 1, 0.5, 0x7a9a44)]),
         merge([trunk(S.trunkH, S.trunkR, 0xd8d4c8, 3), blob(S.crownR, S.crownRy * 1.1, 0, S.crownY, 0, 0, 0.3, 0x6b8a3a)]),
       ];
+    case 'pinyon':
+    case 'pinyon2':
+    case 'ujuniper':
+    case 'ujuniper2':
     case 'juniper':
       return [
         merge([trunk(S.trunkH + 0.6, S.trunkR, 0x6a5440, 5, 0.4), blob(S.crownR, S.crownRy, 0, S.crownY, 0, 1, 0.6, 0x4d5e38), blob(S.crownR * 0.6, S.crownRy * 0.7, 1.0, S.crownY + 0.6, 0.6, 1, 0.6, 0x56683f)]),
         merge([blob(S.crownR, S.crownRy, 0, S.crownY, 0, 0, 0.4, 0x4d5e38)]),
       ];
+    case 'scrub':
     case 'shrub':
       return [merge([blob(S.crownR, S.crownRy, 0, S.crownY, 0, 1, 0.6, 0x5a6a3a)]), merge([blob(S.crownR, S.crownRy, 0, S.crownY, 0, 0, 0.4, 0x5a6a3a)])];
     case 'boulder': {
@@ -449,7 +454,8 @@ export class TreeView {
     this.rebuild = true;
   }
 
-  constructor(trees: TreeSet, lib: TreeLib | null = null, rock = 0x8a8278, form: RockFormDef | null = null, tint: readonly [number, number, number] = [1, 1, 1]) {
+  /** dry：干旱地带的稀树（树的数量多，但不是雨林：远处不压暗、不偏绿） */
+  constructor(trees: TreeSet, lib: TreeLib | null = null, rock = 0x8a8278, form: RockFormDef | null = null, tint: readonly [number, number, number] = [1, 1, 1], private readonly dry = false) {
     this.trees = trees;
     this.form = form;
     this.layers = form ? layerTable(form) : null;
@@ -461,7 +467,7 @@ export class TreeView {
     this.modeled = lib !== null;
     for (let i = 0; i < trees.count; i++) {
       const name = TREE_TYPES[trees.type[i]];
-      if (name !== 'shrub' && name !== 'boulder') this.bigTrees++;
+      if (name !== 'shrub' && name !== 'scrub' && name !== 'boulder') this.bigTrees++;
     }
     this.spread = new Float32Array(trees.count);
     for (let i = 0; i < trees.count; i++) this.spread[i] = 0.5 + 1.25 * hash(trees.x[i], trees.z[i], 3.7);
@@ -554,12 +560,12 @@ export class TreeView {
           const c2 = texture(noise, wp.mul(0.034).add(0.37)).b;
           const lump = float(1).sub(c1.mul(c1).mul(1.25)).mul(0.62).add(float(1).sub(c2.mul(c2).mul(1.25)).mul(0.38)).toVar();
           // （近处两级的树叶互相遮挡、接收阴影，比这一级暗得多：密林里要压下来，不然一圈暗树围着一片亮树）
-          const dense = this.bigTrees > 50000;
-          const gain = dense ? 0.7 : 1.25;
-          albedo = albedo.mul(mix(float(0.42 * gain), float(1.32 * gain), lump)).mul(dense ? vec3(0.62, 0.95, 0.58) : vec3(0.92, 1.0, 0.82));
+          const dense = this.bigTrees > 50000 && !this.dry;
+          const gain = dense ? 0.7 : this.dry ? 1.0 : 1.25;
+          albedo = albedo.mul(mix(float(0.42 * gain), float(1.32 * gain), lump)).mul(dense ? vec3(0.62, 0.95, 0.58) : this.dry ? vec3(1.0, 1.0, 0.92) : vec3(0.92, 1.0, 0.82));
           const rim = float(1).sub(abs(dot(normalViewGeometry, normalize(positionView.negate()))));
           cover = step(rim.mul(rim).mul(0.86), lump);
-        } else if (this.bigTrees > 50000) {
+        } else if (this.bigTrees > 50000 && !this.dry) {
           albedo = albedo.mul(smoothstep(170.0, 520.0, length(positionWorld.sub(cameraPosition))).mul(0.3).add(1.0));
         }
         // 透明度再看粗一级的贴图：一两个像素大的叶子不再切成一颗颗碎点，树冠边缘是成团的

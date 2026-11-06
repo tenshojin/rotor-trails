@@ -39,6 +39,7 @@ S_BROAD, S_PINE, S_SPRUCE, S_TROP = slot(0, 0), slot(1, 0), slot(2, 0), slot(3, 
 S_BIRCH, S_JUNI, S_SHRUB, S_MASS = slot(0, 1), slot(1, 1), slot(2, 1), slot(3, 1)
 S_PALM = slot(0, 2, 2, 1)
 S_BIRCHBARK = slot(2, 2)
+S_PINYON, S_UJUNI, S_SCRUB, S_RIMMASS = slot(3, 2), slot(0, 3), slot(1, 3), slot(2, 3)
 
 
 class MB:
@@ -221,11 +222,11 @@ def understory(lod, n, r_rng, h_rng, cards, size):
     return fn
 
 
-def mass_tree(name, trunk_h, trunk_r, cy, rx, ry, bark=BARK, bark_rect=None, cone=False, under=None):
+def mass_tree(name, trunk_h, trunk_r, cy, rx, ry, bark=BARK, bark_rect=None, cone=False, under=None, rect=S_MASS):
     """最远一级：简化树干 + 体块树冠（椭球或圆锥），用图集里的不透明“树冠体块”纹理。under=(高度, 横半径, 竖半径)：再加一个林下层体块。"""
     mb = MB()
     mb.tube([(0, 0, 0), (0, 0, cy)], [trunk_r, trunk_r * 0.6], 4, bark, uv_rect=bark_rect)
-    u0, v0, u1, v1 = S_MASS
+    u0, v0, u1, v1 = rect
     if cone:
         n = 7
         base_z, top_z = cy - ry, cy + ry
@@ -444,6 +445,94 @@ def shrub():
     add(mb.build('shrub_2'))
 
 
+def pads_on(mb, rng, pads, cc, rect, cards, size, flat=0.55):
+    """一团团枝叶：每团是一把朝外的叶卡。法线朝整个树冠外面，光照才像一个立体的树冠"""
+    for pc, pr in pads:
+        out0 = (pc - cc).normalized()
+        for p in crown_points(rng, cards, pc, pr, pr * flat, (0.3, 1.0)):
+            out = ((p - pc).normalized() * 0.7 + out0 * 0.5).normalized()
+            s = size * rng.uniform(0.75, 1.25) * pr
+            mb.card(p, out, s, s, rect, rng.uniform(0, 6.28), cc)
+
+
+def pinyon(name, seed, tall):
+    """矮松（科罗拉多松）：一人多高就分杈，树冠低矮圆钝，枝叶一直垂到离地不远，一团团的，团和团之间漏着缝"""
+    H = 6.2 * tall
+    for lod, (cards, sz) in enumerate([(13, 1.25), (4, 2.1)]):
+        rng = random.Random(seed)
+        mb = MB()
+        fork = 1.5 * tall
+        tp = curve(rng, (0, 0, 0), (rng.uniform(-0.3, 0.3), rng.uniform(-0.3, 0.3), fork), 0.12, n=4 if lod == 0 else 2)
+        mb.tube(tp, [0.32, 0.29, 0.26, 0.24, 0.22][: len(tp)], 9 if lod == 0 else 5, BARK)
+        cc = Vector((0, 0, H * 0.52))
+        pads = []
+        n = 11
+        for i in range(n):
+            ang = 2 * math.pi * i / n + rng.uniform(-0.35, 0.35)
+            t = rng.uniform(0.0, 1.0)
+            z = H * (0.26 + 0.6 * t)
+            r = 3.1 * tall * math.sqrt(max(0.05, 1 - ((z - cc.z) / (H * 0.56)) ** 2)) * rng.uniform(0.72, 1.0)
+            pads.append((Vector((math.cos(ang) * r * 0.74, math.sin(ang) * r * 0.74, z)), rng.uniform(1.0, 1.55) * tall))
+        pads.append((Vector((rng.uniform(-0.3, 0.3), rng.uniform(-0.3, 0.3), H * 0.86)), 1.5 * tall))
+        pads.append((Vector((rng.uniform(-0.5, 0.5), rng.uniform(-0.5, 0.5), H * 0.62)), 1.7 * tall))
+        for pc, pr in pads:
+            base = along(tp, min(fork, max(0.8, pc.z * 0.4)))
+            mb.tube(curve(rng, base, pc, 0.3, n=3 if lod == 0 else 1), [0.15, 0.11, 0.07, 0.04][: (4 if lod == 0 else 2)], 6 if lod == 0 else 3, BARK)
+        pads_on(mb, rng, pads, cc, S_PINYON, cards, sz)
+        add(mb.build(f'{name}_{lod}'))
+    add(mass_tree(f'{name}_2', fork, 0.26, H * 0.55, 3.0 * tall, H * 0.5, rect=S_RIMMASS))
+
+
+def ujuniper(name, seed, lean):
+    """犹他刺柏：从根上就分成几根扭着长的干，一边长得多一边长得少，枝头是几团灰绿色的鳞叶，常有枯枝露在外面"""
+    for lod, (cards, sz) in enumerate([(12, 1.2), (4, 2.0)]):
+        rng = random.Random(seed)
+        mb = MB()
+        side = Vector((math.cos(lean), math.sin(lean), 0))
+        tips = []
+        stems = 4 if lod == 0 else 2
+        for s_ in range(stems):
+            a = lean + (s_ - stems / 2 + 0.5) * rng.uniform(0.7, 1.3)
+            tip = Vector((math.cos(a) * rng.uniform(0.9, 1.7), math.sin(a) * rng.uniform(0.9, 1.7), rng.uniform(2.4, 3.6)))
+            path = curve(rng, (math.cos(a) * 0.12, math.sin(a) * 0.12, 0), tip, 0.5, n=6 if lod == 0 else 2)
+            r0 = rng.uniform(0.16, 0.25)
+            mb.tube(path, [r0 * (1 - 0.8 * i / (len(path) - 1)) + 0.02 for i in range(len(path))], 7 if lod == 0 else 4, BARK)
+            tips.append(tip)
+        # 枯枝：只有干没有叶
+        if lod == 0:
+            for _ in range(3):
+                t = rng.choice(tips)
+                mb.tube(curve(rng, t * 0.7, t + Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(0.2, 1.2))), 0.2, n=3), [0.05, 0.04, 0.025, 0.012], 4, BARK)
+        cc = Vector((side.x * 0.4, side.y * 0.4, 2.5))
+        pads = []
+        for t in tips:
+            pads.append((t + Vector((rng.uniform(-0.3, 0.3), rng.uniform(-0.3, 0.3), rng.uniform(0.0, 0.6))), rng.uniform(1.0, 1.4)))
+        for i in range(5):
+            ang = rng.uniform(0, 2 * math.pi)
+            r = rng.uniform(0.9, 2.1) * (1.25 if math.cos(ang - lean) > 0 else 0.8)
+            pads.append((cc + Vector((math.cos(ang) * r, math.sin(ang) * r, rng.uniform(-1.2, 1.1))), rng.uniform(0.75, 1.2)))
+        pads_on(mb, rng, pads, cc, S_UJUNI, cards, sz, flat=0.7)
+        add(mb.build(f'{name}_{lod}'))
+    add(mass_tree(f'{name}_2', 1.0, 0.25, 2.5, 2.5, 2.0, rect=S_RIMMASS))
+
+
+def scrub():
+    """干旱区的矮灌丛：贴地的一蓬细枝，没有主干"""
+    for lod, (nc, cs) in enumerate([(22, 1.2), (7, 1.8)]):
+        rng = random.Random(29)
+        mb = MB()
+        cc = Vector((0, 0, 0.55))
+        for p in crown_points(rng, nc, cc, 1.25, 0.75, (0.25, 1.0)):
+            mb.card(p, (p - cc).normalized(), cs, cs, S_SCRUB, rng.uniform(0, 6.28), cc - Vector((0, 0, 0.5)))
+        add(mb.build(f'scrub_{lod}'))
+    mb = MB()
+    for i in range(3):
+        a = math.pi * i / 3
+        n = Vector((math.cos(a), math.sin(a), 0))
+        mb.card((0, 0, 0.6), n, 2.3, 1.3, S_SCRUB, 0.0, (0, 0, 0.2))
+    add(mb.build('scrub_2'))
+
+
 def cactus():
     """巨柱仙人掌：带棱的主干 + 两条向上弯的侧臂。"""
     for lod, (ribs, n) in enumerate([(14, 10), (8, 4), (5, 2)]):
@@ -495,6 +584,12 @@ palm()
 juniper()
 shrub()
 cactus()
+# （新树种都加在后面：上面每种树自己带种子，这里加东西不会改变它们）
+pinyon('pinyon', 31, 1.0)
+pinyon('pinyon2', 37, 0.82)
+ujuniper('ujuniper', 41, 0.6)
+ujuniper('ujuniper2', 43, 3.4)
+scrub()
 
 for i, ob in enumerate(ROOTS):
     tris = sum(len(p.vertices) - 2 for p in ob.data.polygons)
@@ -504,7 +599,7 @@ if PREVIEW:
     os.makedirs(PREVIEW, exist_ok=True)
     K.world_sky(1.0, sun_dir=(0.5, -0.6, 0.7), sun_strength=4.0)
     K.box('ground', (500, 400, 0.1), (65, 0, -0.05), K.material('ground', 0x6f7a52, rough=0.95))
-    order = ['broadleaf', 'pine', 'spruce', 'birch', 'palm', 'juniper', 'shrub', 'cactus', 'canopy', 'emergent']
+    order = ['pinyon', 'pinyon2', 'ujuniper', 'ujuniper2', 'scrub', 'broadleaf', 'pine', 'spruce', 'birch', 'palm', 'juniper', 'shrub', 'cactus', 'canopy', 'emergent']
     wide = K.camera('cam_wide', (65, -150, 20), (65, 0, 13), fov_deg=52)
     close = K.camera('cam_close', (40, -62, 9), (40, 0, 5), fov_deg=58)
     for lod in (0, 1, 2):

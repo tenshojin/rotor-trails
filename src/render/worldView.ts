@@ -23,6 +23,8 @@ import { markNearShadow, SunShadows } from './sunShadows';
 import type { MapDef } from '../maps/types';
 import { loadTerrainLayers, type TerrainLayers } from './terrainLayers';
 import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrainView';
+import { RealBuildings } from './realBuildings';
+import { RealScatter, scatterShrubs } from './realScatter';
 import { RealTerrain } from './realTerrain';
 import { loadAux, loadRealImages, loadStrata, realFarGrid } from './realImages';
 import { makeForestTexture, makeGroundHeightTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
@@ -152,6 +154,8 @@ export class WorldView {
   private dofOn = false;
   private rivers: RiverView | null = null;
   private grass: GroundCover | null = null;
+  private scatter: RealScatter | null = null;
+  private buildings: RealBuildings | null = null;
   /** 光线追踪的全局光照：探针图要不要重算；算的时候太阳多亮（天气变了按比例调）；正在并行编译（那时什么都画不出来） */
   private giDirty = true;
   private giSun = 1;
@@ -238,6 +242,7 @@ export class WorldView {
       if (this.trees) this.trees.quality = { near: q.treeNear, far: q.treeFar, shadows: q.shadows, aa: q.msaa > 0 };
       TREE_RANGE.value = q.treeFar;
       this.grass?.setMidRange(GRASS_MID[s.quality] ?? 0);
+      this.scatter?.setQuality(s.quality);
       if (this.props) this.props.lodScale = q.terrainLod;
       // 高画质起用光线步进的体积积云（低、中用二维云层）
       this.sky?.setVolumetric(s.quality === 'ultra' ? 56 : s.quality === 'high' ? 40 : 0);
@@ -423,6 +428,8 @@ export class WorldView {
     this.unload();
     let layersTaken = false;
     let libTaken = false;
+    let scatterTex: THREE.Texture | null = null;
+    let realImage: THREE.Texture | null = null;
     try {
       this.world = world;
       const map = world.map;
@@ -459,10 +466,14 @@ export class WorldView {
         const images = await loadRealImages(real.def, (this.renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend ? 16 : 8);
         const strata = await loadStrata(real.def);
         const aux = await loadAux(real.def);
+        const scatter = await loadAux(real.def, real.def.scatter);
         this.mapTextures.push(...images);
         if (strata) this.mapTextures.push(strata);
         if (aux) this.mapTextures.push(aux);
+        if (scatter) this.mapTextures.push(scatter);
         this.terrain = new RealTerrain(real, images, strata, aux, layers);
+        scatterTex = scatter;
+        realImage = images[0];
         // 大峡谷的视野有上百公里
         this.rig.camera.far = 240000;
         this.rig.camera.updateProjectionMatrix();
@@ -508,8 +519,17 @@ export class WorldView {
       this.props = new PropsView(world, this.modelLib, detail);
       this.props.lodScale = QUALITY[this.settings.quality].terrainLod;
       this.scene.add(this.props.group);
-      this.trees = new TreeView(world.trees, treeLib, map.biome.rock, map.rockForm ?? null, map.leafTint);
+      this.trees = new TreeView(world.trees, treeLib, map.biome.rock, map.rockForm ?? null, map.leafTint, !!real);
       this.scene.add(this.trees.group);
+      if (real && scatterTex && realImage && this.terrain instanceof RealTerrain) {
+        const pads = map.pads.map((p): [number, number, number] => [p.pos[0], p.pos[2], p.size * 0.9 + 3]);
+        this.scatter = new RealScatter(real, this.terrain.coreHeight, scatterTex, realImage, scatterShrubs(treeLib), pads, this.settings.quality);
+        this.scene.add(this.scatter.group);
+        if (real.def.buildings) {
+          this.buildings = new RealBuildings(real.def.buildings, real.def.bridges ?? [], world.terrain, realImage);
+          this.scene.add(this.buildings.group);
+        }
+      }
       this.nav = new NavView(map, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true);
       this.nav.guides = this.settings.navGuides;
       this.scene.add(this.nav.group);
@@ -575,6 +595,8 @@ export class WorldView {
     rm(this.landing ?? undefined);
     rm(this.rivers?.group);
     rm(this.grass?.group);
+    rm(this.scatter?.group);
+    rm(this.buildings?.group);
     rm(this.clouds?.group);
     this.terrain?.dispose();
     this.sky?.clouds.dispose();
@@ -598,6 +620,10 @@ export class WorldView {
     this.rivers = null;
     this.grass?.dispose();
     this.grass = null;
+    this.scatter?.dispose();
+    this.scatter = null;
+    this.buildings?.dispose();
+    this.buildings = null;
     clearSunMap();
     clearGiMap();
     this.clouds?.dispose();
@@ -935,6 +961,7 @@ export class WorldView {
       if (s) this.nav?.update(s, f.t, cp, cam);
       this.rivers?.update(f.t);
       this.grass?.update(f.t, cp);
+      this.scatter?.update(cp);
       if (s && this.wash) {
         this.wash.update(f.dt, s, cam);
         this.water?.setWash(this.wash.state.x, this.wash.state.z, this.wash.state.water);

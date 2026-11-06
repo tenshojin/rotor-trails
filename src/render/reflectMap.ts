@@ -48,7 +48,7 @@ export function makeReflectField(map: MapDef, t: Heightfield, trees: TreeSet, su
   const cCell = t.size / COLOR_RES;
   for (let i = 0; i < trees.count; i++) {
     const name = TREE_TYPES[trees.type[i]];
-    if (name === 'boulder' || name === 'shrub') continue;
+    if (name === 'boulder' || name === 'shrub' || name === 'scrub') continue;
     const S = TREE_SPECS[name];
     const top = trees.y[i] + (S.crownY + S.crownRy) * trees.s[i];
     const r = Math.max(1, Math.round((S.crownR * trees.s[i]) / t.cell));

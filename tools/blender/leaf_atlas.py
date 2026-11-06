@@ -1,7 +1,8 @@
 # 树叶图集（带透明通道，2048×2048，4×4 格，每格 512）：用 PIL 程序绘制叶簇，供 Blender 树模型的叶片卡使用。
 #   第 0 行：阔叶、松针（黑松针叶团）、云杉枝、热带大叶
 #   第 1 行：白桦叶、刺柏、灌木、远景树冠体块（不透明）
-#   第 2 行：棕榈叶（占两格宽）、白桦树皮（第 2 格）、（空）
+#   第 2 行：棕榈叶（占两格宽）、白桦树皮（第 2 格）、矮松
+#   第 3 行：犹他刺柏、干旱区的矮灌丛、南缘树冠体块（不透明）、（空）
 # 运行：D:/ComfyUI/venv/Scripts/python.exe tools/blender/leaf_atlas.py art/out/trees
 
 import math
@@ -218,6 +219,113 @@ def foliage_mass():
 
 
 atlas.paste(foliage_mass(), (S * 3, S))
+
+
+def pinyon_tufts(greens):
+    """矮松：针叶又短又硬，一撮一撮挤在小枝头上，撮和撮之间露着枝和缝"""
+    im = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    c = S / 2
+    tips = []
+    for _ in range(9):
+        a = rnd.uniform(0, 2 * math.pi)
+        x, y = c, c
+        for k in range(5):
+            a += rnd.uniform(-0.5, 0.5)
+            L = rnd.uniform(0.05, 0.1) * S
+            nx, ny = x + math.cos(a) * L, y + math.sin(a) * L
+            d.line([(x, y), (nx, ny)], fill=(58, 44, 34, 255), width=max(3, 12 - k * 2))
+            x, y = nx, ny
+            tips.append((x, y))
+            if rnd.random() < 0.5:
+                b = a + rnd.choice((-1, 1)) * rnd.uniform(0.5, 1.0)
+                tips.append((x + math.cos(b) * L * 0.8, y + math.sin(b) * L * 0.8))
+    rnd.shuffle(tips)
+    for t, (x, y) in enumerate(tips):
+        k = 0.55 + 0.75 * t / len(tips)
+        for _ in range(46):
+            b = rnd.uniform(0, 2 * math.pi)
+            L = 0.052 * S * rnd.uniform(0.5, 1.0)
+            col = jitter(shade(rnd.choice(greens), k), 0.1)
+            d.line([(x, y), (x + math.cos(b) * L, y + math.sin(b) * L)], fill=col + (255,), width=3)
+    return im
+
+
+def juniper_sprays(greens):
+    """犹他刺柏：鳞叶贴着小枝长，一根根像细绳，再分成小叉，缠成一团蓬松的灰绿色。偶尔有几颗蓝灰色的果子"""
+    im = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    c = S / 2
+
+    def spray(x, y, a, L, w, depth, k):
+        n = rnd.randint(3, 5)
+        for _ in range(n):
+            a += rnd.uniform(-0.32, 0.32)
+            nx, ny = x + math.cos(a) * L, y + math.sin(a) * L
+            col = jitter(shade(rnd.choice(greens), k), 0.1)
+            d.line([(x, y), (nx, ny)], fill=col + (255,), width=int(w))
+            x, y = nx, ny
+            if depth > 0 and rnd.random() < 0.8:
+                spray(x, y, a + rnd.choice((-1, 1)) * rnd.uniform(0.45, 0.95), L * 0.72, max(3, w * 0.8), depth - 1, k * rnd.uniform(0.92, 1.1))
+
+    for i in range(34):
+        a = rnd.uniform(0, 2 * math.pi)
+        r = rnd.random() ** 0.6 * S * 0.34
+        spray(c + math.cos(a) * r, c + math.sin(a) * r, a + rnd.uniform(-0.7, 0.7), S * 0.04, 8, 3, 0.62 + 0.6 * i / 34)
+    for _ in range(26):
+        a = rnd.uniform(0, 2 * math.pi)
+        r = rnd.random() ** 0.5 * S * 0.4
+        x, y = c + math.cos(a) * r, c + math.sin(a) * r
+        q = rnd.uniform(5, 8)
+        d.ellipse([x - q, y - q, x + q, y + q], fill=(106, 118, 132, 255))
+    return im
+
+
+def scrub_twigs(greens):
+    """峡谷里的黑灌木：一蓬细硬的枝，发灰发黑，叶子小得几乎看不见"""
+    im = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    c = S / 2
+
+    def twig(x, y, a, L, w, depth):
+        for _ in range(3):
+            a += rnd.uniform(-0.45, 0.45)
+            nx, ny = x + math.cos(a) * L, y + math.sin(a) * L
+            d.line([(x, y), (nx, ny)], fill=jitter((46, 40, 34), 0.15) + (255,), width=int(w))
+            x, y = nx, ny
+            if depth > 0:
+                twig(x, y, a + rnd.choice((-1, 1)) * rnd.uniform(0.4, 1.1), L * 0.68, max(2, w * 0.7), depth - 1)
+            else:
+                for _ in range(5):
+                    b = rnd.uniform(0, 2 * math.pi)
+                    q = rnd.uniform(4, 10)
+                    d.ellipse([x + math.cos(b) * q - 5, y + math.sin(b) * q - 4, x + math.cos(b) * q + 5, y + math.sin(b) * q + 4], fill=jitter(rnd.choice(greens), 0.14) + (255,))
+
+    for _ in range(16):
+        twig(c, c, rnd.uniform(0, 2 * math.pi), S * 0.07, 9, 3)
+    return im
+
+
+def rim_mass():
+    """南缘树冠体块（不透明）：灰绿的树冠，比别的地图的树冠暗、灰、斑驳"""
+    im = Image.new('RGBA', (S, S), (60, 72, 54, 255))
+    d = ImageDraw.Draw(im)
+    for _ in range(2600):
+        x, y = rnd.uniform(0, S), rnd.uniform(0, S)
+        L = rnd.uniform(16, 42)
+        col = jitter(shade(rnd.choice(RIMG), 0.5 + 0.7 * rnd.random()), 0.1)
+        d.polygon(leaf_poly(x, y, L, L * 0.5, rnd.uniform(0, 2 * math.pi)), fill=col + (255,))
+    return im
+
+
+PINY = [(50, 64, 46), (60, 72, 50), (42, 56, 42), (66, 76, 50)]
+UJUN = [(82, 92, 68), (92, 100, 74), (72, 82, 62), (98, 104, 76)]
+SCRB = [(76, 84, 58), (92, 96, 66), (64, 72, 52)]
+RIMG = [(84, 98, 72), (98, 110, 80), (70, 86, 66), (60, 78, 58)]
+atlas.paste(pinyon_tufts(PINY), (S * 3, S * 2))
+atlas.paste(juniper_sprays(UJUN), (0, S * 3))
+atlas.paste(scrub_twigs(SCRB), (S, S * 3))
+atlas.paste(rim_mass(), (S * 2, S * 3))
 atlas = atlas.resize((2048, 2048), Image.LANCZOS)
 
 

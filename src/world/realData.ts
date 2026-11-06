@@ -3,7 +3,7 @@
 // 真实地形相邻格差得不大，这样压缩率比直接存高度高一倍。解码：累加差分 × 量化步长 + 基准高度。
 
 import { Heightfield } from '../sim/terrain';
-import type { RealLevelDef, RealTerrainDef, TreeType } from '../maps/types';
+import type { RealBridgeDef, RealBuildingDef, RealLevelDef, RealTerrainDef, TreeType } from '../maps/types';
 import { packTrees, TREE_TYPES, type TreeSet } from './vegetation';
 
 export interface RealGrid {
@@ -61,7 +61,28 @@ export async function gunzip(bytes: ArrayBuffer): Promise<ArrayBuffer> {
 }
 
 /** 影像里认出来的树：文件里种类的编号（见 prep_grandcanyon.py 的 find_trees） */
-const REAL_TREE_TYPES: TreeType[] = ['juniper', 'pine', 'broadleaf', 'shrub'];
+const REAL_TREE_TYPES: TreeType[] = ['ujuniper', 'pinyon', 'broadleaf', 'scrub', 'ujuniper2', 'pinyon2'];
+
+/** 房子的底和檐口：地面不平，墙要一直埋到最低的角下面，檐口按最高的角算 */
+export function buildingFrame(terrain: Heightfield, b: RealBuildingDef): { base: number; top: number } {
+  const [cx, cz, w, d, rot, h] = b;
+  const r = (rot * Math.PI) / 180;
+  const c = Math.cos(r);
+  const s = Math.sin(r);
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const [u, v] of [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2], [0, 0]]) {
+    const y = terrain.heightAt(cx + u * c - v * s, cz + u * s + v * c);
+    lo = Math.min(lo, y);
+    hi = Math.max(hi, y);
+  }
+  return { base: lo - 1.5, top: hi + h };
+}
+
+/** 吊桥的桥面高度：比高的一头再高一点，水平的 */
+export function bridgeDeckY(terrain: Heightfield, b: RealBridgeDef): number {
+  return Math.max(terrain.heightAt(b[0], b[1]), terrain.heightAt(b[2], b[3])) + 1.5;
+}
 
 /** 真实的树：位置是从航拍上一棵一棵认出来的 */
 export async function loadRealTrees(def: RealTerrainDef, terrain: Heightfield, keepOut: Array<[number, number, number]>): Promise<TreeSet | null> {

@@ -5,7 +5,7 @@ import { makeFlowMap, type FlowMap } from './flow';
 import type { MapDef, PadDef, V3 } from '../maps/types';
 import { obstacleTop } from '../sim/routeCheck';
 import { HeightBuilder, type Heightfield } from '../sim/terrain';
-import { loadRealData, loadRealTrees, type RealData } from './realData';
+import { bridgeDeckY, buildingFrame, loadRealData, loadRealTrees, type RealData } from './realData';
 import { erode } from './erosion';
 import { dissect } from './fluvial';
 import { PropBuilder, type ColliderSpec } from './propBuilder';
@@ -140,6 +140,17 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
   await tick();
   const flow = makeFlowMap(real ? real.low : terrain, map.waterLevel);
   const keepOut = map.pads.map((p): [number, number, number] => [p.pos[0], p.pos[2], p.size * 0.75 + 14]);
+  // 照着航拍描的房子：撞得上，房子里面不长树
+  for (const b of map.real?.buildings ?? []) {
+    const f = buildingFrame(terrain, b);
+    const hh = (f.top + b[6] * 0.6 - f.base) / 2;
+    B.colliders.push({ kind: 'box', c: [b[0], f.base + hh, b[1]], h: [b[2] / 2, hh, b[3] / 2], rotY: (-b[4] * Math.PI) / 180, tag: { kind: 'structure', id: 'building' } });
+    keepOut.push([b[0], b[1], Math.hypot(b[2], b[3]) / 2 + 1]);
+  }
+  for (const b of map.real?.bridges ?? []) {
+    const len = Math.hypot(b[2] - b[0], b[3] - b[1]);
+    B.colliders.push({ kind: 'box', c: [(b[0] + b[2]) / 2, bridgeDeckY(terrain, b) + 2, (b[1] + b[3]) / 2], h: [len / 2, 3, 1.4], rotY: -Math.atan2(b[3] - b[1], b[2] - b[0]), tag: { kind: 'structure', id: 'bridge' } });
+  }
   const trees = (map.real && (await loadRealTrees(map.real, terrain, keepOut))) || scatterTrees(map, terrain, hb.surface, B.footprints, flow);
   // 画面用的最细一层换成压平停机坪之后的高度，和物理碰撞面是同一份数据
   const realView = real && { ...real, levels: [{ ...real.levels[0], data: terrain.data }, ...real.levels.slice(1)] };

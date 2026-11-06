@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildRealData, decodeGrid, gunzip, loadRealTrees, sampleGrid } from '../src/world/realData';
+import { buildingFrame, buildRealData, decodeGrid, gunzip, loadRealTrees, sampleGrid } from '../src/world/realData';
 import { Heightfield } from '../src/sim/terrain';
 import { TREE_TYPES } from '../src/world/vegetation';
 import { GRAND_CANYON } from '../src/maps/grandcanyon';
@@ -41,8 +42,44 @@ describe('真实地形数据', () => {
     expect(t.z[i]).toBeCloseTo(0, 0);
     expect(t.y[i]).toBeCloseTo(49.8);
     expect(t.s[i]).toBeCloseTo(0.8);
-    expect(TREE_TYPES[t.type[i]]).toBe('pine');
-    expect(TREE_TYPES[t.type[1 - i]]).toBe('shrub');
+    expect(TREE_TYPES[t.type[i]]).toBe('pinyon');
+    expect(TREE_TYPES[t.type[1 - i]]).toBe('scrub');
+  });
+
+  it('地图里写的基准高度和生成的数据一致（差一米整张图的高度就都错了）', () => {
+    const meta = JSON.parse(readFileSync('public/real/grandcanyon/meta.json', 'utf8')) as { bases: number[] };
+    expect(GRAND_CANYON.real!.levels.map((l) => l.base)).toEqual(meta.bases);
+  });
+
+  it('新树种只加在后面：别的地图的树按下标存，前面不能动', () => {
+    expect(TREE_TYPES.slice(0, 11)).toEqual(['pine', 'broadleaf', 'canopy', 'emergent', 'palm', 'spruce', 'birch', 'juniper', 'shrub', 'cactus', 'boulder']);
+  });
+
+  it('房子：墙埋到最低的角下面，檐口按最高的角算，建在坡上也不悬空', () => {
+    // 朝东每米升高 0.1 米的坡
+    const n = 65;
+    const size = 640;
+    const h = new Float32Array(n * n);
+    for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) h[z * n + x] = 100 + (x / (n - 1) - 0.5) * size * 0.1;
+    const terrain = new Heightfield(size, n, h);
+    const f = buildingFrame(terrain, [0, 0, 40, 20, 0, 6, 2]);
+    expect(f.base).toBeCloseTo(100 - 2 - 1.5, 1);
+    expect(f.top).toBeCloseTo(100 + 2 + 6, 1);
+    // 转九十度：长边顺着南北，东西方向只有 20 米宽
+    const g = buildingFrame(terrain, [0, 0, 40, 20, 90, 6, 2]);
+    expect(g.top).toBeCloseTo(100 + 1 + 6, 1);
+  });
+
+  it('描的房子都在可飞范围里，也没有和起降场重叠', () => {
+    const def = GRAND_CANYON.real!;
+    expect(def.buildings!.length).toBeGreaterThan(30);
+    for (const [x, z, w, d] of def.buildings!) {
+      expect(Math.abs(x)).toBeLessThan(GRAND_CANYON.size / 2);
+      expect(Math.abs(z)).toBeLessThan(GRAND_CANYON.size / 2);
+      expect(w).toBeGreaterThan(0);
+      expect(d).toBeGreaterThan(0);
+      for (const p of GRAND_CANYON.pads) expect(Math.hypot(x - p.pos[0], z - p.pos[2])).toBeGreaterThan(p.size + Math.hypot(w, d) / 2);
+    }
   });
 
   it('没有树的数据时交回给程序生成', async () => {
@@ -97,7 +134,7 @@ describe('真实地形数据', () => {
 
   it('数据文件不用下载软件会拦截的后缀（.bin、.gz 这些请求到不了网页，只收到一个空的 204）', () => {
     const def = GRAND_CANYON.real!;
-    const files = [...def.levels.flatMap((l) => [l.heights, l.image]), def.trees ?? '', def.strata?.image ?? '', def.aux ?? ''];
+    const files = [...def.levels.flatMap((l) => [l.heights, l.image]), def.trees ?? '', def.strata?.image ?? '', def.aux ?? '', def.scatter ?? ''];
     for (const f of files) {
       expect(f).not.toMatch(/\.(bin|gz|gzip|zip|7z|rar|tar|exe|iso|img|tif|tiff)$/i);
       // Windows 的保留设备名：带后缀也不行，Git 打不开，别人也检出不了

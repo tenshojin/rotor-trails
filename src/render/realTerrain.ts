@@ -6,7 +6,7 @@
 // 法线不用顶点法线：高度差在 CPU 上算成一张带 mipmap 的法线图，远处的粗网格上也有细节，太阳一动整个峡谷的明暗都跟着变。
 
 import * as THREE from 'three/webgpu';
-import { abs, attribute, cameraPosition, cameraViewMatrix, clamp, dot, float, Fn, int, ivec2, length, max, min, mix, mod, normalize, normalWorld, positionGeometry, positionWorld, pow, smoothstep, sqrt, texture, textureLoad, time, vec2, vec3, vec4 } from 'three/tsl';
+import { abs, attribute, Break, cameraPosition, cameraViewMatrix, clamp, dot, float, Fn, If, int, ivec2, length, Loop, max, min, mix, mod, normalize, normalWorld, positionGeometry, positionWorld, pow, smoothstep, sqrt, texture, textureLoad, time, vec2, vec3, vec4 } from 'three/tsl';
 import type { RealData, RealGrid } from '../world/realData';
 import { FOG } from './atmosphere';
 import { disposeTextures } from './disposeTextures';
@@ -172,6 +172,10 @@ export class RealTerrain {
   shadowRange = 300;
   private levels: Level[] = [];
   private mats: THREE.Material[] = [];
+  /** 核心区的高度贴图（地面散布取高度用） */
+  get coreHeight(): THREE.Texture {
+    return this.levels[0].height;
+  }
   private shadow: { mesh: THREE.Mesh; geo: THREE.InstancedBufferGeometry; patches: THREE.InstancedBufferAttribute; level: Level } | null = null;
   private count = 0;
 
@@ -211,6 +215,7 @@ export class RealTerrain {
       mesh.receiveShadow = i < 2;
       mesh.castShadow = false;
       mesh.matrixAutoUpdate = false;
+      mesh.userData.placedOnGpu = true;
       level.mesh = mesh;
       this.levels.push(level);
       this.group.add(mesh);
@@ -286,26 +291,47 @@ export class RealTerrain {
     const wall = smoothstep(0.6, 0.86, float(1).sub(N0.y).add(wob.mul(0.2))).toVar();
     const tw = pow(abs(N0), vec3(4.0)).toVar();
     const twn = tw.div(tw.x.add(tw.z).add(0.0001)).toVar();
+    // 岩层的凹凸：硬层突出来，软层缩进去。不到七十度的坡上也有，只是弱一点
+    let ledge: N<'float'> = float(0);
+    let joint: N<'vec3'> = vec3(0);
     if (strata && st) {
       const yy = P.y.add(P.x.mul(st.dip[0])).add(P.z.mul(st.dip[1])).toVar();
       // 层面不是尺子画的
       const ys = yy.add(texture(noise, P.xz.div(1400.0)).g.sub(0.5).mul(16.0)).add(texture(noise, P.xz.div(190.0)).r.sub(0.5).mul(3.0)).toVar();
       const layUV = vec2(ys.sub(st.y0).div(st.y1 - st.y0), 0.5).toVar();
-      const lay = texture(strata, layUV).rgb;
+      const lay4 = texture(strata, layUV);
+      const lay = lay4.rgb;
       const flat = texture(strata, layUV).level(float(5)).rgb;
+      // 透明通道是这一层岩石有多硬（0.5~1）。往上一点比往下一点硬，这里就是突出的岩层的底面，朝下、暗
+      const du = 0.9 / (st.y1 - st.y0);
+      const hard = lay4.a.sub(0.75).mul(4.0).toVar();
+      ledge = texture(strata, layUV.add(vec2(du, 0))).a.sub(texture(strata, layUV.sub(vec2(du, 0))).a).mul(4.0).toVar();
       const low = texture(image, uv0).bias(float(4)).rgb;
       const shade = clamp(dot(low, LUMW).div(max(dot(flat, LUMW), 0.02)), 0.72, 1.28);
-      // 雨水顺着崖壁流下来的痕迹：竖着的长条，有的深有的浅
-      const run = P.x.add(P.z.mul(1.37));
-      const varnish = texture(noise, vec2(run.mul(0.0043), ys.mul(0.00037))).r.sub(0.5).mul(0.5).add(texture(noise, vec2(run.mul(0.019), ys.mul(0.0011))).g.sub(0.5).mul(0.3));
-      col = mix(col, lay.mul(shade).mul(varnish.add(1.0)), wall);
+      // 雨水顺着崖壁流下来的痕迹：竖着的长条，有的深有的浅。沿着崖壁走的坐标分两个方向取，不管崖壁朝哪边都有变化；
+      // 两种尺度都乘上一大片的噪声：一段崖壁上多，一段上少，不是等距排着的
+      const ax = twn.x;
+      const streak = (s: number, ss: number, ch: 'r' | 'g'): N<'float'> => texture(noise, vec2(P.z.mul(s), ys.mul(ss)))[ch].mul(ax).add(texture(noise, vec2(P.x.mul(s), ys.mul(ss).add(0.37)))[ch].mul(float(1).sub(ax))).sub(0.5);
+      const patchy = texture(noise, P.xz.div(610.0)).r.mul(1.6).sub(0.2);
+      const varnish = streak(0.0031, 0.00031, 'r').mul(0.42).mul(patchy).add(streak(0.0117, 0.00093, 'g').mul(0.3).mul(float(1.2).sub(patchy.mul(0.6))));
+      col = mix(col, lay.mul(shade).mul(varnish.add(1.0)).mul(hard.mul(0.16).add(0.92)), wall);
+      // 竖向的节理：把岩层切成一块一块。沿着崖壁取噪声的差，法线左右摆
+      const j0 = 1.0 / 23.0;
+      const e = 0.9;
+      const jz = texture(noise, vec2(P.z.add(e).mul(j0 / 8.0), ys.mul(0.0013))).r.sub(texture(noise, vec2(P.z.sub(e).mul(j0 / 8.0), ys.mul(0.0013))).r);
+      const jx = texture(noise, vec2(P.x.add(e).mul(j0 / 8.0), ys.mul(0.0013).add(0.41))).r.sub(texture(noise, vec2(P.x.sub(e).mul(j0 / 8.0), ys.mul(0.0013).add(0.41))).r);
+      joint = vec3(jx.mul(float(1).sub(ax)), 0.0, jz.mul(ax)).mul(9.0).toVar();
     }
     const aux = core && this.aux ? texture(this.aux, uv0) : null;
-    const wet: N<'float'> = aux ? smoothstep(0.3, 0.7, aux.g).toVar() : float(0);
+    // （G 通道：河边 0→0.5 是水陆交界，再往里 0.5→1 是离岸多远）
+    const wet: N<'float'> = aux ? smoothstep(0.14, 0.34, aux.g).toVar() : float(0);
     const flatK = float(1).sub(wall).mul(float(1).sub(wet)).toVar();
-    // 飞低了，航拍里的树和灌木是地上一团团糊的暗斑。立体的树和实时的影子已经在那儿了，暗斑要抹淡
-    const blot = texture(image, uv0).bias(float(3.5)).rgb.mul(0.94);
-    col = mix(col, max(col, blot), float(1).sub(smoothstep(30.0, 320.0, dist)).mul(flatK));
+    // 飞低了，航拍上一个像素放大成一大块，树和灌木是一团团糊的斑。这些东西近处已经是立体的了（树、散布的灌木和碎石），
+    // 地面只留下十来米尺度的底色，细节交给下面的细节层
+    if (core) {
+      const soil = texture(image, uv0).bias(float(3.2)).rgb;
+      col = mix(col, soil, float(1).sub(smoothstep(45.0, 240.0, dist)).mul(flatK));
+    }
     let N: N<'vec3'> = N0;
     if (L) {
       // 近处的石头和土：1.25 米一个像素，低空飞过时不够。细节层只取明暗和法线，颜色还是航拍的
@@ -314,28 +340,36 @@ export class RealTerrain {
       // 崖壁上看得见重复的距离比平地近：大面积的竖直面最怕贴图一格一格排着
       const kW = float(1).sub(smoothstep(60.0, 420.0, dist)).toVar();
       const at = (t: THREE.Texture, uv: N<'vec2'>, l: number): N<'vec4'> => texture(t, uv).depth(int(l));
-      const lum = (c: N<'vec4'>, l: number): N<'float'> => clamp(dot(c.rgb, LUMW).div(L.meanLum[l]), 0.4, 1.8);
+      const lum = (c: N<'vec4'>, l: number): N<'float'> => clamp(dot(c.rgb, LUMW).div(L.meanLum[l]), 0.3, 2.0);
       const nxy = (c: N<'vec4'>): N<'vec2'> => c.rg.mul(2.0).sub(1.0);
       const u0 = P.xz.div(L.tiles[0]);
       const u1 = P.xz.div(L.tiles[1] * 3.7).add(0.37);
+      // 最近的一层碎石：同一张碎石贴图缩小，错开方向，离得近才有
+      const u2 = vec2(P.z.negate(), P.x).div(L.tiles[1] * 0.8).add(0.21);
       const ux = vec2(P.z, P.y.negate()).div(L.tiles[2]);
       const uz = vec2(P.x, P.y.negate()).div(L.tiles[2]).add(0.41);
       const g0 = at(L.color, u0, 0);
       const g1 = at(L.color, u1, 1);
+      const g2 = at(L.color, u2, 1);
       const wx = at(L.color, ux, 2);
       const wz = at(L.color, uz, 2);
       const a = twn.x;
       const b = float(1).sub(a);
       const wallLum = lum(wx, 2).mul(a).add(lum(wz, 2).mul(b));
-      const gain = mix(float(1), lum(g0, 0), kN.mul(flatK).mul(0.8)).mul(mix(float(1), lum(g1, 1), kF.mul(flatK).mul(0.55))).mul(mix(float(1), wallLum, kW.mul(wall).mul(0.8)));
+      const kC = float(1).sub(smoothstep(12.0, 170.0, dist)).toVar();
+      const gain = mix(float(1), lum(g0, 0), kN.mul(flatK)).mul(mix(float(1), lum(g1, 1), kF.mul(flatK).mul(0.7))).mul(mix(float(1), lum(g2, 1), kC.mul(flatK))).mul(mix(float(1), wallLum, kW.mul(wall).mul(0.8)));
       col = col.mul(gain);
       const n0 = nxy(at(L.normal, u0, 0));
       const n1 = nxy(at(L.normal, u1, 1));
+      const n2 = nxy(at(L.normal, u2, 1));
       const mx = nxy(at(L.normal, ux, 2));
       const mz = nxy(at(L.normal, uz, 2));
-      const flatN = vec3(n0.x, 0.0, n0.y).mul(kN.mul(0.55)).add(vec3(n1.x, 0.0, n1.y).mul(kF.mul(0.32))).mul(flatK);
+      const flatN = vec3(n0.x, 0.0, n0.y).mul(kN.mul(0.75)).add(vec3(n1.x, 0.0, n1.y).mul(kF.mul(0.4))).add(vec3(n2.y.negate(), 0.0, n2.x).mul(kC.mul(0.9))).mul(flatK);
       const wallN = vec3(0.0, mx.y, mx.x).mul(a).add(vec3(mz.x, mz.y, 0.0).mul(b)).mul(kW.mul(0.7).mul(wall));
-      N = normalize(N0.add(flatN).add(wallN));
+      // 岩层的凹凸只有近处看得出来。离远了 mipmap 自己把它平均掉，这里不用再管
+      const slopeK = smoothstep(0.3, 0.72, float(1).sub(N0.y)).mul(float(1).sub(wet)).toVar();
+      const fine = float(1).sub(smoothstep(250.0, 1800.0, dist));
+      N = normalize(N0.add(flatN).add(wallN).add(vec3(0, -1.0, 0).mul(ledge).mul(slopeK).mul(1.3)).add(joint.mul(wall).mul(fine)));
     }
     // 山坳里和谷底看到的天空少，散射光也少
     let ao: N<'float'> = float(1);
@@ -347,6 +381,7 @@ export class RealTerrain {
     }
     // 河：激光测绘把水面压平了，影像里是泥沙的绿褐色和急流的白浪。这里把光滑度和水波补上
     let rough: N<'float'> = float(0.92);
+    let mirror: N<'vec3'> = vec3(0);
     if (aux) {
       const t = time;
       const w1 = texture(noise, P.xz.div(61.0).add(vec2(t.mul(0.013), t.mul(0.004)))).rg.sub(0.5);
@@ -354,12 +389,47 @@ export class RealTerrain {
       // 远处的小波浪看不见，只剩平均下来的镜面：波浪留着的话，掠射的视线全被打到地面上，看不到天空的倒影
       const near = float(1).sub(smoothstep(60.0, 500.0, dist)).mul(0.8).add(0.2);
       const ripple = w1.mul(0.05).add(w2.mul(0.04)).mul(near);
-      N = mix(N, normalize(vec3(ripple.x, 1.0, ripple.y)), wet);
+      const Nw = normalize(vec3(ripple.x, 1.0, ripple.y)).toVar();
+      N = mix(N, Nw, wet);
       rough = mix(rough, float(0.1), wet);
-      // 影像里的颜色偏土黄（泥沙和反光混在一起），水体本身要深得多
-      col = mix(col, col.mul(0.32).add(vec3(0.012, 0.03, 0.026)), wet);
-      // 水面不用散射光的遮挡：天空的倒影不能被算成“山坳里暗”
-      ao = mix(ao, float(1), wet);
+      // 大坝放出来的水又冷又清，是青绿色的，浅的地方透出河底，急流是白的。影像里的土黄色是泥沙和反光混在一起
+      const deep = smoothstep(0.5, 0.92, aux.g);
+      const body = mix(vec3(0.05, 0.095, 0.06), vec3(0.011, 0.062, 0.05), deep);
+      // 白浪：比周围的水亮一截的地方（影像上的水面本身就有亮有暗，不能看绝对亮度）
+      const calm = dot(texture(image, uv0).bias(float(5)).rgb, LUMW);
+      const foam = smoothstep(1.2, 1.75, dot(col, LUMW).div(max(calm, 0.02))).mul(0.85);
+      col = mix(col, mix(body, vec3(0.62, 0.66, 0.62), foam), wet);
+      // 倒影：沿反射的方向在高度图里走，撞到崖壁就取那里的影像。出了这一层的范围就是天空
+      const I = normalize(P.sub(cameraPosition)).toVar();
+      const Rd = I.sub(Nw.mul(dot(I, Nw).mul(2.0))).toVar();
+      const hit = Fn(() => {
+        const out = vec3(0.5, 0.5, 0).toVar();
+        If(wet.greaterThan(0.02), () => {
+          const t = float(9.0).toVar();
+          Loop(15, () => {
+            const q = P.add(Rd.mul(t)).toVar();
+            const hx = int(clamp(q.x.add(g.half).div(g.cell), 0.0, last));
+            const hz = int(clamp(q.z.add(g.half).div(g.cell), 0.0, last));
+            If(q.y.lessThan(textureLoad(lv.height, ivec2(hx, hz)).r), () => {
+              out.assign(vec3(q.xz.div(g.size).add(0.5), 1.0));
+              Break();
+            });
+            t.mulAssign(1.45);
+          });
+        });
+        return out;
+      })().toVar();
+      const hitUv = hit.xy;
+      const hitK = hit.z;
+      const nh = texture(lv.normal, hitUv).level(float(3));
+      const hxn = nh.r.mul(2.0).sub(1.0);
+      const hzn = nh.g.mul(2.0).sub(1.0);
+      const hn = vec3(hxn, sqrt(max(float(1).sub(hxn.mul(hxn)).sub(hzn.mul(hzn)), 0.0)), hzn);
+      const lit = max(dot(hn, FOG.sunDir), 0.0).mul(0.3).add(0.05);
+      const fres = pow(float(1).sub(max(dot(I, Nw).negate(), 0.0)), 5.0).mul(0.96).add(0.03);
+      mirror = texture(image, hitUv).level(float(3)).rgb.mul(VFOG.sun).mul(lit).mul(fres).mul(hitK).mul(wet);
+      // 水面不用散射光的遮挡：天空的倒影不能被算成“山坳里暗”。撞到崖壁的地方天空就不反射了
+      ao = mix(ao, float(1).sub(hitK.mul(0.92)), wet);
     }
     m.colorNode = vec4(col, 1);
     m.roughnessNode = rough;
@@ -368,7 +438,8 @@ export class RealTerrain {
     // 背阴的岩壁被对面晒着太阳的岩壁照亮：暖色的光在峡谷里来回反射，影子才不是一片蓝黑
     const shadeK = float(1).sub(terrainSun(P));
     const backK = clamp(float(0.32).sub(dot(normalize(normalWorld), FOG.sunDir)), 0.0, 1.0);
-    m.emissiveNode = col.mul(VFOG.sun).mul(shadeK.mul(float(1.2).sub(sky)).mul(0.14).add(backK.mul(0.1)));
+    // （0.05 是地面反上来的光：沙漠的地面亮，影子里不是只有蓝天的光。没有这一项，树影是一块块蓝黑的印子）
+    m.emissiveNode = col.mul(VFOG.sun).mul(shadeK.mul(float(1.2).sub(sky)).mul(0.14).add(backK.mul(0.1)).add(0.05)).add(mirror);
     return m;
   }
 

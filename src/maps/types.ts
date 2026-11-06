@@ -54,7 +54,7 @@ export interface PropDef {
   p?: Record<string, number | string>;
 }
 
-export type TreeType = 'pine' | 'broadleaf' | 'canopy' | 'emergent' | 'palm' | 'spruce' | 'birch' | 'juniper' | 'shrub' | 'cactus' | 'boulder';
+export type TreeType = 'pine' | 'broadleaf' | 'canopy' | 'emergent' | 'palm' | 'spruce' | 'birch' | 'juniper' | 'shrub' | 'cactus' | 'boulder' | 'pinyon' | 'pinyon2' | 'ujuniper' | 'ujuniper2' | 'scrub';
 
 export interface VegetationRule {
   type: TreeType;
@@ -217,6 +217,12 @@ export interface RealLevelDef {
   step: number;
 }
 
+/** 中心 x、z，长，宽，转角（度，从北看顺时针），檐口高，屋脊比檐口高多少（0 = 平顶） */
+export type RealBuildingDef = readonly [number, number, number, number, number, number, number];
+
+/** 吊桥：两头的 x、z */
+export type RealBridgeDef = readonly [number, number, number, number];
+
 export interface RealTerrainDef {
   base: string;
   levels: RealLevelDef[];
@@ -229,6 +235,11 @@ export interface RealTerrainDef {
   strata?: { image: string; y0: number; y1: number; dip: [number, number] };
   /** 核心区 5 米一格的辅助图：R 岩缝，G 河面，B 看得到的天空 */
   aux?: string;
+  /** 核心区 5 米一格的散布密度：R 灌木，G 碎石，B 枯草（见 render/realScatter.ts） */
+  scatter?: string;
+  /** 照着航拍描的房子 */
+  buildings?: readonly RealBuildingDef[];
+  bridges?: readonly RealBridgeDef[];
 }
 
 export interface MapDef {

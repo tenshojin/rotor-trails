@@ -31,9 +31,16 @@ export const TREE_SPECS: Record<TreeType, TreeSpec> = {
   cactus: { trunkH: 6.5, trunkR: 0.4, crownY: 4.5, crownR: 1.4, crownRy: 2.2, collide: true },
   // 崖脚和河滩上散落的石块：贴在地上，不算障碍物（直升机不会飞到离地一两米）
   boulder: { trunkH: 0.1, trunkR: 0.1, crownY: 0.4, crownR: 1.1, crownRy: 0.8, collide: false },
+  // 大峡谷南缘的树（真实地形）：矮松又低又圆，犹他刺柏从根上就分杈，矮灌丛贴着地
+  pinyon: { trunkH: 1.5, trunkR: 0.3, crownY: 3.4, crownR: 3.0, crownRy: 3.1, collide: true },
+  pinyon2: { trunkH: 1.2, trunkR: 0.26, crownY: 2.8, crownR: 2.5, crownRy: 2.6, collide: true },
+  ujuniper: { trunkH: 1.0, trunkR: 0.28, crownY: 2.5, crownR: 2.6, crownRy: 2.0, collide: true },
+  ujuniper2: { trunkH: 1.0, trunkR: 0.28, crownY: 2.5, crownR: 2.6, crownRy: 2.0, collide: true },
+  scrub: { trunkH: 0.2, trunkR: 0.1, crownY: 0.55, crownR: 1.25, crownRy: 0.75, collide: false },
 };
 
-export const TREE_TYPES: TreeType[] = ['pine', 'broadleaf', 'canopy', 'emergent', 'palm', 'spruce', 'birch', 'juniper', 'shrub', 'cactus', 'boulder'];
+// 新树种只能加在后面：别的地图的树按下标存
+export const TREE_TYPES: TreeType[] = ['pine', 'broadleaf', 'canopy', 'emergent', 'palm', 'spruce', 'birch', 'juniper', 'shrub', 'cactus', 'boulder', 'pinyon', 'pinyon2', 'ujuniper', 'ujuniper2', 'scrub'];
 
 export interface TreeSet {
   count: number;

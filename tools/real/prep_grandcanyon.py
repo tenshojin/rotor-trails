@@ -43,6 +43,55 @@ def fill_nodata(h):
     return h
 
 
+def merge_lidar(core):
+    """在线的 3DEP 服务在中西部一大块只有 10 米的数据（1 米的项目 AZ_GrandCanyonNP_2019_B19 没飞到）。
+    2026 年新发布的 AZ_NWGrandCanyonNP_D25 补上了这一块，但服务里还没有，要单独下载（tools/real/fetch_lidar.py）。
+    这里把 1 米的数据平均到 2.5 米，有数据的地方换上去，边上过渡一下"""
+    d = os.path.join(SRC, 'lidar')
+    names = sorted(f for f in os.listdir(d) if f.endswith('.tif')) if os.path.isdir(d) else []
+    if not names:
+        print('  没有单独下载的 1 米数据，用服务里的')
+        return core
+    n = core.shape[0]
+    cell = G['core'] / (n - 1)
+    e0 = G['utm'][0] - G['core'] / 2
+    n0 = G['utm'][1] + G['core'] / 2
+    new = np.zeros_like(core)
+    have = np.zeros(core.shape, np.float32)
+    ee = e0 + np.arange(n) * cell
+    nn = n0 - np.arange(n) * cell
+    for name in names:
+        im = Image.open(os.path.join(d, name))
+        tie = im.tag_v2[33922]
+        scale = im.tag_v2[33550]
+        a = np.asarray(im, dtype=np.float32)
+        print(' ', name, a.shape, '左上', tie[3], tie[4], '格', scale[0], scale[1])
+        ok = (a > -500) & (a < 9000)
+        # 2.5 米一格：取 3 米的平均，再插值到网格点上
+        w = ndimage.uniform_filter(ok.astype(np.float32), 3)
+        s = ndimage.uniform_filter(np.where(ok, a, 0).astype(np.float32), 3)
+        v = s / np.maximum(w, 1e-3)
+        cols = (ee - tie[3]) / scale[0] - 0.5
+        rows = (tie[4] - nn) / scale[1] - 0.5
+        ci = np.nonzero((cols >= 1) & (cols < a.shape[1] - 2))[0]
+        ri = np.nonzero((rows >= 1) & (rows < a.shape[0] - 2))[0]
+        if len(ci) == 0 or len(ri) == 0:
+            continue
+        yy, xx = np.meshgrid(rows[ri], cols[ci], indexing='ij')
+        vv = ndimage.map_coordinates(v, [yy, xx], order=1, mode='nearest')
+        ww = ndimage.map_coordinates(w, [yy, xx], order=1, mode='nearest')
+        sub = (slice(ri[0], ri[-1] + 1), slice(ci[0], ci[-1] + 1))
+        take = ww > 0.98
+        new[sub] = np.where(take, vv, new[sub])
+        have[sub] = np.maximum(have[sub], take.astype(np.float32))
+    diff = (new - core)[have > 0.5]
+    print('  新数据覆盖', round(float((have > 0.5).mean()), 3), '和原来的高差：中位数', round(float(np.median(diff)), 2), '标准差', round(float(diff.std()), 2))
+    # 高差的中位数当系统差，去掉，接缝才对得上
+    new = new - float(np.median(diff))
+    k = np.clip(ndimage.gaussian_filter(ndimage.binary_erosion(have > 0.5, iterations=6).astype(np.float32), 5.0) * 1.0, 0, 1)
+    return (core * (1 - k) + new * k).astype(np.float32)
+
+
 def srgb_to_lin(c):
     return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4).astype(np.float32)
 
@@ -169,27 +218,110 @@ def elevation_colors(alb, hi, shadow):
     return ndimage.gaussian_filter1d(lut, 2.0, axis=0).astype(np.float32)
 
 
-def fill_shadows(out, hi, shadow, lut, px_cell):
-    """影子里只有天光，颜色在照片里已经丢了：颜色借同一高度晒着太阳的岩石，明暗细节留下来"""
-    lum = out @ LUM
-    sig = max(2.0, 18.0 / px_cell)
-    low = ndimage.gaussian_filter(lum, sig)
-    detail = np.clip(lum / np.maximum(low, 0.01), 0.55, 1.6).astype(np.float32)
-    # 影子里照片几乎没有纹理（信号太弱，压缩时抹掉了）：补一层石头的斑驳，几米到几十米的尺度
-    H, W = lum.shape
-    rs = np.random.default_rng(3)
-    mott = np.zeros((H, W), np.float32)
-    for size_m, amp in ((3.0, 0.10), (9.0, 0.11), (28.0, 0.10)):
-        q = max(1, int(size_m / px_cell / 2))
-        n = rs.standard_normal((H // q + 2, W // q + 2)).astype(np.float32)
-        n = ndimage.gaussian_filter(n, 1.0)
-        n /= max(1e-6, float(n.std()))
-        mott += amp * ndimage.zoom(n, q, order=1)[:H, :W]
-    detail *= np.clip(1 + mott, 0.5, 1.6)
-    b = np.clip(((hi - Y0) / (Y1 - Y0) * NB).astype(np.int32), 0, NB - 1)
-    w = np.clip(ndimage.gaussian_filter(shadow, max(0.6, 1.5 / px_cell)) * 1.25, 0, 1).astype(np.float32)
-    for c in range(3):
-        out[..., c] = out[..., c] * (1 - w) + lut[:, c][b] * detail * w
+def local_colors(a, hi, sunny, block, nb, lut, step=3):
+    """每一块地里、每一层岩石晒着太阳时的颜色。同一层岩石东边红西边灰，全图一张表借过来的颜色不对。
+    返回 (块行, 块列, 层, 3)，数据少的地方退回全图的表"""
+    H, W = hi.shape
+    gb = int(math.ceil(H / block))
+    ys, xs = np.nonzero(sunny[::step, ::step])
+    ys = ys * step
+    xs = xs * step
+    bins = np.clip(((hi[ys, xs] - Y0) / (Y1 - Y0) * nb).astype(np.int64), 0, nb - 1)
+    idx = ((ys // block) * gb + xs // block) * nb + bins
+    n = gb * gb * nb
+    cnt = np.bincount(idx, minlength=n).astype(np.float32).reshape(gb, gb, nb)
+    sums = np.stack([np.bincount(idx, weights=a[ys, xs, c], minlength=n).astype(np.float32).reshape(gb, gb, nb) for c in range(3)], 3)
+    sg = (1.0, 1.0, 1.6)
+    cs = ndimage.gaussian_filter(cnt, sg)
+    ss = np.stack([ndimage.gaussian_filter(sums[..., c], sg) for c in range(3)], 3)
+    pos = (np.arange(nb) + 0.5) / nb * NB - 0.5
+    base = np.stack([np.interp(pos, np.arange(NB), lut[:, c]) for c in range(3)], 1).astype(np.float32)
+    prior = 12.0
+    return (ss + base[None, None] * prior) / (cs[..., None] + prior)
+
+
+class Colors:
+    """附近同一层岩石晒着太阳时的颜色，按像素查"""
+
+    def __init__(self, out, hi, shadow, lut, px_cell):
+        self.block = max(16, int(1280 / px_cell))
+        self.nb = 170
+        self.hi = hi
+        self.tab = local_colors(out, hi, shadow < 0.05, self.block, self.nb, lut)
+
+    def at(self, sel):
+        b = self.block
+        coords = np.stack([(sel[0] + 0.5) / b - 0.5, (sel[1] + 0.5) / b - 0.5, (self.hi[sel] - Y0) / (Y1 - Y0) * self.nb - 0.5])
+        return np.stack([ndimage.map_coordinates(self.tab[..., c], coords, order=1, mode='nearest') for c in range(3)], 1).astype(np.float32)
+
+
+def refine_shadow(shadow, cand, lum0, cols, px_cell):
+    """影子的第二道判断：比同一层岩石晒着太阳时暗一大截的也算。
+    航线接缝那边是另一天拍的，太阳不一样，半明半暗，只看绝对亮度分不出来"""
+    sel = np.nonzero(cand > 0.5)
+    # 比灌木大的一片都暗才算：小的暗斑是灌木和沟，不是影子
+    soft = ndimage.gaussian_filter(lum0, max(0.7, 4.0 / px_cell))
+    rel = soft[sel] / np.maximum(cols.at(sel) @ LUM, 1e-3)
+    t = np.clip((0.5 - rel) / (0.5 - 0.3), 0, 1)
+    s2 = np.zeros_like(shadow)
+    s2[sel] = t * t * (3 - 2 * t)
+    return np.maximum(shadow, ndimage.gaussian_filter(s2, max(0.5, 1.2 / px_cell))).astype(np.float32)
+
+
+def fill_shadows(out, hi, shadow, cols, px_cell):
+    """影子里的岩层和沟壑照片上其实都在，只是暗，把它们救回来，不能用模糊的颜色盖掉。
+    颜色：影子里红色通道的信号太弱，借附近同一层岩石晒着太阳时的颜色。
+    明暗：一百多米以内的起伏全用照片的。只有天光时没有立体的明暗，对比度比晒着的地方低，放大一点。
+    细碎的斑点（灌木、碎石）影子里看不见：从紧挨着的晒太阳的地方镜像借过来，
+    高度差太多的不借（崖顶的树不能借到崖壁上），镜像借不到的换几个方向再找。"""
+    H, W = hi.shape
+    lum = np.maximum(out @ LUM, 1e-3).astype(np.float32)
+    sunny = shadow < 0.05
+    w = np.clip(ndimage.gaussian_filter(ndimage.maximum_filter(shadow, size=3), max(0.6, 1.5 / px_cell)) * 1.25, 0, 1).astype(np.float32)
+    sel = np.nonzero(w > 0.004)
+    tgt = cols.at(sel)
+    tl = np.maximum(tgt @ LUM, 1e-3)
+    # 影子里的亮度先对齐到同一层晒着太阳的岩石（谷底看到的天空少，除下来比实际暗），这样影子内外是同一个尺度
+    sw = (shadow > 0.8).astype(np.float32)
+    big = max(3.0, 120.0 / px_cell)
+    full = np.zeros_like(lum)
+    full[sel] = tl
+    f = (ndimage.gaussian_filter(full * sw, big) + 1e-4) / (ndimage.gaussian_filter(lum * sw, big) + 1e-4)
+    lc = lum * (1 + (np.clip(f, 0.5, 2.0) - 1) * shadow * shadow)
+    mean = ndimage.gaussian_filter(lc, big)
+    real = np.log(np.maximum(ndimage.gaussian_filter(lc, max(0.45, 0.6 / px_cell)), 1e-3) / np.maximum(mean, 1e-3))
+    # 影子的边：半影加上重采样有两三个像素，这一圈的亮度不可信，留着是一条细黑线。这里只要平滑的底色
+    r = max(1, int(round(3.0 / px_cell)))
+    edge = ndimage.maximum_filter(((shadow > 0.03) & (shadow < 0.97)).astype(np.float32), size=2 * r + 1)
+    edge = ndimage.gaussian_filter(edge, 1.0)
+    real *= 1 - np.clip(edge * 1.4, 0, 1)
+    # 晒太阳的地方的斑点（只取十来米以内的尺度）
+    hp = np.log(lum) - np.log(np.maximum(ndimage.gaussian_filter(lum, max(1.5, 10.0 / px_cell)), 1e-3))
+    near = ndimage.distance_transform_edt(~sunny, return_distances=False, return_indices=True).astype(np.int32)
+    py = np.clip(2 * near[0][sel] - sel[0], 0, H - 1)
+    px = np.clip(2 * near[1][sel] - sel[1], 0, W - 1)
+    del near
+    hs = hi[sel]
+    good = sunny[py, px] & (np.abs(hi[py, px] - hs) < 70.0)
+    mir = np.where(good, hp[py, px], 0.0).astype(np.float32)
+    need = ~good
+    k = int(round(160 / px_cell))
+    for dy, dx in ((0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, 1), (1, -1), (-1, -1), (0, 2), (2, 0), (0, -2), (-2, 0), (2, 2), (-2, 2), (2, -2), (-2, -2), (0, 4), (4, 0), (0, -4), (-4, 0)):
+        idx = np.nonzero(need)[0]
+        if len(idx) == 0:
+            break
+        qy = np.clip(sel[0][idx] + dy * k, 0, H - 1)
+        qx = np.clip(sel[1][idx] + dx * k, 0, W - 1)
+        g = sunny[qy, qx] & (np.abs(hi[qy, qx] - hs[idx]) < 45.0)
+        mir[idx[g]] = hp[qy[g], qx[g]]
+        need[idx[g]] = False
+    print('  影子里借不到斑点的比例', round(float(need.mean()), 3))
+    # 只有天光时没有立体的明暗，对比度比晒着的地方低，放大一点
+    L = mean[sel] * np.exp(np.clip(real[sel], -1.0, 0.8) * 1.6 + np.clip(mir, -0.9, 0.7) * 0.8)
+    # 不能比同一层岩石亮太多，也不能暗成一个洞
+    L = np.clip(L, tl * 0.22, tl * 1.7)
+    ww = w[sel][:, None]
+    out[sel] = out[sel] * (1 - ww) + (tgt / tl[:, None]) * L[:, None] * ww
     return out
 
 
@@ -219,8 +351,9 @@ def delight(img, h, cell, px_cell, az, el, ambient, name, lut=None):
     # 影子的边缘贴到照片上真实的边缘
     r = max(2, int(round(3 / px_cell)))
     shadow = np.clip(guided(g, shadow, r, 0.01), 0, 1)
-    # 背对太阳的坡：一样只信照片，太斜的地方别除得太狠
-    c = np.clip(ndimage.gaussian_filter(c, max(0.5, 3.0 / px_cell)), 0.42, 1.5).astype(np.float32)
+    # 背对太阳的坡：一样只信照片，太斜的地方别除得太狠。
+    # 只除掉八成：一比一地除，凹凸不平的暗色岩石全被提成一片亮的（高程分不出比格子小的影子），内峡谷的片岩成了土黄色
+    c = (np.clip(ndimage.gaussian_filter(c, max(0.5, 3.0 / px_cell)), 0.5, 1.45) ** 0.8).astype(np.float32)
     lit = c * (1 - shadow)
     S = lit[..., None] * (1 - ambient[None, None, :]) + ambient[None, None, :]
     out = img / np.maximum(S, 0.05)
@@ -231,7 +364,11 @@ def delight(img, h, cell, px_cell, az, el, ambient, name, lut=None):
     hi = hd if abs(k - 1) < 1e-3 else ndimage.zoom(hd.astype(np.float32), k, order=1)[:img.shape[0], :img.shape[1]]
     if lut is None:
         lut = elevation_colors(out, hi, shadow)
-    return fill_shadows(out, hi, shadow, lut, px_cell), lut
+    cols = Colors(out, hi, shadow, lut, px_cell)
+    shadow = refine_shadow(shadow, cand, lum, cols, px_cell)
+    S = (c * (1 - shadow))[..., None] * (1 - ambient[None, None, :]) + ambient[None, None, :]
+    out = img / np.maximum(S, 0.05)
+    return fill_shadows(out, hi, shadow, cols, px_cell), lut
 
 
 def save_image(a, name, q):
@@ -250,7 +387,8 @@ def save_heights(h, name, step):
     z = np.where(d >= 0, d * 2, -d * 2 - 1)
     assert z.max() < 65536, z.max()
     raw = z.astype('<u2').tobytes()
-    with gzip.open(os.path.join(OUT, name), 'wb', compresslevel=9) as f:
+    # 时间戳写 0：内容没变，文件就一个字节都不变，不用往仓库里再存一份
+    with open(os.path.join(OUT, name), 'wb') as o, gzip.GzipFile(filename='', mode='wb', compresslevel=9, fileobj=o, mtime=0) as f:
         f.write(raw)
     print(' ', name, round(os.path.getsize(os.path.join(OUT, name)) / 1e6, 1), 'MB', 'base', base, 'step', step, 'range', float(h.min()), float(h.max()))
     return base
@@ -264,16 +402,44 @@ def curvature(h, size):
     return h - np.maximum(r - G['core'] / 2, 0) ** 2 / (2 * R_EARTH)
 
 
+# 南缘这一段的地层，高度是加上倾斜之后的（陡坡的高度分布定出来的，和地质资料的厚度对得上）：
+# [下边界, 层理的明显程度]。片岩是变质岩，没有水平的层；页岩成坡，层薄而软；石灰岩和砂岩一层层突出来
+FORMATIONS = [
+    (0, 0.0),        # 毗湿奴片岩
+    (1030, 0.9),     # 塔皮茨砂岩
+    (1075, 0.3),     # 光明天使页岩（托恩托平台）
+    (1250, 0.55),    # 穆阿夫石灰岩
+    (1350, 0.5),     # 红墙石灰岩：厚层
+    (1490, 1.0),     # 苏派群：一级级的台阶
+    (1875, 0.3),     # 赫米特页岩
+    (1965, 0.35),    # 科科尼诺砂岩：大块的，横纹少
+    (2075, 0.6),     # 托罗维普组
+    (2175, 1.0),     # 凯巴布石灰岩
+]
+
+
+def formation_strength(y):
+    """每个高度的层理有多明显，层与层之间过渡几米"""
+    k = np.zeros_like(y)
+    for lo, v in FORMATIONS:
+        k = np.where(y >= lo, v, k)
+    return ndimage.gaussian_filter1d(k.astype(np.float32), 6.0)
+
+
 def bedding(total_m, W):
-    """一层一层的沉积：每层厚度不一样，明暗也不一样，绝不会等距重复。岩石里最显眼的横纹就是这个"""
+    """一层一层的沉积：每层厚度不一样，明暗也不一样，绝不会等距重复。岩石里最显眼的横纹就是这个。
+    返回明暗和硬度：硬的层突出来，软的层缩进去（着色器按它算凹凸）"""
     rs = np.random.default_rng(5)
     y = (np.arange(W) + 0.5) / W * total_m
     out = np.zeros(W, np.float32)
-    for mean, amp in ((16.0, 0.10), (4.2, 0.075), (1.1, 0.05)):
+    hard = np.zeros(W, np.float32)
+    for mean, amp, ha in ((16.0, 0.10, 0.22), (4.2, 0.075, 0.5), (1.1, 0.05, 0.28)):
         edges = np.cumsum(rs.lognormal(math.log(mean), 0.7, int(total_m / mean * 3)))
         vals = rs.normal(0, 1, len(edges) + 1)
-        out += amp * vals[np.searchsorted(edges, y)]
-    return np.clip(1 + out, 0.62, 1.4)
+        v = vals[np.searchsorted(edges, y)]
+        out += amp * v
+        hard += ha * v
+    return np.clip(1 + out, 0.62, 1.4), hard
 
 
 def strata_lut(h, alb, px_cell, y0, y1, n=1024):
@@ -301,9 +467,16 @@ def strata_lut(h, alb, px_cell, y0, y1, n=1024):
     # 贴图比统计出来的表细得多：0.44 米一格，细的层理写在这里（远处靠 mipmap 自然平均掉）
     W = 4096
     pos = (np.arange(W) + 0.5) / W * n - 0.5
-    fine = np.stack([np.interp(pos, np.arange(n), lut[:, c]) for c in range(3)], 1) * bedding(y1 - y0, W)[:, None]
-    px = (lin_to_srgb(fine)[None, :, :] * 255 + 0.5).astype(np.uint8)
-    Image.fromarray(px).save(os.path.join(OUT, 'strata.png'))
+    tone, hard = bedding(y1 - y0, W)
+    k = formation_strength(y0 + (np.arange(W) + 0.5) / W * (y1 - y0))
+    tone = 1 + (tone - 1) * (0.3 + 0.7 * k)
+    hard = hard * k
+    fine = np.stack([np.interp(pos, np.arange(n), lut[:, c]) for c in range(3)], 1) * tone[:, None]
+    # 透明通道放硬度：0.5~1，不到 0 是因为有的解码器会预乘透明度，颜色不能被它带黑
+    edge = ndimage.gaussian_filter1d(hard, 0.8)
+    alpha = np.clip(0.75 + edge * 0.25, 0.5, 1.0)
+    px = np.concatenate([lin_to_srgb(fine), alpha[:, None]], 1)[None, :, :]
+    Image.fromarray((px * 255 + 0.5).astype(np.uint8), 'RGBA').save(os.path.join(OUT, 'strata.png'))
     return lut
 
 
@@ -375,24 +548,92 @@ def aux_map(h, river):
     sky = sky_view(h5, cell)
     crev = np.clip((ndimage.gaussian_filter(h5, 2.2) - h5) / 4.0, 0, 1)
     print('  天空可见度', float(sky.min()), float(np.median(sky)), float(sky.max()))
-    a = np.stack([crev, river[::2, ::2], sky], 2)[:2048, :2048]
+    # G：河边 0→0.5 是水陆交界，再往里 0.5→1 是离岸多远（浅的地方透出河底）
+    r5 = river[::2, ::2]
+    bank = np.clip(ndimage.distance_transform_edt(r5 > 0.5) * cell / 26.0, 0, 1)
+    a = np.stack([crev, r5 * 0.5 + bank * 0.5, sky], 2)[:2048, :2048]
     px = (np.clip(a, 0, 1) * 255 + 0.5).astype(np.uint8)
     # （文件名别叫 aux：那是 Windows 的保留设备名，Git 打不开）
     Image.fromarray(px).save(os.path.join(OUT, 'sky_river.webp'), 'WEBP', lossless=True, quality=60, method=4)
     print('  sky_river.webp', round(os.path.getsize(os.path.join(OUT, 'sky_river.webp')) / 1e6, 1), 'MB')
 
 
-def river_mask(h):
-    """河面：激光测绘把水面压成了平的。谷底又平、又连成一大片的地方就是河"""
-    gy, gx = np.gradient(h.astype(np.float32), G['core'] / (h.shape[0] - 1))
-    flat = (np.hypot(gx, gy) < 0.012) & (h < float(h.min()) + 60)
-    m = ndimage.binary_opening(flat, iterations=2)
-    lab, n = ndimage.label(m)
-    size = ndimage.sum(m, lab, np.arange(1, n + 1))
+def scatter_map(h, alb, river):
+    """镜头周围散布的东西（src/render/realScatter.ts）长在哪儿、长多密。5 米一格：R 灌木，G 碎石，B 枯草。
+    灌木：航拍上周围亮、中间暗的小点，比影像的一个像素大不了多少，这里只数一块地里有多少。
+    碎石：陡坡下面多，平地上的亮斑是露出来的石灰岩。枯草：平缓的浅色地面。
+    路、停车场、房顶是灰的，又平，上面什么都不长"""
+    k = 4
+    n = alb.shape[0] // k
+    lum = alb @ LUM
+    blur = ndimage.gaussian_filter(lum, 0.8)
+    bg = ndimage.gaussian_filter(lum, 7.0)
+    rel = (bg - blur) / np.maximum(bg, 0.02)
+    down = lambda a: a[:n * k, :n * k].reshape(n, k, n, k).mean(axis=(1, 3))
+    shrub = np.clip(down(np.clip(rel / 0.28, 0, 1)) * 3.2, 0, 1)
+    pale = np.clip(down(np.clip(-rel / 0.22, 0, 1)) * 2.4, 0, 1)
+    h5 = h[:n * 2:2, :n * 2:2].astype(np.float32)
+    cell = 2 * G['core'] / (h.shape[0] - 1)
+    gy, gx = np.gradient(h5, cell)
+    slope = np.hypot(gx, gy)
+    t = lambda a, lo, hi: np.clip((a - lo) / (hi - lo), 0, 1) ** 2 * (3 - 2 * np.clip((a - lo) / (hi - lo), 0, 1))
+    rock = np.maximum(t(slope, 0.25, 0.8) * 0.85, pale * 0.7) * (1 - t(slope, 1.5, 2.4)) + 0.05
+    grass = (1 - t(slope, 0.2, 0.7)) * (1 - shrub * 0.5) * (0.35 + 0.65 * t(down(lum), 0.1, 0.3))
+    shrub = shrub * (1 - t(slope, 1.2, 1.9))
+    sat = down((alb.max(axis=2) - alb.min(axis=2)) / np.maximum(alb.max(axis=2), 0.02))
+    # 灰的、平的、南缘上的：路、停车场、房顶
+    paved = ndimage.gaussian_filter(((sat < 0.17) & (slope < 0.1) & (h5 > 1900)).astype(np.float32), 0.8)
+    keep = (1 - np.clip(paved * 1.6, 0, 1)) * (1 - np.clip(river[:n * 2:2, :n * 2:2] * 1.5, 0, 1))
+    a = np.stack([shrub * keep, rock * keep, grass * keep], 2)
+    # 疏密不用那么精细：16 级，文件小得多
+    px = (np.round(np.clip(a, 0, 1) * 15) * 17).astype(np.uint8)
+    Image.fromarray(px).save(os.path.join(OUT, 'scatter.webp'), 'WEBP', lossless=True, quality=60, method=4)
+    print('  scatter.webp', round(os.path.getsize(os.path.join(OUT, 'scatter.webp')) / 1e6, 1), 'MB', '灌木', float(shrub.mean()), '碎石', float(rock.mean()), '枯草', float(grass.mean()))
+
+
+def river_mask(h, alb):
+    """河面：激光测绘把水面压成了平的，谷底又平、又连成一大片的地方就是河。
+    只有 10 米数据的地方水面不平，急流那里也不平，靠影像补：河水是一片均匀的橄榄色，比两岸的石头饱和得多，
+    又贴着谷底最低的地方。影子里颜色看不出来，只看够不够暗；浅色的沙洲不算"""
+    n = alb.shape[0] // 2
+    hh = h[:n, :n].astype(np.float32)
+    gy, gx = np.gradient(hh, G['core'] / (h.shape[0] - 1))
+    slope = np.hypot(gx, gy)
+    low = hh < float(h.min()) + 60
+    m = ndimage.binary_opening((slope < 0.012) & low, iterations=2)
+    lab, k = ndimage.label(m)
+    size = ndimage.sum(m, lab, np.arange(1, k + 1))
     keep = np.isin(lab, np.nonzero(size > 3000)[0] + 1)
-    keep = ndimage.binary_closing(keep, iterations=6)
-    print('  河面', int(keep.sum()), '格，高度', float(h[keep].min()), float(h[keep].max()), '分成', int((size > 3000).sum()), '段')
-    return np.clip(ndimage.gaussian_filter(keep.astype(np.float32), 1.2), 0, 1)
+    # 影像：2.5 米一格，先抹掉水面的波纹
+    a = ndimage.gaussian_filter(alb[::2, ::2], (1.5, 1.5, 0))[:n, :n]
+    sat = (a[..., 0] - a[..., 2]) / np.maximum(a[..., 0], 0.02)
+    lum = a @ LUM
+    s0 = float(np.median(sat[keep]))
+    l0 = float(np.median(lum[keep]))
+    # 谷底：一公里范围内的最低点
+    floor = ndimage.gaussian_filter(ndimage.minimum_filter(hh[::8, ::8], size=41), 6)
+    floor = ndimage.zoom(floor, 8, order=1)[:n, :n]
+    smooth = ndimage.gaussian_filter(np.abs(lum - ndimage.gaussian_filter(lum, 3)), 3) / np.maximum(lum, 0.02)
+    near = (hh < floor + 11) & (hh < float(h.min()) + 100)
+    band = (hh < floor + 6) & near & (slope < 0.07)
+    water = ((sat > s0 * 0.86) & near & (smooth < float(np.percentile(smooth[keep], 97)) * 1.3)) | (band & ((sat > s0 * 0.62) | (lum < l0 * 0.4)))
+    water = ndimage.binary_opening(water, iterations=3) | keep
+    lab, k = ndimage.label(water)
+    size = ndimage.sum(water, lab, np.arange(1, k + 1))
+    part = ndimage.binary_closing(np.isin(lab, np.nonzero(size > 6000)[0] + 1), iterations=5)
+    out = np.zeros(h.shape, np.float32)
+    out[:n, :n] = part
+    print('  河面', int(part.sum()), '格，高度', float(hh[part].min()), float(hh[part].max()), '分成', int((size > 6000).sum()), '段', '饱和度', round(s0, 3))
+    return np.clip(ndimage.gaussian_filter(out, 1.2), 0, 1)
+
+
+def flatten_river(h, river):
+    """水面要平：10 米的数据在河面上也是起伏的。河面上的高度换成沿河平滑过的，岸边过渡"""
+    m = (river > 0.5).astype(np.float32)
+    w = ndimage.gaussian_filter(m, 24) + 1e-4
+    s = ndimage.gaussian_filter(h * m, 24) / w
+    k = np.clip(river * 1.3, 0, 1)
+    return (h * (1 - k) + s * k).astype(np.float32)
 
 
 def find_trees(h, alb, px_cell, limit=150000):
@@ -428,12 +669,16 @@ def find_trees(h, alb, px_cell, limit=150000):
         sel = np.concatenate([top, rest])
         ys, xs, e, creek, dk = ys[sel], xs[sel], e[sel], creek[sel], dk[sel]
     n = len(ys)
-    kind = np.where(creek, 2, np.where(rs.random(n) < 0.68, 0, np.where(rs.random(n) < 0.62, 1, 3)))
+    # 0、4 犹他刺柏，1、5 矮松（两种形状），2 三角叶杨，3 矮灌丛
+    two = rs.random(n) < 0.5
+    kind = np.where(creek, 2, np.where(rs.random(n) < 0.6, np.where(two, 0, 4), np.where(rs.random(n) < 0.72, np.where(two, 1, 5), 3)))
     size = np.clip(0.75 + dk * 1.6 + rs.normal(0, 0.13, n), 0.6, 1.5)
     size = np.where(creek, size * 1.2, size)
-    size = np.where(kind == 1, size * 0.72, size)
-    if len(bx) > limit:
-        pick = np.argsort(-bd)[:limit]
+    size = np.where((kind == 1) | (kind == 5), size * 0.92, size)
+    # 小的灌木由散布在镜头周围现长（见 src/render/realScatter.ts），这里只留大的：远处也看得到的那些
+    most = 40000
+    if len(bx) > most:
+        pick = np.argsort(-bd)[:most]
         bx, by, bd = bx[pick], by[pick], bd[pick]
     print('  灌木', len(bx))
     xs = np.concatenate([xs, bx])
@@ -447,7 +692,7 @@ def find_trees(h, alb, px_cell, limit=150000):
     z = ((ys + 0.5) * px_cell - half) / G['core'] + 0.5
     xz = np.stack([np.round(x * 65535), np.round(z * 65535)], 1).astype('<u2')
     meta = np.stack([kind, np.round(size * 100)], 1).astype(np.uint8)
-    with gzip.open(os.path.join(OUT, 'trees.dat'), 'wb', compresslevel=9) as f:
+    with open(os.path.join(OUT, 'trees.dat'), 'wb') as o, gzip.GzipFile(filename='', mode='wb', compresslevel=9, fileobj=o, mtime=0) as f:
         f.write(xz.tobytes())
         f.write(meta.tobytes())
     print('  树', n, '其中溪边', int(creek.sum()), round(os.path.getsize(os.path.join(OUT, 'trees.dat')) / 1e6, 2), 'MB')
@@ -455,7 +700,7 @@ def find_trees(h, alb, px_cell, limit=150000):
 
 def main():
     print('高程')
-    core = fill_nodata(mosaic('dem_core', 4097, 1))
+    core = merge_lidar(fill_nodata(mosaic('dem_core', 4097, 1)))
     mid = fill_nodata(mosaic('dem_mid', 2049, 1))
     far = fill_nodata(mosaic('dem_far', 1025, 1))
     print('  核心', core.min(), core.max(), ' 中圈', mid.min(), mid.max(), ' 远圈', far.min(), far.max())
@@ -493,21 +738,15 @@ def main():
     del img1
     a2, _ = delight(img2, far, 160.0, 80.0, az, el, amb, '远圈', lut1)
     del img2
-    # 让三层的整体亮度对齐到合理的反照率：荒漠岩石大约 0.25~0.35
-    # 影像里的颜色比肉眼看到的淡（天空的散射盖了一层），饱和度补回来一点
-    for a in (a0, a1, a2):
-        l = (a @ LUM)[..., None]
-        a[:] = np.maximum(l + (a - l) * 1.22, 0)
-    k = 0.215 / float(np.median(a1))
-    print('  整体增益', k)
-    a0 *= k
-    a1 *= k
-    a2 *= k
+    # 亮度和颜色不再调：航拍的色调本来就是对的。以前提过亮度和饱和度，片岩成了土黄色，林下的土成了柠檬黄
+    print('  中位数', float(np.median(a0 @ LUM)), float(np.median(a1 @ LUM)), float(np.median(a2 @ LUM)))
     y0, y1 = 600.0, 2420.0
     strata_lut(core, a0, 1.25, y0, y1)
-    river = river_mask(core)
+    river = river_mask(core, a0)
+    core = flatten_river(core, river)
     aux_map(core, river)
     find_trees(core, a0, 1.25)
+    scatter_map(core, a0, river)
     calm_river(a0, river)
     sharpen(a0, 1.5, 0.6)
     sharpen(a1, 1.2, 0.35)

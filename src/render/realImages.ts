@@ -38,9 +38,9 @@ export async function loadStrata(def: RealTerrainDef): Promise<THREE.Texture | n
 }
 
 /** 辅助图：不是颜色，不做 sRGB 转换 */
-export async function loadAux(def: RealTerrainDef): Promise<THREE.Texture | null> {
-  if (!def.aux) return null;
-  const t = await new THREE.TextureLoader().loadAsync(new URL(def.base + def.aux, document.baseURI).href);
+export async function loadAux(def: RealTerrainDef, file = def.aux): Promise<THREE.Texture | null> {
+  if (!file) return null;
+  const t = await new THREE.TextureLoader().loadAsync(new URL(def.base + file, document.baseURI).href);
   t.flipY = false;
   t.colorSpace = THREE.NoColorSpace;
   t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;

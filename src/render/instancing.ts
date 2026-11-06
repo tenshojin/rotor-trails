@@ -9,7 +9,7 @@
 import * as THREE from 'three/webgpu';
 import { positionLocal, positionPrevious } from 'three/tsl';
 
-type Builder = { object?: { isInstancedMesh?: boolean }; needsPreviousData(): boolean };
+type Builder = { object?: { isInstancedMesh?: boolean; userData?: { placedOnGpu?: boolean } }; needsPreviousData(): boolean };
 
 let done = false;
 
@@ -25,7 +25,9 @@ export function fixInstancedVelocity(): void {
   };
   NM.setupPosition = function (this: { setupPosition(b: Builder): unknown }, b: Builder) {
     const r = setup.call(this, b);
-    if (b.object?.isInstancedMesh === true && needs.call(b)) (positionPrevious as unknown as { assign(n: unknown): void }).assign(positionLocal);
+    // 位置全在着色器里算的网格（真实地形、地面散布）同理。不处理的话“上一帧的位置”是几何体的原始坐标，
+    // 运动向量大得离谱，时间抗锯齿等于没开
+    if ((b.object?.isInstancedMesh === true || b.object?.userData?.placedOnGpu === true) && needs.call(b)) (positionPrevious as unknown as { assign(n: unknown): void }).assign(positionLocal);
     return r;
   };
 }

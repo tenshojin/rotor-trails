@@ -3,6 +3,7 @@
 // 数据和处理流程见 tools/real/。只有休闲飞行：真实地形上还没有任务。
 
 import { makeWeather } from '../sim/weather';
+import { GRAND_CANYON_BRIDGES, GRAND_CANYON_BUILDINGS } from './grandcanyonBuildings';
 import type { MapDef } from './types';
 
 /** 南缘崖边的一块平地，光明天使步道口以东：停在这里往北就是峡谷 */
@@ -25,13 +26,16 @@ export const GRAND_CANYON: MapDef = {
     base: 'real/grandcanyon/',
     credit: '高程：USGS 3DEP；影像：USDA NAIP 2023（经 USGS The National Map）。美国政府公有领域数据。',
     levels: [
-      { size: 10240, res: 4097, heights: 'core.dem', image: 'core.webp', base: 724, step: 0.05 },
+      { size: 10240, res: 4097, heights: 'core.dem', image: 'core.webp', base: 723, step: 0.05 },
       { size: 40960, res: 2049, heights: 'mid.dem', image: 'mid.webp', base: 647, step: 0.1 },
       { size: 163840, res: 1025, heights: 'far.dem', image: 'far.webp', base: 39, step: 0.25 },
     ],
     // 倾角是拟合的：让崖壁的高度分布最集中（往北每公里抬升约 16 米，和两岸的地层高差对得上）
     strata: { image: 'strata.png', y0: 600, y1: 2420, dip: [-0.004, 0.016] },
     aux: 'sky_river.webp',
+    scatter: 'scatter.webp',
+    buildings: GRAND_CANYON_BUILDINGS,
+    bridges: GRAND_CANYON_BRIDGES,
     // 后缀别用 .bin、.gz：下载软件会把这些请求拦走，游戏只收到一个空的 204
     trees: 'trees.dat',
   },
@@ -76,7 +80,7 @@ export const GRAND_CANYON: MapDef = {
   // 上午的斜阳：崖壁的影子能拉出来，方向和航拍接近，影像里残留的明暗不会和太阳打架
   sun: [108, 33],
   // 南缘的矮松和刺柏是发灰的橄榄绿
-  leafTint: [1.6, 1.3, 1.05],
+  leafTint: [1, 1, 1],
   ambience: { wind: 0.9, birds: 0.12 },
   // 山顶的位置和海拔来自高程数据（和公开的海拔对得上：琐罗亚斯德 2171 m、梵天 2301 m、胡夫金字塔 1646 m、战舰 1783 m）
   landmarks: [
