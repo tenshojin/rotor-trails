@@ -106,6 +106,27 @@ MAP=himalaya PATHS=0,1 npx vitest run --config vitest.tools.config.ts tools/auto
 
 所有按键都可以在「设置 → 操作」中改键；设置、通关记录保存在浏览器本地存储里（存档损坏或存储不可用时自动回退为默认值）。
 
+### 超仿真模式
+
+在任务简报的“飞行辅助”里选“超仿真”，或者休闲飞行的“飞行方式”里选。这个模式下：
+
+- **冷舱启动**：飞机是关着的，照左上角的检查单一步步操作（也可以点“自动完成”）。
+- **鼠标不锁定**：鼠标是你的手。移到屏幕边转头，越靠边转得越快；右键按住拖动可以快速环视。
+- **135 个按钮、开关、旋钮、断路器都能点**：左键操作，右键往回一挡，滚轮转旋钮，指着别的地方时滚轮拉近视野。鼠标指向控件时左手会伸过去。
+- **没有飞行辅助**：旋翼转速要自己看，发动机停了只能自转下滑，下降太快会进涡环，超速有后行桨叶失速，超扭会伤主减速器。
+
+| 按键 | 操作 |
+| --- | --- |
+| W / S | 周期变距杆前后 |
+| A / D | 低速时是脚蹬，有速度后主要是压坡度 |
+| Q / E | 周期变距杆左右 |
+| 空格 / Shift | 总距上提 / 下放（松手留在原位） |
+| C | 动力增强 |
+| T | 配平：把现在的杆位设成松手后回到的位置 |
+| H | 增稳（SAS）开关的快捷键 |
+
+Windows 的“粘滞键”会在连按 5 次 Shift 时弹窗。经常用 Shift 下放总距的话，建议在 Windows 设置 → 辅助功能 → 键盘里关掉它的快捷方式。
+
 ## 地图
 
 | 地图 | 难度 | 主线任务 | 路线选择 | 天气 |
@@ -128,6 +149,7 @@ MAP=himalaya PATHS=0,1 npx vitest run --config vitest.tools.config.ts tools/auto
 3. `python tools/blender/tex_variants.py`、`python tools/blender/jtex.py`、`python tools/blender/leaf_atlas.py art/out/trees`、`python tools/blender/cockpit_textures.py art/out/cockpit_tex`：颜色变体、木瓦、日式瓦格子 / 花岗岩、叶片图集、仪表盘面
 4. `blender -b --factory-startup --python tools/blender/<脚本>.py -- public/models/<文件>.glb [--preview 预览目录]`：脚本有 `cockpit.py`（另需贴图目录与 `--bake`）、`heli_ext.py`、`trees.py`、`props_japan.py`、`props_fjord.py`、`props_himalaya.py`、`props_amazon.py`、`props_canyon.py`，用法写在各脚本开头
    座舱还要烘焙环境光遮蔽：`blender ... tools/blender/cockpit.py -- public/models/cockpit.glb art/out/cockpit_tex --bake`，然后运行 `tools/blender/ao_finish.py` 生成 `public/models/cockpit_ao.jpg`。
+   飞行员身体：`python tools/blender/pilot_sdf.py art/out/pilot`（距离场雕刻网格），再 `blender ... tools/blender/pilot.py -- public/models/pilot.glb art/out/pilot`。
 
 模型文件缺失或加载失败时，游戏会退回程序生成的几何体，仍然可以玩。
 

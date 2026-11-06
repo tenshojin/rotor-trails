@@ -16,6 +16,10 @@
 | [pmndrs/drei soft shadows](https://github.com/pmndrs/drei/blob/master/src/core/softShadows.tsx)、[PCSS 示例](https://gkjohnson.github.io/threejs-sandbox/pcss/index.html) | WebGL 上的软阴影 | 都是 GLSL，不能用在 WebGPU 节点材质上。太阳的角直径只有 0.53°，飞行视角下半影只有几厘米到十几厘米，收益很小，改做接触阴影 |
 | [Tzathas 2024](https://diglib.eg.org/handle/10.1111/cgf15033)、[Schott 2023](https://history.siggraph.org/?p=132308) | 河流功率法则的地形生成 | 思路**采用**，自己实现在 `src/world/fluvial.ts` |
 
+## 舱内光照
+
+舱内不用实时全局光照。机舱的几何是固定的，天光怎么从窗户进来、怎么在内饰之间反弹，用 Blender Cycles 烘焙一次就够了（`K.bake_light`，2048²，5 秒）：世界是白的，上半球亮度 1、下半球 0.35，存平方根。游戏里乘上当时的天空颜色，所以时段和天气变了也对。环境贴图的遮蔽也用它，不然环境贴图不知道头顶有舱顶。
+
 ## DLSS 5
 
 调研后决定不做。DLSS 走的是 DirectX / Vulkan 原生接口，网页接不了；[NVIDIA 的文章](https://developer.nvidia.com/blog/whats-new-for-game-developers-dlss-5-with-3d-guided-neural-rendering-nvidia-ace-updates-and-new-rtx-kit-capabilities/)里也没有公开的 SDK。网上那个浏览器演示不是官方的，来源和授权都不清楚。浏览器里能做的是时间超分：设置里的“渲染分辨率”低于 100% 时走 three.js 的 `TAAUNode`。

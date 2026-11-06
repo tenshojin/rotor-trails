@@ -19,9 +19,9 @@ const ROCK: RockFormDef = {
     [0.0006, 0.0017, 34, 0.2],
     [-0.0029, 0.0023, 12, 3.1],
   ],
-  bench: 0.34,
+  bench: 0.14,
   slope: [0.8, 1.7],
-  tint: 0.5,
+  tint: 0.2,
   talus: 3.2,
   warp: [
     [14, 170],
