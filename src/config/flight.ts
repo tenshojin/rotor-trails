@@ -87,11 +87,21 @@ export const HELI = {
   },
   /** 载货（每箱物资质量，kg） */
   crateMass: 140,
+  /** 旋翼转动惯量（kg·m²）：决定发动机没了以后转速掉得多快（同级别机型约 1100） */
+  rotorInertia: 1150,
+  /** 传动系统的摩擦（N·m）：没有动力时旋翼靠它慢慢停下 */
+  rotorFriction: 300,
+  /** 超仿真的型阻功率倍数：悬停扭矩落到 80% 左右，自转下降率落到 8~10 m/s，这两个数都对得上同级别机型 */
+  simProfile: 3,
+  /** 超仿真：周期变距满杆的角加速度（rad/s²），比辅助模式温和，键盘点按才有分辨率 */
+  simCyclic: { pitch: 1.6, roll: 2.1 },
+  /** 超仿真：总距带动尾桨的联动（真机的总距-偏航补偿）：脚蹬中立时尾桨反扭矩占满行程的比例 = a + b × 总距 */
+  simPedalMix: { a: 0.1, b: 0.64 },
 };
 
 export type HeliConfig = typeof HELI;
 
-export type AssistId = 'novice' | 'standard' | 'challenge';
+export type AssistId = 'novice' | 'standard' | 'challenge' | 'sim';
 
 export interface AssistPreset {
   id: AssistId;
@@ -244,6 +254,41 @@ export const ASSISTS: Record<AssistId, AssistPreset> = {
     vsKp: 0,
     vsKi: 0,
     collectiveRate: 0.42,
+    collectiveSlew: 1.2,
+    descentLimiter: null,
+    driftDamping: 0,
+    autoBrake: 0,
+    envelopeProtection: false,
+    hover: { maxTilt: 12 * DEG, kv: 0.35, kp: 0.08, aMax: 2.0, nudgeSpeed: 3, climbRate: 2 },
+    inputRise: 2.6,
+    inputFall: 4.0,
+  },
+  sim: {
+    id: 'sim',
+    label: '超仿真',
+    desc: '冷舱启动，按钮和仪表都要亲手操作。没有任何飞行辅助：旋翼转速要自己看，发动机停了只能自转下滑。鼠标不锁定，移到屏幕边转头；Shift 下降，C 动力增强。',
+    attitudeMode: 'rate',
+    maxPitch: 60 * DEG,
+    maxBank: 80 * DEG,
+    attKp: 0,
+    maxRate: 26 * DEG,
+    rateKp: 5.0,
+    autoLevel: 0,
+    autoTrim: 0,
+    maxYawRate: 60 * DEG,
+    yawKp: 3.2,
+    headingKp: 0.9,
+    coordination: 0.7,
+    torqueFF: 0,
+    sideslipKp: 0.5,
+    vertical: 'direct',
+    maxClimb: 0,
+    maxDescent: 0,
+    altKp: 0,
+    altKi: 0,
+    vsKp: 0,
+    vsKi: 0,
+    collectiveRate: 0.36,
     collectiveSlew: 1.2,
     descentLimiter: null,
     driftDamping: 0,

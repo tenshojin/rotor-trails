@@ -294,9 +294,13 @@ def build_decal():
     # GPS 前面板
     G = L.GPS
     rect(d, G['u'], G['v'], G['w'], G['h'], (24, 24, 26), radius=0.004)
-    gl = ['COM', 'VLOC', 'CDI', 'OBS', 'MSG', 'FPL', 'PROC']
-    for i, s in enumerate(gl):
-        label(d, G['u'] + 0.054 + (i % 2) * 0.022, G['v'] + 0.022 - (i // 2) * 0.013, s, 0.0028)
+    # 右侧四个键：字印在键上方；屏幕下方六个键：字直接印在键帽上（键帽用这张贴图）
+    for i, s in enumerate(['MAP', 'NAV', 'D>', 'MENU']):
+        label(d, G['u'] + 0.054 + (i % 2) * 0.022, G['v'] + 0.006 - (i // 2) * 0.013 + 0.0062, s, 0.0024)
+    for i, s in enumerate(['RNG-', 'RNG+', 'PG<', 'PG>', 'ENT', 'CLR']):
+        cu, cv = G['u'] - 0.045 + i * 0.018, G['v'] - 0.031
+        rect(d, cu, cv, 0.015, 0.009, (34, 34, 37), radius=0.001)
+        label(d, cu, cv, s, 0.0023, col=(220, 220, 214))
     label(d, G['u'] - 0.060, G['v'] + 0.030, 'GPS', 0.0034)
     label(d, G['u'] + 0.002, G['v'] + 0.033, 'VFR ONLY', 0.0026)
     # 照明旋钮刻度
@@ -320,27 +324,27 @@ def build_decal():
     # 右缘开关条（浅灰金属板）
     S = L.SWITCH_STRIP
     rect(d, S['u'], S['v'], S['w'], S['h'], (178, 178, 172), radius=0.003)
-    for tv, s in zip(S['toggles'], ['NAV', 'STROBE', 'LDG']):
-        label(d, S['u'], tv + 0.016, s, 0.0028, col=(25, 25, 25))
+    for tv, s in zip(S['toggles'], S['labels']):
+        label(d, S['u'], tv + 0.0155, s, 0.0028, col=(25, 25, 25))
+    label(d, S['u'], S['toggles'][2] - 0.0155, 'OFF  SLOW  FAST', 0.0021, col=(25, 25, 25))
     # 左侧设备
     E = L.ELT
     rect(d, E['u'], E['v'], E['w'], E['h'], (20, 20, 22), radius=0.002)
     label(d, E['u'], E['v'] + 0.028, 'ELT', 0.0045, weight='Bold')
-    label(d, E['u'] + 0.012, E['v'] + 0.006, 'ON', 0.0025)
-    label(d, E['u'] + 0.012, E['v'] - 0.010, 'ARM', 0.0025)
+    label(d, E['u'] + 0.012, E['v'] + 0.010, 'ON', 0.0025)
+    label(d, E['u'] + 0.012, E['v'] - 0.002, 'ARM', 0.0025)
+    label(d, E['u'] + 0.012, E['v'] - 0.014, 'OFF', 0.0025)
     R2 = L.RADIO
     rect(d, R2['u'], R2['v'], R2['w'], R2['h'], (21, 21, 23), radius=0.005)
-    rect(d, R2['u'] - 0.010, R2['v'] + 0.008, 0.080, 0.028, (150, 160, 150), radius=0.002)
-    label(d, R2['u'] - 0.010, R2['v'] + 0.012, 'CH 03  122.800', 0.0042, col=(30, 36, 30), weight='Regular')
-    label(d, R2['u'] - 0.010, R2['v'] + 0.001, 'SQL 3    PWR H', 0.0030, col=(30, 36, 30), weight='Regular')
-    for i in range(7):
+    for i, s in enumerate(['SWAP', 'CH1', 'CH2', 'CH3', 'CH4', 'CH5', 'MON']):
         rect(d, R2['u'] - 0.065 + i * 0.019, R2['v'] - 0.019, 0.013, 0.008, (40, 40, 43), radius=0.002)
+        label(d, R2['u'] - 0.065 + i * 0.019, R2['v'] - 0.0115 + 0.0, s, 0.0020, col=(190, 190, 184))
     for i in range(9):  # 散热格栅
         rect(d, R2['u'] + 0.077, R2['v'] + 0.018 - i * 0.0045, 0.050, 0.0022, (8, 8, 9))
     H = L.HELISAFE
     rect(d, H['u'], H['v'], H['w'], H['h'], (30, 31, 33), radius=0.003)
-    rect(d, H['u'] - 0.012, H['v'] + 0.006, 0.100, 0.020, (70, 200, 110), radius=0.001)
-    label(d, H['u'] - 0.012, H['v'] + 0.006, 'TRACKING   GPS 3D', 0.0040, col=(20, 70, 35), weight='Regular')
+    rect(d, H['u'] - 0.012, H['v'] + 0.006, 0.100, 0.020, (10, 12, 11), radius=0.001)
+    label(d, H['u'] + 0.058, H['v'] - 0.010, 'MARK', 0.0024)
     label(d, H['u'] - 0.060, H['v'] + 0.024, 'FLIGHT TRACKER', 0.0024)
     # 音频面板
     A2 = L.AUDIO
@@ -355,11 +359,11 @@ def build_decal():
     X = L.XPDR
     rect(d, X['u'], X['v'], X['w'], X['h'], (23, 23, 25), radius=0.003)
     rect(d, X['u'] - 0.010, X['v'] + 0.004, 0.106, 0.026, (24, 14, 6), radius=0.001)
-    label(d, X['u'] - 0.030, X['v'] + 0.004, '7000', 0.0120, col=(255, 158, 40), weight='Regular')
-    label(d, X['u'] + 0.024, X['v'] + 0.009, 'ALT', 0.0040, col=(255, 158, 40), weight='Regular')
-    label(d, X['u'] + 0.024, X['v'] - 0.002, 'FL012', 0.0036, col=(255, 158, 40), weight='Regular')
     label(d, X['u'] - 0.080, X['v'] + 0.019, 'XPDR', 0.0028)
-    for i, s in enumerate(['IDT', 'VFR', 'FUNC', 'CRSR', 'CLR']):
+    for i, a in enumerate(('OFF', 'SBY', 'ON', 'ALT')):
+        ang = math.radians(-60 + i * 40)
+        label(d, X['u'] + 0.076 + 0.0118 * math.sin(ang), X['v'] + 0.004 + 0.0118 * math.cos(ang), a, 0.0018)
+    for i, s in enumerate(['IDT', 'VFR', '+', '-', 'CLR']):
         label(d, X['u'] - 0.044 + i * 0.022, X['v'] - 0.0235, s, 0.0021, col=(180, 180, 174))
     # 断路器：每个一个标签和一圈白环
     Cb = L.CB
@@ -369,13 +373,18 @@ def build_decal():
         label(d, cu, cv + 0.012, s, 0.0022, col=(214, 214, 208))
     label(d, Cb['u'], Cb['v'] + 0.043, 'CIRCUIT BREAKERS', 0.0028, col=(190, 190, 184))
     # 翘板开关
-    Ro = L.ROCKERS
-    for i, s in enumerate(Ro['labels']):
-        label(d, Ro['u'] - Ro['du'] * (Ro['n'] - 1) / 2 + i * Ro['du'], Ro['v'] + 0.031, s, 0.0028)
+    for Ro in (L.ROCKERS, L.ROCKERS2):
+        for i, s in enumerate(Ro['labels']):
+            label(d, Ro['u'] - Ro['du'] * (Ro['n'] - 1) / 2 + i * Ro['du'], Ro['v'] + 0.0245, s, 0.0026)
+    # 发动机主开关的三挡
+    Eg = L.ENG_MAIN
+    label(d, Eg['u'], Eg['v'] + 0.0385, 'ENG MAIN', 0.0030, weight='Bold')
+    for a, s in zip(Eg['angles'], Eg['labels']):
+        r = Eg['r'] * 1.72
+        label(d, Eg['u'] + r * math.sin(math.radians(a)) * 1.08, Eg['v'] + r * math.cos(math.radians(a)), s, 0.0024)
     # 小时计
     Hb = L.HOBBS
     rect(d, Hb['u'], Hb['v'], Hb['w'], Hb['h'], (10, 10, 11), radius=0.001)
-    label(d, Hb['u'], Hb['v'], '0 8 4 1 . 6', 0.0072, col=(226, 226, 220), weight='Regular')
     label(d, Hb['u'], Hb['v'] + 0.021, 'HOURS', 0.0026)
     # 打码机标签（白字黑底的小胶条）：真飞机上到处都是
     for (u, v, s) in [(-0.262, -0.112, 'CLOCK'), (-0.252, -0.238, 'STBY HDG'), (0.182, -0.122, 'IAS'), (0.372, -0.122, 'ALT'), (0.190, -0.327, 'TURN'), (0.378, -0.327, 'VS')]:
@@ -458,8 +467,48 @@ def build_placards():
     img.save(os.path.join(OUT, 'placards.png'))
 
 
+def build_pedestal():
+    """中央操纵台四块面板上的字：竖着排在一张图里，每块的比例和实物一样"""
+    W = 2048
+    plates = L.PED_PLATES
+    hs = [int(W * h / w) for _, w, h in plates]
+    img = Image.new('RGB', (W, sum(hs)), (24, 24, 26))
+    d = ImageDraw.Draw(img)
+    y0 = 0
+    for (name, w, h), H in zip(plates, hs):
+        k = W / w
+
+        def put(x, y, s, size, col=(214, 214, 208)):
+            d.text((W / 2 + x * k, y0 + H / 2 - y * k), s, font=font(int(size * k * 1.35), 'SemiBold'), fill=col, anchor='mm')
+
+        d.rectangle([0, y0, W, y0 + H - 1], outline=(60, 60, 62), width=3)
+        if name == 'audio':
+            for i, s in enumerate(L.PED_AUDIO):
+                put(-0.066 + (i % 7) * 0.019, 0.012 - (i // 7) * 0.020 + 0.0072, s, 0.0026)
+            put(0.075, 0.0125, 'VOL', 0.0026)
+        elif name == 'toggles':
+            for i, s in enumerate(L.PED_TOGGLES):
+                put(-0.084 + i * 0.024, 0.0165, s, 0.0028)
+                put(-0.084 + i * 0.024, -0.0165, 'OFF', 0.0022, (150, 150, 146))
+        elif name == 'knobs':
+            for i, s in enumerate(L.PED_KNOBS):
+                put(-0.08 + i * 0.04, 0.0205, s, 0.0030)
+                for a in range(7):
+                    ang = math.radians(-130 + a * 260 / 6)
+                    r0, r1 = 0.0135, 0.0155
+                    cx, cy = W / 2 + (-0.08 + i * 0.04) * k, y0 + H / 2
+                    d.line([cx + r0 * k * math.sin(ang), cy - r0 * k * math.cos(ang), cx + r1 * k * math.sin(ang), cy - r1 * k * math.cos(ang)], fill=(214, 214, 208), width=4)
+        else:
+            for i, s in enumerate(L.PED_TESTS):
+                put(-0.07 + i * 0.07, 0.0175, s, 0.0030)
+        y0 += H
+    img = img.resize((1024, img.height // 2), Image.LANCZOS)
+    img.save(os.path.join(OUT, 'pedestal.png'))
+
+
 if __name__ == '__main__':
     build_atlas()
     build_decal()
     build_placards()
+    build_pedestal()
     print('ok', OUT)

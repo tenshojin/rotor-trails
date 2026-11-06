@@ -81,7 +81,8 @@ REG_PLATE = dict(u=0.300, v=-0.030, w=0.050, h=0.014, text='RT-7')
 EMER_SW = dict(u=0.127, v=-0.060, label='EMER. SW')
 
 # 右缘开关条：3 个拨动开关 + 1 个指示灯
-SWITCH_STRIP = dict(u=0.478, v=-0.250, w=0.036, h=0.180, toggles=[-0.205, -0.245, -0.285], lamp=-0.168)
+SWITCH_STRIP = dict(u=0.478, v=-0.250, w=0.036, h=0.180, toggles=[-0.205, -0.245, -0.285], lamp=-0.168,
+                    ids=['ldg', 'pos', 'wiper'], labels=['LDG LT', 'POS LT', 'WIPER'])
 
 # 左侧设备
 ELT = dict(u=-0.330, v=-0.066, w=0.036, h=0.074, label='ELT')
@@ -98,9 +99,13 @@ XPDR = dict(u=-0.405, v=-0.384, w=0.196, h=0.052)
 # 断路器：两排
 CB = dict(u=-0.405, v=-0.452, cols=7, du=0.027, dv=0.032,
           labels=['BATT', 'GEN', 'STBY', 'AVNX', 'GPS', 'COM', 'XPDR', 'HYD', 'FUEL', 'START', 'NAV LT', 'LDG LT', 'WIPER', 'ICS'])
-# 翘板开关一排 + 小时计
-ROCKERS = dict(u=0.305, v=-0.405, n=6, du=0.037, labels=['BATT', 'GEN', 'FUEL P', 'A-COL', 'PITOT', 'CAB HT'])
+# 翘板开关两排 + 小时计 + 发动机主开关
+ROCKERS = dict(u=0.305, v=-0.405, n=6, du=0.037, labels=['BATT', 'GEN', 'FUEL P', 'A-COL', 'PITOT', 'CAB HT'],
+               ids=['batt', 'gen', 'fuelP', 'acol', 'pitot', 'cabHt'])
+ROCKERS2 = dict(u=0.2495, v=-0.458, n=3, du=0.037, labels=['SAS', 'HYD', 'HORN'], ids=['sas', 'hydSw', 'hornMute'])
 HOBBS = dict(u=0.150, v=-0.405, w=0.056, h=0.026)
+# 发动机主开关：三挡旋钮，打到 IDLE 自动起动，FLIGHT 由调速器把旋翼带到 100%
+ENG_MAIN = dict(u=0.362, v=-0.456, r=0.0185, angles=[-52, 0, 52], labels=['OFF', 'IDLE', 'FLIGHT'])
 # 电子飞行包（平板）：夹在左侧面板上，朝向驾驶员。center：仪表板坐标 (u, v, w)
 EFB = dict(w=0.196, h=0.142, center=(-0.432, -0.108, 0.078))
 
@@ -113,9 +118,22 @@ LABELS = [
     (-0.004, -0.432, 'GPS OPERABLE IN VFR CONDITIONS ONLY', 0.0042, 'c'),
     (0.302, -0.338, 'PITCH  SYNC', 0.0035, 'c'),
     (-0.330, -0.110, 'TEST', 0.0035, 'c'),
-    (0.478, -0.150, 'LDG LT', 0.0035, 'c'),
-    (0.478, -0.335, 'WIPER', 0.0035, 'c'),
 ]
+
+# 中央操纵台：一块竖直音频板 + 斜面上三块板（灯光开关、调光旋钮、测试按钮）。文字画在 pedestal.png 里
+PED_AUDIO = ['COM1', 'COM2', 'NAV', 'ADF', 'DME', 'MKR', 'AUX', 'ICS', 'PA', 'SPKR', 'VOX', 'HI', 'NORM', 'TEST']
+PED_TOGGLES = ['DOME', 'MAP LT', 'FLOOD', 'DEMIST', 'HOOK', 'CAM', 'FLOAT', 'AUX']
+PED_KNOBS = ['DOME', 'MAP', 'FLOOD', 'HEAT', 'VENT']
+PED_PLATES = [('audio', 0.17, 0.052), ('toggles', 0.20, 0.05), ('knobs', 0.20, 0.06), ('tests', 0.22, 0.07)]
+PED_TESTS = ['LAMP TEST', 'FIRE TEST', 'HORN TEST']
+
+
+def ped_plate_uv(i):
+    """操纵台第 i 块面板在 pedestal.png 里的 UV 矩形 (u0, v0, u1, v1)：四块从上到下排满整张图。"""
+    total = sum(p[2] / p[1] for p in PED_PLATES)
+    top = sum(p[2] / p[1] for p in PED_PLATES[:i]) / total
+    bot = sum(p[2] / p[1] for p in PED_PLATES[:i + 1]) / total
+    return (0.0, 1 - bot, 1.0, 1 - top)
 
 # 面板螺丝（u, v）：沿外缘和分区线
 def screw_positions():

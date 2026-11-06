@@ -6,6 +6,8 @@
 #   scr_<名字>         动态屏幕（UV 0..1，游戏里换成 Canvas 贴图）
 #   ctl_cyclic / ctl_collective / ctl_pedal_l / ctl_pedal_r  操纵机构（原点 = 转轴/滑动基点）
 #   glass_*            窗玻璃（游戏里换成带雨滴效果的玻璃材质）
+#   hs_<控件>          可以点的按钮和开关（原点 = 转轴，extras：kind 运动方式、axis 游戏坐标的转轴或滑动方向，见 src/render/cockpitControls.ts）
+#   led_<名字>         指示灯（游戏里按状态点亮）
 
 import math
 import os
@@ -76,8 +78,11 @@ def mats():
     M['lamp_y'] = K.material('cp_lamp_amber', 0xffb020, rough=0.2, emit=0xffa018, emit_strength=0.6)
     M['glass'] = K.material('glass_clear', 0xffffff, rough=0.02, alpha=0.06)
     M['glass_roof'] = K.material('glass_roof', 0x2aa69e, rough=0.02, alpha=0.42)  # 照片里顶窗是青绿色
-    for s in ('vemd1', 'vemd2', 'ai', 'gps', 'ann', 'efb'):
+    for s in ('vemd1', 'vemd2', 'ai', 'gps', 'ann', 'efb', 'radio', 'xpdr', 'hobbs', 'track'):
         M['scr_' + s] = K.material('scr_' + s, 0x05070a, rough=0.15, emit=0x0b1420, emit_strength=1.0)
+    M['ped'] = K.material('cp_pedestal', 0x808080, rough=0.55, tex=os.path.join(TEX, 'pedestal.png'))
+    M['guard'] = K.material('cp_guard', 0xb01a14, rough=0.3)
+    M['led'] = K.material('cp_led', 0x3a2a10, rough=0.3)
 
 
 mats()
@@ -185,6 +190,18 @@ def D(ob, **extras):
         ob[k] = v
     DYNAMIC.append(ob)
     return ob
+
+
+def HOT(ob, hid, kind, pivot, axis, **extras):
+    """可以点的控件：单独一个节点，原点放在转轴上。axis 用 Blender 方向，导出时换成游戏坐标。"""
+    K.apply_mods(ob)
+    K.bake_transform(ob)
+    K.set_origin(ob, Vector(pivot))
+    if ob.data.uv_layers.get('UVMap') is None:
+        K.uv_box(ob, 1 / 0.12)
+    ob.name = 'hs_' + hid
+    ob.data.name = 'hs_' + hid
+    return D(ob, kind=kind, axis=list(game_vec(Vector(axis))), **extras)
 
 
 # ------------------------------------------------------------------ 机身外壳（截面放样）
@@ -498,10 +515,12 @@ def build_panel():
         S(lathe(f'bezel_{gid}', [(ri, -0.009), (ri, 0.011), (ri + 0.0025, 0.0145), (ro - 0.003, 0.0152), (ro, 0.0128), (ro, 0.004)], (u, v), 0.0, M['black'], seg=64))
         if gid in ('alt', 'hsi', 'hdg2'):
             # 左下角的调节旋钮（气压 / 航向游标）
-            S(lathe(f'adj_{gid}', [(0.0, 0.024), (0.0062, 0.0235), (0.0072, 0.020), (0.0072, 0.008), (0.0052, 0.006), (0.0052, 0.0)],
-                    (u - R * 0.92, v - R * 0.92), 0.004, M['knob'], seg=20))
+            au, av = u - R * 0.92, v - R * 0.92
+            HOT(lathe(f'adj_{gid}', [(0.0, 0.024), (0.0062, 0.0235), (0.0072, 0.020), (0.0072, 0.008), (0.0052, 0.006), (0.0052, 0.0)],
+                     (au, av), 0.004, M['knob'], seg=20), f'adj_{gid}', 'knob', PW(au, av, 0.004), PN)
         if gid == 'nr':
-            S(lathe('nr_test', [(0.0, 0.016), (0.004, 0.0155), (0.0045, 0.0)], (u, v - R - 0.012), 0.004, M['knob'], seg=14))
+            HOT(lathe('nr_test', [(0.0, 0.016), (0.004, 0.0155), (0.0045, 0.0)], (u, v - R - 0.012), 0.004, M['knob'], seg=14),
+               'nr_test', 'press', PW(u, v - R - 0.012, 0.004), -PN, travel=0.003)
         for cu, cv in ((1, 1), (-1, 1), (1, -1), (-1, -1)):
             k = (d + 0.008) / 2 - 0.0045
             S(lathe(f'gscrew_{gid}_{cu}{cv}', [(0.0, 0.0014), (0.0015, 0.0012), (0.002, 0.0)], (u + cu * k, v + cv * k), 0.004, M['dmetal'], seg=10, smooth=60))
@@ -532,8 +551,10 @@ def build_panel():
     S(frame)
     D(panel_quad('scr_ai', A['u'], A['v'], A['w'] + 0.003, A['h'] + 0.003, -0.002, M['scr_ai']), role='screen')
     # 顶部 PITCH SYNC 拨片 + 右下角旋钮
-    S(panel_box('ai_sync', A['u'], A['v'] + A['frame_h'] / 2 + 0.004, 0.030, 0.008, 0.004, 0.012, M['black'], bevel=0.002))
-    S(lathe('ai_knob', [(0.0, 0.016), (0.0050, 0.0155), (0.006, 0.006), (0.006, 0.0)], (A['u'] + 0.030, A['v'] - 0.045), 0.004, M['knob'], seg=20))
+    HOT(panel_box('ai_sync', A['u'], A['v'] + A['frame_h'] / 2 + 0.004, 0.030, 0.008, 0.004, 0.012, M['black'], bevel=0.002),
+       'ai_sync', 'press', PW(A['u'], A['v'] + A['frame_h'] / 2 + 0.004, 0.004), -PN, travel=0.002)
+    HOT(lathe('ai_knob', [(0.0, 0.016), (0.0050, 0.0155), (0.006, 0.006), (0.006, 0.0)], (A['u'] + 0.030, A['v'] - 0.045), 0.004, M['knob'], seg=20),
+       'ai_knob', 'knob', PW(A['u'] + 0.030, A['v'] - 0.045, 0.004), PN)
 
 
 def game_vec(v):
@@ -604,39 +625,50 @@ def build_units():
     n = len(V['keys'])
     for i in range(n):
         kv = V['v'] + V['h'] / 2 - 0.030 - i * (V['h'] - 0.05) / (n - 1)
-        S(panel_box(f'vemd_key{i}', V['keys_u'], kv, 0.028, 0.0145, 0.022, 0.0265, M['panel'], bevel=0.0012))
+        HOT(panel_box(f'vemd_key{i}', V['keys_u'], kv, 0.028, 0.0145, 0.022, 0.0265, M['panel'], bevel=0.0012),
+           f'vk_{i}', 'press', PW(V['keys_u'], kv, 0.0265), -PN, travel=0.0022)
     # GPS
     G = L.GPS
     S(panel_box('gps_body', G['u'], G['v'], G['w'], G['h'], 0.004, 0.026, M['panel'], bevel=0.003))
     sc = G['screen']
     D(panel_quad('scr_gps', sc['u'], sc['v'], sc['w'], sc['h'], 0.0263, M['scr_gps']), role='screen')
-    for cu in (-0.066, 0.066):
-        S(lathe(f'gps_knob_o{cu}', [(0.0, 0.010), (0.0095, 0.0098), (0.0105, 0.004), (0.0105, 0.0)], (G['u'] + cu, G['v'] - 0.016), 0.026, M['knob'], seg=28))
-        S(lathe(f'gps_knob_i{cu}', [(0.0, 0.019), (0.0062, 0.0185), (0.0068, 0.010), (0.0068, 0.0)], (G['u'] + cu, G['v'] - 0.016), 0.026, M['knob'], seg=24))
+    for k, cu in enumerate((-0.066, 0.066)):
+        c2 = (G['u'] + cu, G['v'] - 0.016)
+        HOT(lathe(f'gps_knob_o{k}', [(0.0, 0.010), (0.0095, 0.0098), (0.0105, 0.004), (0.0105, 0.0)], c2, 0.026, M['knob'], seg=28), f'gko_{k}', 'knob', PW(*c2, 0.026), PN)
+        HOT(lathe(f'gps_knob_i{k}', [(0.0, 0.019), (0.0062, 0.0185), (0.0068, 0.010), (0.0068, 0.0)], c2, 0.026, M['knob'], seg=24), f'gki_{k}', 'knob', PW(*c2, 0.026), PN)
     for i in range(6):
-        S(panel_box(f'gps_btn{i}', G['u'] - 0.045 + i * 0.018, G['v'] - 0.031, 0.013, 0.007, 0.026, 0.029, M['black'], bevel=0.001))
+        cu, cv = G['u'] - 0.045 + i * 0.018, G['v'] - 0.031
+        HOT(panel_box(f'gps_btn{i}', cu, cv, 0.013, 0.007, 0.026, 0.029, M['panel'], bevel=0.001), f'gk_{i}', 'press', PW(cu, cv, 0.029), -PN, travel=0.0016)
     for i in range(4):
-        S(panel_box(f'gps_sbtn{i}', G['u'] + 0.054 + (i % 2) * 0.022, G['v'] + 0.006 - (i // 2) * 0.013, 0.016, 0.008, 0.026, 0.029, M['black'], bevel=0.001))
+        cu, cv = G['u'] + 0.054 + (i % 2) * 0.022, G['v'] + 0.006 - (i // 2) * 0.013
+        HOT(panel_box(f'gps_sbtn{i}', cu, cv, 0.016, 0.008, 0.026, 0.029, M['panel'], bevel=0.001), f'gs_{i}', 'press', PW(cu, cv, 0.029), -PN, travel=0.0016)
     # 电台（较厚的挂装电台）
     R2 = L.RADIO
     S(panel_box('radio_body', R2['u'], R2['v'], R2['w'], R2['h'], 0.004, 0.042, M['panel'], bevel=0.005))
     S(panel_box('radio_mount', R2['u'] - R2['w'] / 2 - 0.012, R2['v'], 0.03, 0.05, 0.004, 0.030, M['black'], bevel=0.003))
-    S(lathe('radio_knob', [(0.0, 0.012), (0.007, 0.0115), (0.0075, 0.0), ], (R2['u'] - 0.098, R2['v'] + 0.012), 0.042, M['knob'], seg=20))
+    rk = (R2['u'] - 0.098, R2['v'] + 0.012)
+    HOT(lathe('radio_knob', [(0.0, 0.012), (0.007, 0.0115), (0.0075, 0.0), ], rk, 0.042, M['knob'], seg=20), 'rd_knob', 'knob', PW(*rk, 0.042), PN)
+    D(panel_quad('scr_radio', R2['u'] - 0.010, R2['v'] + 0.008, 0.080, 0.028, 0.0423, M['scr_radio']), role='screen')
     for i in range(7):
-        S(panel_box(f'radio_btn{i}', R2['u'] - 0.065 + i * 0.019, R2['v'] - 0.019, 0.012, 0.007, 0.042, 0.0445, M['black'], bevel=0.001))
+        cu, cv = R2['u'] - 0.065 + i * 0.019, R2['v'] - 0.019
+        HOT(panel_box(f'radio_btn{i}', cu, cv, 0.012, 0.007, 0.042, 0.0445, M['black'], bevel=0.001), f'rd_{i}', 'press', PW(cu, cv, 0.0445), -PN, travel=0.0014)
     # 话筒线：从电台右下绕到地板
     p0 = PW(R2['u'] - 0.12, R2['v'] - 0.02, 0.03)
     S(K.tube_path('radio_cord', K.round_path([p0, p0 + Vector((-0.05, -0.03, -0.12)), p0 + Vector((-0.08, -0.12, -0.25)), p0 + Vector((-0.10, -0.25, -0.45))], 0.06), 0.0035, M['rubber'], seg=8))
     H = L.HELISAFE
     S(panel_box('helisafe', H['u'], H['v'], H['w'], H['h'], 0.004, 0.020, M['panel'], bevel=0.002))
-    S(panel_box('helisafe_btn', H['u'] + 0.058, H['v'] + 0.004, 0.012, 0.012, 0.020, 0.026, M['black'], bevel=0.002))
+    D(panel_quad('scr_track', H['u'] - 0.012, H['v'] + 0.006, 0.100, 0.020, 0.0203, M['scr_track']), role='screen')
+    HOT(panel_box('helisafe_btn', H['u'] + 0.058, H['v'] + 0.004, 0.012, 0.012, 0.020, 0.026, M['black'], bevel=0.002),
+       'trk_btn', 'press', PW(H['u'] + 0.058, H['v'] + 0.004, 0.026), -PN, travel=0.002)
     E = L.ELT
     S(panel_box('elt', E['u'], E['v'], E['w'], E['h'], 0.004, 0.018, M['panel'], bevel=0.002))
-    S(panel_box('elt_sw', E['u'] - 0.004, E['v'] - 0.002, 0.008, 0.016, 0.018, 0.030, M['red'], bevel=0.001))
+    HOT(panel_box('elt_sw', E['u'] - 0.004, E['v'] - 0.002, 0.008, 0.016, 0.018, 0.030, M['red'], bevel=0.001),
+       'elt', 'tog', PW(E['u'] - 0.004, E['v'] - 0.002, 0.018), PU, positions=3, angle=16.0)
     # 照明旋钮
     for i, k in enumerate(L.KNOBS):
-        S(lathe(f'knob{i}', [(0.0, 0.016), (0.0072, 0.0155), (0.0082, 0.012), (0.0085, 0.003), (0.0095, 0.0025), (0.0095, 0.0)], (k['u'], k['v']), 0.004, M['knob'], seg=24))
-        S(panel_box(f'knob_mark{i}', k['u'], k['v'] + 0.0045, 0.0012, 0.004, 0.0195, 0.0201, M['needle']))
+        kn = lathe(f'knob{i}', [(0.0, 0.016), (0.0072, 0.0155), (0.0082, 0.012), (0.0085, 0.003), (0.0095, 0.0025), (0.0095, 0.0)], (k['u'], k['v']), 0.004, M['knob'], seg=24)
+        mk = panel_box(f'knob_mark{i}', k['u'], k['v'] + 0.0045, 0.0012, 0.004, 0.0195, 0.0201, M['needle'])
+        HOT(K.join([kn, mk], f'kn{i}'), ('kn_night', 'kn_syst', 'kn_inst')[i], 'knob', PW(k['u'], k['v'], 0.004), PN)
     # 告警灯板（动态屏）
     A = L.ANNUNCIATOR
     S(panel_box('ann_frame', A['u'], A['v'], A['w'] + 0.008, A['h'] + 0.008, 0.004, 0.009, M['black'], bevel=0.0015))
@@ -646,19 +678,25 @@ def build_units():
     # 应急开关：黑色底座 + 红色拨杆 + 护盖
     E = L.EMER_SW
     S(panel_box('emer_base', E['u'], E['v'], 0.030, 0.044, 0.004, 0.010, M['black'], bevel=0.004))
-    S(panel_box('emer_lever', E['u'], E['v'] + 0.004, 0.009, 0.018, 0.010, 0.030, M['red'], bevel=0.002))
-    for su in (-0.011, 0.011):
-        S(panel_box(f'emer_guard{su}', E['u'] + su, E['v'], 0.003, 0.034, 0.010, 0.034, M['black'], bevel=0.001))
+    HOT(panel_box('emer_lever', E['u'], E['v'] + 0.002, 0.008, 0.012, 0.010, 0.024, M['knob'], bevel=0.002),
+       'emer_lever', 'tog', PW(E['u'], E['v'] + 0.002, 0.010), PU, positions=2, angle=20.0)
+    for su in (-0.0125, 0.0125):
+        S(panel_box(f'emer_rail{su}', E['u'] + su, E['v'], 0.0025, 0.034, 0.010, 0.028, M['black'], bevel=0.0008))
+    # 翻盖护罩：红色盖板从上沿铰接，合着时盖住拨杆，要先掀开才碰得到
+    gd = panel_box('emer_cover', E['u'], E['v'] + 0.001, 0.0225, 0.036, 0.0272, 0.0302, M['guard'], bevel=0.0012)
+    sk = panel_box('emer_skirt', E['u'], E['v'] - 0.0165, 0.0225, 0.003, 0.016, 0.0302, M['guard'], bevel=0.0008)
+    HOT(K.join([gd, sk], 'emer_guard'), 'emer_guard', 'guard', PW(E['u'], E['v'] + 0.019, 0.028), -PU, angle=100.0)
     # 右缘开关条
     SW = L.SWITCH_STRIP
     S(panel_box('sw_strip', SW['u'], SW['v'], SW['w'], SW['h'], 0.004, 0.007, M['panel'], bevel=0.0015))
     for i, tv in enumerate(SW['toggles']):
         S(lathe(f'sw_nut{i}', [(0.0, 0.004), (0.0052, 0.004), (0.0052, 0.0)], (SW['u'], tv), 0.007, M['metal'], seg=6, smooth=0))
+        # 拨杆：沿仪表板法线竖直建，转动交给游戏（两挡或三挡）
         bat = K.cylinder(f'sw_bat{i}', 0.0016, 0.020, (0, 0, 0), M['metal'], 10, r2=0.0024)
         K.bake_transform(bat)
-        K.map_verts(bat, lambda c, tv=tv: tuple(PW(SW['u'], tv, 0.011) + Matrix.Rotation(math.radians(-70), 3, PU) @ (PU * c[0] + PN * c[1] + PV * (c[2] + 0.009) * 1.0) - PV * 0.0))
-        S(bat)
-    S(lathe('sw_lamp', [(0.0, 0.007), (0.003, 0.0065), (0.0042, 0.004), (0.0045, 0.0)], (SW['u'], SW['lamp']), 0.007, M['lamp_y'], seg=16))
+        K.map_verts(bat, lambda c, tv=tv: tuple(PW(SW['u'], tv, 0.011) + PU * c[0] + PV * c[1] + PN * (c[2] + 0.009)))
+        HOT(bat, 'tg_' + SW['ids'][i], 'tog', PW(SW['u'], tv, 0.011), PU, positions=3 if SW['ids'][i] == 'wiper' else 2, angle=26.0)
+    D(lathe('led_sw', [(0.0, 0.007), (0.003, 0.0065), (0.0042, 0.004), (0.0045, 0.0)], (SW['u'], SW['lamp']), 0.007, M['led'], seg=16), role='led')
 
 
 def build_extras():
@@ -668,35 +706,52 @@ def build_extras():
     for i in range(len(A2['labels'])):
         cu = A2['u'] - 0.046 + (i % A2['cols']) * 0.0205
         cv = A2['v'] + 0.009 - (i // A2['cols']) * 0.029
-        S(panel_box(f'audio_btn{i}', cu, cv, 0.0165, 0.012, 0.016, 0.0195, M['black'], bevel=0.001))
-        S(panel_box(f'audio_led{i}', cu, cv + 0.0042, 0.006, 0.0012, 0.0195, 0.0198, M['lamp_y'] if i in (0, 4) else M['dmetal']))
-    S(lathe('audio_knob', [(0.0, 0.012), (0.0062, 0.0115), (0.0072, 0.003), (0.0078, 0.0)], (A2['u'] + 0.052, A2['v'] - 0.014), 0.016, M['knob'], seg=20))
-    S(lathe('audio_knob2', [(0.0, 0.009), (0.0048, 0.0085), (0.0055, 0.0)], (A2['u'] + 0.052, A2['v'] + 0.016), 0.016, M['knob'], seg=18))
+        HOT(panel_box(f'audio_btn{i}', cu, cv, 0.0165, 0.012, 0.016, 0.0195, M['black'], bevel=0.001), f'au_{i}', 'press', PW(cu, cv, 0.0195), -PN, travel=0.0016)
+        D(panel_box(f'led_au_{i}', cu, cv + 0.0042, 0.006, 0.0012, 0.0195, 0.0198, M['led']), role='led')
+    k1, k2 = (A2['u'] + 0.052, A2['v'] - 0.014), (A2['u'] + 0.052, A2['v'] + 0.016)
+    HOT(lathe('audio_knob', [(0.0, 0.012), (0.0062, 0.0115), (0.0072, 0.003), (0.0078, 0.0)], k1, 0.016, M['knob'], seg=20), 'au_vol', 'knob', PW(*k1, 0.016), PN)
+    HOT(lathe('audio_knob2', [(0.0, 0.009), (0.0048, 0.0085), (0.0055, 0.0)], k2, 0.016, M['knob'], seg=18), 'au_sql', 'knob', PW(*k2, 0.016), PN)
 
     X = L.XPDR
     S(panel_box('xpdr_body', X['u'], X['v'], X['w'], X['h'], 0.004, 0.020, M['panel'], bevel=0.002))
-    S(lathe('xpdr_knob', [(0.0, 0.010), (0.0072, 0.0095), (0.0082, 0.0)], (X['u'] + 0.076, X['v'] + 0.004), 0.020, M['knob'], seg=22))
+    xk = (X['u'] + 0.076, X['v'] + 0.004)
+    HOT(lathe('xpdr_knob', [(0.0, 0.010), (0.0072, 0.0095), (0.0082, 0.0)], xk, 0.020, M['knob'], seg=22), 'xp_knob', 'knob', PW(*xk, 0.020), PN)
+    D(panel_quad('scr_xpdr', X['u'] - 0.010, X['v'] + 0.004, 0.106, 0.026, 0.0203, M['scr_xpdr']), role='screen')
     for i in range(5):
-        S(panel_box(f'xpdr_btn{i}', X['u'] - 0.044 + i * 0.022, X['v'] - 0.0165, 0.016, 0.0075, 0.020, 0.0225, M['black'], bevel=0.0008))
+        cu, cv = X['u'] - 0.044 + i * 0.022, X['v'] - 0.0165
+        HOT(panel_box(f'xpdr_btn{i}', cu, cv, 0.016, 0.0075, 0.020, 0.0225, M['black'], bevel=0.0008), f'xp_{i}', 'press', PW(cu, cv, 0.0225), -PN, travel=0.0014)
 
     Cb = L.CB
     for i in range(len(Cb['labels'])):
         cu = Cb['u'] - 0.081 + (i % Cb['cols']) * Cb['du']
         cv = Cb['v'] + 0.016 - (i // Cb['cols']) * Cb['dv']
         S(lathe(f'cb_collar{i}', [(0.0031, 0.0026), (0.0060, 0.0024), (0.0066, 0.0)], (cu, cv), 0.004, M['needle'], seg=14))
-        S(lathe(f'cb_btn{i}', [(0.0, 0.0118), (0.0026, 0.0114), (0.0034, 0.0098), (0.0034, 0.0)], (cu, cv), 0.004, M['knob'], seg=12))
+        HOT(lathe(f'cb_btn{i}', [(0.0, 0.0118), (0.0026, 0.0114), (0.0034, 0.0098), (0.0034, 0.0)], (cu, cv), 0.004, M['knob'], seg=12),
+           f'cb_{i}', 'pull', PW(cu, cv, 0.004), PN, travel=0.0065)
 
-    Ro = L.ROCKERS
-    for i in range(Ro['n']):
-        cu = Ro['u'] - Ro['du'] * (Ro['n'] - 1) / 2 + i * Ro['du']
-        S(panel_box(f'rk_frame{i}', cu, Ro['v'], 0.020, 0.040, 0.004, 0.0078, M['black'], bevel=0.0012))
-        up = i < 3
-        S(panel_box(f'rk_hi{i}', cu, Ro['v'] + 0.0095, 0.015, 0.0165, 0.0078, 0.0132 if up else 0.0092, M['knob'], bevel=0.001))
-        S(panel_box(f'rk_lo{i}', cu, Ro['v'] - 0.0095, 0.015, 0.0165, 0.0078, 0.0092 if up else 0.0132, M['knob'], bevel=0.001))
-        S(panel_box(f'rk_mark{i}', cu, Ro['v'] + 0.0105, 0.0085, 0.0018, 0.0132 if up else 0.0092, (0.0132 if up else 0.0092) + 0.0003, M['needle']))
+    for Ro in (L.ROCKERS, L.ROCKERS2):
+        for i in range(Ro['n']):
+            cu = Ro['u'] - Ro['du'] * (Ro['n'] - 1) / 2 + i * Ro['du']
+            hid = Ro['ids'][i]
+            S(panel_box(f'rk_frame_{hid}', cu, Ro['v'], 0.020, 0.040, 0.004, 0.0078, M['black'], bevel=0.0012))
+            # 翘板：上下两半和白色标记一起绕中心摆动，按下去的一边陷进框里
+            hi = panel_box(f'rk_hi_{hid}', cu, Ro['v'] + 0.0095, 0.015, 0.0165, 0.0078, 0.0112, M['knob'], bevel=0.001)
+            lo = panel_box(f'rk_lo_{hid}', cu, Ro['v'] - 0.0095, 0.015, 0.0165, 0.0078, 0.0112, M['knob'], bevel=0.001)
+            mk = panel_box(f'rk_mark_{hid}', cu, Ro['v'] + 0.0105, 0.0085, 0.0018, 0.0112, 0.0115, M['needle'])
+            HOT(K.join([hi, lo, mk], f'rk_{hid}'), 'rk_' + hid, 'rock', PW(cu, Ro['v'], 0.0078), PU, angle=7.0)
+
+    # 发动机主开关：黄底圈 + 黑色指针旋钮，三挡
+    Eg = L.ENG_MAIN
+    S(lathe('eng_ring', [(Eg['r'] * 1.45, 0.0), (Eg['r'] * 1.42, 0.0012), (Eg['r'] * 1.1, 0.0016), (Eg['r'] * 1.08, 0.0)], (Eg['u'], Eg['v']), 0.004, M['yellow'], seg=40))
+    S(lathe('eng_base', [(0.0, 0.0034), (Eg['r'] * 1.08, 0.0032), (Eg['r'] * 1.1, 0.0)], (Eg['u'], Eg['v']), 0.004, M['black'], seg=40))
+    ek = lathe('eng_knob', [(0.0, 0.0165), (0.0095, 0.016), (0.0128, 0.012), (0.0134, 0.0036), (0.0150, 0.003), (0.0150, 0.0)], (Eg['u'], Eg['v']), 0.0072, M['knob'], seg=30)
+    eb = panel_box('eng_bar', Eg['u'], Eg['v'] + 0.0035, 0.0095, 0.031, 0.012, 0.0265, M['knob'], bevel=0.0025)
+    em = panel_box('eng_mark', Eg['u'], Eg['v'] + 0.0118, 0.0018, 0.0115, 0.0265, 0.0268, M['needle'])
+    HOT(K.join([ek, eb, em], 'eng_sel'), 'eng_main', 'knob', PW(Eg['u'], Eg['v'], 0.0072), PN)
 
     Hb = L.HOBBS
     S(panel_box('hobbs', Hb['u'], Hb['v'], Hb['w'] + 0.008, Hb['h'] + 0.008, 0.004, 0.0052, M['panel']))
+    D(panel_quad('scr_hobbs', Hb['u'], Hb['v'], Hb['w'], Hb['h'], 0.0054, M['scr_hobbs']), role='screen')
 
     # 电子飞行包：平板夹在球头支架上，屏幕朝向驾驶员
     E = L.EFB
@@ -813,17 +868,29 @@ def build_pedestal():
     def at(x, y, z):
         return tuple(c0 + Vector((1, 0, 0)) * x + up * y + n * z)
 
+    def ped_label(i, center, u_dir, v_dir, nrm, w, h):
+        """操纵台面板的字（pedestal.png 的第 i 块），贴在面板上 0.6 mm"""
+        c = Vector(center) + nrm * 0.0006
+        verts = [c - u_dir * w / 2 - v_dir * h / 2, c + u_dir * w / 2 - v_dir * h / 2, c + u_dir * w / 2 + v_dir * h / 2, c - u_dir * w / 2 + v_dir * h / 2]
+        ob = K.mesh_obj(f'ped_plate{i}', verts, [(0, 1, 2, 3)], M['ped'], smooth=0)
+        u0, v0, u1, v1 = L.ped_plate_uv(i)
+        uv = K.uv_layer(ob)
+        for li, t in zip(range(4), [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]):
+            uv.data[li].uv = t
+        return ob
+
     ap = K.box('audio_panel', (0.17, 0.052, 0.012), (0, 0, 0), M['black'])
     K.map_verts(ap, lambda c: at(c[0], c[1], c[2] + 0.006))
     S(ap)
+    S(ped_label(0, at(0, 0, 0.012), Vector((1, 0, 0)), up, n, 0.17, 0.052))
     for r in range(2):
         for i in range(7):
             b = K.box(f'audio_btn{r}{i}', (0.016, 0.009, 0.004), (0, 0, 0), M['dmetal'] if r == 0 else M['knob'])
             K.map_verts(b, lambda c, r=r, i=i: at(-0.066 + i * 0.019 + c[0], 0.012 - r * 0.020 + c[1], 0.013 + c[2]))
-            S(b)
+            HOT(b, f'pa_{r * 7 + i}', 'press', at(-0.066 + i * 0.019, 0.012 - r * 0.020, 0.015), -n, travel=0.0016)
     kn = K.cylinder('audio_knob', 0.007, 0.012, (0, 0, 0), M['knob'], 20)
     K.map_verts(kn, lambda c: at(0.075 + c[0], 0.0 + c[1], 0.018 + c[2]))
-    S(kn)
+    HOT(kn, 'pa_knob', 'knob', at(0.075, 0.0, 0.012), n)
     # 斜面：应答机、开关组
     n2 = Vector((0, -0.115, 0.245)).normalized()
     n2 = Vector((0, -(0.645 - 0.53), (1.665 - 1.42))).normalized()
@@ -843,14 +910,20 @@ def build_pedestal():
         K.map_verts(b, lambda c, x=x, s=s: at2(x + c[0], s + c[1], 0.006 + c[2]))
         K.add_bevel(b, 0.002, 1)
         S(b)
+        # 字朝驾驶员：沿斜面向下是“下”
+        S(ped_label(k + 1, at2(x, s, 0.012), Vector((1, 0, 0)), -along, nrm, w, h))
     for k in range(5):
         kn = K.cylinder(f'ped_knob{k}', 0.0085 if k % 2 else 0.006, 0.02, (0, 0, 0), M['knob'], 18)
         K.map_verts(kn, lambda c, k=k: at2(-0.08 + k * 0.04 + c[0], 0.095 + c[1], 0.022 + c[2]))
-        S(kn)
+        HOT(kn, f'pk_{k}', 'knob', at2(-0.08 + k * 0.04, 0.095, 0.012), nrm)
     for k in range(8):
         t = K.cylinder(f'ped_toggle{k}', 0.0018, 0.018, (0, 0, 0), M['metal'], 8)
-        K.map_verts(t, lambda c, k=k: at2(-0.084 + k * 0.024 + c[0], 0.03 + c[1] * 0.3 + c[2] * 0.25, 0.020 + c[2] * 0.9))
-        S(t)
+        K.map_verts(t, lambda c, k=k: at2(-0.084 + k * 0.024 + c[0], 0.03 + c[1], 0.021 + c[2]))
+        HOT(t, f'pt_{k}', 'tog', at2(-0.084 + k * 0.024, 0.03, 0.012), Vector((1, 0, 0)), positions=2, angle=24.0)
+    for k in range(3):
+        b = K.cylinder(f'ped_test{k}', 0.0075, 0.008, (0, 0, 0), M['knob'] if k else M['dmetal'], 18, bevel=0.0012)
+        K.map_verts(b, lambda c, k=k: at2(-0.07 + k * 0.07 + c[0], 0.17 + c[1], 0.0165 + c[2]))
+        HOT(b, f'px_{k}', 'press', at2(-0.07 + k * 0.07, 0.17, 0.0205), -nrm, travel=0.002)
 
 
 # ------------------------------------------------------------------ 地板、脚蹬、操纵杆
@@ -895,11 +968,12 @@ def build_floor_controls(bvh):
     # 周期变距杆、总距杆（新版握把，见 cyclic_v2 / collective_v2）
     base = Vector((0.45, 1.30, -0.78))
     D(cyclic_v2(base), role='cyclic')
-    piv = Vector((0.20, 0.72, -0.50))
+    # （手柄要在大腿高度：放低了手够不着，坐垫也会挡住）
+    piv = Vector((0.20, 0.72, -0.43))
     D(collective_v2(piv), role='collective')
     PILOT_EXTRA.append(K.cylinder('col_hinge', 0.03, 0.06, (piv.x, piv.y, piv.z), M['dmetal'], 18, rot=(0, math.radians(90), 0)))
     PILOT_EXTRA.append(K.cylinder('col_friction', 0.016, 0.03, (piv.x + 0.045, piv.y, piv.z), M['knob'], 18, rot=(0, math.radians(90), 0)))
-    PILOT_EXTRA.append(rbox('col_box', (0.08, 0.30, 0.20), (0.20, 0.70, -0.65), M['lining_d'], 0.012, 2))
+    PILOT_EXTRA.append(rbox('col_box', (0.08, 0.30, 0.34), (0.20, 0.70, -0.60), M['lining_d'], 0.012, 2))
 
 
 # ------------------------------------------------------------------ 座椅
@@ -968,8 +1042,9 @@ def build_overhead(bvh):
         for j in range(6):
             x, y = -0.07 + j * 0.028, 0.098 - i * 0.034
             S(on_frame(at(x, y, T + 0.0045), K.cylinder(f'cb{i}{j}', 0.0052, 0.007, (0, 0, 0), M['dmetal'], 14)))
-            S(on_frame(at(x, y, T + 0.0085), K.cylinder(f'cbk{i}{j}', 0.0036, 0.008, (0, 0, 0), M['knob'], 12, bevel=0.0008)))
-    S(on_frame(at(0.066, -0.112, T + 0.004), K.cylinder('ovh_lamp', 0.0065, 0.004, (0, 0, 0), M['red'], 16, bevel=0.001)))
+            HOT(on_frame(at(x, y, T + 0.0085), K.cylinder(f'cbk{i}{j}', 0.0036, 0.008, (0, 0, 0), M['knob'], 12, bevel=0.0008)),
+               f'ob_{i * 6 + j}', 'pull', fr @ Vector((x, y, T + 0.0045)), fr.to_3x3() @ Vector((0, 0, 1)), travel=0.0065)
+    D(on_frame(at(0.066, -0.112, T + 0.004), K.cylinder('led_ovh', 0.0065, 0.004, (0, 0, 0), M['led'], 16, bevel=0.001)), role='led')
     for k in range(7):  # 出风格栅
         S(on_frame(at(0.0, -0.060 - k * 0.0085, T + 0.0035), K.box(f'ovh_vent{k}', (0.052, 0.0036, 0.0032), (0, 0, 0), M['knob'])))
     # 燃油切断手柄（红）与旋翼刹车手柄（黄）：细拉杆在滑槽里，端头是彩色握手
@@ -978,8 +1053,10 @@ def build_overhead(bvh):
         y0 = 0.006 if x > 0 else -0.03
         a = fr @ Vector((x, y0, T + 0.003))
         b = fr @ Vector((x, y0 - 0.006, T + 0.036))
-        S(K.tube_path(nm + '_rod', [a, b], 0.0032, M['brushed'], seg=10))
-        S(on_frame(at(x, y0 - 0.006, T + 0.042) @ Matrix.Rotation(math.pi / 2, 4, 'Y'), K.cylinder(nm, 0.0085, 0.036, (0, 0, 0), mat, 16, bevel=0.003)))
+        rod = K.tube_path(nm + '_rod', [a, b], 0.0032, M['brushed'], seg=10)
+        hand = on_frame(at(x, y0 - 0.006, T + 0.042) @ Matrix.Rotation(math.pi / 2, 4, 'Y'), K.cylinder(nm, 0.0085, 0.036, (0, 0, 0), mat, 16, bevel=0.003))
+        # 手柄沿滑槽走：燃油切断往后拉，旋翼刹车往前推
+        HOT(K.join([rod, hand], nm + '_h'), nm, 'lever', fr @ Vector((x, y0, T + 0.003)), fr.to_3x3() @ Vector((0, -1, 0)), travel=0.05)
     # 风挡中柱顶端的磁罗盘：黑色圆筒壳 + 悬挂支架，视窗里是刻度带和橙色基准线，下面挂校正卡
     post = bvh.ray_cast(Vector((0, 1.05, 0.15)), azel_dir(0, 26))[0]
     aim = (Vector(L.EYE) - post).normalized()

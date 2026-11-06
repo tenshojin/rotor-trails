@@ -5,6 +5,7 @@
 import { Quaternion, Vector3 } from 'three';
 import { HELI, ASSISTS, BOOST, densityRatio, engineAltitudeFactor, type AssistId, type AssistPreset } from '../config/flight';
 import { approach, clamp, DEG, G, smoothstep, wrapPi } from '../core/math';
+import type { Systems } from './systems';
 
 export interface BodyState {
   pos: Vector3;
@@ -43,6 +44,8 @@ export interface FlightEnv {
   /** 接触地面的滑橇支点数 */
   gearContacts: number;
   time: number;
+  /** 机载系统（只有超仿真模式有） */
+  sys?: Systems | null;
 }
 
 export type HoverPhase = 'off' | 'braking' | 'holding';
@@ -77,15 +80,26 @@ export interface FlightTelemetry {
   /** 指令的垂直速度（新手/标准模式），用于仪表游标 */
   vsCommand: number;
   altitudeHold: number | null;
+  /** 发动机轴功率占主减速器限制的比例（扭矩表，1 = 100%） */
+  torque: number;
+  /** 机身振动 0..1（平移升力过渡、涡环、后行桨叶失速、低转速） */
+  vibration: number;
+  /** 涡环状态 0..1 */
+  vortexRing: number;
+  /** 后行桨叶失速 0..1 */
+  bladeStall: number;
 }
 
 const ROTOR_AREA = Math.PI * HELI.rotorRadius * HELI.rotorRadius;
 const OMEGA = HELI.tipSpeed / HELI.rotorRadius;
 
-/** 旋翼需用功率（动量理论 + 型阻功率 + 推力做功），单位 W。 */
-export function powerRequired(T: number, rho: number, vAxial: number, vEdge: number, ge = 1): number {
+/**
+ * 旋翼需用功率（动量理论 + 型阻功率 + 推力做功），单位 W。下降时推力做功是负的，
+ * 能抵消诱导和型阻功率时就是自转：结果为负表示气流在给旋翼加速。nr 是转速比，型阻功率按三次方变化。
+ */
+function rotorPower(T: number, rho: number, vAxial: number, vEdge: number, ge: number, nr: number, profile = 1): number {
   const mu = vEdge / HELI.tipSpeed;
-  const p0 = HELI.profilePower * (rho / 1.225) * (1 + 4.65 * mu * mu);
+  const p0 = HELI.profilePower * profile * (rho / 1.225) * (1 + 4.65 * mu * mu) * nr * nr * nr;
   if (T <= 1) return p0;
   const vh2 = T / (2 * rho * ROTOR_AREA);
   const vh = Math.sqrt(vh2);
@@ -94,7 +108,11 @@ export function powerRequired(T: number, rho: number, vAxial: number, vEdge: num
     const den = Math.max(Math.hypot(vEdge, vAxial + vi), 0.55 * vh);
     vi = 0.5 * vi + 0.5 * (vh2 / den);
   }
-  return Math.max(0, (HELI.kappa * T * vi) / ge + T * vAxial + p0);
+  return (HELI.kappa * T * vi) / ge + T * vAxial + p0;
+}
+
+export function powerRequired(T: number, rho: number, vAxial: number, vEdge: number, ge = 1): number {
+  return Math.max(0, rotorPower(T, rho, vAxial, vEdge, ge, 1));
 }
 
 /** 在给定功率下能产生的最大推力（二分法）。 */
@@ -151,6 +169,25 @@ export class FlightModel {
   private stickP = 0;
   private stickR = 0;
   private pedal = 0;
+  // ---------- 超仿真 ----------
+  /** 旋翼转速比（1 = 100%）。其他模式调速器是完美的，恒为 1 */
+  nr = 1;
+  /** 发动机轴功率（W）与调速器此刻要的功率 */
+  shaft = 0;
+  powerDemand = 0;
+  /** 配平位置：松开按键时杆回到这里（配平键把当前杆位设成新的中立点） */
+  trimStickP = 0;
+  trimStickR = 0;
+  trimPedal = 0;
+  private cycP = 0;
+  private cycR = 0;
+  private ped = 0;
+  private govInt = 0;
+  /** 调速器的转速基准：从慢车到飞行档是慢慢带上去的 */
+  private nrRef = 0;
+  private sasP: number | null = null;
+  private sasR: number | null = null;
+  private sasH: number | null = null;
 
   readonly telemetry: FlightTelemetry = {
     thrust: 0,
@@ -179,7 +216,18 @@ export class FlightModel {
     density: 1,
     vsCommand: 0,
     altitudeHold: null,
+    torque: 0,
+    vibration: 0,
+    vortexRing: 0,
+    bladeStall: 0,
   };
+
+  /** 配平键：把现在的杆位设成松手后回到的位置 */
+  setTrim(): void {
+    this.trimStickP = this.cycP;
+    this.trimStickR = this.cycR;
+    this.trimPedal = this.ped;
+  }
 
   setAssist(id: AssistId): void {
     this.assist = ASSISTS[id];
@@ -211,6 +259,13 @@ export class FlightModel {
     this.enginePower = grounded ? HELI.profilePower : powerRequired(W, 1.225 * sigma, 0, 0, 1);
     this.lastThrust = grounded ? 0 : W;
     this.groundTimer = 0;
+    this.cycP = this.cycR = this.ped = this.trimStickP = this.trimStickR = this.trimPedal = 0;
+    this.sasP = this.sasR = this.sasH = null;
+    this.govInt = 0;
+    if (this.assist.id === 'sim') {
+      this.nr = grounded ? this.nr : 1;
+      this.shaft = this.powerDemand = grounded ? this.shaft : this.enginePower;
+    }
   }
 
   /**
@@ -218,6 +273,10 @@ export class FlightModel {
    * 重力由物理世界施加；滑橇弹簧力由起落架模块施加。
    */
   update(b: BodyState, env: FlightEnv, input: PilotInput, dt: number, outForce: Vector3, outTorque: Vector3): void {
+    if (env.sys) {
+      this.updateSim(b, env, env.sys, input, dt, outForce, outTorque);
+      return;
+    }
     const H = HELI;
     const A = this.assist;
     const tel = this.telemetry;
@@ -561,7 +620,231 @@ export class FlightModel {
     tel.density = sigma;
     tel.vsCommand = vsCmd;
     tel.altitudeHold = this.altRef;
+    tel.torque = this.enginePower / H.transmissionLimit;
+    tel.vibration = 0;
+    tel.vortexRing = 0;
+    tel.bladeStall = 0;
   }
+
+  /**
+   * 超仿真：没有姿态指令、没有高度保持，只有四根杆和一台要自己照看的发动机。
+   * 键盘相当于手：按键把杆慢慢推过去，松手杆回到配平位置。旋翼转速是一个有惯性的状态量：
+   * 轴功率、旋翼需用功率和刹车在这里相减，自转、低转速、超转都从这一行里长出来。
+   */
+  private updateSim(b: BodyState, env: FlightEnv, sys: Systems, input: PilotInput, dt: number, outForce: Vector3, outTorque: Vector3): void {
+    const H = HELI;
+    const tel = this.telemetry;
+    const q = b.quat;
+    _qInv.copy(q).invert();
+    _fwd.set(0, 0, -1).applyQuaternion(q);
+    _up.set(0, 1, 0).applyQuaternion(q);
+    _right.set(1, 0, 0).applyQuaternion(q);
+    const heading = Math.atan2(_fwd.x, -_fwd.z);
+    const pitch = Math.asin(clamp(_fwd.y, -1, 1));
+    const roll = Math.atan2(-_right.y, _up.y);
+    _wB.copy(b.angVel).applyQuaternion(_qInv);
+    const pitchRate = _wB.x;
+    const yawRateR = -_wB.y;
+    const rollRateR = -_wB.z;
+    _vAir.copy(b.vel).sub(env.wind);
+    _vAirB.copy(_vAir).applyQuaternion(_qInv);
+    const forwardAir = -_vAirB.z;
+    const lateralAir = _vAirB.x;
+    const vAxial = _vAir.dot(_up);
+    _tmp.copy(_up).multiplyScalar(vAxial);
+    const vEdge = _tmp.subVectors(_vAir, _tmp).length();
+    const sigma = densityRatio(env.altitudeMSL);
+    const rho = 1.225 * sigma;
+    const W = env.mass * G;
+    const nr = this.nr;
+    const nr2 = nr * nr;
+
+    // ---------- 杆 ----------
+    // 没有液压时杆很沉：推不了那么快，也推不了那么远
+    const hyd = sys.hydraulics;
+    const force = 0.3 + 0.7 * hyd;
+    // A/D：悬停时是脚蹬，有了速度以后主要是压坡度（速度上去后垂尾自己把机头带过去）
+    const fast = smoothstep(14, 30, Math.max(0, forwardAir));
+    const pedalKey = input.turn * (1 - 0.8 * fast);
+    const rollKey = clamp(input.lateral + input.turn * 0.75 * fast, -1, 1);
+    this.cycP = stickAxis(this.cycP, input.pitch, this.trimStickP, 1.05 * force, 2.6, dt);
+    this.cycR = stickAxis(this.cycR, rollKey, this.trimStickR, 1.25 * force, 3.0, dt);
+    this.ped = stickAxis(this.ped, pedalKey, this.trimPedal, 1.3 * force, 3.0, dt);
+    this.collective = clamp(this.collective + input.vertical * this.assist.collectiveRate * (0.45 + 0.55 * hyd) * dt, 0, 1);
+
+    // ---------- 地面效应、平移升力 ----------
+    let ge = 1;
+    const z = env.rotorClearance;
+    if (z < H.rotorRadius * 2.5) {
+      const k = H.rotorRadius / (4 * Math.max(z, 0.35 * H.rotorRadius));
+      ge = Math.min(H.groundEffectMax, 1 / Math.max(0.05, 1 - k * k));
+      ge = 1 + (ge - 1) * (1 - smoothstep(5, 14, vEdge));
+    }
+    const etl = H.etlGain * smoothstep(4, 16, vEdge);
+    const Tfull = Math.max(H.thrustFull * H.massBase * G * sigma, H.thrustFloor * W) * (1 + etl) * ge;
+
+    // ---------- 推力 ----------
+    // 下降时气流从下往上穿过桨盘，同样的总距迎角更大：这一项让低总距的自转能托住飞机
+    const heave = vAxial > 0 ? H.heaveDampUp : H.heaveDampDown;
+    const stall = 0.55 + 0.45 * smoothstep(0.7, 0.88, nr);
+    // （上限是桨叶失速：再大的入流迎角也拿不到更多推力）
+    let thrust = Math.min(Tfull * nr2, Math.max(0, this.collective * Tfull * nr2 * stall - heave * env.mass * vAxial * nr));
+    // 涡环：几乎垂直地下降进自己的下洗气流，推力掉下去还抖。向前飞一点就能脱出
+    const vh = Math.sqrt(Math.max(thrust, 1) / (2 * rho * ROTOR_AREA));
+    const sink = -vAxial / Math.max(vh, 1);
+    const vrs = smoothstep(0.32, 0.7, sink) * (1 - smoothstep(0.95, 1.7, sink)) * (1 - smoothstep(5, 13, vEdge)) * smoothstep(0.25, 0.6, nr);
+    thrust *= 1 - vrs * (0.3 + 0.08 * Math.sin(env.time * 7.3));
+    const pReq = rotorPower(thrust, rho, vAxial, vEdge, ge, nr, H.simProfile);
+    this.lastThrust = thrust;
+
+    // ---------- 发动机与调速器 ----------
+    const pMax = H.enginePowerSL * engineAltitudeFactor(env.altitudeMSL) * env.perf * (1 + BOOST.powerGain * env.boost);
+    const target = sys.nrTarget;
+    const avail = sys.shaftAvail(pMax);
+    const braked = sys.c.rotorBrake < 0.5;
+    this.nrRef = target > 0 ? approach(Math.max(this.nrRef, Math.min(nr, target)), target, 0.03 * dt) : 0;
+    if (target > 0 && !braked) {
+      const err = this.nrRef - nr;
+      this.govInt = clamp(this.govInt + err * 0.9 * dt, -0.25, 0.25);
+      this.powerDemand = clamp(Math.max(0, pReq) + (err * 7 + this.govInt) * H.transmissionLimit, 0, pMax * 1.1);
+    } else {
+      this.govInt = 0;
+      this.powerDemand = 0;
+    }
+    const pWant = Math.min(this.powerDemand, avail);
+    this.shaft += (pWant - this.shaft) * (1 - Math.exp(-dt / (pWant > this.shaft ? 0.22 : 0.14)));
+
+    // ---------- 旋翼转速 ----------
+    const omega = Math.max(nr * OMEGA, 1.5);
+    const friction = nr > 0.002 ? H.rotorFriction * (0.4 + 0.6 * smoothstep(0, 0.4, nr)) : 0;
+    // 自由涡轮和旋翼之间有超越离合器：发动机只能带它转，不能被它拖着走
+    const dNr = ((this.shaft - pReq) / omega - friction - sys.brakeTorque * (nr > 0.002 ? 1 : 0)) / (H.rotorInertia * OMEGA);
+    this.nr = clamp(nr + dNr * dt, 0, 1.3);
+
+    // ---------- 力 ----------
+    outForce.copy(_up).multiplyScalar(thrust);
+    const half = 0.5 * rho;
+    _tb.set(
+      -half * H.dragArea.side * _vAirB.x * Math.abs(_vAirB.x),
+      -half * H.dragArea.top * _vAirB.y * Math.abs(_vAirB.y),
+      -half * H.dragArea.fwd * _vAirB.z * Math.abs(_vAirB.z),
+    ).applyQuaternion(q);
+    outForce.add(_tb);
+    const thrustRatio = clamp(thrust / (H.massBase * G), 0, 1.25);
+    _tmp.copy(_up).multiplyScalar(vAxial);
+    const hk = H.hForce * (1 - 0.6 * smoothstep(10, 30, vEdge));
+    _tb.subVectors(_vAir, _tmp).multiplyScalar(-hk * thrustRatio);
+    outForce.add(_tb);
+
+    // ---------- 增稳（SAS）与周期变距 ----------
+    // 铰接桨毂的操纵力矩来自推力，无铰部分来自转速：地面上放平总距时杆几乎不起作用
+    const hub = (0.22 + 0.78 * thrustRatio) * nr2 * (1 - 0.15 * env.severity);
+    const authP = H.simCyclic.pitch * hub;
+    const authR = H.simCyclic.roll * hub;
+    let alphaP = -this.cycP * authP;
+    let alphaR = this.cycR * authR;
+    const grounded = env.weightOnSkids > 0.55;
+    const sas = sys.sasActive && !grounded && nr > 0.5;
+    if (sas) {
+      const A = this.assist;
+      const movingP = Math.abs(this.cycP - this.trimStickP) > 0.015;
+      const movingR = Math.abs(this.cycR - this.trimStickR) > 0.015;
+      if (movingP) this.sasP = null;
+      else if (this.sasP === null && Math.abs(pitchRate) < 3 * DEG) this.sasP = pitch;
+      if (movingR) this.sasR = null;
+      else if (this.sasR === null && Math.abs(rollRateR) < 3 * DEG) this.sasR = roll;
+      const rateP = movingP ? -(this.cycP - this.trimStickP) * A.maxRate : this.sasP !== null ? clamp(1.1 * (this.sasP - pitch), -0.2, 0.2) : 0;
+      const rateR = movingR ? (this.cycR - this.trimStickR) * A.maxRate * 1.3 : this.sasR !== null ? clamp(1.1 * (this.sasR - roll), -0.2, 0.2) : 0;
+      alphaP = clamp(A.rateKp * (rateP - pitchRate) + H.rateDamping.pitch * rateP - this.trimStickP * authP, -authP * 1.2, authP * 1.2);
+      alphaR = clamp(A.rateKp * (rateR - rollRateR) + H.rateDamping.roll * rateR + this.trimStickR * authR, -authR * 1.2, authR * 1.2);
+    } else this.sasP = this.sasR = null;
+
+    // ---------- 力矩 ----------
+    const I = H.inertia;
+    const massScale = env.mass / H.massBase;
+    const Ip = I.pitch * (1 + 0.6 * (massScale - 1));
+    const Ir = I.roll * (1 + 0.6 * (massScale - 1));
+    const Iy = I.yaw * (1 + 0.6 * (massScale - 1));
+    let tauPitch = Ip * alphaP - Ip * H.rateDamping.pitch * pitchRate * (0.25 + 0.75 * nr);
+    let tauRoll = Ir * alphaR - Ir * H.rateDamping.roll * rollRateR * (0.25 + 0.75 * nr);
+    tauPitch += H.blowback * forwardAir * thrustRatio;
+    tauRoll += -H.dihedral * lateralAir * thrustRatio;
+    // 后行桨叶失速：太快、载荷太大时后行一侧失速，机头上仰并向后行一侧（左）滚
+    const mu = vEdge / H.tipSpeed;
+    const load = clamp(thrust / W, 0.6, 2);
+    const rbs = smoothstep(0.31, 0.4, mu * Math.sqrt(load) / Math.max(nr, 0.7));
+    tauRoll -= Ir * 0.9 * rbs;
+    tauPitch += Ip * 0.55 * rbs;
+    if (env.severity > 0) {
+      const s2 = env.severity * env.severity;
+      tauRoll += Ir * 0.22 * s2 * Math.sin(env.time * 2.2);
+      tauPitch += Ip * 0.14 * s2 * Math.sin(env.time * 1.7 + 1.3);
+    }
+
+    // ---------- 偏航 ----------
+    const qMain = H.torqueSign * (this.shaft / omega);
+    const mix = H.simPedalMix.a + H.simPedalMix.b * this.collective;
+    let tailCmd = this.ped - mix;
+    if (sas) {
+      const A = this.assist;
+      const moving = Math.abs(this.ped - this.trimPedal) > 0.015;
+      const flying = smoothstep(16, 30, Math.max(0, forwardAir));
+      if (moving || flying > 0.5) this.sasH = null;
+      else if (this.sasH === null && Math.abs(yawRateR) < 4 * DEG) this.sasH = heading;
+      const hold = this.sasH !== null ? clamp(A.headingKp * wrapPi(this.sasH - heading), -0.3, 0.3) : 0;
+      const turn = flying * A.coordination * ((G * Math.tan(clamp(roll, -1.2, 1.2))) / Math.max(forwardAir, 10));
+      const rate = (moving ? (this.ped - this.trimPedal) * A.maxYawRate : hold) + turn;
+      // 偏航阻尼器：补掉发动机扭矩的变化，压住角速度
+      tailCmd = (-qMain + Iy * A.yawKp * (rate - yawRateR)) / H.tailAuthority;
+    } else this.sasH = null;
+    const tailMax = H.tailAuthority * Math.max(0.5, sigma) * (1 - 0.1 * env.severity) * nr2;
+    const tailTorque = clamp(tailCmd * H.tailAuthority * nr2, -tailMax, tailMax);
+    const yawDamp = Iy * (H.rateDamping.yaw * (0.3 + 0.7 * nr2) + 0.01 * Math.abs(forwardAir)) * yawRateR;
+    const fin = 0.5 * rho * H.finArea * lateralAir * Math.abs(lateralAir) * H.tailArm;
+    const tauYawRight = tailTorque + qMain - yawDamp + fin;
+    outTorque.set(tauPitch, -tauYawRight, -tauRoll).applyQuaternion(q);
+
+    // ---------- 遥测 ----------
+    // 平移升力那一段（约 16~24 节）旋翼穿过自己的尾涡，机身抖一阵，这是飞行员判断速度的线索
+    const transition = smoothstep(5, 9, vEdge) * (1 - smoothstep(11, 16, vEdge)) * smoothstep(0.5, 0.9, nr);
+    const lowNr = (1 - smoothstep(0.82, 0.95, nr)) * smoothstep(0.2, 0.5, nr) * (grounded ? 0.3 : 1);
+    tel.thrust = thrust;
+    tel.powerReq = Math.max(0, pReq);
+    tel.powerAvail = pMax;
+    tel.powerUsed = this.shaft;
+    tel.powerFrac = this.shaft / H.transmissionLimit;
+    tel.hoverPowerFrac = rotorPower(W, rho, 0, 0, 1, 1, H.simProfile) / H.transmissionLimit;
+    tel.torqueLimited = this.shaft > H.transmissionLimit;
+    tel.collective = this.collective;
+    tel.pitch = pitch;
+    tel.roll = roll;
+    tel.heading = heading;
+    tel.airspeed = _vAir.length();
+    tel.forwardAirspeed = forwardAir;
+    tel.groundSpeed = Math.hypot(b.vel.x, b.vel.z);
+    tel.verticalSpeed = b.vel.y;
+    tel.sideslip = Math.atan2(lateralAir, Math.max(3, Math.abs(forwardAir)));
+    tel.etl = etl;
+    tel.groundEffect = ge;
+    tel.rotorRpm = this.nr;
+    tel.hover = 'off';
+    tel.stickPitch = this.cycP;
+    tel.stickRoll = this.cycR;
+    tel.pedal = this.ped;
+    tel.density = sigma;
+    tel.vsCommand = 0;
+    tel.altitudeHold = null;
+    tel.torque = this.shaft / H.transmissionLimit;
+    tel.vortexRing = vrs;
+    tel.bladeStall = rbs;
+    tel.vibration = clamp(transition * 0.45 + vrs * 0.9 + rbs + lowNr * 0.6, 0, 1);
+  }
+}
+
+/** 键盘推杆：按住时杆匀速走，松手时回到配平位置 */
+function stickAxis(pos: number, key: number, trim: number, rate: number, back: number, dt: number): number {
+  if (key !== 0) return clamp(pos + key * rate * dt, -1, 1);
+  return approach(pos, trim, back * dt);
 }
 
 function smoothAxis(current: number, target: number, A: AssistPreset, dt: number): number {

@@ -291,10 +291,10 @@ export class UI {
   }
 
   /** 休闲飞行：选时段和天气 */
-  freeBrief(m: MapDef, settings: Settings, vistas: string[], on: { start: (weather: string, time: TimeOfDay) => void; back: () => void }): void {
-    void settings;
+  freeBrief(m: MapDef, settings: Settings, vistas: string[], on: { start: (weather: string, time: TimeOfDay, sim: boolean) => void; back: () => void }): void {
     let weather = m.defaultWeather;
     let time: TimeOfDay = 'dusk';
+    let sim = settings.assist === 'sim';
     const el = this.show(
       h(`<div class="screen"><div class="screen-head"><button class="btn ghost" data-a="back">← 返回</button><h2>${m.name}</h2><span class="muted">${m.region} · 休闲飞行</span></div>
       <div class="brief">
@@ -312,6 +312,10 @@ export class UI {
           <div class="card"><h3 id="brief-weather">天气</h3><div class="opts" data-group="weather" role="group" aria-labelledby="brief-weather">${m.weathers
             .map((w) => `<button type="button" class="opt-card ${w.id === weather ? 'sel' : ''}" data-a="weather" data-v="${w.id}" aria-pressed="${w.id === weather}"><b>${w.label}</b><span>${w.desc}</span></button>`)
             .join('')}</div></div>
+          <div class="card"><h3 id="brief-sim">飞行方式</h3><div class="opts" data-group="sim" role="group" aria-labelledby="brief-sim">
+            <button type="button" class="opt-card ${sim ? '' : 'sel'}" data-a="sim" data-v="0" aria-pressed="${!sim}"><b>轻松</b><span>辅助全开，飞到哪儿算哪儿。</span></button>
+            <button type="button" class="opt-card ${sim ? 'sel' : ''}" data-a="sim" data-v="1" aria-pressed="${sim}"><b>超仿真</b><span>${ASSISTS.sim.desc}</span></button>
+          </div></div>
           <button class="btn primary big" data-a="start">起飞</button>
         </div>
       </div></div>`),
@@ -330,7 +334,11 @@ export class UI {
         time = b.dataset.v as TimeOfDay;
         sel('time', time);
       },
-      start: () => on.start(weather, time),
+      sim: (b) => {
+        sim = b.dataset.v === '1';
+        sel('sim', sim ? '1' : '0');
+      },
+      start: () => on.start(weather, time, sim),
       back: on.back,
     });
   }
@@ -627,6 +635,7 @@ export class UI {
         const em = t.parentElement?.querySelector('em');
         if (em) em.textContent = k === 'fov' ? `${Math.round(Number(t.value))}°` : k === 'mouseSensitivity' ? Number(t.value).toFixed(2) : `${Math.round(Number(t.value) * 100)}%`;
       } else rec[k] = t.value;
+      if (k === 'quality' || k === 'rayTracing') s.autoQuality = false;
       on.change(structuredClone(s));
       if (k === 'assist') {
         render();

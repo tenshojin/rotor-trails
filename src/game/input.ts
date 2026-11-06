@@ -3,8 +3,23 @@
 
 import { isBindingCode, type Action, type Settings } from './settings';
 
-type EdgeAction = 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise';
-const EDGE: EdgeAction[] = ['hover', 'boost', 'center', 'pause', 'view', 'nav', 'mapRange', 'hud', 'cruise'];
+type EdgeAction = 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim';
+const EDGE: EdgeAction[] = ['hover', 'boost', 'center', 'pause', 'view', 'nav', 'mapRange', 'hud', 'cruise', 'trim'];
+
+/** 超仿真的按键：空格上升不变，Shift 改成下降，C 改成动力增强 */
+const SIM_KEYS: Partial<Record<Action, string[]>> = { down: ['ShiftLeft', 'ShiftRight'], boost: ['KeyC'] };
+
+/** 鼠标移到屏幕边上转头：从离边 EDGE_ZONE 处开始转，越靠边越快 */
+const EDGE_ZONE = 0.2;
+const EDGE_YAW = 1.5;
+const EDGE_PITCH = 1.05;
+
+export interface PointerClick {
+  button: number;
+  /** 画面坐标 -1..1，y 向下 */
+  x: number;
+  y: number;
+}
 
 export class Input {
   private down = new Set<string>();
@@ -23,6 +38,20 @@ export class Input {
   private capture: ((code: string) => void) | null = null;
   private disposed = false;
   private lockRequest = 0;
+  /** 超仿真：鼠标不锁定，是一只真的手 */
+  private simMode = false;
+  /** 鼠标在画面里的位置（-1..1，y 向下）；移出窗口时 inside = false */
+  mouseX = 0;
+  mouseY = 0;
+  mouseInside = false;
+  /** 左键按着 */
+  mouseHeld = false;
+  /** 右键按着：像平时一样用鼠标环视 */
+  private rightDrag = false;
+  /** 这一帧的点击与滚轮 */
+  private clicks: PointerClick[] = [];
+  private wheelSteps = 0;
+  private dragY = 0;
 
   constructor(canvas: HTMLCanvasElement, settings: Settings) {
     this.canvas = canvas;
@@ -38,6 +67,8 @@ export class Input {
     canvas.addEventListener('mousedown', this.onMouseDown);
     window.addEventListener('mouseup', this.onMouseUp);
     canvas.addEventListener('contextmenu', this.onContextMenu);
+    canvas.addEventListener('wheel', this.onWheel as EventListener, { passive: false });
+    document.addEventListener('mouseleave', this.onMouseLeave);
   }
 
   setSettings(s: Settings): void {
@@ -45,9 +76,30 @@ export class Input {
     this.rebuild();
   }
 
+  get sim(): boolean {
+    return this.simMode;
+  }
+
+  /** 进入或离开超仿真：鼠标放开、按键换一套 */
+  setSim(on: boolean): void {
+    if (on === this.simMode) return;
+    this.simMode = on;
+    this.mouseHeld = this.rightDrag = false;
+    this.clicks.length = 0;
+    this.wheelSteps = 0;
+    if (on) this.exitLock();
+    this.rebuild();
+  }
+
+  /** 超仿真里按键和平时不同的几项：其余沿用玩家自己的设置 */
+  private bound(a: Action): string[] {
+    return (this.simMode ? SIM_KEYS[a] : undefined) ?? this.settings.bindings[a];
+  }
+
   private rebuild(): void {
     this.codeToActions.clear();
-    for (const [action, codes] of Object.entries(this.settings.bindings) as Array<[Action, string[]]>) {
+    for (const action of Object.keys(this.settings.bindings) as Action[]) {
+      const codes = this.bound(action);
       for (const c of codes) {
         const arr = this.codeToActions.get(c) ?? [];
         arr.push(action);
@@ -70,8 +122,36 @@ export class Input {
   }
 
   is(a: Action): boolean {
-    for (const c of this.settings.bindings[a]) if (this.down.has(c)) return true;
+    for (const c of this.bound(a)) if (this.down.has(c)) return true;
     return false;
+  }
+
+  /** 取出这一帧的点击 */
+  takeClicks(): PointerClick[] {
+    if (!this.clicks.length) return NO_CLICKS;
+    const c = this.clicks;
+    this.clicks = [];
+    return c;
+  }
+
+  /** 取出这一帧的滚轮（向上为正，一格一步） */
+  takeWheel(): number {
+    const w = this.wheelSteps;
+    this.wheelSteps = 0;
+    return w;
+  }
+
+  /** 取出这一帧左键按着上下拖了多少（屏幕高度的比例，向上为正） */
+  takeDrag(): number {
+    const d = this.dragY;
+    this.dragY = 0;
+    return d;
+  }
+
+  /** 鼠标贴边转头：这一帧的视线变化（弧度）。右键环视、按住左键操作时不转 */
+  edgeLook(dt: number): [number, number] {
+    if (!this.mouseInside || this.rightDrag || this.mouseHeld) return [0, 0];
+    return [edgeRate(this.mouseX) * EDGE_YAW * dt, edgeRate(this.mouseY) * EDGE_PITCH * dt];
   }
 
   axis(neg: Action, pos: Action): number {
@@ -82,6 +162,10 @@ export class Input {
     this.down.clear();
     this.dragging = false;
     this.lookDX = this.lookDY = 0;
+    this.mouseHeld = this.rightDrag = false;
+    this.clicks.length = 0;
+    this.wheelSteps = 0;
+    this.dragY = 0;
   };
 
   private onVisibility = (): void => {
@@ -131,24 +215,61 @@ export class Input {
     this.down.delete(e.code);
   };
 
+  private pointerAt(e: MouseEvent): void {
+    const r = this.canvas.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return;
+    this.mouseX = ((e.clientX - r.left) / r.width) * 2 - 1;
+    this.mouseY = ((e.clientY - r.top) / r.height) * 2 - 1;
+    this.mouseInside = Math.abs(this.mouseX) <= 1 && Math.abs(this.mouseY) <= 1;
+  }
+
   private onMouseMove = (e: MouseEvent): void => {
     if (!this.active) return;
+    if (this.simMode) {
+      this.pointerAt(e);
+      if (this.rightDrag) {
+        this.lookDX += e.movementX;
+        this.lookDY += e.movementY;
+      } else if (this.mouseHeld) this.dragY -= e.movementY / Math.max(1, this.canvas.clientHeight);
+      return;
+    }
     if (this.locked || this.dragging) {
       this.lookDX += e.movementX;
       this.lookDY += e.movementY;
     }
   };
 
+  private onMouseLeave = (): void => {
+    this.mouseInside = false;
+  };
+
+  private onWheel = (e: WheelEvent): void => {
+    if (!this.active || !this.simMode) return;
+    e.preventDefault();
+    this.wheelSteps += e.deltaY < 0 ? 1 : e.deltaY > 0 ? -1 : 0;
+  };
+
   private onMouseDown = (e: MouseEvent): void => {
-    if (!this.active || e.button !== 0) return;
+    if (!this.active) return;
+    if (this.simMode) {
+      this.pointerAt(e);
+      if (e.button === 0) this.mouseHeld = true;
+      if (e.button === 2) this.rightDrag = true;
+      // 右键既可以环视，也可以把旋钮往回拧：有没有拖动由 App 看
+      this.clicks.push({ button: e.button, x: this.mouseX, y: this.mouseY });
+      return;
+    }
+    if (e.button !== 0) return;
     if (!this.locked) {
       this.dragging = true;
       if (!this.lockFailed && e.button === 0) this.requestLock();
     }
   };
 
-  private onMouseUp = (): void => {
+  private onMouseUp = (e: MouseEvent): void => {
     this.dragging = false;
+    if (e.button === 0) this.mouseHeld = false;
+    if (e.button === 2) this.rightDrag = false;
   };
 
   private onContextMenu = (e: MouseEvent): void => {
@@ -156,7 +277,7 @@ export class Input {
   };
 
   requestLock(): void {
-    if (!this.active || this.disposed) return;
+    if (!this.active || this.disposed || this.simMode) return;
     const request = ++this.lockRequest;
     const failed = () => {
       if (request === this.lockRequest && this.active && !this.locked && !this.disposed) this.lockFailed = true;
@@ -234,5 +355,17 @@ export class Input {
     this.canvas.removeEventListener('mousedown', this.onMouseDown);
     window.removeEventListener('mouseup', this.onMouseUp);
     this.canvas.removeEventListener('contextmenu', this.onContextMenu);
+    this.canvas.removeEventListener('wheel', this.onWheel as EventListener);
+    document.removeEventListener('mouseleave', this.onMouseLeave);
   }
+}
+
+const NO_CLICKS: PointerClick[] = [];
+
+/** 离屏幕边还有 EDGE_ZONE 时开始转，越靠边越快（平方：刚进去只是微微转） */
+function edgeRate(p: number): number {
+  const a = Math.abs(p);
+  const k = (a - (1 - EDGE_ZONE)) / EDGE_ZONE;
+  if (k <= 0) return 0;
+  return Math.sign(p) * Math.min(1, k) * Math.min(1, k);
 }

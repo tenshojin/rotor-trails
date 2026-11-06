@@ -3,12 +3,14 @@
 // 窗玻璃使用带雨滴/水流效果的材质。模型加载失败时座舱内部为空，游戏照常可玩。
 
 import * as THREE from 'three/webgpu';
-import { abs, atan, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, clamp, dot, float, materialColor, max, mix, modelWorldMatrix, modelWorldMatrixInverse, normalGeometry, normalize, positionGeometry, positionWorld, pow, reflect, select, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4, viewportSharedTexture } from 'three/tsl';
+import { abs, atan, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, clamp, dot, float, materialColor, max, mix, modelWorldMatrix, modelWorldMatrixInverse, normalGeometry, normalize, positionGeometry, positionWorld, pow, reflect, select, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4, vertexColor, viewportSharedTexture } from 'three/tsl';
 import { FOG } from './atmosphere';
 import { VFOG } from './volumetricFog';
 import { loadGltf } from './gltf';
 import { STD_KEYS } from './modelLib';
-import { drawAnnunciator, drawAttitude, drawEfb, drawGps, drawVemdBottom, drawVemdTop, NEEDLE, type InstrumentData } from './instruments';
+import { drawAnnunciator, drawAttitude, drawEfb, drawGps, drawHobbs, drawOff, drawRadio, drawTrack, drawVemdBottom, drawVemdTop, drawXpdr, NEEDLE, type InstrumentData } from './instruments';
+import { CockpitControls } from './cockpitControls';
+import { Systems } from '../sim/systems';
 import { getNoiseTexture } from './textures';
 import { modelResources } from './modelResources';
 import { disposeTextures } from './disposeTextures';
@@ -47,8 +49,10 @@ interface Screen {
   ctx: CanvasRenderingContext2D;
   w: number;
   h: number;
-  kind: 'vemd1' | 'vemd2' | 'ai' | 'gps' | 'ann' | 'efb';
+  kind: 'vemd1' | 'vemd2' | 'ai' | 'gps' | 'ann' | 'efb' | 'radio' | 'xpdr' | 'hobbs' | 'track';
   mat: THREE.MeshBasicMaterial;
+  /** 断电后画过一次黑屏，不用每次重画 */
+  dark: boolean;
 }
 
 const SCREEN_SIZE: Record<Screen['kind'], [number, number]> = {
@@ -58,6 +62,10 @@ const SCREEN_SIZE: Record<Screen['kind'], [number, number]> = {
   gps: [512, 342],
   ann: [768, 302],
   efb: [1024, 742],
+  radio: [400, 140],
+  xpdr: [530, 130],
+  hobbs: [280, 130],
+  track: [500, 100],
 };
 
 const _q = new THREE.Quaternion();
@@ -66,7 +74,7 @@ const _controlAxis = new THREE.Vector3(1, 0, 0);
 
 export class Cockpit {
   readonly root = new THREE.Group();
-  readonly glassUniforms = { uRain: uniform(0), uTime: uniform(0), uFlow: uniform(0), uShield: uniform(0), uWipe: uniform(new THREE.Vector3(0, 0, 0)), uWipeOn: uniform(0) };
+  readonly glassUniforms = { uRain: uniform(0), uTime: uniform(0), uFlow: uniform(0), uShield: uniform(0), uWipe: uniform(new THREE.Vector3(0, 0, 0)), uWipeOn: uniform(0), uFog: uniform(0) };
   /** 两支雨刷（转轴绕玻璃法线转） */
   private wipers: Array<{ pivot: THREE.Group; x: number; y: number; side: number }> = [];
   private wipeT = 0;
@@ -88,6 +96,17 @@ export class Cockpit {
   private lastDraw = -1;
   private lastSlow = -1;
   private disposed = false;
+  /** 能点的按钮和开关（超仿真里才响应，其他模式只是摆在对应位置上） */
+  controls: CockpitControls | null = null;
+  /** 不是超仿真时：所有开关停在“飞机运转中”的位置 */
+  private readonly idleSystems = (() => {
+    const s = new Systems();
+    s.setRunning();
+    s.update({ dt: 0.02, nr: 1, powerDemand: 200e3, shaftPower: 200e3, altitudeMSL: 0, oat: 15, rain: 0, airspeed: 0, onGround: false, powerMax: 400e3 });
+    return s;
+  })();
+  /** 雨刷：-1 = 跟着雨自动（其他模式），0/1/2 = 开关位置 */
+  wiperMode = -1;
   private sourceResources: ReturnType<typeof modelResources> | null = null;
 
   constructor() {
@@ -156,7 +175,8 @@ export class Cockpit {
           this.setupScreen(m, name.slice(4) as Screen['kind']);
           return;
         }
-        m.castShadow = !name.startsWith('ndl_');
+        // 几十个小按钮不进阴影：它们投的影子只有几毫米，看不出来，白白多画几十次
+        m.castShadow = !name.startsWith('ndl_') && !name.startsWith('hs_') && !name.startsWith('led_');
         m.receiveShadow = true;
         const src = m.material as THREE.MeshStandardMaterial;
         const hasAoUv = !!ao && !!m.geometry.getAttribute('uv1');
@@ -193,6 +213,8 @@ export class Cockpit {
     this.setPilotOffset(this.pilotDx);
     this.root.add(scene);
     this.buildWipers(scene);
+    this.controls = new CockpitControls(scene, this.root);
+    this.controls.animate(this.idleSystems, 1, 0);
     this.loaded = true;
   }
 
@@ -252,6 +274,21 @@ export class Cockpit {
     for (const w of this.wipers) w.pivot.rotation.z = a;
   }
 
+  /** 周期变距杆、总距杆的节点（超仿真的手跟着它们走） */
+  stick(name: 'cyclic' | 'collective'): { obj: THREE.Object3D; base: THREE.Quaternion } | undefined {
+    return this.ctl[name];
+  }
+
+  /** 飞行员身上的材质：和舱内其他东西一样接上舱内补光 */
+  bodyMaterial(src: THREE.MeshStandardMaterial): THREE.MeshStandardNodeMaterial {
+    const m = this.interiorMaterial(src, null);
+    m.vertexColors = src.vertexColors;
+    // 手套的颜色在顶点色里：补光也要乘上它，不然白得发亮
+    if (src.vertexColors) m.emissiveNode = vertexColor().rgb.mul(CABIN_FILL).mul(0.65);
+    this.mats.add(m);
+    return m;
+  }
+
   private interiorMaterial(src: THREE.MeshStandardMaterial, ao: THREE.Texture | null): THREE.MeshStandardNodeMaterial {
     const nm = new THREE.MeshStandardNodeMaterial();
     for (const k of STD_KEYS) (nm as unknown as Record<string, unknown>)[k] = (src as unknown as Record<string, unknown>)[k];
@@ -300,7 +337,7 @@ export class Cockpit {
     m.receiveShadow = false;
     this.mats.add(mat);
     this.textures.push(tex);
-    this.screens.push({ tex, ctx, w, h, kind, mat });
+    this.screens.push({ tex, ctx, w, h, kind, mat, dark: false });
   }
 
   private makeGlassMaterial(roof: boolean): THREE.MeshStandardNodeMaterial {
@@ -337,14 +374,16 @@ export class Cockpit {
     };
     const wiped = max(wipeArea(GU.uWipe.x), wipeArea(GU.uWipe.y)).mul(GU.uWipeOn).mul(0.82);
     const w = clamp(drops.mul(0.85).add(streak.mul(0.6)).mul(GU.uRain).mul(float(1).sub(wiped)), 0.0, 1.0);
-    const c = mix(mix(vec3(base.r, base.g, base.b), vec3(0.85, 0.9, 0.95), w), vec3(0.3, 0.7, 1.0), GU.uShield.mul(0.6));
+    // 舱内起雾：一层白，边角先起（中间是从暖风口吹干的）
+    const fogPatch = GU.uFog.mul(smoothstep(0.2, 0.75, texture(noise, p.mul(0.9)).r.mul(0.5).add(0.25).add(abs(lp.x).mul(0.5))));
+    const c = mix(mix(mix(vec3(base.r, base.g, base.b), vec3(0.85, 0.9, 0.95), w), vec3(0.3, 0.7, 1.0), GU.uShield.mul(0.6)), vec3(0.82, 0.85, 0.87), fogPatch);
     mat.colorNode = vec4(c, 1.0);
     // 玻璃上的灰尘与擦拭痕：平时几乎看不见，迎着太阳时被照亮成一片眩光（清晨、黄昏最明显）
     const dust = smoothstep(0.45, 0.85, texture(noise, p.mul(1.7)).r).mul(0.55).add(smoothstep(0.62, 0.95, texture(noise, p.mul(6.0).add(0.3)).g).mul(0.35));
     const vdir = normalize(positionWorld.sub(cameraPosition));
     const sunK = pow(max(dot(vdir, FOG.sunDir), 0.0), 10.0);
     const glare = VFOG.sun.mul(dust.mul(sunK.mul(0.12).add(0.004)));
-    const alpha = clamp(w.mul(0.38).add(opacity).add(dust.mul(0.03)), 0.0, 1.0).add(GU.uShield.mul(0.08)).toVar();
+    const alpha = clamp(w.mul(0.38).add(opacity).add(dust.mul(0.03)).add(fogPatch.mul(0.62)), 0.0, 1.0).add(GU.uShield.mul(0.08)).toVar();
     mat.opacityNode = alpha;
     if (roof) {
       mat.emissiveNode = glare;
@@ -415,19 +454,21 @@ export class Cockpit {
     for (const s of this.screens) s.mat.color.setScalar(b);
     this.glassUniforms.uTime.value = t;
     this.glassUniforms.uRain.value = rain;
-    // 雨大开快档，小雨慢档；不下雨时停回原位
-    const on = rain > 0.04;
+    // 雨大开快档，小雨慢档；不下雨时停回原位。超仿真里由开关决定
+    const auto = this.wiperMode < 0;
+    const on = auto ? rain > 0.04 : this.wiperMode > 0;
+    const fast = auto ? rain > 0.5 : this.wiperMode > 1;
     const dt = Math.min(0.1, Math.max(0, t - this.lastGlassT));
     this.lastGlassT = t;
     if (on || this.wipeT > 0.02) {
-      this.wipeT = (this.wipeT + dt * (rain > 0.5 ? 1.15 : 0.7)) % 1;
+      this.wipeT = (this.wipeT + dt * (fast ? 1.15 : 0.7)) % 1;
       if (!on && this.wipeT < 0.03) this.wipeT = 0;
     }
     const s = 0.5 - 0.5 * Math.cos(this.wipeT * Math.PI * 2);
     this.setWiperAngle(WIPER_REST - WIPER_SWEEP * s);
     // 停着的时候收在风挡下沿外面，从舱里看不到
     for (const w of this.wipers) w.pivot.visible = on || this.wipeT > 0;
-    this.glassUniforms.uWipeOn.value = rain > 0.04 ? 1 : 0;
+    this.glassUniforms.uWipeOn.value = on ? 1 : 0;
     this.glassUniforms.uFlow.value = Math.min(1, airspeed / 35);
     this.glassUniforms.uShield.value = shield;
   }
@@ -435,16 +476,22 @@ export class Cockpit {
   /** 机械指针每帧更新；电子屏约 20 Hz 重绘（告警灯板 8 Hz）。 */
   drawInstruments(t: number, d: InstrumentData): void {
     if (!this.loaded) return;
-    this.setNeedle('ndl_asi_main', NEEDLE.asi(d.airspeed));
-    this.setNeedle('ndl_alt_100', NEEDLE.alt100(d.altitudeMSL));
-    this.setNeedle('ndl_alt_1000', NEEDLE.alt1000(d.altitudeMSL));
+    const y = d.sys;
+    // 气压式仪表不用电：空速看皮托管（结冰就读低），高度看气压设定。电动陀螺断电后慢慢停下，这里直接停在最后的位置
+    this.setNeedle('ndl_asi_main', NEEDLE.asi(d.airspeed * (y?.pitotFactor ?? 1)));
+    const alt = d.altitudeMSL + (y ? (y.c.baro - 1013) * 8.2 : 0);
+    this.setNeedle('ndl_alt_100', NEEDLE.alt100(alt));
+    this.setNeedle('ndl_alt_1000', NEEDLE.alt1000(alt));
     this.setNeedle('ndl_vsi_main', NEEDLE.vsi(d.vs));
     this.setNeedle('ndl_nr_main', NEEDLE.nr(d.rpm));
-    this.setNeedle('ndl_turn_needle', NEEDLE.turn(d.yawRate));
+    const gyro = !y || y.powered;
+    if (gyro) {
+      this.setNeedle('ndl_turn_needle', NEEDLE.turn(d.yawRate));
+      // 航向刻度盘：当前航向转到正上方
+      this.setNeedle('ndl_hsi_card', -d.heading);
+      this.setNeedle('ndl_hdg2_card', -d.heading);
+    }
     this.setNeedle('ndl_turn_ball', NEEDLE.ball(d.slip));
-    // 航向刻度盘：当前航向转到正上方
-    this.setNeedle('ndl_hsi_card', -d.heading);
-    this.setNeedle('ndl_hdg2_card', -d.heading);
     const now = new Date();
     const sec = now.getSeconds() + now.getMilliseconds() / 1000;
     this.setNeedle('ndl_clock_sec', sec * 6);
@@ -455,6 +502,15 @@ export class Cockpit {
     const slow = t - this.lastSlow >= 0.12;
     if (slow) this.lastSlow = t;
     for (const s of this.screens) {
+      if (!this.screenOn(s.kind, d)) {
+        if (!s.dark) {
+          drawOff(s.ctx, s.w, s.h);
+          s.tex.needsUpdate = true;
+          s.dark = true;
+        }
+        continue;
+      }
+      s.dark = false;
       if (s.kind === 'vemd1') drawVemdTop(s.ctx, d, s.w, s.h);
       else if (s.kind === 'vemd2') {
         if (!slow) continue;
@@ -467,9 +523,35 @@ export class Cockpit {
       } else if (s.kind === 'efb') {
         if (!slow) continue;
         drawEfb(s.ctx, d, this.minimap, this.mapRange, s.w, s.h);
+      } else {
+        if (!slow) continue;
+        if (s.kind === 'radio') drawRadio(s.ctx, d, s.w, s.h);
+        else if (s.kind === 'xpdr') drawXpdr(s.ctx, d, s.w, s.h, t);
+        else if (s.kind === 'hobbs') drawHobbs(s.ctx, d, s.w, s.h);
+        else drawTrack(s.ctx, d, s.w, s.h);
       }
       s.tex.needsUpdate = true;
     }
+  }
+
+  /** 这块屏现在有没有电 */
+  private screenOn(kind: Screen['kind'], d: InstrumentData): boolean {
+    const y = d.sys;
+    if (!y || kind === 'efb' || kind === 'hobbs') return true;
+    const c = y.c;
+    if (kind === 'vemd1') return y.vemdOn && c.vemdOff1 < 0.5;
+    if (kind === 'vemd2') return y.vemdOn && c.vemdOff2 < 0.5;
+    if (kind === 'ai') return y.powered && c.cb_stby > 0.5;
+    if (kind === 'ann') return y.powered;
+    if (kind === 'gps') return y.avionics && y.feeds('cb_gps') && c.gpsPower > 0.5;
+    if (kind === 'radio') return y.avionics && y.feeds('cb_com');
+    if (kind === 'xpdr') return y.avionics && y.feeds('cb_xpdr') && c.xpdrMode > 0;
+    return y.avionics;
+  }
+
+  /** 每帧：控件的位置和指示灯 */
+  updateSwitches(sys: Systems | null, dt: number, t: number): void {
+    this.controls?.animate(sys ?? this.idleSystems, dt, t);
   }
 
   dispose(): void {
@@ -478,6 +560,8 @@ export class Cockpit {
     for (const g of this.geos) g.dispose();
     for (const m of this.mats) m.dispose();
     disposeTextures(this.textures);
+    this.controls?.dispose();
+    this.controls = null;
     this.sourceResources?.dispose();
     this.geos.clear();
     this.mats.clear();

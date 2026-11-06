@@ -6,7 +6,7 @@ import { defaultSettings, sanitizeSettings, upgradeLegacyBindings, type Settings
 
 export const SAVE_KEY = 'rotorTrails.save';
 /** v2：默认键位调整（下降键由 Ctrl/X 改为 C，视角回正由 C 改为 Z） */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export interface MapRecord {
   completed: boolean;
@@ -81,6 +81,8 @@ export class SaveStore {
   warning: string | null = null;
   /** 本机第一次运行（没有任何存档） */
   fresh = false;
+  /** 旧存档：重新按显卡选一次画质 */
+  requalify = false;
   private storage: StorageLike | null;
 
   constructor(storage?: StorageLike | null) {
@@ -118,6 +120,8 @@ export class SaveStore {
       const parsed: unknown = JSON.parse(raw);
       if (!isSaveObject(parsed)) throw new Error('Invalid save root');
       this.data = migrate(parsed);
+      // v3 之前新存档以外都停在“中”：那是旧默认值，重新按显卡选一次
+      if (typeof parsed.version === 'number' && parsed.version < 3 && this.data.settings.quality === 'medium') this.requalify = true;
       if (typeof parsed.version === 'number' && parsed.version > SAVE_VERSION) {
         // Reading compatible fields is useful, but an older client must never
         // downgrade the version or delete fields that it does not understand.

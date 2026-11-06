@@ -9,6 +9,8 @@ import type { WeatherParams } from '../sim/weather';
 import { QUALITY, type Settings } from '../game/settings';
 import { CameraRig } from './cameraRig';
 import { CABIN_FILL, CABIN_NIGHT, Cockpit, EYE } from './cockpit';
+import type { Spot } from './cockpitControls';
+import { PilotBody } from './pilot';
 import { HeliModel } from './heliModel';
 import { loadModelLib, MODEL_FILES, type ModelLib } from './modelLib';
 import { loadDetailTextures } from './detailTextures';
@@ -16,7 +18,7 @@ import { NavView } from './navView';
 import { PropsView } from './propsView';
 import { SkyDome } from './sky';
 import { FOG, sceneFog, WIND } from './atmosphere';
-import { buildPost, protectTransparent, CONTACT, SCOTOPIC, type Post } from './post';
+import { DOF, buildPost, protectTransparent, CONTACT, SCOTOPIC, type Post } from './post';
 import { markNearShadow, SunShadows } from './sunShadows';
 import type { MapDef } from '../maps/types';
 import { loadTerrainLayers, type TerrainLayers } from './terrainLayers';
@@ -50,6 +52,15 @@ export interface FrameInfo {
 
 const _cabinGlow = new THREE.Color(0.018, 0.0132, 0.0102);
 const _white = new THREE.Color(1, 1, 1);
+const _cabinLamp = new THREE.Color();
+const _eye = new THREE.Vector3();
+/** 仪表板平面（座舱坐标），见 tools/blender/cockpit_layout.py：顶边中点、法线朝向驾驶员 */
+const PANEL_POINT = new THREE.Vector3(0, 0.1, -1.7);
+const PANEL_NORMAL = new THREE.Vector3(0, 0.2419, 0.9703);
+const _ndc = new THREE.Vector3();
+const _rayO = new THREE.Vector3();
+const _rayD = new THREE.Vector3();
+const _rootInv = new THREE.Matrix4();
 const _wd = new THREE.Vector2();
 const _cloudGrey = new THREE.Color(0.86, 0.88, 0.9);
 const _ground = new THREE.Color();
@@ -134,6 +145,9 @@ export class WorldView {
   private padDetails: PadDetails | null = null;
   /** 着陆灯（夜晚才放进场景：多一盏灯所有材质都要重新编译） */
   private landing: THREE.SpotLight | null = null;
+  /** 超仿真里自己的身体 */
+  pilot: PilotBody | null = null;
+  private dofOn = false;
   private rivers: RiverView | null = null;
   private grass: GroundCover | null = null;
   /** 光线追踪的全局光照：探针图要不要重算；算的时候太阳多亮（天气变了按比例调）；正在并行编译（那时什么都画不出来） */
@@ -340,9 +354,9 @@ export class WorldView {
   private buildPost(): void {
     if (!this.ready) return;
     const s = this.settings;
-    const key = `${s.quality}_${s.rayTracing}_${s.motionBlur}_${s.volumetric}_${s.renderScale}`;
+    const key = `${s.quality}_${s.rayTracing}_${s.motionBlur}_${s.volumetric}_${s.renderScale}_${this.dofOn}`;
     if (key === this.postKey && this.post) return;
-    const next = buildPost(this.renderer, this.scene, this.rig.camera, this.sun, { quality: s.quality, rayTracing: s.rayTracing, motionBlur: s.motionBlur, volumetric: s.volumetric, upscale: s.quality === 'low' ? 1 : s.renderScale });
+    const next = buildPost(this.renderer, this.scene, this.rig.camera, this.sun, { quality: s.quality, rayTracing: s.rayTracing, motionBlur: s.motionBlur, volumetric: s.volumetric, dof: this.dofOn, upscale: s.quality === 'low' ? 1 : s.renderScale });
     const previous = this.post;
     this.post = next;
     this.postKey = key;
@@ -728,23 +742,38 @@ export class WorldView {
       this.heli.root.visible = true;
       const tel = s.flight.telemetry;
       const load = Math.min(1.5, tel.thrust / (s.totalMass() * 9.81));
+      const sys = s.sys;
+      this.heli.beaconOn = sys ? sys.beacon : true;
+      this.heli.navOn = sys ? sys.navLights : true;
       this.heli.update(f.t, f.dt, s.state === 'crashed' ? Math.max(0, tel.rotorRpm * 0.3) : tel.rotorRpm);
-      const eyeX = EYE.x * (1 - set.viewCenter);
+      // 超仿真坐在真实的机长位上
+      const eyeX = sys ? EYE.x : EYE.x * (1 - set.viewCenter);
       this.cockpit.setPilotOffset(eyeX - EYE.x);
-      this.rig.update(f.dt, f.t, _pos, _quat, _vel, load, { fov: set.fov, eyeX, shake: set.shake, headMotion: set.headMotion, ground: (x, z) => Math.max(s.world.ctx.ground(x, z), s.world.map.waterLevel ?? -1e9) });
+      this.rig.update(f.dt, f.t, _pos, _quat, _vel, load, { fov: set.fov, eyeX, shake: set.shake, headMotion: set.headMotion, vibration: tel.vibration, rotor: sys ? Math.min(1, tel.rotorRpm * 1.4) : 1, ground: (x, z) => Math.max(s.world.ctx.ground(x, z), s.world.map.waterLevel ?? -1e9) });
       const cockpitView = this.rig.mode === 'cockpit';
       this.heli.rimDim = this.tod === 'night' ? 0 : 1;
       this.heli.setCockpitView(cockpitView);
       // 有 Blender 外观时座舱模型（含机身外壳）在追尾视角也显示：从外面能透过玻璃看到舱内
       this.cockpit.root.visible = cockpitView || this.heli.extLoaded;
       this.cockpit.updateControls(tel.stickPitch, tel.stickRoll, tel.collective, tel.pedal);
+      this.cockpit.updateSwitches(sys, f.dt, f.t);
+      if (this.pilot) {
+        this.pilot.root.visible = !!sys;
+        if (sys) {
+          this.pilot.setView(cockpitView);
+          this.pilot.update({ dt: f.dt, cyclic: this.cockpit.stick('cyclic'), collective: this.cockpit.stick('collective'), pedal: tel.pedal, eye: _eye.set(eyeX, EYE.y, EYE.z), collectiveKey: s.input.vertical !== 0 });
+          this.rig.lean = this.pilot.lean;
+        } else this.rig.lean = 0;
+      }
+      this.cockpit.wiperMode = sys ? sys.wiperSpeed : -1;
+      this.cockpit.glassUniforms.uFog.value = sys ? sys.fog : 0;
       this.cockpit.updateGlass(f.t, weather.rain, tel.airspeed, s.buffs.shieldActive ? 0.25 + 0.15 * Math.sin(f.t * 6) : 0, this.renderer.toneMappingExposure);
       if (this.landing) {
         // 机头下面的着陆灯：朝前下方，离地面越近越亮堂
         this.landing.position.set(0, -0.9, -2.2).applyQuaternion(_quat).add(_pos);
         this.landing.target.position.set(0, -0.3, -1).applyQuaternion(_quat).multiplyScalar(30).add(this.landing.position);
         this.landing.target.updateMatrixWorld();
-        this.landing.intensity = 1100;
+        this.landing.intensity = !sys || sys.landingLight ? 1100 : 0;
       }
     } else if (idle) {
       if (idle.fov && cam.fov !== idle.fov) {
@@ -843,6 +872,13 @@ export class WorldView {
       this.padDetails?.update(nightLight);
       // 仪表背光：天越暗开得越亮
       CABIN_NIGHT.value = this.tod === 'night' ? 1 : this.tod === 'dusk' ? 0.32 : this.tod === 'dawn' ? 0.2 : Math.max(0, (w.overcast - 0.75) / 0.25) * 0.15;
+      const sysNow = s?.sys;
+      if (sysNow) {
+        // 仪表背光要有电，亮度由 INST. LITE 旋钮决定；顶灯、地图灯、泛光灯把舱里照亮一片
+        CABIN_NIGHT.value = (CABIN_NIGHT.value as number) * (sysNow.powered ? sysNow.c.instLite * 1.6 + (sysNow.c.flood > 0.5 ? sysNow.c.floodDim * 0.8 : 0) : 0);
+        const lamp = sysNow.powered ? (sysNow.c.domeLt > 0.5 ? sysNow.c.domeDim * 0.3 : 0) + (sysNow.c.mapLt > 0.5 ? sysNow.c.mapDim * 0.12 : 0) : 0;
+        if (lamp > 0) CABIN_FILL.value.add(_cabinLamp.copy(_cabinWarm).multiplyScalar(lamp));
+      }
       VFOG.wind.value.x -= _w.x * f.dt;
       VFOG.wind.value.z -= _w.z * f.dt;
       // 清晨、黄昏整体更暗：曝光只补回一部分（像相机那样稍微提亮，但保留低光的气氛）
@@ -913,6 +949,71 @@ export class WorldView {
     }
   }
 
+  /** 景深的开关：超仿真才有。管线要重建，放在加载阶段 */
+  setDof(on: boolean): void {
+    if (on === this.dofOn) return;
+    this.dofOn = on;
+    DOF.aperture.value = 0;
+    this.buildPost();
+  }
+
+  /**
+   * 眼睛对焦到哪：鼠标指着按钮就对按钮；指着仪表板的其他地方对仪表板；否则看窗外。
+   * 调焦不是一下子的，大约 0.2 秒；按屈光度（距离的倒数）走，近处变化才均匀。
+   */
+  focusAt(mx: number, my: number, spot: Spot | null, dt: number): void {
+    const cam = this.rig.camera;
+    if (this.rig.mode !== 'cockpit') {
+      DOF.aperture.value = 0;
+      return;
+    }
+    DOF.aperture.value = 0.0022;
+    let want = 900;
+    if (spot) want = Math.max(0.3, _ndc.copy(spot.center).applyMatrix4(this.cockpit.root.matrixWorld).distanceTo(cam.position));
+    else {
+      // 仪表板这个平面：顶边到下沿、左右两边之内
+      _ndc.set(mx, -my, 0.5).unproject(cam);
+      _rayD.copy(_ndc).sub(cam.position).normalize();
+      _rootInv.copy(this.cockpit.root.matrixWorld).invert();
+      _rayD.transformDirection(_rootInv);
+      _rayO.copy(cam.position).applyMatrix4(_rootInv);
+      const t = (PANEL_POINT.clone().sub(_rayO).dot(PANEL_NORMAL)) / _rayD.dot(PANEL_NORMAL);
+      const down = _rayD.y;
+      if (t > 0.2 && t < 1.6) {
+        const p = _rayO.addScaledVector(_rayD, t);
+        if (Math.abs(p.x) < 0.56 && p.y < 0.14 && p.y > -0.42) want = t;
+      }
+      // 低头看腿、看手和地板：焦点在舱里
+      if (want > 100 && down < -0.42) want = 0.75;
+    }
+    const k = 1 - Math.exp(-dt * 9);
+    const d0 = 1 / (DOF.focus.value as number);
+    DOF.focus.value = 1 / (d0 + (1 / want - d0) * k);
+  }
+
+  /** 超仿真要用的身体：第一次用时才下载模型 */
+  ensurePilot(): Promise<void> {
+    if (!this.pilot) {
+      this.pilot = new PilotBody((m) => this.cockpit.bodyMaterial(m));
+      this.cockpit.root.add(this.pilot.root);
+    }
+    return this.pilot.ready;
+  }
+
+  /** 鼠标（画面坐标 -1..1，y 向下）指着座舱里的哪个控件 */
+  pickControl(mx: number, my: number): Spot | null {
+    const c = this.cockpit.controls;
+    if (!c || this.rig.mode !== 'cockpit') return null;
+    const cam = this.rig.camera;
+    _rayO.setFromMatrixPosition(cam.matrixWorld);
+    _ndc.set(mx, -my, 0.5).unproject(cam);
+    _rayD.copy(_ndc).sub(_rayO).normalize();
+    _rootInv.copy(this.cockpit.root.matrixWorld).invert();
+    _rayO.applyMatrix4(_rootInv);
+    _rayD.transformDirection(_rootInv);
+    return c.pick(_rayO, _rayD);
+  }
+
   drawInstruments(t: number, d: InstrumentData): void {
     this.cockpit.drawInstruments(t, d);
   }
@@ -941,6 +1042,8 @@ export class WorldView {
   dispose(): void {
     this.unload();
     this.heli.dispose();
+    this.pilot?.dispose();
+    this.pilot = null;
     this.cockpit.dispose();
     this.rain.dispose();
     this.eye.dispose();

@@ -19,7 +19,10 @@ import { generateWorld, type WorldData } from '../world/worldgen';
 import type { AssistId } from '../config/flight';
 import { Input } from './input';
 import { SaveStore, type StorageLike } from './save';
-import { keyName, type Settings } from './settings';
+import { keyName, QUALITY, type Settings } from './settings';
+import { blocked, GPS_RANGES, operate, readout, type ActEnv, type ReadEnv } from '../sim/controls';
+import { SimPanel } from '../ui/simPanel';
+import type { Spot } from '../render/cockpitControls';
 import { LESSONS, TUTORIAL_STEPS, Tutorial, type TutorialCtx } from './tutorial';
 import { isTimeOfDay, type TimeOfDay } from '../render/timeOfDay';
 import { waitForOperation } from './pending';
@@ -51,8 +54,12 @@ const isIntegrated = (gpu: string) =>
   (/Intel|UHD|Iris|Radeon\(TM\) Graphics|Vega \d+ Graphics|Mali|Adreno|PowerVR|SwiftShader|llvmpipe/i.test(gpu) && !/Arc|xe-hpg|alchemist|battlemage/i.test(gpu)) ||
   /^intel gen-|^intel xe-lp/i.test(gpu);
 
-/** 按显卡挑默认画质：独立显卡“高”，集成显卡/软件渲染“低”，其余“中” */
+/** 超仿真的默认视线：比平时低一点，仪表板和自己的手都在视野里 */
+const SIM_PITCH = -0.2;
+
+/** 按显卡挑默认画质：近几代独立显卡“极高”，其他独立显卡“高”，集成显卡/软件渲染“低”，其余“中” */
 function pickQuality(gpu: string): Settings['quality'] {
+  if (/RTX ?[3-9]\d|RX ?[6-9]\d|nvidia (ampere|lovelace|ada|blackwell|rubin)|amd rdna-?[3-9]/i.test(gpu)) return 'ultra';
   if (/RTX|GTX 1[6-9]|GTX [2-9]\d|Radeon RX ?[5-9]|Apple M[1-9]|Arc A[57]|nvidia (turing|ampere|lovelace|ada|blackwell|hopper|rubin)|amd rdna-?[2-9]|apple metal-?3|xe-hpg|battlemage/i.test(gpu)) return 'high';
   if (isIntegrated(gpu)) return 'low';
   return 'medium';
@@ -120,6 +127,14 @@ export class App {
   private controlHintHtml = '';
   private frames = 0;
   private fpsT = 0;
+  private lowFps = 0;
+  /** 超仿真 */
+  private simPanel: SimPanel | null = null;
+  private checklistDone = false;
+  private autoStart = false;
+  private autoT = 0;
+  private dragAcc = 0;
+  private rect: DOMRect | null = null;
   fps = 0;
   /** 实际使用的显卡名称（renderer.init() 之后才知道） */
   gpu = '';
@@ -157,6 +172,7 @@ export class App {
       this.view.onThunder = (delay, strength) => this.audio.thunder(delay, strength);
       const listenerOptions = { signal: this.lifetime.signal };
       window.addEventListener('resize', () => {
+        this.rect = null;
         this.view.resize();
         this.hud.resize();
       }, listenerOptions);
@@ -254,6 +270,7 @@ export class App {
     this.ui.dispose();
     this.hud.dispose();
     this.tutBox.remove();
+    this.simPanel?.dispose();
     this.canvas.remove();
     if (this.pendingOperations === 0) this.disposeView();
   }
@@ -263,7 +280,7 @@ export class App {
     await this.view.init();
     this.assertActive();
     this.gpu = this.view.gpuInfo().name;
-    if (this.save.fresh) {
+    if (this.save.fresh || this.save.requalify) {
       this.settings.quality = pickQuality(this.gpu);
       this.settings.rayTracing = this.settings.quality === 'high' || this.settings.quality === 'ultra';
       this.view.applySettings(this.settings);
@@ -292,7 +309,7 @@ export class App {
       const tp = params.get('time');
       const assist = params.get('assist');
       const weather = m.weathers.find((w) => w.id === params.get('weather'))?.id ?? m.defaultWeather;
-      await this.startRun({ map: m, weather, assist: assist === 'novice' || assist === 'standard' || assist === 'challenge' ? assist : this.settings.assist, tutorial: auto.id === 'training' && params.get('tutorial') !== '0' && params.get('free') !== '1', lesson: Number(params.get('lesson') ?? 0) || 0, free: params.get('free') === '1', time: isTimeOfDay(tp) ? tp : 'day' });
+      await this.startRun({ map: m, weather, assist: assist === 'novice' || assist === 'standard' || assist === 'challenge' || assist === 'sim' ? assist : this.settings.assist, tutorial: auto.id === 'training' && params.get('tutorial') !== '0' && params.get('free') !== '1', lesson: Number(params.get('lesson') ?? 0) || 0, free: params.get('free') === '1', time: isTimeOfDay(tp) ? tp : 'day' });
       if (params.get('autostart') === '1') this.beginFlight();
     } else {
       this.mainMenu();
@@ -378,7 +395,7 @@ export class App {
 
   freeBrief(m: MapDef): void {
     this.ui.freeBrief(m, this.settings, vistasOf(m).map((v) => v.name), {
-      start: (weather, time) => void this.startRun({ map: m, weather, assist: 'novice', tutorial: false, free: true, time }),
+      start: (weather, time, sim) => void this.startRun({ map: m, weather, assist: sim ? 'sim' : 'novice', tutorial: false, free: true, time }),
       back: () => this.freeSelect(),
     });
   }
@@ -434,7 +451,9 @@ export class App {
   private refreshControlHint(): void {
     const k = (a: keyof Settings['bindings']) => keyName(this.settings.bindings[a][0]);
     const html = this.settings.hints && !this.tutorial && this.state === 'playing'
-      ? this.run?.free
+      ? this.input.sim
+        ? `<kbd>Shift</kbd> 下降 · <kbd>C</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平 · <kbd>${k('hover')}</kbd> 增稳 · <kbd>${k('hud')}</kbd> 显示 HUD · <kbd>${k('pause')}</kbd> 暂停`
+        : this.run?.free
         ? `<kbd>${k('cruise')}</kbd> 自动巡航 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('hud')}</kbd> 显示仪表 · <kbd>${k('pause')}</kbd> 换时段、天气、景点`
         : `<kbd>${k('hover')}</kbd> 悬停 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('nav')}</kbd> 导航 · <kbd>${k('pause')}</kbd> 暂停`
       : '';
@@ -495,6 +514,8 @@ export class App {
       this.world = w;
     }
     this.ui.loading('初始化物理', 0.98, cfg.map);
+    if (cfg.assist === 'sim') await this.view.ensurePilot();
+    this.view.setDof?.(cfg.assist === 'sim' && !cfg.tutorial);
     const session = await GameSession.create(this.world, cfg.weather, cfg.assist, cfg.free === true);
     if (this.disposed) {
       session.dispose();
@@ -515,14 +536,18 @@ export class App {
     this.stepper.reset();
     this.view.rig.setMode('cockpit');
     this.view.rig.yaw = 0;
-    this.view.rig.pitch = DEFAULT_PITCH;
+    this.view.rig.pitch = cfg.assist === 'sim' ? SIM_PITCH : DEFAULT_PITCH;
+    this.view.rig.zoom = 1;
+    this.checklistDone = false;
+    this.autoStart = false;
     this.state = 'ready';
     this.ui.loading('编译着色器（第一次进入会慢一些）', 0.99, cfg.map);
     await this.warmUp();
     this.assertActive();
     this.hud.show(true);
+    this.applySim(cfg.assist === 'sim' && !cfg.tutorial);
     const k = (a: keyof Settings['bindings']) => keyName(this.settings.bindings[a][0]);
-    const controls = this.settings.hints ? `<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>${k('pause')}</kbd> 暂停` : '';
+    const controls = !this.settings.hints ? '' : cfg.assist === 'sim' ? `<br>冷舱启动：照左上角的检查单操作，鼠标点按钮 · 鼠标移到屏幕边转头 · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 杆 · <kbd>${k('up')}</kbd>/<kbd>Shift</kbd> 总距 · <kbd>C</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平` : `<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>${k('pause')}</kbd> 暂停`;
     this.ui.clickToStart(
       cfg.tutorial ? `第 ${(cfg.lesson ?? 0) + 1} 课 · ${LESSONS[cfg.lesson ?? 0].title}` : cfg.free ? `休闲飞行 · ${cfg.map.name}` : cfg.map.name,
       cfg.tutorial ? '跟着屏幕下方的提示做，每次只学一个动作。' : cfg.free ? `没有任务，没有计时。想去哪儿就去哪儿，懒得飞就按 <kbd>${k('cruise')}</kbd> 让它自己飞。` : `${this.session.mission.current()?.def.title ?? ''}${controls}`,
@@ -636,6 +661,7 @@ export class App {
     this.input.active = false;
     this.input.clear();
     this.input.exitLock();
+    this.simPanel?.hideTooltip();
     this.audio.update(this.audioState(true), 0);
     if (this.run?.free) {
       this.freePause();
@@ -714,6 +740,10 @@ export class App {
     const s = this.session;
     const run = this.run;
     if (!s || !run?.free) return;
+    if (s.sys) {
+      this.hud.toast('超仿真没有自动巡航：飞机只听你的', 'info', 2500);
+      return;
+    }
     if (this.cruise) {
       this.cruise = null;
       this.hud.toast('自动巡航：关闭，你来飞', 'info', 2500);
@@ -760,13 +790,111 @@ export class App {
     this.hud.setTutorial?.(null);
     this.hud.setFree?.(false);
     this.hud.setCinema?.(false);
+    this.applySim(false);
     this.failTimer = this.completeTimer = -1;
     this.audio.update(this.audioState(true), 0);
     this.audio.setAmbience({});
     this.mainMenu();
   }
 
-  private onEdge(a: 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise'): void {
+  /** 进入或离开超仿真：鼠标放开，HUD 收起，换一套按键提示 */
+  private applySim(on: boolean): void {
+    if (on === this.input.sim) return;
+    this.input.setSim(on);
+    this.hud.setHidden?.(on);
+    this.canvas.classList.toggle('sim-cursor', on);
+    if (on && !this.simPanel) {
+      this.simPanel = new SimPanel(this.root);
+      this.simPanel.onAuto = () => {
+        this.autoStart = true;
+        this.autoT = 0;
+      };
+    }
+    if (!on) {
+      this.simPanel?.hide();
+      this.autoStart = false;
+      this.view.cockpit.controls?.highlight(null, 0);
+    }
+  }
+
+  /** 每帧：鼠标贴边转头、指着的控件、点击、滚轮 */
+  private simControls(s: GameSession, dt: number): void {
+    const sys = s.sys;
+    const I = this.input;
+    const v = this.view;
+    if (!sys) return;
+    const [ex, ey] = I.edgeLook(dt);
+    if (ex || ey) v.rig.look(ex, ey);
+    const spot = I.mouseInside ? v.pickControl(I.mouseX, I.mouseY) : null;
+    v.pilot?.hover(spot);
+    v.focusAt(I.mouseX, I.mouseY, spot, dt);
+    for (const c of I.takeClicks()) {
+      if (spot && (c.button === 0 || c.button === 2)) this.useControl(s, spot, c.button === 0 ? 1 : -1);
+    }
+    const wheel = I.takeWheel();
+    if (wheel) {
+      if (spot && (spot.def.type === 'dial' || spot.def.type === 'step')) this.useControl(s, spot, wheel);
+      else v.rig.zoom = Math.min(1, Math.max(0.36, v.rig.zoom * (wheel > 0 ? 0.86 : 1.16)));
+    }
+    // 按住旋钮上下拖：转得更快
+    const drag = I.takeDrag();
+    if (spot && I.mouseHeld && drag && spot.def.type === 'dial') {
+      this.dragAcc += drag * 60;
+      const n = Math.trunc(this.dragAcc);
+      if (n) {
+        this.dragAcc -= n;
+        this.useControl(s, spot, n);
+      }
+    }
+    if (!I.mouseHeld) sys.lampTest = false;
+    v.cockpit.mapRange = GPS_RANGES[sys.c.gpsRange] ?? 2000;
+    // 检查单：冷舱到旋翼 100% 之前一直在
+    const list = sys.checklist(s.flight.nr);
+    const pending = this.checklistDone ? null : list.find((r) => !r.done) ?? null;
+    if (!pending) this.checklistDone = true;
+    this.simPanel?.checklist(this.checklistDone ? null : list);
+    v.cockpit.controls?.highlight(this.settings.hints && pending ? pending.spot : null, this.t);
+    if (this.autoStart && pending) {
+      this.autoT -= dt;
+      if (this.autoT <= 0) {
+        this.autoT = 0.75;
+        const target = v.cockpit.controls?.get(pending.spot);
+        if (target && sys.c[pending.key] !== pending.want) this.useControl(s, target, 1);
+      }
+    } else if (!pending) this.autoStart = false;
+    if (spot) {
+      const r = this.rect ?? (this.rect = this.canvas.getBoundingClientRect());
+      const env = this.readEnv(s);
+      this.simPanel?.tooltip(spot.def.name, spot.def.label, readout(spot.def, sys, env), r.left + ((I.mouseX + 1) / 2) * r.width, r.top + ((I.mouseY + 1) / 2) * r.height, blocked(spot.def, sys));
+      this.canvas.classList.toggle('sim-cursor-hot', spot.def.type !== 'info');
+    } else {
+      this.simPanel?.hideTooltip();
+      this.canvas.classList.remove('sim-cursor-hot');
+    }
+  }
+
+  private readEnv(s: GameSession): ReadEnv {
+    const t = s.flight.telemetry;
+    return { nr: t.rotorRpm, torque: t.torque, airspeed: t.airspeed, altitude: s.altitudeMSL(), vs: s.body.vel.y, heading: ((t.heading * 180) / Math.PI + 360) % 360, slip: t.sideslip };
+  }
+
+  private useControl(s: GameSession, spot: Spot, dir: number): void {
+    const sys = s.sys;
+    if (!sys) return;
+    const env: ActEnv = {
+      nextTarget: () => s.cycleNav(),
+      range: (d) => {
+        sys.c.gpsRange = Math.min(GPS_RANGES.length - 1, Math.max(0, sys.c.gpsRange + d));
+      },
+      toast: (text) => this.hud.toast(text, 'info', 2000),
+    };
+    const moved = operate(spot.def, sys, dir, env);
+    this.view.pilot?.poke(spot);
+    if (spot.kind === 'press') this.view.cockpit.controls?.pressAnim(spot);
+    if (moved) this.audio.control(spot.def.sound);
+  }
+
+  private onEdge(a: 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim'): void {
     const s = this.session;
     if (a === 'pause') {
       if (this.state === 'playing') this.pause();
@@ -774,6 +902,20 @@ export class App {
       return;
     }
     if (this.state !== 'playing' || !s) return;
+    if (a === 'trim') {
+      if (s.sys) {
+        s.flight.setTrim();
+        this.audio.control('button');
+        this.hud.toast('已配平', 'info', 900);
+      }
+      return;
+    }
+    if (a === 'hover' && s.sys) {
+      // 超仿真没有悬停辅助：H 是增稳开关的快捷键
+      const spot = this.view.cockpit.controls?.get('rk_sas');
+      if (spot) this.useControl(s, spot, 1);
+      return;
+    }
     if (a === 'hover') {
       if (!this.tutorial || this.tutorial.hoverAllowed) s.toggleHover();
     }
@@ -823,6 +965,7 @@ export class App {
     this.fpsT += frameSeconds;
     if (this.fpsT >= 1) {
       this.fps = this.frames / this.fpsT;
+      this.watchFrameRate();
       this.frames = 0;
       this.fpsT = 0;
     }
@@ -902,6 +1045,23 @@ export class App {
     }
   }
 
+  /** 每秒一次：飞行中帧率连续撑不住，自动降一档（玩家自己选过画质就不管） */
+  private watchFrameRate(): void {
+    const flying = this.state === 'playing' && this.session?.state === 'running' && !document.hidden;
+    this.lowFps = flying && this.settings.autoQuality && this.fps < 30 ? this.lowFps + 1 : 0;
+    if (this.lowFps < 8) return;
+    this.lowFps = 0;
+    const s = this.settings;
+    const order = ['low', 'medium', 'high', 'ultra'] as const;
+    const at = order.indexOf(s.quality);
+    if (s.rayTracing) s.rayTracing = false;
+    else if (at > 0) s.quality = order[at - 1];
+    else return;
+    this.view.applySettings(s);
+    this.save.save();
+    this.hud.toast(`帧率偏低，画质已自动调到“${QUALITY[s.quality].label}”${s.rayTracing ? '' : '（光线追踪关闭）'}`, 'info', 5000);
+  }
+
   private readInput(s: GameSession, dt: number): void {
     const I = this.input;
     s.input.pitch = I.axis('back', 'forward');
@@ -917,13 +1077,45 @@ export class App {
     }
     const [dx, dy] = I.takeLook(dt);
     if (dx || dy) this.view.rig.look(dx, dy);
+    if (I.sim) this.simControls(s, dt);
   }
 
   private audioState(paused: boolean) {
     const s = this.session;
     if (!s) return { rpm: 0, load: 0, power: 0, airspeed: 0, gust: 0, rain: 0, inCockpit: true, paused, bank: 0, descent: 0 };
     const tel = s.flight.telemetry;
+    const y = s.sys;
+    const c = y?.c;
+    // 音频面板决定耳机里有什么：要有电，要选中 COM1，电台开着
+    const audio = !!y && y.feeds('ob_audio');
+    const com = audio && y!.avionics && y!.feeds('cb_com') ? (c!.aCom1 > 0.5 ? c!.comVol * c!.audioVol : 0) : 0;
+    const sim = y
+      ? {
+          n1: y.n1 / 100,
+          lit: y.lit,
+          starter: y.starter,
+          ignite: y.igniting,
+          torque: tel.torque,
+          tail: Math.min(1, Math.abs(tel.pedal - 0.1) + 0.45 * tel.collective),
+          vib: tel.vibration,
+          bus: y.powered,
+          pump: c!.fuelP > 0.5 && y.feeds('cb_fuel'),
+          hyd: y.hydP > 10,
+          vent: y.powered ? c!.vent : 0,
+          heat: c!.cabHt > 0.5 && y.feeds('ob_cabht') ? c!.heat : 0,
+          radio: com,
+          ics: audio && c!.aIcs > 0.5 && y.feeds('cb_ics') ? c!.audioVol : 0,
+          squelch: c!.audioSql,
+          morse: audio && y.avionics && (c!.aNav > 0.5 || c!.aAdf > 0.5) ? c!.audioVol : 0,
+          // 紧急频率 121.5 上能听到自己的定位发射机
+          siren: com > 0 && c!.elt > 1.5 && c!.comActive === 121500 ? com : 0,
+          headset: audio ? c!.audioVol : 0.4,
+          horn: (tel.rotorRpm < 0.93 && tel.rotorRpm > 0.3 && s.gear.weightOnSkids < 0.3 && c!.hornMute < 0.5 && y.feeds('ob_horn')) || y.hornTest > 0,
+        }
+      : null;
     return {
+      sim,
+      agl: s.agl,
       rpm: s.state === 'crashed' ? 0.2 : tel.rotorRpm,
       load: tel.thrust / (s.totalMass() * 9.81),
       power: tel.powerFrac,
@@ -960,6 +1152,9 @@ export class App {
       navLabel: nav.label,
       windDirFrom: s.windInfo.dirFrom,
       windSpeed: s.windInfo.speed,
+      sys: s.sys,
+      caution: s.sys ? s.sys.caution(s.flight.nr, s.flight.shaft, s.gear.weightOnSkids > 0.3) : null,
+      torque: tel.torque,
       powerFrac: tel.powerFrac,
       hoverPowerFrac: tel.hoverPowerFrac,
       rpm: tel.rotorRpm,
@@ -988,6 +1183,9 @@ export class App {
     const A = this.audio;
     for (const e of events) {
       switch (e.type) {
+        case 'caution':
+          A.alert('caution');
+          break;
         case 'damage': {
           const d = e.ev;
           // 休闲模式不提耐久，磕一下有声音和震动就够了

@@ -13,6 +13,10 @@ export interface CameraSettings {
   headMotion: boolean;
   /** 地面高度（电影镜头要躲开地形） */
   ground?: (x: number, z: number) => number;
+  /** 机身振动 0..1（超仿真的飞行模型算的：平移升力过渡、涡环、失速） */
+  vibration?: number;
+  /** 旋翼转速比：超仿真里旋翼不转就没有振动 */
+  rotor?: number;
 }
 
 /** 眼睛相对颈椎转轴的位置（米）：前方、上方 */
@@ -35,6 +39,11 @@ export class CameraRig {
   yaw = 0;
   pitch = DEFAULT_PITCH;
   mode: 'cockpit' | 'chase' | 'cinema' = 'cockpit';
+  /** 视野缩放（1 = 不缩放，越小越近）：超仿真里滚轮用，看清远处的表 */
+  zoom = 1;
+  /** 探身：够远处的按钮时头也会往前（0..1） */
+  lean = 0;
+  private zoomNow = 1;
   private recenter = false;
   private head = new THREE.Vector3();
   private impact = 0;
@@ -143,8 +152,10 @@ export class CameraRig {
       }
       return;
     }
-    if (cam.fov !== s.fov) {
-      cam.fov = s.fov;
+    this.zoomNow = damp(this.zoomNow, this.zoom, 9, dt);
+    const fov = s.fov * (this.mode === 'cockpit' ? this.zoomNow : 1);
+    if (Math.abs(cam.fov - fov) > 0.01) {
+      cam.fov = fov;
       cam.updateProjectionMatrix();
     }
     if (this.recenter) {
@@ -178,11 +189,12 @@ export class CameraRig {
       const tw = clamp((Math.abs(this.yaw) - 0.9) / 1.5, 0, 1);
       const twist = tw * tw * (3 - 2 * tw);
       const down = clamp((-this.pitch - 0.5) / 0.6, 0, 1);
-      _off.set(s.eyeX + nx - Math.sign(this.yaw) * twist * 0.13 - down * 0.04, EYE.y + ny - down * 0.08, EYE.z + nz - down * 0.1 - twist * 0.24).add(this.head);
+      _off.set(s.eyeX + nx - Math.sign(this.yaw) * twist * 0.13 - down * 0.04, EYE.y + ny - down * 0.08 - this.lean * 0.02, EYE.z + nz - down * 0.1 - twist * 0.24 - this.lean * 0.07).add(this.head);
       _off.applyQuaternion(quat);
       cam.position.copy(pos).add(_off);
-      // 振动（真实旋翼振动 + 碰撞冲击），强度由设置控制
-      const vib = s.shake * (0.0005 + 0.0008 * rpmLoad);
+      // 振动（真实旋翼振动 + 碰撞冲击），强度由设置控制。三片桨每转一圈三次：约 19 Hz 的上下抖
+      const rotor = s.rotor ?? 1;
+      const vib = s.shake * rotor * (0.0005 + 0.0008 * rpmLoad + 0.0065 * (s.vibration ?? 0));
       const imp = s.shake * this.impact * 0.02;
       _eul.set(
         this.pitch + Math.sin(t * 83) * vib + Math.sin(t * 37.1) * imp,

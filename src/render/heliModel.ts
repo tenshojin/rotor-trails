@@ -50,6 +50,9 @@ export class HeliModel {
   private bladeMat: THREE.MeshStandardMaterial;
   private tailDisc: THREE.Mesh;
   private beacon: THREE.Sprite;
+  /** 防撞灯、航行灯开着没有（超仿真里由开关决定） */
+  beaconOn = true;
+  navOn = true;
   private navLights: THREE.Sprite[] = [];
   private rotorAngle = 0;
   private tailAngle = 0;
@@ -332,9 +335,9 @@ export class HeliModel {
     this.disc.rotation.y = -this.rotorAngle * 0.13;
     this.tailRotor.rotation.x = this.tailAngle;
     (this.tailDisc.material as THREE.MeshBasicMaterial).opacity = blur * 0.3;
-    const b = (t % 1.2) < 0.08 ? 1 : 0.0;
+    const b = this.beaconOn && (t % 1.2) < 0.08 ? 1 : 0.0;
     this.beacon.material.opacity = b;
-    for (const l of this.navLights) l.material.opacity = 0.9;
+    for (const l of this.navLights) l.material.opacity = this.navOn ? 0.9 : 0;
   }
 
   dispose(): void {

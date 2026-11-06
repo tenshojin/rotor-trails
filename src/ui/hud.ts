@@ -113,6 +113,13 @@ export class Hud {
     else this.clearToasts();
   }
 
+  /** 超仿真：HUD 收起来，飞行信息都在仪表上（按 U 还能叫出来） */
+  setHidden(hidden: boolean): void {
+    this.mode = hidden ? 2 : 0;
+    this.root.classList.toggle('hud-full', false);
+    this.root.classList.toggle('hud-off', hidden);
+  }
+
   /** 自动（平稳飞行时收起）→ 完整（一直显示）→ 隐藏（只留告警），返回新模式的名字 */
   cycleMode(): string {
     this.mode = (this.mode + 1) % 3;

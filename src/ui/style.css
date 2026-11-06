@@ -1783,3 +1783,102 @@ kbd.big.on {
     transform: none;
   }
 }
+
+/* ---------- 超仿真 ---------- */
+canvas.gl.sim-cursor {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><circle cx='12' cy='12' r='5' fill='none' stroke='white' stroke-opacity='.75' stroke-width='1.4'/><circle cx='12' cy='12' r='1.1' fill='white' fill-opacity='.9'/></svg>") 12 12, crosshair;
+}
+canvas.gl.sim-cursor.sim-cursor-hot {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><circle cx='12' cy='12' r='7' fill='none' stroke='%23ffd27a' stroke-width='2'/><circle cx='12' cy='12' r='1.5' fill='%23ffd27a'/></svg>") 12 12, pointer;
+}
+.sim-tip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 30;
+  max-width: 300px;
+  padding: 7px 11px;
+  border-radius: 6px;
+  background: rgba(8, 11, 14, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #dfe7ee;
+  font-size: 12.5px;
+  line-height: 1.45;
+  pointer-events: none;
+  backdrop-filter: blur(3px);
+}
+.sim-tip b {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: #fff;
+}
+.sim-tip em {
+  margin-left: 10px;
+  font-style: normal;
+  font-weight: 600;
+  color: #ffd27a;
+}
+.sim-tip span {
+  display: block;
+  color: #aebbc6;
+}
+.sim-tip i {
+  display: block;
+  font-style: normal;
+  color: #ff9d7a;
+}
+.sim-list {
+  position: fixed;
+  left: 16px;
+  top: 16px;
+  z-index: 25;
+  width: 292px;
+  padding: 11px 14px 10px;
+  border-radius: 8px;
+  background: rgba(8, 11, 14, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #cfd9e2;
+  font-size: 12.5px;
+  backdrop-filter: blur(3px);
+}
+.sim-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 7px;
+}
+.sim-list-head b {
+  color: #fff;
+  font-size: 13.5px;
+}
+.sim-auto {
+  padding: 3px 9px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: transparent;
+  color: #cfd9e2;
+  font-size: 12px;
+  cursor: pointer;
+}
+.sim-auto:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.sim-list ol {
+  margin: 0;
+  padding-left: 19px;
+  line-height: 1.62;
+}
+.sim-list li.done {
+  color: #6f8a78;
+  text-decoration: line-through;
+}
+.sim-list li.now {
+  color: #ffd27a;
+  font-weight: 600;
+}
+.sim-note {
+  margin: 7px 0 0;
+  color: #8fa0ad;
+  font-size: 11.5px;
+  line-height: 1.45;
+}

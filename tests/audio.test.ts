@@ -72,7 +72,7 @@ describe('环境音资源生命周期', () => {
     const initial = count();
     for (let i = 0; i < 300; i++) a.update(running, 0.016);
     expect(count()).toBe(initial);
-    a.update({ ...running, rpm: 0.9 }, 0.016);
+    a.update({ ...running, inCockpit: false }, 0.016);
     expect(count()).toBeGreaterThan(initial);
     a.dispose();
   });

@@ -14,7 +14,7 @@
 // 反射在屋檐和门板边上是一排锯齿；接触阴影在白色机身上是一片噪点。
 
 import * as THREE from 'three/webgpu';
-import { clamp, convertToTexture, screenSize, Fn, If, diffuseColor, dot, float, getViewPosition, int, length, max, min, luminance, metalness, mix, mrt, normalize, normalView, output, packNormalToRGB, pass, perspectiveDepthToViewZ, reference, renderOutput, roughness, sample, screenUV, smoothstep, uniform, unpackRGBToNormal, vec2, vec3, vec4, velocity, vibrance, toneMappingExposure, Break, interleavedGradientNoise, Loop, screenCoordinate } from 'three/tsl';
+import { abs, clamp, convertToTexture, cos, sin, screenSize, Fn, If, diffuseColor, dot, float, getViewPosition, int, length, max, min, luminance, metalness, mix, mrt, normalize, normalView, output, packNormalToRGB, pass, perspectiveDepthToViewZ, reference, renderOutput, roughness, sample, screenUV, smoothstep, uniform, unpackRGBToNormal, vec2, vec3, vec4, velocity, vibrance, toneMappingExposure, Break, interleavedGradientNoise, Loop, screenCoordinate } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
@@ -61,6 +61,8 @@ export interface PostConfig {
   volumetric?: boolean;
   /** 渲染分辨率（小于 1 时用时间超分还原到屏幕分辨率） */
   upscale?: number;
+  /** 景深（超仿真模式） */
+  dof?: boolean;
 }
 
 export interface Post {
@@ -117,6 +119,44 @@ function contactShadow(depth: THREE.TextureNode, nTex: THREE.TextureNode, camera
       });
     });
     return occ.mul(facing).mul(float(1).sub(smoothstep(2000.0, 3200.0, dist)));
+  })();
+}
+
+/** 景深：眼睛对焦的距离（米）和光圈。光圈 0 就是关了 */
+export const DOF = { focus: uniform(1000), aperture: uniform(0) };
+const DOF_TAPS = 22;
+/** 模糊圈的上限（占画面高度的比例）：1080p 下约 4 个像素，眼睛余光的那种虚，不是长焦镜头的奶油 */
+const DOF_MAX = 0.0036;
+
+/**
+ * 景深（超仿真）：人眼对焦在一个距离上，别的地方微微发虚。
+ * 每个像素看周围一圈采样点，谁的模糊圈够得着这里就算谁一份，所以前景的虚边能盖到背后的清晰物体上。
+ */
+function focusBlur(src: THREE.TextureNode, sharp: THREE.Node<'vec4'>, depth: THREE.TextureNode, camera: THREE.PerspectiveCamera): THREE.Node<'vec4'> {
+  const near = reference('near', 'float', camera);
+  const far = reference('far', 'float', camera);
+  const aspect = reference('aspect', 'float', camera);
+  const inv = float(1).div(DOF.focus as unknown as THREE.Node<'float'>);
+  const cocAt = (uvq: THREE.Node<'vec2'>): THREE.Node<'float'> => {
+    const z = perspectiveDepthToViewZ(depth.sample(uvq).r, near, far).negate();
+    return min(abs(inv.sub(float(1).div(max(z, 0.05)))).mul(DOF.aperture as unknown as THREE.Node<'float'>), DOF_MAX);
+  };
+  return Fn(() => {
+    const c0 = cocAt(screenUV).toVar();
+    const sum = vec4(src.sample(screenUV).rgb, 1).toVar();
+    const spin = interleavedGradientNoise(screenCoordinate).mul(6.2832).toVar();
+    Loop(DOF_TAPS, ({ i }: { i: THREE.Node<'int'> }) => {
+      const fi = float(i).add(0.5);
+      const r = fi.div(DOF_TAPS).sqrt().mul(DOF_MAX).toVar();
+      const a = fi.mul(2.39996).add(spin);
+      const uvq = screenUV.add(vec2(cos(a).div(aspect), sin(a)).mul(r)).toVar();
+      const cs = cocAt(uvq);
+      const w = smoothstep(r.mul(0.7), r.mul(1.15), cs);
+      sum.addAssign(vec4(src.sample(uvq).rgb.mul(w), w));
+    });
+    const blurred = sum.rgb.div(sum.a);
+    // 焦点上的像素保留锐化后的清晰结果
+    return vec4(mix(sharp.rgb, blurred, smoothstep(0.0, DOF_MAX * 0.35, max(c0, sum.a.sub(1).div(DOF_TAPS).mul(DOF_MAX)))), 1);
   })();
 }
 
@@ -267,7 +307,8 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     out = motionBlur(aaTex ?? asTexture(aa), vClamped, int(cfg.quality === 'ultra' ? 12 : 8));
   }
   // 时间抗锯齿让画面略微发软：补一道受限的锐化（结果不超出周围像素的明暗范围，边缘不会有白边）
-  const sharp = aaTex && !cfg.motionBlur ? sharpen(aaTex, dbg.sharpen ?? 0.8) : out;
+  let sharp = aaTex && !cfg.motionBlur ? sharpen(aaTex, dbg.sharpen ?? 0.8) : out;
+  if (cfg.dof && aaTex) sharp = focusBlur(aaTex, sharp, depth, camera);
   if ((cfg.quality === 'high' || cfg.quality === 'ultra') && dbg.bloom !== false) {
     // 阈值较高：只有太阳、强镜面反光、灯光会晕开（阳光下的白色表面本身也有约 3 的亮度）
     const b = bloom(out, cfg.quality === 'ultra' ? 0.22 : 0.18, 0.5, 4.0);

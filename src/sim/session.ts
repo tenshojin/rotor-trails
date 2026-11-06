@@ -10,6 +10,7 @@ import { TREE_SPECS, TREE_TYPES, forTreesNear } from '../world/vegetation';
 import { BuffSystem, BUFFS, type BuffKind, type BuffSnapshot, type PickupResult } from './buffs';
 import { CAUSE_LABEL, DamageModel, statusOf, type DamageCause, type DamageEvent, type DamageSnapshot, type DamageStatus } from './damage';
 import { FlightModel, type BodyState, type PilotInput } from './flight';
+import { Systems } from './systems';
 import { Gear } from './gear';
 import { MissionRuntime, gradeLanding, type LandingMetrics, type MissionEvent, type MissionSnapshot } from './mission';
 import { Navigator, type NavSnapshot } from './nav';
@@ -34,6 +35,7 @@ export type GameEvent =
   | { type: 'message'; text: string; level: 'info' | 'warn' | 'good' }
   | { type: 'repair'; amount: number; station: boolean }
   | { type: 'hover'; on: boolean; auto?: boolean }
+  | { type: 'caution' }
   | { type: 'complete' };
 
 export interface SessionSnapshot {
@@ -123,6 +125,8 @@ export class GameSession {
   readonly contacts: ContactReport[] = [];
   lastTouchdown: { metrics: LandingMetrics; t: number; padId: string | null } | null = null;
   assistId: AssistId;
+  /** 机载系统：只有超仿真模式有，其他模式发动机和电源都是不用管的 */
+  sys: Systems | null = null;
   /** 休闲模式：没有任务、补给和检查点，撞了也不算失败 */
   readonly free: boolean;
   private cpId = 0;
@@ -148,6 +152,11 @@ export class GameSession {
     this.assistId = assist;
     this.free = free;
     this.flight.setAssist(assist);
+    if (assist === 'sim') {
+      // 冷舱：一切都关着，旋翼不转
+      this.sys = new Systems();
+      this.flight.nr = 0;
+    }
     this.phys = new PhysicsWorld(STEP);
     const P = this.phys;
     try {
@@ -202,11 +211,16 @@ export class GameSession {
   }
 
   totalMass(): number {
-    return HELI.massBase + this.mission.cargo * HELI.crateMass;
+    return HELI.massBase + this.mission.cargo * HELI.crateMass - (this.sys?.fuelBurnt ?? 0);
   }
 
   altitudeMSL(): number {
     return this.body.pos.y + this.world.map.altitudeOffset;
+  }
+
+  /** 外界气温（℃）：标准大气，雨天略低 */
+  oat(): number {
+    return 15 - 0.0065 * this.altitudeMSL() - 3 * this.weather.current.rain;
   }
 
   pad(id: string): PadDef | undefined {
@@ -216,6 +230,23 @@ export class GameSession {
   setAssist(id: AssistId): void {
     this.assistId = id;
     this.flight.setAssist(id);
+    if (id === 'sim' && !this.sys) {
+      // 飞到一半换成超仿真：系统都已经在工作
+      this.sys = new Systems();
+      this.sys.setRunning();
+      this.flight.nr = 1;
+      this.flight.shaft = this.flight.enginePower;
+    } else if (id !== 'sim' && this.sys) {
+      this.sys = null;
+      this.flight.nr = 1;
+    }
+  }
+
+  /** 空中出生、瞬移、恢复：系统都切到“已经在飞”，旋翼在转 */
+  private systemsRunning(): void {
+    if (!this.sys) return;
+    this.sys.setRunning();
+    this.flight.nr = 1;
   }
 
   toggleHover(): void {
@@ -294,6 +325,24 @@ export class GameSession {
 
     // ---------- 飞行动力学 ----------
     this.buffs.update(dt);
+    const sys = this.sys;
+    if (sys) {
+      const onGround = this.gear.weightOnSkids > 0.3;
+      sys.update({
+        dt,
+        nr: this.flight.nr,
+        powerDemand: this.flight.powerDemand,
+        shaftPower: this.flight.shaft,
+        altitudeMSL: this.altitudeMSL(),
+        oat: this.oat(),
+        rain: this.weather.current.rain,
+        airspeed: tel.airspeed,
+        onGround,
+        powerMax: tel.powerAvail,
+      });
+      const c = sys.caution(this.flight.nr, this.flight.shaft, onGround);
+      if (sys.noteCautions(c) && (this.flight.nr > 0.9 || !onGround)) this.events.push({ type: 'caution' });
+    }
     const env = {
       wind: this.windNow,
       altitudeMSL: this.altitudeMSL(),
@@ -306,6 +355,7 @@ export class GameSession {
       weightOnSkids: this.gear.weightOnSkids,
       gearContacts: this.gear.contactCount,
       time: this.t,
+      sys,
     };
     this.flight.update(b, env, this.input, dt, _f, _tq);
     if (this.flight.hoverAutoOff) {
@@ -610,6 +660,7 @@ export class GameSession {
     copyBody(this.prev, b);
     // 检查点在地面上时两种恢复方式都放回地面：不产生一次虚假的“接地”
     this.gear.reset(grounded);
+    this.systemsRunning();
     this.flight.resetTo(b, this.massApplied, this.altitudeMSL(), grounded);
     if (mode === 'exact' && !grounded) {
       this.flight.collective = s.collective;
@@ -652,6 +703,7 @@ export class GameSession {
     this.phys.writeBody(b);
     copyBody(this.prev, b);
     this.gear.reset(false);
+    this.systemsRunning();
     this.flight.resetTo(b, this.totalMass(), this.altitudeMSL(), false);
     this.flight.altRef = y;
     this.state = 'running';

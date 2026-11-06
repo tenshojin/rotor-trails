@@ -2,7 +2,15 @@
 // GPS 移动地图、告警灯板；以及机械仪表指针的角度换算（与 tools/blender/cockpit_textures.py 画的刻度一致）。
 // 所有数值都来自真实游戏状态（InstrumentData），没有装饰性的假数据。
 
+import type { Caution, Systems } from '../sim/systems';
+
 export interface InstrumentData {
+  /** 超仿真的机载系统（其他模式没有，屏幕一直亮着） */
+  sys: Systems | null;
+  /** 告警灯 */
+  caution: Caution | null;
+  /** 扭矩（1 = 100%） */
+  torque: number;
   pitch: number; // rad
   roll: number; // rad
   heading: number; // deg 0..360
@@ -108,9 +116,21 @@ export function drawVemdTop(g: CanvasRenderingContext2D, d: InstrumentData, W: n
   const cy = H * 0.56;
   const R = H * 0.36;
   // 第一限制指示（FLI）：扭矩、T4、N1 里最接近限制的一项，0–10 刻度
-  const tq = d.powerFrac * 100;
-  const n1 = 72 + d.powerFrac * 28;
-  const t4 = 420 + d.powerFrac * 420 + (d.torqueLimited ? 30 : 0);
+  const y = d.sys;
+  if (y && y.selfTest > 0) {
+    // 刚通电：显示器自检
+    g.fillStyle = '#7fc6ff';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = `bold ${Math.round(H * 0.11)}px ${FONT}`;
+    g.fillText('VEMD SELF TEST', W / 2, H * 0.42);
+    g.font = `${Math.round(H * 0.08)}px ${MONO}`;
+    g.fillText(`${Math.round((1 - y.selfTest / 2.4) * 100)} %`, W / 2, H * 0.58);
+    return;
+  }
+  const tq = y ? d.torque * 100 : d.powerFrac * 100;
+  const n1 = y ? y.n1 : 72 + d.powerFrac * 28;
+  const t4 = y ? y.tot : 420 + d.powerFrac * 420 + (d.torqueLimited ? 30 : 0);
   const fli = clamp(Math.max(tq / 10, (n1 - 70) / 3, (t4 - 400) / 45), 0, 11);
   const a0 = Math.PI * 0.75;
   const a1 = Math.PI * 2.25;
@@ -168,8 +188,66 @@ export function drawVemdTop(g: CanvasRenderingContext2D, d: InstrumentData, W: n
 
 // ---------------------------------------------------------------- 发动机参数显示器（下屏）：机体与任务状态
 
+/** 没电的屏：黑的 */
+export function drawOff(g: CanvasRenderingContext2D, W: number, H: number): void {
+  g.fillStyle = '#020303';
+  g.fillRect(0, 0, W, H);
+}
+
+/** 下屏的后三页：电气、燃油、飞行记录 */
+function vemdPage(g: CanvasRenderingContext2D, y: Systems, W: number, H: number): void {
+  const pad = W * 0.07;
+  const page = y.c.vemdPage;
+  const title = ['', 'ELECTRICAL', 'FUEL', 'FLIGHT REPORT'][page];
+  g.textBaseline = 'middle';
+  g.textAlign = 'left';
+  g.fillStyle = '#7fc6ff';
+  g.font = `bold ${Math.round(H * 0.075)}px ${FONT}`;
+  g.fillText(title, pad, H * 0.1);
+  const rows: Array<[string, string, boolean?]> =
+    page === 1
+      ? [
+          ['BUS', `${y.busV.toFixed(1)} V`, y.busV < 24],
+          ['BATT', `${Math.round(y.soc * 100)} %  ${y.battAmps >= 0 ? '+' : ''}${Math.round(-y.battAmps)} A`, y.soc < 0.3],
+          ['GEN', y.genOnline ? 'ONLINE' : 'OFF', !y.genOnline],
+          ['HYD', `${Math.round(y.hydP)} BAR`, y.hydP < 24],
+          ['OIL P', `${y.oilP.toFixed(1)} BAR`, y.oilP < 1.2],
+          ['OIL T', `${Math.round(y.oilT)} °C`, false],
+        ]
+      : page === 2
+        ? [
+            ['FUEL', `${Math.round(y.fuelKg)} KG`, y.fuelKg < y.c.fuelAlert],
+            ['FLOW', `${Math.round(y.fuelFlow)} KG/H`, false],
+            ['ENDUR', y.fuelFlow > 1 ? `${Math.floor(y.fuelKg / y.fuelFlow)} H ${String(Math.floor(((y.fuelKg / y.fuelFlow) % 1) * 60)).padStart(2, '0')}` : '--', false],
+            ['PRESS', `${y.fuelPress.toFixed(1)} BAR`, y.fuelPress < 0.6],
+            [y.c.vemdSel > 0.5 ? '> ALERT' : 'ALERT', `${y.c.fuelAlert} KG`, false],
+          ]
+        : [
+            ['FLT TIME', `${Math.floor(y.flightTime / 60)}:${String(Math.floor(y.flightTime % 60)).padStart(2, '0')}`, false],
+            ['HOBBS', y.hobbs.toFixed(1), false],
+            ['START T4', `${Math.round(y.startPeak)} °C`, y.startPeak > 865],
+            ['OVER TQ', y.overTorque > 0.5 ? `${y.overTorque.toFixed(0)} S` : 'NONE', y.overTorque > 5],
+            ['ENG WEAR', `${Math.round(y.engineWear * 100)} %`, y.engineWear > 0.2],
+          ];
+  rows.forEach(([k, v, warn], i) => {
+    const yy = H * (0.25 + i * 0.125);
+    g.textAlign = 'left';
+    g.fillStyle = '#9fb0bd';
+    g.font = `${Math.round(H * 0.07)}px ${FONT}`;
+    g.fillText(k, pad, yy);
+    g.textAlign = 'right';
+    g.fillStyle = warn ? '#ffb347' : '#ffffff';
+    g.font = `bold ${Math.round(H * 0.08)}px ${MONO}`;
+    g.fillText(v, W - pad, yy);
+  });
+}
+
 export function drawVemdBottom(g: CanvasRenderingContext2D, d: InstrumentData, W: number, H: number): void {
   bg(g, W, H);
+  if (d.sys?.c.vemdPage) {
+    vemdPage(g, d.sys, W, H);
+    return;
+  }
   g.textBaseline = 'middle';
   const pad = W * 0.06;
   // 机体耐久条
@@ -499,6 +577,81 @@ export function drawEfb(g: CanvasRenderingContext2D, d: InstrumentData, minimap:
 
 const ANN_LABELS = ['GOV', 'ENG P', 'FUEL P', 'GEN', 'BATT', 'HORN', 'TQ LIM', 'NR LOW', 'XMSN', 'HYD', 'PITOT', 'LOW FUEL', 'DAMAGE', 'TERRAIN', 'BOOST', 'SHIELD', 'HOVER', 'CARGO', 'ENG CHIP', 'MGB CHIP', 'TGB CHIP', 'FIRE', 'SAND', 'AUX'];
 
+/** 电台：使用频率大字，备用频率小字 */
+export function drawRadio(g: CanvasRenderingContext2D, d: InstrumentData, W: number, H: number): void {
+  g.fillStyle = '#0b0f0a';
+  g.fillRect(0, 0, W, H);
+  const a = d.sys?.c.comActive ?? 118300;
+  const b = d.sys?.c.comStby ?? 121500;
+  g.fillStyle = '#b6e29a';
+  g.textBaseline = 'middle';
+  g.textAlign = 'left';
+  g.font = `bold ${Math.round(H * 0.5)}px ${MONO}`;
+  g.fillText((a / 1000).toFixed(3), W * 0.05, H * 0.42);
+  g.textAlign = 'right';
+  g.font = `${Math.round(H * 0.3)}px ${MONO}`;
+  g.fillText((b / 1000).toFixed(3), W * 0.96, H * 0.5);
+  g.textAlign = 'left';
+  g.font = `${Math.round(H * 0.17)}px ${FONT}`;
+  g.fillText(`COM 1   VOL ${Math.round((d.sys?.c.comVol ?? 0.6) * 100)}${d.sys && d.sys.c.comMon > 0.5 ? '   MON' : ''}`, W * 0.05, H * 0.84);
+}
+
+/** 应答机：琥珀色字，识别时闪 */
+export function drawXpdr(g: CanvasRenderingContext2D, d: InstrumentData, W: number, H: number, t: number): void {
+  g.fillStyle = '#100803';
+  g.fillRect(0, 0, W, H);
+  const c = d.sys?.c;
+  const mode = c ? ['OFF', 'SBY', 'ON', 'ALT'][c.xpdrMode] : 'ALT';
+  const amber = '#ff9e28';
+  g.fillStyle = amber;
+  g.textBaseline = 'middle';
+  g.textAlign = 'left';
+  g.font = `bold ${Math.round(H * 0.68)}px ${MONO}`;
+  g.fillText(String(c?.xpdrCode ?? 7000).padStart(4, '0'), W * 0.05, H * 0.52);
+  g.textAlign = 'right';
+  g.font = `${Math.round(H * 0.32)}px ${MONO}`;
+  g.fillText(mode, W * 0.96, H * 0.3);
+  const fl = Math.max(0, Math.round((d.altitudeMSL * 3.2808) / 100));
+  if (mode === 'ALT') g.fillText(`FL${String(fl).padStart(3, '0')}`, W * 0.96, H * 0.72);
+  // R：雷达询问时闪一下
+  if ((mode === 'ON' || mode === 'ALT') && Math.floor(t * 1.3) % 3 === 0) {
+    g.textAlign = 'left';
+    g.fillText('R', W * 0.58, H * 0.3);
+  }
+  if (d.sys && d.sys.xpdrIdent > 0 && Math.floor(t * 4) % 2 === 0) {
+    g.textAlign = 'left';
+    g.fillText('IDT', W * 0.58, H * 0.72);
+  }
+}
+
+/** 小时计：机械数字轮，白字黑底，最后一位是红底 */
+export function drawHobbs(g: CanvasRenderingContext2D, d: InstrumentData, W: number, H: number): void {
+  g.fillStyle = '#0b0b0c';
+  g.fillRect(0, 0, W, H);
+  const v = (d.sys?.hobbs ?? 1284.3).toFixed(1).replace('.', '').padStart(5, '0');
+  const cw = W / 5;
+  g.textBaseline = 'middle';
+  g.textAlign = 'center';
+  g.font = `${Math.round(H * 0.7)}px ${MONO}`;
+  [...v].forEach((ch, i) => {
+    g.fillStyle = i === 4 ? '#8a1c14' : '#171719';
+    g.fillRect(i * cw + 3, 6, cw - 6, H - 12);
+    g.fillStyle = '#ecebe4';
+    g.fillText(ch, (i + 0.5) * cw, H * 0.54);
+  });
+}
+
+/** 飞行记录仪：绿色液晶 */
+export function drawTrack(g: CanvasRenderingContext2D, d: InstrumentData, W: number, H: number): void {
+  g.fillStyle = '#46c86e';
+  g.fillRect(0, 0, W, H);
+  g.fillStyle = '#123d1f';
+  g.textBaseline = 'middle';
+  g.textAlign = 'center';
+  g.font = `${Math.round(H * 0.5)}px ${MONO}`;
+  g.fillText(`TRACKING  GS ${Math.round(d.groundSpeed * 1.9438)}`, W / 2, H / 2);
+}
+
 export function drawAnnunciator(g: CanvasRenderingContext2D, d: InstrumentData, W: number, H: number, t: number): void {
   bg(g, W, H, '#050505');
   const cols = 6;
@@ -516,6 +669,30 @@ export function drawAnnunciator(g: CanvasRenderingContext2D, d: InstrumentData, 
     HOVER: d.hover !== 'off' ? '#3fd27a' : null,
     CARGO: d.cargo > 0 ? '#e8e8e8' : null,
   };
+  const c = d.caution;
+  if (c) {
+    const amber = '#ffb020';
+    const red = '#ff3a2a';
+    lit.GOV = c.gov ? amber : null;
+    lit['ENG P'] = c.engP ? red : null;
+    lit['FUEL P'] = c.fuelP ? amber : null;
+    lit.GEN = c.gen ? amber : null;
+    lit.BATT = c.batt ? amber : null;
+    lit.HORN = c.horn ? amber : null;
+    lit['TQ LIM'] = c.tqLim ? amber : null;
+    lit['NR LOW'] = c.nrLow ? (blink ? red : null) : null;
+    lit.XMSN = c.xmsn ? red : null;
+    lit.HYD = c.hyd ? red : null;
+    lit.PITOT = c.pitot ? amber : null;
+    lit['LOW FUEL'] = c.lowFuel ? amber : null;
+    lit['ENG CHIP'] = c.engChip ? amber : null;
+    lit['MGB CHIP'] = c.mgbChip ? amber : null;
+    lit.FIRE = c.fire ? (blink ? red : null) : null;
+    lit.AUX = c.rotorBrake ? amber : null;
+    lit.HOVER = d.sys?.sasActive ? '#3fd27a' : null;
+    // 打开电瓶的头两秒和按住测试时全亮：真飞机就是这样验灯的
+    if (d.sys && (d.sys.lampTest || d.sys.selfTest > 0)) for (const k of ANN_LABELS) lit[k] = amber;
+  }
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.font = `bold ${Math.round(ch * 0.34)}px ${FONT}`;

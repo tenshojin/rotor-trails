@@ -1,12 +1,45 @@
-// 程序化音频（WebAudio 实时合成，无外部音频文件）：旋翼拍击声、涡轮发动机、尾桨、风噪、雨声与暴雨、
-// 雷声、碰撞、擦碰、旋翼撞击、着陆、耐久告警、地形告警、阵风提示、Buff 提示、地图环境音（海浪/海鸥/鸟鸣/虫鸣/河流/山风）。
+// 程序化音频（WebAudio 实时合成，无外部音频文件）。旋翼、涡轮、传动、风雨在音频线程里合成（heliSynth.js），
+// 这里管总线和一次性的声音：雷声、碰撞、擦碰、旋翼撞击、着陆、告警、开关、地图环境音（海浪/海鸥/鸟鸣/虫鸣/河流/山风）。
 
 import type { AmbienceDef } from '../maps/types';
+import synthUrl from './heliSynth.js?url';
 
-const TURBINE_FREQUENCIES = [5600, 5640, 8400] as const;
 const volume = (value: number) => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 
+/** 超仿真多出来的声源（其他模式不传，发动机一直在转） */
+export interface SimAudio {
+  /** N1（0..1） */
+  n1: number;
+  lit: boolean;
+  starter: boolean;
+  ignite: boolean;
+  torque: number;
+  /** 尾桨推力 0..1 */
+  tail: number;
+  /** 机身振动 0..1 */
+  vib: number;
+  /** 汇流条有电（陀螺和风扇） */
+  bus: boolean;
+  pump: boolean;
+  hyd: boolean;
+  vent: number;
+  heat: number;
+  /** 电台音量、机内通话、静噪门限、摩尔斯、紧急频率 */
+  radio: number;
+  ics: number;
+  squelch: number;
+  morse: number;
+  siren: number;
+  /** 耳机音量 0..1 */
+  headset: number;
+  /** 低转速喇叭 */
+  horn: boolean;
+}
+
 export interface AudioState {
+  /** 离地高度（贴地时的反射声） */
+  agl?: number;
+  sim?: SimAudio | null;
   rpm: number;
   load: number; // 推力/重量
   power: number; // 0..1
@@ -24,6 +57,11 @@ export interface Volumes {
   engine: number;
   ambience: number;
   alerts: number;
+}
+
+function smooth01(a: number, b: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
 }
 
 function noiseBuffer(ctx: AudioContext, seconds: number, brown = false): AudioBuffer {
@@ -50,22 +88,12 @@ export class AudioEngine {
   private cabinFilter!: BiquadFilterNode;
   private white!: AudioBuffer;
   private brown!: AudioBuffer;
-  // 持续声源
-  private rotorNoiseGain!: GainNode;
-  private rotorAM!: GainNode;
-  private rotorLfo!: OscillatorNode;
-  private rotorFilter!: BiquadFilterNode;
-  private thump!: OscillatorNode;
-  private thumpGain!: GainNode;
-  private turbine: OscillatorNode[] = [];
-  private turbineGain!: GainNode;
-  private hum!: OscillatorNode;
-  private humGain!: GainNode;
-  private tailGain!: GainNode;
-  private windFilter!: BiquadFilterNode;
-  private windGain!: GainNode;
-  private rainGain!: GainNode;
-  private rainLow!: GainNode;
+  /** 旋翼、涡轮、传动、风雨都在音频线程里合成（heliSynth.js） */
+  private synth: AudioWorkletNode | null = null;
+  private synthLoading = false;
+  /** 低转速喇叭、火警铃：响着的时候一直响 */
+  private horn: { osc: OscillatorNode[]; gain: GainNode } | null = null;
+  private wasLit = false;
   private ambNodes: AudioNode[] = [];
   private ambSources = new Set<AudioScheduledSourceNode>();
   private transient = new Map<AudioScheduledSourceNode, AudioNode[]>();
@@ -108,14 +136,14 @@ export class AudioEngine {
       this.cabinFilter.connect(this.master);
       this.engineBus = ctx.createGain();
       this.engineBus.gain.value = 0;
-      this.engineBus.connect(this.cabinFilter);
+      // 发动机一路已经在合成器里按舱内 / 舱外滤过了
+      this.engineBus.connect(this.master);
       this.ambBus = ctx.createGain();
       this.ambBus.gain.value = 0;
       this.ambBus.connect(this.cabinFilter);
       this.alertBus = ctx.createGain();
       this.alertBus.connect(this.master);
-      this.buildEngine();
-      this.buildWeather();
+      this.loadSynth();
       this.applyVolumes(this.volumes);
       this.setAmbience(this.ambience);
       this.enabled = true;
@@ -136,107 +164,24 @@ export class AudioEngine {
     return s;
   }
 
-  private buildEngine(): void {
-    const ctx = this.ctx!;
-    // 旋翼：带通噪声，被桨叶通过频率的低频振荡调制 → “哒哒哒”的拍击声
-    const n = this.loop(this.white);
-    this.rotorFilter = ctx.createBiquadFilter();
-    this.rotorFilter.type = 'bandpass';
-    this.rotorFilter.frequency.value = 420;
-    this.rotorFilter.Q.value = 0.7;
-    this.rotorAM = ctx.createGain();
-    this.rotorAM.gain.value = 0.5;
-    this.rotorNoiseGain = ctx.createGain();
-    this.rotorNoiseGain.gain.value = 0;
-    n.connect(this.rotorFilter).connect(this.rotorAM).connect(this.rotorNoiseGain).connect(this.engineBus);
-    this.rotorLfo = ctx.createOscillator();
-    this.rotorLfo.type = 'sawtooth';
-    this.rotorLfo.frequency.value = 19;
-    const shaper = ctx.createWaveShaper();
-    const curve = new Float32Array(256);
-    for (let i = 0; i < 256; i++) {
-      const x = (i / 255) * 2 - 1;
-      curve[i] = Math.pow(Math.max(0, x), 3) * 1.4 - 0.25;
-    }
-    shaper.curve = curve;
-    const lfoGain = ctx.createGain();
-    lfoGain.gain.value = 0.55;
-    this.rotorLfo.connect(shaper).connect(lfoGain).connect(this.rotorAM.gain);
-    this.rotorLfo.start();
-    // 低频“砰砰”声
-    this.thump = ctx.createOscillator();
-    this.thump.type = 'sine';
-    this.thump.frequency.value = 38;
-    this.thumpGain = ctx.createGain();
-    this.thumpGain.gain.value = 0;
-    this.thump.connect(this.thumpGain).connect(this.engineBus);
-    this.thump.start();
-    // 涡轮啸声
-    this.turbineGain = ctx.createGain();
-    this.turbineGain.gain.value = 0;
-    const hp = ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 2000;
-    hp.connect(this.turbineGain).connect(this.engineBus);
-    for (const f of TURBINE_FREQUENCIES) {
-      const o = ctx.createOscillator();
-      o.type = 'sine';
-      o.frequency.value = f;
-      o.connect(hp);
-      o.start();
-      this.turbine.push(o);
-    }
-    this.hum = ctx.createOscillator();
-    this.hum.type = 'sawtooth';
-    this.hum.frequency.value = 112;
-    const humLp = ctx.createBiquadFilter();
-    humLp.type = 'lowpass';
-    humLp.frequency.value = 500;
-    this.humGain = ctx.createGain();
-    this.humGain.gain.value = 0;
-    this.hum.connect(humLp).connect(this.humGain).connect(this.engineBus);
-    this.hum.start();
-    // 尾桨嗡声
-    const tn = this.loop(this.white, 0.9);
-    const tbp = ctx.createBiquadFilter();
-    tbp.type = 'bandpass';
-    tbp.frequency.value = 900;
-    tbp.Q.value = 2;
-    const tam = ctx.createGain();
-    const tl = ctx.createOscillator();
-    tl.frequency.value = 98;
-    const tlg = ctx.createGain();
-    tlg.gain.value = 0.4;
-    tl.connect(tlg).connect(tam.gain);
-    tl.start();
-    this.tailGain = ctx.createGain();
-    this.tailGain.gain.value = 0;
-    tn.connect(tbp).connect(tam).connect(this.tailGain).connect(this.engineBus);
-  }
-
-  private buildWeather(): void {
-    const ctx = this.ctx!;
-    const wn = this.loop(this.brown, 1.4);
-    this.windFilter = ctx.createBiquadFilter();
-    this.windFilter.type = 'lowpass';
-    this.windFilter.frequency.value = 400;
-    this.windGain = ctx.createGain();
-    this.windGain.gain.value = 0;
-    wn.connect(this.windFilter).connect(this.windGain).connect(this.ambBus);
-    const rn = this.loop(this.white, 0.7);
-    const rhp = ctx.createBiquadFilter();
-    rhp.type = 'highpass';
-    rhp.frequency.value = 1400;
-    this.rainGain = ctx.createGain();
-    this.rainGain.gain.value = 0;
-    rn.connect(rhp).connect(this.rainGain).connect(this.ambBus);
-    const rl = this.loop(this.brown, 0.6);
-    const rlp = ctx.createBiquadFilter();
-    rlp.type = 'lowpass';
-    rlp.frequency.value = 260;
-    this.rainLow = ctx.createGain();
-    this.rainLow.gain.value = 0;
-    rl.connect(rlp).connect(this.rainLow).connect(this.ambBus);
+  /** 加载音频线程的合成器。加载失败只是没有发动机声，游戏照常可玩 */
+  private loadSynth(): void {
+    const ctx = this.ctx;
+    if (!ctx?.audioWorklet || this.synth || this.synthLoading) return;
+    this.synthLoading = true;
+    ctx.audioWorklet
+      .addModule(new URL(synthUrl, document.baseURI).href)
+      .then(() => {
+        this.synthLoading = false;
+        if (this.ctx !== ctx || ctx.state === 'closed') return;
+        const node = new AudioWorkletNode(ctx, 'heli-synth', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+        node.connect(this.engineBus);
+        this.synth = node;
+      })
+      .catch((e) => {
+        this.synthLoading = false;
+        console.warn('发动机声音加载失败：', e);
+      });
   }
 
   /** 切换地图环境音。 */
@@ -307,25 +252,46 @@ export class AudioEngine {
       return;
     }
     this.smooth(this.cabinFilter.frequency, s.inCockpit ? 3400 : 12000, 0.2);
-    const rpm = s.rpm;
-    const load = Math.max(0, Math.min(1.6, s.load));
-    // 拍击声：载荷越大、坡度越大、下降越快越明显
-    const slap = Math.min(1, 0.25 + load * 0.45 + Math.abs(s.bank) * 0.5 + Math.max(0, s.descent - 2) * 0.08);
-    this.smooth(this.rotorLfo.frequency, 19 * rpm);
-    this.smooth(this.rotorNoiseGain.gain, 0.33 * rpm * (0.6 + slap * 0.6));
-    this.smooth(this.rotorFilter.frequency, 280 + slap * 520);
-    this.smooth(this.thump.frequency, 38 * rpm);
-    this.smooth(this.thumpGain.gain, 0.12 * rpm * (0.5 + load * 0.5));
-    for (let i = 0; i < this.turbine.length; i++) this.smooth(this.turbine[i].frequency, TURBINE_FREQUENCIES[i] * (0.85 + 0.15 * rpm + 0.04 * s.power));
-    this.smooth(this.turbineGain.gain, 0.018 * Math.min(1, rpm * 1.2) * (0.6 + s.power * 0.6));
-    this.smooth(this.hum.frequency, 112 * (0.9 + 0.1 * rpm + 0.05 * s.power));
-    this.smooth(this.humGain.gain, 0.05 * rpm * (0.5 + s.power));
-    this.smooth(this.tailGain.gain, 0.05 * rpm);
-    const ws = Math.min(1.5, s.airspeed / 55 + s.gust / 20);
-    this.smooth(this.windGain.gain, 0.5 * ws * ws, 0.2);
-    this.smooth(this.windFilter.frequency, 250 + s.airspeed * 22 + s.gust * 30, 0.2);
-    this.smooth(this.rainGain.gain, 0.22 * s.rain, 0.5);
-    this.smooth(this.rainLow.gain, 0.3 * Math.max(0, s.rain - 0.5), 0.5);
+    const y = s.sim;
+    const speed = s.airspeed;
+    // 桨叶拍击：撞上自己的尾涡。典型工况是带速度的小下降率、压坡度的转弯；太快时前行桨尖的激波也有类似的声音
+    const bvi = smooth01(0.8, 3.2, s.descent) * (1 - smooth01(7, 11, s.descent)) * smooth01(10, 28, speed);
+    const turn = Math.abs(s.bank) * 0.9 * Math.max(0, s.load - 0.9) * smooth01(12, 30, speed);
+    const fast = smooth01(62, 80, speed) * 0.7;
+    const slap = Math.min(1, bvi + turn + fast + (y?.vib ?? 0) * 0.3);
+    this.synth?.port.postMessage({
+      nr: s.rpm,
+      n1: y ? y.n1 : 0.72 + 0.28 * Math.min(1, s.power),
+      lit: y ? (y.lit ? 1 : 0) : 1,
+      starter: y?.starter ? 1 : 0,
+      ignite: y?.ignite ? 1 : 0,
+      load: Math.max(0, Math.min(1.6, s.load)),
+      torque: y ? y.torque : s.power,
+      tail: y ? y.tail : 0.4 + 0.3 * Math.min(1, s.power),
+      slap,
+      air: speed,
+      gust: Math.min(1, s.gust / 15),
+      rain: s.rain,
+      vib: y?.vib ?? 0,
+      bus: y?.bus ? 1 : 0,
+      pump: y?.pump ? 1 : 0,
+      hyd: y?.hyd ? 1 : 0,
+      vent: y?.vent ?? 0,
+      heat: y?.heat ?? 0,
+      cabin: s.inCockpit ? 1 : 0,
+      agl: s.agl ?? 500,
+      radio: y?.radio ?? 0,
+      ics: y?.ics ?? 0,
+      squelch: y?.squelch ?? 0.5,
+      morse: y?.morse ?? 0,
+      siren: y?.siren ?? 0,
+      volume: y ? 0.45 + 0.75 * y.headset : 1,
+    });
+    if (y) {
+      if (y.lit && !this.wasLit) this.burst(0.7, 0.22, 'lowpass', 170, this.engineBus);
+      this.wasLit = y.lit;
+      this.setHorn(y.horn);
+    } else this.setHorn(false);
     // 偶发环境音（海鸥、鸟鸣、蛙鸣）
     this.ambTimer -= dt;
     if (this.ambTimer <= 0) {
@@ -444,8 +410,14 @@ export class AudioEngine {
     return true;
   }
 
-  alert(kind: 'damaged' | 'critical' | 'terrain' | 'gust' | 'limit' | 'water'): void {
+  alert(kind: 'damaged' | 'critical' | 'terrain' | 'gust' | 'limit' | 'water' | 'caution'): void {
     if (!this.ctx) return;
+    if (kind === 'caution' && this.canAlert(kind, 2.5)) {
+      // 主告警：一声低、一声高的提示音
+      this.tone(660, 0.16, 0.14, 'triangle');
+      this.tone(880, 0.22, 0.14, 'triangle', undefined, 0.17);
+      return;
+    }
     if (kind === 'damaged' && this.canAlert(kind, 4)) {
       this.tone(880, 0.25, 0.25);
       this.tone(660, 0.35, 0.25, 'sine', undefined, 0.28);
@@ -495,6 +467,69 @@ export class AudioEngine {
     this.burst(0.6, 0.35 * strength, 'lowpass', 500, this.ambBus, Math.min(8, delay), true);
   }
 
+  /** 座舱开关的声音：每一种都由“金属/塑料的一声脆响 + 底座传来的一声闷响”组成 */
+  control(kind: 'rocker' | 'toggle' | 'button' | 'detent' | 'breaker' | 'lever' | 'guard' | 'none'): void {
+    if (!this.ctx || kind === 'none') return;
+    const bus = this.alertBus;
+    if (kind === 'rocker') {
+      this.burst(0.012, 0.13, 'bandpass', 2400, bus);
+      this.tone(190, 0.035, 0.1, 'sine', bus);
+      this.burst(0.008, 0.06, 'highpass', 5200, bus, 0.006);
+    } else if (kind === 'toggle') {
+      this.burst(0.008, 0.16, 'bandpass', 3600, bus);
+      this.tone(5400, 0.012, 0.04, 'sine', bus);
+      this.burst(0.02, 0.06, 'bandpass', 1500, bus, 0.004);
+    } else if (kind === 'button') {
+      this.burst(0.006, 0.07, 'bandpass', 1700, bus);
+      this.tone(260, 0.015, 0.04, 'sine', bus);
+    } else if (kind === 'detent') {
+      this.burst(0.004, 0.05, 'bandpass', 3000, bus);
+    } else if (kind === 'breaker') {
+      this.burst(0.018, 0.18, 'bandpass', 900, bus);
+      this.tone(320, 0.03, 0.13, 'sine', bus);
+    } else if (kind === 'lever') {
+      this.burst(0.14, 0.04, 'bandpass', 1100, bus);
+      this.tone(150, 0.05, 0.13, 'sine', bus, 0.13);
+      this.burst(0.012, 0.13, 'lowpass', 1600, bus, 0.13);
+    } else {
+      this.burst(0.016, 0.13, 'bandpass', 1200, bus);
+      this.tone(240, 0.03, 0.08, 'sine', bus);
+    }
+  }
+
+  /** 低转速喇叭：一直响到转速回来或者静音 */
+  private setHorn(on: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (on && !this.horn) {
+      const gain = ctx.createGain();
+      gain.gain.value = 0.0001;
+      gain.connect(this.alertBus);
+      const osc = [590, 880].map((f) => {
+        const o = ctx.createOscillator();
+        o.type = 'square';
+        o.frequency.value = f;
+        o.connect(gain);
+        o.start();
+        return o;
+      });
+      gain.gain.setTargetAtTime(0.05, ctx.currentTime, 0.02);
+      this.horn = { osc, gain };
+    } else if (!on && this.horn) {
+      const h = this.horn;
+      this.horn = null;
+      h.gain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.02);
+      for (const o of h.osc) {
+        try {
+          o.stop(ctx.currentTime + 0.12);
+        } catch {
+          /* 已经停了 */
+        }
+      }
+      setTimeout(() => h.gain.disconnect(), 300);
+    }
+  }
+
   click(): void {
     this.init();
     this.tone(1400, 0.05, 0.08, 'square');
@@ -517,7 +552,11 @@ export class AudioEngine {
     this.transient.clear();
     const ctx = this.ctx;
     this.ctx = null;
-    this.turbine = [];
+    this.synth?.disconnect();
+    this.synth = null;
+    this.synthLoading = false;
+    this.horn = null;
+    this.wasLit = false;
     this.alertCooldown = {};
     this.targets = new WeakMap();
     this.paused = true;

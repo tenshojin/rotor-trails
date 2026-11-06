@@ -20,6 +20,7 @@ export type Action =
   | 'mapRange'
   | 'hud'
   | 'cruise'
+  | 'trim'
   | 'lookLeft'
   | 'lookRight'
   | 'lookUp'
@@ -43,6 +44,7 @@ export const ACTION_LABEL: Record<Action, string> = {
   mapRange: '切换地图范围',
   hud: 'HUD 显示（自动 / 完整 / 隐藏）',
   cruise: '自动巡航 开/关（休闲模式）',
+  trim: '配平：把现在的杆位设成中立点（超仿真）',
   lookLeft: '向左看（无鼠标锁定时）',
   lookRight: '向右看',
   lookUp: '向上看',
@@ -68,6 +70,7 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   mapRange: ['KeyM'],
   hud: ['KeyU'],
   cruise: ['KeyJ'],
+  trim: ['KeyT'],
   lookLeft: ['ArrowLeft'],
   lookRight: ['ArrowRight'],
   lookUp: ['ArrowUp'],
@@ -122,6 +125,8 @@ export interface Settings {
   eyeAdapt: boolean;
   lightning: boolean;
   quality: QualityId;
+  /** 画质由游戏决定：按显卡选档，帧率长期撑不住时自动降一档。玩家自己改过画质就关掉 */
+  autoQuality: boolean;
   /** 光线追踪（屏幕空间：全局光照 + 反射 + 接触阴影），任意画质都可以单独开关 */
   rayTracing: boolean;
   /** 体积雾与光束（丁达尔效应），中及以上画质生效 */
@@ -152,6 +157,7 @@ export function defaultSettings(): Settings {
     eyeAdapt: true,
     lightning: true,
     quality: 'medium',
+    autoQuality: true,
     rayTracing: false,
     volumetric: true,
     renderScale: 1,
@@ -221,6 +227,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     eyeAdapt: bool(r.eyeAdapt, d.eyeAdapt),
     lightning: bool(r.lightning, d.lightning),
     quality: pick(r.quality, ['low', 'medium', 'high', 'ultra'] as const, d.quality),
+    autoQuality: bool(r.autoQuality, d.autoQuality),
     rayTracing: bool(r.rayTracing, d.rayTracing),
     volumetric: bool(r.volumetric, d.volumetric),
     renderScale: num(r.renderScale, 0.5, 1, d.renderScale),
@@ -228,7 +235,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     volEngine: num(r.volEngine, 0, 1, d.volEngine),
     volAmbience: num(r.volAmbience, 0, 1, d.volAmbience),
     volAlerts: num(r.volAlerts, 0, 1, d.volAlerts),
-    assist: pick(r.assist, ['novice', 'standard', 'challenge'] as const, d.assist),
+    assist: pick(r.assist, ['novice', 'standard', 'challenge', 'sim'] as const, d.assist),
     speedUnit: pick(r.speedUnit, ['kmh', 'kt', 'ms'] as const, d.speedUnit),
     hudOpacity: num(r.hudOpacity, 0.3, 1, d.hudOpacity),
     hints: bool(r.hints, d.hints),
