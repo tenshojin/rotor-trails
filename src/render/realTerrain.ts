@@ -176,6 +176,10 @@ export class RealTerrain {
   get coreHeight(): THREE.Texture {
     return this.levels[0].height;
   }
+  /** 外圈的高度、法线贴图（外圈的散布用） */
+  get midMaps(): { height: THREE.Texture; normal: THREE.Texture } {
+    return this.levels[1];
+  }
   private shadow: { mesh: THREE.Mesh; geo: THREE.InstancedBufferGeometry; patches: THREE.InstancedBufferAttribute; level: Level } | null = null;
   private count = 0;
 
@@ -183,7 +187,8 @@ export class RealTerrain {
     private readonly data: RealData,
     images: THREE.Texture[],
     private readonly strata: THREE.Texture | null,
-    private readonly aux: THREE.Texture | null,
+    /** 每一层的辅助图，没有的层是 null */
+    private readonly aux: Array<THREE.Texture | null>,
     private readonly layers: TerrainLayers | null,
   ) {
     const { position, index } = patchGeometry();
@@ -208,7 +213,7 @@ export class RealTerrain {
         patches,
         hole: i > 0 ? grids[i - 1].half : 0,
       };
-      const mat = this.material(level, images[i], i === 0);
+      const mat = this.material(level, images[i], i === 0, this.aux[i] ?? null);
       this.mats.push(mat);
       const mesh = new THREE.Mesh(geo, mat);
       mesh.frustumCulled = false;
@@ -244,7 +249,7 @@ export class RealTerrain {
     this.group.add(mesh);
   }
 
-  private material(lv: Level, image: THREE.Texture, core: boolean): THREE.MeshStandardNodeMaterial {
+  private material(lv: Level, image: THREE.Texture, core: boolean, auxTex: THREE.Texture | null): THREE.MeshStandardNodeMaterial {
     const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0 });
     const g = lv.grid;
     const last = g.res - 1;
@@ -322,7 +327,7 @@ export class RealTerrain {
       const jx = texture(noise, vec2(P.x.add(e).mul(j0 / 8.0), ys.mul(0.0013).add(0.41))).r.sub(texture(noise, vec2(P.x.sub(e).mul(j0 / 8.0), ys.mul(0.0013).add(0.41))).r);
       joint = vec3(jx.mul(float(1).sub(ax)), 0.0, jz.mul(ax)).mul(9.0).toVar();
     }
-    const aux = core && this.aux ? texture(this.aux, uv0) : null;
+    const aux = auxTex ? texture(auxTex, uv0) : null;
     // （G 通道：河边 0→0.5 是水陆交界，再往里 0.5→1 是离岸多远）
     const wet: N<'float'> = aux ? smoothstep(0.14, 0.34, aux.g).toVar() : float(0);
     const flatK = float(1).sub(wall).mul(float(1).sub(wet)).toVar();
@@ -330,7 +335,8 @@ export class RealTerrain {
     // 地面只留下十来米尺度的底色，细节交给下面的细节层
     if (core) {
       const soil = texture(image, uv0).bias(float(3.2)).rgb;
-      col = mix(col, soil, float(1).sub(smoothstep(45.0, 240.0, dist)).mul(flatK));
+      // （模糊之后草和土混成一片黄绿色，灰一点才像土）
+      col = mix(col, mix(soil, vec3(dot(soil, LUMW)), 0.2), float(1).sub(smoothstep(45.0, 240.0, dist)).mul(flatK));
     }
     let N: N<'vec3'> = N0;
     if (L) {

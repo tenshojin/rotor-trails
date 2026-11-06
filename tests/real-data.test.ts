@@ -55,7 +55,7 @@ describe('真实地形数据', () => {
     expect(TREE_TYPES.slice(0, 11)).toEqual(['pine', 'broadleaf', 'canopy', 'emergent', 'palm', 'spruce', 'birch', 'juniper', 'shrub', 'cactus', 'boulder']);
   });
 
-  it('房子：墙埋到最低的角下面，檐口按最高的角算，建在坡上也不悬空', () => {
+  it('房子：墙埋到最低的角下面，檐口按平均的地面算，建在坡上也不悬空', () => {
     // 朝东每米升高 0.1 米的坡
     const n = 65;
     const size = 640;
@@ -64,10 +64,13 @@ describe('真实地形数据', () => {
     const terrain = new Heightfield(size, n, h);
     const f = buildingFrame(terrain, [0, 0, 40, 20, 0, 6, 2]);
     expect(f.base).toBeCloseTo(100 - 2 - 1.5, 1);
-    expect(f.top).toBeCloseTo(100 + 2 + 6, 1);
+    expect(f.top).toBeCloseTo(100 + 6, 1);
+    // 陡坡上：平均的地面加檐口高还没有上坡的角高，要留出一人高
+    const g = buildingFrame(terrain, [0, 0, 200, 20, 0, 6, 2]);
+    expect(g.top).toBeCloseTo(100 + 10 + 2.6, 1);
     // 转九十度：长边顺着南北，东西方向只有 20 米宽
-    const g = buildingFrame(terrain, [0, 0, 40, 20, 90, 6, 2]);
-    expect(g.top).toBeCloseTo(100 + 1 + 6, 1);
+    const r = buildingFrame(terrain, [0, 0, 200, 20, 90, 6, 2]);
+    expect(r.top).toBeCloseTo(100 + 6, 1);
   });
 
   it('描的房子都在可飞范围里，也没有和起降场重叠', () => {
@@ -134,7 +137,7 @@ describe('真实地形数据', () => {
 
   it('数据文件不用下载软件会拦截的后缀（.bin、.gz 这些请求到不了网页，只收到一个空的 204）', () => {
     const def = GRAND_CANYON.real!;
-    const files = [...def.levels.flatMap((l) => [l.heights, l.image]), def.trees ?? '', def.strata?.image ?? '', def.aux ?? '', def.scatter ?? ''];
+    const files = [...def.levels.flatMap((l) => [l.heights, l.image]), def.trees ?? '', def.strata?.image ?? '', def.aux ?? '', def.auxMid ?? '', def.scatter ?? ''];
     for (const f of files) {
       expect(f).not.toMatch(/\.(bin|gz|gzip|zip|7z|rar|tar|exe|iso|img|tif|tiff)$/i);
       // Windows 的保留设备名：带后缀也不行，Git 打不开，别人也检出不了

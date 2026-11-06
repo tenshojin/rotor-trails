@@ -5,6 +5,7 @@
 //
 // 灌木（托恩托平台上的黑灌木、南缘的灌丛）：和 trees.glb 里的矮灌丛是同一个模型，旋翼的气流吹得动。
 // 碎石：有棱角的小块，颜色取脚下的影像，一片多一片少。枯草：离得近才看得见的细草丛。
+// 树：核心区的树是从航拍上认出来的；外圈的影像 10 米一个像素认不出树，这里按深绿的地方种一圈，飞过去不是一片平地。
 
 import * as THREE from 'three/webgpu';
 import {
@@ -39,7 +40,7 @@ import {
   vertexStage,
 } from 'three/tsl';
 import { HELI } from '../config/flight';
-import type { RealData } from '../world/realData';
+import type { RealData, RealGrid } from '../world/realData';
 import { FOG, gustAt, WASH, WIND } from './atmosphere';
 import { getNoiseTexture } from './textures';
 import type { TreeLib } from './treeView';
@@ -47,7 +48,7 @@ import { VFOG } from './volumetricFog';
 
 type N<T extends string> = THREE.Node<T>;
 
-type Kind = 'shrub' | 'rock' | 'grass';
+type Kind = 'shrub' | 'rock' | 'grass' | 'leaf' | 'bark';
 
 interface RingDef {
   kind: Kind;
@@ -77,6 +78,9 @@ const RINGS: RingDef[] = [
   { kind: 'rock', cell: 3.6, half: 80, inner: 50, p: 0.3, size: [0.3, 1.3], detail: 0, agl: 520, shadow: false, seed: 7.9 },
   { kind: 'grass', cell: 1.15, half: 56, inner: 0, p: 0.5, size: [0.3, 0.62], detail: 0, agl: 110, shadow: false, seed: 9.2 },
 ];
+
+/** 外圈的树：一个树种一组，树叶和树干同一个种子，放在同一个地方 */
+const TREE_RING = { cell: 8, half: 70, inner: 0, p: 0.34, size: [0.72, 1.2] as [number, number], detail: 0, agl: 900, shadow: true };
 
 /** 各画质的数量：格子往外几成（0 = 不画） */
 export const SCATTER_RANGE: Record<string, number> = { low: 0, medium: 0.55, high: 0.8, ultra: 1 };
@@ -185,13 +189,14 @@ export class RealScatter {
   private readonly tuft = tuftTexture();
   private range = 1;
 
-  /** shrubs：灌木模型的两级细节（来自 trees.glb）和叶片图集；模型没加载上就不画灌木 */
+  /** models：灌木、外圈的树（来自 trees.glb）和叶片图集；模型没加载上就不画 */
   constructor(
     private readonly data: RealData,
-    private readonly height: THREE.Texture,
-    private readonly density: THREE.Texture,
-    private readonly image: THREE.Texture,
-    private readonly shrubs: { lods: THREE.BufferGeometry[]; map: THREE.Texture } | null,
+    /** 核心区：高度、疏密图、影像 */
+    private readonly core: { height: THREE.Texture; density: THREE.Texture; image: THREE.Texture },
+    /** 外圈：高度、法线、影像。外圈的影像 10 米一个像素，看不出灌木，疏密按坡度和颜色估 */
+    private readonly mid: { height: THREE.Texture; normal: THREE.Texture; image: THREE.Texture; aux: THREE.Texture | null },
+    private readonly models: ScatterModels | null,
     /** 这些圆里什么都不长（停机坪）：x、z、半径 */
     private readonly keepOut: Array<[number, number, number]>,
     quality: string,
@@ -200,10 +205,15 @@ export class RealScatter {
     const tuft = tuftGeometry();
     this.geos.push(rock, tuft);
     for (const def of RINGS) {
-      if (def.kind === 'shrub' && !shrubs) continue;
-      const src = def.kind === 'shrub' ? shrubs!.lods[def.detail] : def.kind === 'rock' ? rock : tuft;
+      if (def.kind === 'shrub' && !models) continue;
+      const src = def.kind === 'shrub' ? models!.shrub[def.detail] : def.kind === 'rock' ? rock : tuft;
       this.rings.push(this.ring(def, src));
     }
+    models?.trees.forEach((t, i) => {
+      const seed = 11.3 + i * 4.1;
+      this.rings.push(this.ring({ ...TREE_RING, kind: 'leaf', seed }, t.leaf));
+      if (t.bark) this.rings.push(this.ring({ ...TREE_RING, kind: 'bark', seed }, t.bark));
+    });
     this.setQuality(quality);
   }
 
@@ -242,9 +252,13 @@ export class RealScatter {
     const grass = def.kind === 'grass';
     const shrub = def.kind === 'shrub';
     const rock = def.kind === 'rock';
-    const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.95, metalness: 0, side: rock ? THREE.FrontSide : THREE.DoubleSide, alphaTest: rock ? 0 : 0.5, flatShading: rock });
+    const leaf = def.kind === 'leaf';
+    const bark = def.kind === 'bark';
+    const tree = leaf || bark;
+    const solid = rock || bark;
+    const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.95, metalness: 0, side: solid ? THREE.FrontSide : THREE.DoubleSide, alphaTest: solid ? 0 : 0.5, flatShading: rock });
     const g = this.data.levels[0];
-    const last = g.res - 1;
+    const g1 = this.data.levels[1];
     const noise = getNoiseTexture();
     const ci = origin.add(attribute<'vec2'>('cell', 'vec2'));
     // 四个互不相干的随机数（Dave Hoskins 的无三角函数哈希：换显卡结果也一样）
@@ -255,23 +269,46 @@ export class RealScatter {
     const wx = ci.x.add(h.x).mul(def.cell).toVar();
     const wz = ci.y.add(h.y).mul(def.cell).toVar();
     const muv = vec2(wx, wz).div(g.size).add(0.5).toVar();
-    // 脚下的地
-    const fx = wx.add(g.half).div(g.cell).toVar();
-    const fz = wz.add(g.half).div(g.cell).toVar();
-    const ix = floor(fx).toVar();
-    const iz = floor(fz).toVar();
-    const tx = fx.sub(ix);
-    const tz = fz.sub(iz);
-    const load = (a: N<'float'>, b: N<'float'>): N<'float'> => textureLoad(this.height, ivec2(int(max(min(a, last), 0.0)), int(max(min(b, last), 0.0)))).r;
-    const y0 = mix(mix(load(ix, iz), load(ix.add(1.0), iz), tx), mix(load(ix, iz.add(1.0)), load(ix.add(1.0), iz.add(1.0)), tx), tz).toVar();
-    const dens = texture(this.density, muv).level(float(0));
+    const muv1 = vec2(wx, wz).div(g1.size).add(0.5).toVar();
+    const inCore = step(max(abs2(wx), abs2(wz)), g.half - 3).toVar();
+    // 脚下的地：和地形同一种三角剖分（斜边从 (1,0) 到 (0,1)），外圈 20 米一格，差一点就悬空了
+    const groundAt = (tex: THREE.Texture, l: RealGrid): N<'float'> => {
+      const last = l.res - 1;
+      const fx = wx.add(l.half).div(l.cell).toVar();
+      const fz = wz.add(l.half).div(l.cell).toVar();
+      const ix = floor(fx).toVar();
+      const iz = floor(fz).toVar();
+      const tx = fx.sub(ix).toVar();
+      const tz = fz.sub(iz).toVar();
+      const load = (a: N<'float'>, b: N<'float'>): N<'float'> => textureLoad(tex, ivec2(int(max(min(a, last), 0.0)), int(max(min(b, last), 0.0)))).r;
+      const a = load(ix, iz);
+      const b = load(ix.add(1.0), iz).toVar();
+      const c = load(ix, iz.add(1.0)).toVar();
+      const e = load(ix.add(1.0), iz.add(1.0));
+      const first = a.add(b.sub(a).mul(tx)).add(c.sub(a).mul(tz));
+      const second = e.add(c.sub(e).mul(float(1).sub(tx))).add(b.sub(e).mul(float(1).sub(tz)));
+      return mix(first, second, step(1.0, tx.add(tz)));
+    };
+    const y0 = mix(groundAt(this.mid.height, g1), groundAt(this.core.height, g), inCore).toVar();
+    // 颜色和疏密：核心区查图，外圈按影像和坡度估
+    const img1 = texture(this.mid.image, muv1).level(float(0)).rgb.toVar();
+    const nm = texture(this.mid.normal, muv1).level(float(0));
+    const steep = smoothstep(0.1, 0.55, length(nm.rg.mul(2.0).sub(1.0)));
+    const l1 = dot(img1, vec3(0.2126, 0.7152, 0.0722));
+    const dark = float(1).sub(smoothstep(0.1, 0.3, l1));
+    // （河里不长东西：核心区的疏密图里已经扣掉了）
+    const dry = this.mid.aux ? float(1).sub(smoothstep(0.08, 0.2, texture(this.mid.aux, muv1).level(float(0)).g)) : float(1);
+    const est = vec3(mix(float(0.42), float(0.8), dark).mul(float(1).sub(steep.mul(0.6))), steep.mul(0.75).add(0.08), float(0.32).mul(float(1).sub(steep))).mul(dry);
+    const dens = mix(est, texture(this.core.density, muv).level(float(0)).rgb, inCore).toVar();
     // 碎石一片多一片少，不是均匀撒的
-    const d = shrub ? dens.r : rock ? dens.g.mul(smoothstep(0.34, 0.66, texture(noise, muv.mul(21.0)).level(float(0)).r).mul(0.9).add(0.25)) : dens.b;
+    // 外圈的树：高处、不陡、够深的地方。影子里的崖壁也暗，所以要看高度
+    const forest = float(1).sub(smoothstep(0.075, 0.17, l1)).mul(float(1).sub(steep)).mul(smoothstep(1750.0, 1900.0, y0)).mul(float(1).sub(inCore)).mul(dry);
+    const d = tree ? forest : shrub ? dens.x : rock ? dens.y.mul(smoothstep(0.34, 0.66, texture(noise, vec2(wx, wz).div(490.0)).level(float(0)).r).mul(0.9).add(0.25)) : dens.z;
     const dist = length(vec3(wx, y0, wz).sub(cameraPosition)).toVar();
     // 进出都是一棵棵慢慢长出来的：每棵的距离错开一点，看不出一条线
     const out = float(1).sub(smoothstep(reach.mul(0.72), reach.mul(0.98), dist.add(h.z.mul(reach).mul(0.1))));
     const inn = def.inner > 0 ? smoothstep(inner.mul(0.72), inner, dist.add(h.w.mul(inner).mul(0.25))) : float(1);
-    let inside: N<'float'> = step(max(abs2(wx), abs2(wz)), g.half - 8);
+    let inside: N<'float'> = step(max(abs2(wx), abs2(wz)), g1.half - 8);
     for (const [cx, cz, r] of this.keepOut.slice(0, 16)) inside = inside.mul(step(r, length(vec2(wx, wz).sub(vec2(cx, cz)))));
     const keep = step(h.z, d.mul(def.p)).mul(inside);
     // 小的多、大的少
@@ -285,19 +322,19 @@ export class RealScatter {
     const unit = shrub ? 0.8 : 1;
     const sx = size.mul(unit).mul(mix(float(0.78), float(1.25), h.y));
     const sz = size.mul(unit).mul(mix(float(0.78), float(1.25), h.z));
-    const sy = size.mul(unit).mul(grass ? mix(float(0.9), float(1.5), h.x) : mix(float(0.7), float(1.15), h.x));
+    const sy = size.mul(unit).mul(grass ? mix(float(0.9), float(1.5), h.x) : tree ? mix(float(0.85), float(1.2), h.x) : mix(float(0.7), float(1.15), h.x));
     const v = positionGeometry;
     const lx = v.x.mul(sx);
     const lz = v.z.mul(sz);
     let wxz: N<'vec2'> = vec2(lx.mul(ca).sub(lz.mul(sa)), lx.mul(sa).add(lz.mul(ca)));
-    let ly: N<'float'> = v.y.mul(sy).sub(shrub ? size.mul(0.08) : size.mul(0.3));
+    let ly: N<'float'> = v.y.mul(sy).sub(shrub || tree ? size.mul(0.08) : size.mul(0.3));
     if (rock) {
       // 石头不是端端正正放着的
       ly = ly.add(lx.mul(h.y.sub(0.5))).add(lz.mul(h.x.sub(0.5)));
     }
     if (!rock) {
       // 风和旋翼的气流。矮东西也要看得出在动
-      const up = max(v.y, 0.0);
+      const up = max(v.y, 0.0).mul(tree ? 0.16 : 1);
       const ph = wx.mul(0.31).add(wz.mul(0.23));
       const gust = gustAt(vec2(wx, wz)).toVar();
       const amp = (WIND.k as unknown as N<'float'>).mul(gust.mul(1.6).add(0.4));
@@ -316,10 +353,14 @@ export class RealScatter {
     m.positionNode = vec3(wx.add(wxz.x), y0.add(ly), wz.add(wxz.y));
 
     // 颜色：脚下的影像给底色
-    const ground = texture(this.image, muv).level(float(3.5)).rgb;
+    const ground = mix(img1, texture(this.core.image, muv).level(float(3.5)).rgb, inCore);
     const gl = dot(ground, vec3(0.2126, 0.7152, 0.0722));
     let tint: N<'vec3'>;
-    if (shrub) {
+    if (leaf) {
+      tint = mix(vec3(0.82, 0.84, 0.76), vec3(1.2, 1.18, 1.02), h.y);
+    } else if (bark) {
+      tint = vec3(0.1, 0.085, 0.07);
+    } else if (shrub) {
       // 图集里的颜色乘这个：峡谷里发黑，南缘的灰绿一些，隔几丛有一丛枯黄的
       const rim = smoothstep(1900.0, 2100.0, y0);
       const dark = mix(vec3(0.95, 0.9, 0.82), vec3(1.45, 1.38, 1.15), h.y);
@@ -332,10 +373,13 @@ export class RealScatter {
       tint = mix(vec3(0.27, 0.225, 0.13), vec3(0.42, 0.36, 0.22), h.y);
     }
     const col = vertexStage(tint);
-    if (shrub) {
-      const t = texture(this.shrubs!.map, uv());
+    if (bark) {
+      m.colorNode = vec4(col, 1);
+      m.normalNode = normalize(cameraViewMatrix.mul(vec4(vertexStage(normalWorldOf(ca, sa)), 0.0)).xyz);
+    } else if (shrub || leaf) {
+      const t = texture(this.models!.map, uv());
       // 贴近地面的枝叶被自己挡着，暗
-      const low = smoothstep(0.0, 0.8, positionGeometry.y).mul(0.55).add(0.5);
+      const low = leaf ? float(1) : smoothstep(0.0, 0.8, positionGeometry.y).mul(0.55).add(0.5);
       const albedo = t.rgb.mul(col).mul(low);
       m.colorNode = vec4(albedo, min(t.a.mul(1.5), 1.0));
       // 影子里的灌木也不是黑的：地面反上来的光和天光
@@ -369,7 +413,7 @@ export class RealScatter {
   update(cam: THREE.Vector3): void {
     const T = this.data.heightAt(cam.x, cam.z);
     const agl = cam.y - T;
-    this.group.visible = this.range > 0 && agl < 720;
+    this.group.visible = this.range > 0 && agl < 920;
     if (!this.group.visible) return;
     for (const r of this.rings) {
       r.mesh.visible = agl < r.def.agl;
@@ -387,12 +431,27 @@ export class RealScatter {
   }
 }
 
-/** trees.glb 里的矮灌丛：散布用头两级细节 */
-export function scatterShrubs(lib: TreeLib | null): { lods: THREE.BufferGeometry[]; map: THREE.Texture } | null {
+export interface ScatterModels {
+  /** 灌木的两级细节 */
+  shrub: THREE.BufferGeometry[];
+  /** 外圈的树：简化过的一级 */
+  trees: Array<{ leaf: THREE.BufferGeometry; bark: THREE.BufferGeometry | null }>;
+  /** 叶片图集 */
+  map: THREE.Texture;
+}
+
+/** 从 trees.glb 里取散布要用的模型 */
+export function scatterModels(lib: TreeLib | null): ScatterModels | null {
   const lods = lib?.get('scrub');
   const map = lods?.[0]?.[0]?.source.map;
   if (!lods || !map) return null;
-  return { lods: [lods[0][0].geometry, lods[1][0].geometry], map };
+  const trees: ScatterModels['trees'] = [];
+  for (const type of ['pinyon', 'ujuniper'] as const) {
+    const parts = lib?.get(type)?.[1];
+    const leaf = parts?.find((p) => p.source.name.includes('leaves'));
+    if (leaf) trees.push({ leaf: leaf.geometry, bark: parts?.find((p) => p !== leaf)?.geometry ?? null });
+  }
+  return { shrub: [lods[0][0].geometry, lods[1][0].geometry], trees, map };
 }
 
 function abs2(a: N<'float'>): N<'float'> {

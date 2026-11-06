@@ -2,7 +2,7 @@
 // 只是立起来了；墙是木头和石头的颜色，一层层的窗户用着色器画。一个网格一次画完。
 
 import * as THREE from 'three/webgpu';
-import { attribute, float, fract, mix, positionWorld, smoothstep, step, texture, vec3, vec4, vertexColor } from 'three/tsl';
+import { attribute, float, fract, mix, positionWorld, step, texture, vec3, vec4, vertexColor } from 'three/tsl';
 import type { RealBridgeDef, RealBuildingDef } from '../maps/types';
 import { bridgeDeckY, buildingFrame } from '../world/realData';
 import type { Heightfield } from '../sim/terrain';
@@ -17,11 +17,12 @@ export class RealBuildings {
     const nor: number[] = [];
     const col: number[] = [];
     const wall: number[] = [];
-    const quad = (a: number[], b: number[], c: number[], d: number[], n: number[], roof: number, u0: number, u1: number, v0: number, v1: number, tint: number[]): void => {
+    // 四个角依次是 a、b、c、d；wallInfo：离檐口多远、沿着墙走了多远、是不是屋顶、窗户排到离檐口多远
+    const quad = (a: number[], b: number[], c: number[], d: number[], n: number[], roof: number, down: number, along: number, rows: number, tint: number[]): void => {
       pos.push(...a, ...b, ...c, ...a, ...c, ...d);
       for (let i = 0; i < 6; i++) nor.push(...n);
       for (let i = 0; i < 6; i++) col.push(...tint);
-      wall.push(u0, v0, roof, u1, v0, roof, u1, v1, roof, u0, v0, roof, u1, v1, roof, u0, v1, roof);
+      wall.push(down, 0, roof, rows, 0, 0, roof, rows, 0, along, roof, rows, down, 0, roof, rows, 0, along, roof, rows, down, along, roof, rows);
     };
     const sub = (a: number[], b: number[]): number[] => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
     const cross = (a: number[], b: number[]): number[] => {
@@ -32,7 +33,7 @@ export class RealBuildings {
       return [x / l, y / l, z / l];
     };
     list.forEach((b, i) => {
-      const [cx, cz, w, d, rot, , ridge] = b;
+      const [cx, cz, w, d, rot, h, ridge] = b;
       const f = buildingFrame(terrain, b);
       const r = (rot * Math.PI) / 180;
       const c = Math.cos(r);
@@ -42,7 +43,8 @@ export class RealBuildings {
       const hd = d / 2;
       // 木头、石头、灰泥，一栋一个颜色
       const k = (i * 37) % 5;
-      const tint = [[0.2, 0.15, 0.1], [0.26, 0.21, 0.16], [0.33, 0.28, 0.22], [0.17, 0.14, 0.12], [0.38, 0.33, 0.27]][k];
+      const tint = [[0.3, 0.23, 0.16], [0.36, 0.3, 0.23], [0.44, 0.38, 0.3], [0.26, 0.21, 0.17], [0.5, 0.44, 0.36]][k];
+      const rows = Math.max(1, Math.round(h / 3.3)) * 3.2;
       const corners: [number, number][] = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]];
       for (let e = 0; e < 4; e++) {
         const [u0, v0] = corners[e];
@@ -51,7 +53,7 @@ export class RealBuildings {
         const bb = at(u1, v1, f.base);
         const t1 = at(u1, v1, f.top);
         const t0 = at(u0, v0, f.top);
-        quad(a, t0, t1, bb, cross(sub(t0, a), sub(bb, a)), 0, 0, Math.hypot(u1 - u0, v1 - v0), 0, f.top - f.base, tint);
+        quad(a, t0, t1, bb, cross(sub(t0, a), sub(bb, a)), 0, f.top - f.base, Math.hypot(u1 - u0, v1 - v0), rows, tint);
       }
       const A = at(-hw, -hd, f.top);
       const B = at(hw, -hd, f.top);
@@ -61,8 +63,8 @@ export class RealBuildings {
         // 两面坡，屋脊顺着长边
         const R0 = at(-hw, 0, f.top + ridge);
         const R1 = at(hw, 0, f.top + ridge);
-        quad(A, R0, R1, B, cross(sub(R0, A), sub(B, A)), 1, 0, 0, 0, 0, tint);
-        quad(D, C, R1, R0, cross(sub(C, D), sub(R0, D)), 1, 0, 0, 0, 0, tint);
+        quad(A, R0, R1, B, cross(sub(R0, A), sub(B, A)), 1, 0, 0, 0, tint);
+        quad(D, C, R1, R0, cross(sub(C, D), sub(R0, D)), 1, 0, 0, 0, tint);
         // 山墙
         pos.push(...A, ...D, ...R0, ...B, ...R1, ...C);
         const n0 = cross(sub(D, A), sub(R0, A));
@@ -71,10 +73,10 @@ export class RealBuildings {
         for (let q = 0; q < 3; q++) nor.push(...n1);
         for (let q = 0; q < 6; q++) {
           col.push(...tint);
-          wall.push(0, 0, 0);
+          wall.push(0, 0, 0, 0);
         }
       } else {
-        quad(A, D, C, B, [0, 1, 0], 1, 0, 0, 0, 0, tint);
+        quad(A, D, C, B, [0, 1, 0], 1, 0, 0, 0, tint);
       }
     });
     // 一根方木：从 a 到 b，宽 w，高 h
@@ -93,7 +95,7 @@ export class RealBuildings {
         const p1 = off(a, s1, u1);
         const q1 = off(b, s1, u1);
         const q0 = off(b, s0, u0);
-        quad(p0, q0, q1, p1, cross(sub(q0, p0), sub(p1, p0)), 0, 0, 0, 0, 0, tint);
+        quad(p0, q0, q1, p1, cross(sub(q0, p0), sub(p1, p0)), 0, 0, 0, 0, tint);
       }
     };
     for (const b of bridges) {
@@ -126,15 +128,15 @@ export class RealBuildings {
     this.geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     this.geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
     this.geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    this.geo.setAttribute('wallInfo', new THREE.Float32BufferAttribute(wall, 3));
+    this.geo.setAttribute('wallInfo', new THREE.Float32BufferAttribute(wall, 4));
     const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0, vertexColors: true });
-    const info = attribute<'vec3'>('wallInfo', 'vec3');
+    const info = attribute<'vec4'>('wallInfo', 'vec4');
     const uv = positionWorld.xz.div(terrain.size).add(0.5);
     const roof = texture(image, uv).rgb;
-    // 墙上的窗：一层 3.2 米，一扇窗一个开间 2.8 米
-    const fx = fract(info.x.div(2.8));
-    const fy = fract(info.y.div(3.2));
-    const pane = step(0.26, fx).mul(step(fx, 0.74)).mul(step(0.32, fy)).mul(step(fy, 0.78)).mul(smoothstep(0.9, 1.2, info.y));
+    // 墙上的窗：一层 3.2 米，从檐口往下数，有几层画几排；一个开间 3.8 米
+    const fy = fract(info.x.div(3.2));
+    const fx = fract(info.y.div(3.8));
+    const pane = step(0.32, fx).mul(step(fx, 0.68)).mul(step(0.3, fy)).mul(step(fy, 0.72)).mul(step(info.x, info.w));
     const walls = mix(vertexColor().rgb, vec3(0.035, 0.045, 0.055), pane.mul(0.9));
     m.colorNode = vec4(mix(walls, roof, info.z), float(1));
     this.mat = m;

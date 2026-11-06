@@ -63,7 +63,7 @@ export async function gunzip(bytes: ArrayBuffer): Promise<ArrayBuffer> {
 /** 影像里认出来的树：文件里种类的编号（见 prep_grandcanyon.py 的 find_trees） */
 const REAL_TREE_TYPES: TreeType[] = ['ujuniper', 'pinyon', 'broadleaf', 'scrub', 'ujuniper2', 'pinyon2'];
 
-/** 房子的底和檐口：地面不平，墙要一直埋到最低的角下面，檐口按最高的角算 */
+/** 房子的底和檐口：地面不平，墙要一直埋到最低的角下面，檐口按平均的地面算，最高的角上也要留出一人高 */
 export function buildingFrame(terrain: Heightfield, b: RealBuildingDef): { base: number; top: number } {
   const [cx, cz, w, d, rot, h] = b;
   const r = (rot * Math.PI) / 180;
@@ -71,12 +71,15 @@ export function buildingFrame(terrain: Heightfield, b: RealBuildingDef): { base:
   const s = Math.sin(r);
   let lo = Infinity;
   let hi = -Infinity;
-  for (const [u, v] of [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2], [0, 0]]) {
+  let sum = 0;
+  const spots = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2], [0, 0]];
+  for (const [u, v] of spots) {
     const y = terrain.heightAt(cx + u * c - v * s, cz + u * s + v * c);
     lo = Math.min(lo, y);
     hi = Math.max(hi, y);
+    sum += y;
   }
-  return { base: lo - 1.5, top: hi + h };
+  return { base: lo - 1.5, top: Math.max(sum / spots.length + h, hi + 2.6) };
 }
 
 /** 吊桥的桥面高度：比高的一头再高一点，水平的 */

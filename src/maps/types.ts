@@ -271,6 +271,8 @@ export interface RealTerrainDef {
   strata?: { image: string; y0: number; y1: number; dip: [number, number] };
   /** 核心区 5 米一格的辅助图：R 岩缝，G 河面，B 看得到的天空 */
   aux?: string;
+  /** 外圈 20 米一格的辅助图，通道和 aux 一样 */
+  auxMid?: string;
   /** 核心区 5 米一格的散布密度：R 灌木，G 碎石，B 枯草（见 render/realScatter.ts） */
   scatter?: string;
   /** 照着航拍描的房子 */

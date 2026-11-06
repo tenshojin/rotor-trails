@@ -541,21 +541,21 @@ def sky_view(h, cell):
     return acc / dirs
 
 
-def aux_map(h, river):
-    """一张 5 米一格的辅助图：R 岩缝和小沟，G 河面，B 看得到的天空。无损：三个通道互不相干，不能有色度抽样"""
-    h5 = h[::2, ::2].astype(np.float32)
-    cell = 2 * G['core'] / (h.shape[0] - 1)
+def aux_map(h, river, cell, step, name):
+    """辅助图（核心区 5 米一格，外圈 20 米）：R 岩缝和小沟，G 河面，B 看得到的天空。无损：三个通道互不相干，不能有色度抽样"""
+    h5 = h[::step, ::step].astype(np.float32)
+    cell = step * cell
     sky = sky_view(h5, cell)
-    crev = np.clip((ndimage.gaussian_filter(h5, 2.2) - h5) / 4.0, 0, 1)
+    crev = np.clip((ndimage.gaussian_filter(h5, 11.0 / cell) - h5) / 4.0, 0, 1)
     print('  天空可见度', float(sky.min()), float(np.median(sky)), float(sky.max()))
     # G：河边 0→0.5 是水陆交界，再往里 0.5→1 是离岸多远（浅的地方透出河底）
-    r5 = river[::2, ::2]
+    r5 = river[::step, ::step]
     bank = np.clip(ndimage.distance_transform_edt(r5 > 0.5) * cell / 26.0, 0, 1)
     a = np.stack([crev, r5 * 0.5 + bank * 0.5, sky], 2)[:2048, :2048]
     px = (np.clip(a, 0, 1) * 255 + 0.5).astype(np.uint8)
     # （文件名别叫 aux：那是 Windows 的保留设备名，Git 打不开）
-    Image.fromarray(px).save(os.path.join(OUT, 'sky_river.webp'), 'WEBP', lossless=True, quality=60, method=4)
-    print('  sky_river.webp', round(os.path.getsize(os.path.join(OUT, 'sky_river.webp')) / 1e6, 1), 'MB')
+    Image.fromarray(px).save(os.path.join(OUT, name), 'WEBP', lossless=True, quality=60, method=4)
+    print(' ', name, round(os.path.getsize(os.path.join(OUT, name)) / 1e6, 1), 'MB')
 
 
 def scatter_map(h, alb, river):
@@ -591,47 +591,67 @@ def scatter_map(h, alb, river):
     print('  scatter.webp', round(os.path.getsize(os.path.join(OUT, 'scatter.webp')) / 1e6, 1), 'MB', '灌木', float(shrub.mean()), '碎石', float(rock.mean()), '枯草', float(grass.mean()))
 
 
-def river_mask(h, alb):
+def river_mask(h, alb, cell, ref=None):
     """河面：激光测绘把水面压成了平的，谷底又平、又连成一大片的地方就是河。
     只有 10 米数据的地方水面不平，急流那里也不平，靠影像补：河水是一片均匀的橄榄色，比两岸的石头饱和得多，
     又贴着谷底最低的地方。影子里颜色看不出来，只看够不够暗；浅色的沙洲不算"""
     n = alb.shape[0] // 2
     hh = h[:n, :n].astype(np.float32)
-    gy, gx = np.gradient(hh, G['core'] / (h.shape[0] - 1))
+    gy, gx = np.gradient(hh, cell)
     slope = np.hypot(gx, gy)
+    fine = cell < 5
+    # 一块地要多大才算：按面积。外圈 20 米一格，河才四五格宽，开运算不能做多了
+    area = lambda m2: m2 / (cell * cell)
     low = hh < float(h.min()) + 60
-    m = ndimage.binary_opening((slope < 0.012) & low, iterations=2)
+    m = (slope < 0.012) & low
+    if fine:
+        m = ndimage.binary_opening(m, iterations=2)
     lab, k = ndimage.label(m)
     size = ndimage.sum(m, lab, np.arange(1, k + 1))
-    keep = np.isin(lab, np.nonzero(size > 3000)[0] + 1)
+    keep = np.isin(lab, np.nonzero(size > area(18750))[0] + 1)
     # 影像：2.5 米一格，先抹掉水面的波纹
     a = ndimage.gaussian_filter(alb[::2, ::2], (1.5, 1.5, 0))[:n, :n]
     sat = (a[..., 0] - a[..., 2]) / np.maximum(a[..., 0], 0.02)
     lum = a @ LUM
-    s0 = float(np.median(sat[keep]))
-    l0 = float(np.median(lum[keep]))
+    # （外圈用核心区认出来的河水颜色：外圈的河太窄，自己统计不准）
+    s0, l0 = ref if ref else (float(np.median(sat[keep])), float(np.median(lum[keep])))
     # 谷底：一公里范围内的最低点
-    floor = ndimage.gaussian_filter(ndimage.minimum_filter(hh[::8, ::8], size=41), 6)
-    floor = ndimage.zoom(floor, 8, order=1)[:n, :n]
-    smooth = ndimage.gaussian_filter(np.abs(lum - ndimage.gaussian_filter(lum, 3)), 3) / np.maximum(lum, 0.02)
-    near = (hh < floor + 11) & (hh < float(h.min()) + 100)
-    band = (hh < floor + 6) & near & (slope < 0.07)
-    water = ((sat > s0 * 0.86) & near & (smooth < float(np.percentile(smooth[keep], 97)) * 1.3)) | (band & ((sat > s0 * 0.62) | (lum < l0 * 0.4)))
-    water = ndimage.binary_opening(water, iterations=3) | keep
-    lab, k = ndimage.label(water)
+    st = max(1, int(round(20 / cell)))
+    win = int(1000 / (st * cell)) | 1
+    floor = ndimage.gaussian_filter(ndimage.minimum_filter(hh[::st, ::st], size=win), max(1.0, 120 / (st * cell)))
+    floor = ndimage.zoom(floor, st, order=1)[:n, :n] if st > 1 else floor
+    # 河是往下走的：外圈的范围大，高度上限要跟着谷底走，不能用全图最低点
+    near = hh < floor + (11 if fine else 16)
+    band = (hh < floor + (6 if fine else 9)) & near & (slope < (0.07 if fine else 0.14))
+    if fine:
+        near &= hh < float(h.min()) + 100
+        band &= hh < float(h.min()) + 100
+        smooth = ndimage.gaussian_filter(np.abs(lum - ndimage.gaussian_filter(lum, 3)), 3) / np.maximum(lum, 0.02)
+        even = smooth < float(np.percentile(smooth[keep], 97)) * 1.3
+    else:
+        # 外圈还要是谷底本身：台地上的绿地也可能很平、很饱和。整条河都比最低处高不了多少
+        deep = (ndimage.gaussian_filter(hh, 600 / cell) - hh > 70) & (hh < float(h.min()) + 260)
+        near &= deep
+        band &= deep
+        even = True
+    water = ((sat > s0 * 0.86) & near & even) | (band & ((sat > s0 * 0.62) | (lum < l0 * 0.4)))
+    # 外圈的河只有四五格宽，颜色有时认不出来：紧贴一公里内最低处的地方，不看颜色也算
+    water = (ndimage.binary_opening(water, iterations=3) if fine else water | ((hh < floor + 3) & deep)) | keep
+    lab, k = ndimage.label(water, structure=np.ones((3, 3)))
     size = ndimage.sum(water, lab, np.arange(1, k + 1))
-    part = ndimage.binary_closing(np.isin(lab, np.nonzero(size > 6000)[0] + 1), iterations=5)
+    part = ndimage.binary_closing(np.isin(lab, np.nonzero(size > area(37500))[0] + 1), iterations=5 if fine else 2)
     out = np.zeros(h.shape, np.float32)
     out[:n, :n] = part
-    print('  河面', int(part.sum()), '格，高度', float(hh[part].min()), float(hh[part].max()), '分成', int((size > 6000).sum()), '段', '饱和度', round(s0, 3))
-    return np.clip(ndimage.gaussian_filter(out, 1.2), 0, 1)
+    print('  河面', int(part.sum()), '格，高度', float(hh[part].min()), float(hh[part].max()), '分成', int((size > area(37500)).sum()), '段', '饱和度', round(s0, 3))
+    return np.clip(ndimage.gaussian_filter(out, 1.2 if fine else 0.6), 0, 1), (s0, l0)
 
 
-def flatten_river(h, river):
+def flatten_river(h, river, cell):
     """水面要平：10 米的数据在河面上也是起伏的。河面上的高度换成沿河平滑过的，岸边过渡"""
     m = (river > 0.5).astype(np.float32)
-    w = ndimage.gaussian_filter(m, 24) + 1e-4
-    s = ndimage.gaussian_filter(h * m, 24) / w
+    sg = 60.0 / cell
+    w = ndimage.gaussian_filter(m, sg) + 1e-4
+    s = ndimage.gaussian_filter(h * m, sg) / w
     k = np.clip(river * 1.3, 0, 1)
     return (h * (1 - k) + s * k).astype(np.float32)
 
@@ -742,9 +762,13 @@ def main():
     print('  中位数', float(np.median(a0 @ LUM)), float(np.median(a1 @ LUM)), float(np.median(a2 @ LUM)))
     y0, y1 = 600.0, 2420.0
     strata_lut(core, a0, 1.25, y0, y1)
-    river = river_mask(core, a0)
-    core = flatten_river(core, river)
-    aux_map(core, river)
+    river, tone = river_mask(core, a0, 2.5)
+    core = flatten_river(core, river, 2.5)
+    aux_map(core, river, 2.5, 2, 'sky_river.webp')
+    # 外圈也能飞：河不能一出核心区就变回影像上的颜色
+    river1, _ = river_mask(mid, a1, 20.0, tone)
+    mid = flatten_river(mid, river1, 20.0)
+    aux_map(mid, river1, 20.0, 1, 'sky_river_mid.webp')
     find_trees(core, a0, 1.25)
     scatter_map(core, a0, river)
     calm_river(a0, river)

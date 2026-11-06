@@ -24,7 +24,7 @@ import type { MapDef } from '../maps/types';
 import { loadTerrainLayers, type TerrainLayers } from './terrainLayers';
 import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrainView';
 import { RealBuildings } from './realBuildings';
-import { RealScatter, scatterShrubs } from './realScatter';
+import { RealScatter, scatterModels } from './realScatter';
 import { RealTerrain } from './realTerrain';
 import { loadAux, loadRealImages, loadStrata, realFarGrid } from './realImages';
 import { makeForestTexture, makeGroundHeightTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
@@ -429,7 +429,8 @@ export class WorldView {
     let layersTaken = false;
     let libTaken = false;
     let scatterTex: THREE.Texture | null = null;
-    let realImage: THREE.Texture | null = null;
+    let scatterAux: THREE.Texture | null = null;
+    let realImages: THREE.Texture[] = [];
     try {
       this.world = world;
       const map = world.map;
@@ -466,14 +467,17 @@ export class WorldView {
         const images = await loadRealImages(real.def, (this.renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend ? 16 : 8);
         const strata = await loadStrata(real.def);
         const aux = await loadAux(real.def);
+        const auxMid = await loadAux(real.def, real.def.auxMid);
         const scatter = await loadAux(real.def, real.def.scatter);
         this.mapTextures.push(...images);
         if (strata) this.mapTextures.push(strata);
         if (aux) this.mapTextures.push(aux);
+        if (auxMid) this.mapTextures.push(auxMid);
         if (scatter) this.mapTextures.push(scatter);
-        this.terrain = new RealTerrain(real, images, strata, aux, layers);
+        this.terrain = new RealTerrain(real, images, strata, [aux, auxMid], layers);
         scatterTex = scatter;
-        realImage = images[0];
+        scatterAux = auxMid;
+        realImages = images;
         // 大峡谷的视野有上百公里
         this.rig.camera.far = 240000;
         this.rig.camera.updateProjectionMatrix();
@@ -521,12 +525,12 @@ export class WorldView {
       this.scene.add(this.props.group);
       this.trees = new TreeView(world.trees, treeLib, map.biome.rock, map.rockForm ?? null, map.leafTint, !!real);
       this.scene.add(this.trees.group);
-      if (real && scatterTex && realImage && this.terrain instanceof RealTerrain) {
+      if (real && scatterTex && this.terrain instanceof RealTerrain) {
         const pads = map.pads.map((p): [number, number, number] => [p.pos[0], p.pos[2], p.size * 0.9 + 3]);
-        this.scatter = new RealScatter(real, this.terrain.coreHeight, scatterTex, realImage, scatterShrubs(treeLib), pads, this.settings.quality);
+        this.scatter = new RealScatter(real, { height: this.terrain.coreHeight, density: scatterTex, image: realImages[0] }, { ...this.terrain.midMaps, image: realImages[1], aux: scatterAux }, scatterModels(treeLib), pads, this.settings.quality);
         this.scene.add(this.scatter.group);
         if (real.def.buildings) {
-          this.buildings = new RealBuildings(real.def.buildings, real.def.bridges ?? [], world.terrain, realImage);
+          this.buildings = new RealBuildings(real.def.buildings, real.def.bridges ?? [], world.terrain, realImages[0]);
           this.scene.add(this.buildings.group);
         }
       }
