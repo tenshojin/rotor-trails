@@ -27,10 +27,19 @@ export interface SaveData {
   lessonsDone: number[];
   /** 超仿真教学学完的课 */
   simLessonsDone: number[];
+  /** 救援任务的成绩（按任务 id） */
+  rescues: Record<string, RescueRecord>;
+}
+
+export interface RescueRecord {
+  bestScore: number;
+  bestRating: string;
+  bestTime: number | null;
+  runs: number;
 }
 
 function defaults(): SaveData {
-  return { version: SAVE_VERSION, settings: defaultSettings(), maps: {}, tutorialDone: false, lessonsDone: [], simLessonsDone: [] };
+  return { version: SAVE_VERSION, settings: defaultSettings(), maps: {}, tutorialDone: false, lessonsDone: [], simLessonsDone: [], rescues: {} };
 }
 
 const MAP_IDS: readonly MapId[] = ['training', 'japan', 'canyon', 'amazon', 'fjord', 'himalaya'];
@@ -65,6 +74,13 @@ export function migrate(raw: unknown): SaveData {
   const lessons = (v: unknown): number[] => (Array.isArray(v) ? [...new Set(v.filter((x): x is number => Number.isInteger(x) && x >= 0 && x < 32))] : []);
   d.lessonsDone = lessons(o.lessonsDone);
   d.simLessonsDone = lessons(o.simLessonsDone);
+  if (isSaveObject(o.rescues)) {
+    for (const [id, v] of Object.entries(o.rescues)) {
+      if (id.length > 40 || !isSaveObject(v)) continue;
+      const rec = sanitizeRecord(v);
+      if (rec) d.rescues[id] = { bestScore: rec.bestScore, bestRating: rec.bestRating, bestTime: rec.bestTime, runs: rec.runs };
+    }
+  }
   if (o.maps && typeof o.maps === 'object') {
     for (const k of MAP_IDS) {
       if (!Object.hasOwn(o.maps, k)) continue;
@@ -171,6 +187,22 @@ export class SaveStore {
   }
 
   /** 记录一次通关结果，返回是否刷新最佳。 */
+  /** 一趟救援的成绩；返回是不是新纪录 */
+  recordRescue(id: string, score: number, rating: string, time: number): boolean {
+    const r = (this.data.rescues[id] ??= { bestScore: 0, bestRating: '', bestTime: null, runs: 0 });
+    const first = r.runs === 0;
+    r.runs++;
+    score = Number.isFinite(score) ? Math.max(0, score) : 0;
+    const best = first || score > r.bestScore;
+    if (best) {
+      r.bestScore = score;
+      r.bestRating = RATINGS.includes(rating) ? rating : '';
+    }
+    if (Number.isFinite(time) && time > 0 && (r.bestTime === null || time < r.bestTime)) r.bestTime = time;
+    this.save();
+    return best;
+  }
+
   recordResult(map: MapId, score: number, rating: string, optionalIds: string[], time: number): boolean {
     const r = this.record(map);
     const first = !r.completed;

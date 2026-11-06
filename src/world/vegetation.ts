@@ -170,15 +170,16 @@ export function scatterTrees(map: MapDef, terrain: Heightfield, surface: Uint8Ar
 }
 
 /** 把一批树排进空间网格 */
-export function packTrees(terrain: Heightfield, xs: number[], ys: number[], zs: number[], ss: number[], ts: number[], rs: number[], ghosts: number[] = []): TreeSet {
+export function packTrees(terrain: Heightfield, xs: number[], ys: number[], zs: number[], ss: number[], ts: number[], rs: number[], ghosts: number[] = [], extent = terrain.size): TreeSet {
   const count = xs.length;
   const cell = 64;
-  const dim = Math.ceil(terrain.size / cell) + 1;
+  const half = extent / 2;
+  const dim = Math.ceil(extent / cell) + 1;
   const cellCount = new Int32Array(dim * dim);
   const cellOf = new Int32Array(count);
   for (let i = 0; i < count; i++) {
-    const cx = Math.min(dim - 1, Math.max(0, Math.floor((xs[i] + terrain.half) / cell)));
-    const cz = Math.min(dim - 1, Math.max(0, Math.floor((zs[i] + terrain.half) / cell)));
+    const cx = Math.min(dim - 1, Math.max(0, Math.floor((xs[i] + half) / cell)));
+    const cz = Math.min(dim - 1, Math.max(0, Math.floor((zs[i] + half) / cell)));
     const c = cz * dim + cx;
     cellOf[i] = c;
     cellCount[c]++;
@@ -205,7 +206,7 @@ export function packTrees(terrain: Heightfield, xs: number[], ys: number[], zs: 
     rot: Float32Array.from(rs),
     cell,
     dim,
-    half: terrain.half,
+    half,
     ghosts: Float32Array.from(ghosts),
     cellStart,
     cellCount,

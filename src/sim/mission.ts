@@ -219,7 +219,7 @@ export class MissionRuntime {
       }
       if (o.landing && ctx.settledPad === d.padId) {
         o.progress = Math.min(1, o.progress + ctx.dt / Math.max(0.1, d.dwell));
-        o.hint = d.cargo === 'load' ? '装载物资中…保持停稳' : d.cargo === 'unload' ? '卸载物资中…保持停稳' : '保持停稳…';
+        o.hint = d.people ? (d.cargo === 'load' ? '伤员上机中…保持停稳' : d.cargo === 'unload' ? '交接伤员中…保持停稳' : '保持停稳…') : d.cargo === 'load' ? '装载物资中…保持停稳' : d.cargo === 'unload' ? '卸载物资中…保持停稳' : '保持停稳…';
         if (o.progress >= 1) this.finish(o, isOpt, o.landing, out);
       } else if (!o.landing) {
         const dist = Math.hypot(ctx.pos.x - c[0], ctx.pos.z - c[2]);
@@ -239,7 +239,7 @@ export class MissionRuntime {
         else if (h > d.maxH) parts.push(`降低 ${(h - d.maxH).toFixed(1)} m`);
         if (horiz >= d.radius) parts.push(`靠近目标 ${(horiz - d.radius + 0.5).toFixed(0)} m`);
         if (ctx.speed >= d.maxSpeed) parts.push(`减速至 ${d.maxSpeed} m/s 以下`);
-        o.hint = inside ? `保持悬停… ${Math.round(o.progress * 100)}%` : parts.join(' · ');
+        o.hint = inside ? `${d.cargo === 'hoist' ? '吊运中，保持悬停' : '保持悬停'}… ${Math.round(o.progress * 100)}%` : parts.join(' · ');
       } else o.hint = '';
       if (o.progress >= 1) this.finish(o, isOpt, null, out);
     } else {
@@ -280,6 +280,10 @@ export class MissionRuntime {
     if (d.kind === 'hover' && d.cargo === 'drop') {
       this.cargo = Math.max(0, this.cargo - 1);
       out.push({ type: 'cargo', action: 'drop', cargo: this.cargo });
+    }
+    if (d.kind === 'hover' && d.cargo === 'hoist') {
+      this.cargo++;
+      out.push({ type: 'cargo', action: 'load', cargo: this.cargo });
     }
     out.push({ type: 'objectiveDone', obj: o, optional: isOpt, landing });
     if (!isOpt) {

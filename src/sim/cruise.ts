@@ -28,7 +28,7 @@ export class ScenicCruise {
   private readonly stops: Array<[number, number]>;
 
   constructor(private readonly s: GameSession, vistas: Vista[]) {
-    const half = s.world.map.size / 2 - 180;
+    const half = (s.world.map.flightSize ?? s.world.map.size) / 2 - 180;
     const lim = (v: number) => clamp(v, -half, half);
     this.stops = vistas.map((v): [number, number] => [lim(v.look[0]), lim(v.look[1])]);
     // 从最近的一个开始，不要一上来就横穿整张地图

@@ -15,6 +15,8 @@ export class Heightfield {
   readonly data: Float32Array;
   minH = Infinity;
   maxH = -Infinity;
+  /** 超大地图：核心区外面还能飞，高度接这一层（粗一些，见 world/realData.ts） */
+  outer: Heightfield | null = null;
 
   constructor(size: number, res: number, data: Float32Array) {
     this.size = size;
@@ -38,6 +40,7 @@ export class Heightfield {
 
   /** 与物理碰撞面一致的高度。 */
   heightAt(x: number, z: number): number {
+    if (this.outer && (x < -this.half || x > this.half || z < -this.half || z > this.half)) return this.outer.heightAt(x, z);
     const gx = clamp((x + this.half) / this.cell, 0, this.res - 1.000001);
     const gz = clamp((z + this.half) / this.cell, 0, this.res - 1.000001);
     const ix = Math.floor(gx);

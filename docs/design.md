@@ -151,6 +151,18 @@
 
 和基础教学共用 `Tutorial` 类，课表换成 `SIM_LESSONS`。多出来的东西：`control`（这一步要点的控件，外面亮一圈，不在视野里时告诉玩家往哪边看）、`live`（HUD 收起来了，要看的数字写在卡片上）、`quick`（自转时分秒必争，完成了不停下来打勾）、`Lesson.jump`（学完上一课接着学时也回到这一课的起点）、`Lesson.park`（停在坪上，发动机已经在转）。`tests/sim-tutorial.test.ts` 里有一个只会按键的学生，每一帧走真实的物理把课程学一遍。
 
+### 超大地图和救援模式（`src/sim/rescue.ts`、`src/maps/grandcanyon.ts`、`src/ui/rescuePanel.ts`）
+
+**超大地图**：`MapDef.flightSize` 比 `size` 大。核心区还是 `size`（物理和细节都在这里），`Heightfield.outer` 接中圈的 20 米高程，`heightAt` 出了核心区自动查外面一层，所有用地面高度的地方不用改。物理上多加一张 Rapier 高度场，核心区那一块压到地下（`sunkenCore`），两层不打架。边界墙在 `flightSize/2`。GPS 的地图也按这个范围画。
+
+**坪**：`style: 'field'` 是野外的降落点：看不见的落地面（起落架的射线打在它上面才算落在坪上）、四角橙色布板、担架和人。高度写 0 的坪在 `worldgen.settlePad` 里取当地的平均高度；核心区外面的坪压的是中圈的网格（`flattenGrid`），物理和画面是同一份数据。`outerForest` 在外圈的降落点周围种树：外圈影像只有 10 米一个像素，认不出树，飞到跟前不能是一片光地。
+
+**任务**：`MapDef.rescues` 写一站一站的停靠点，`rescueMission` 变成普通的任务目标（`land`、`hover`），所以导航、检查点、失败恢复、自动驾驶全都不用改。吊运是 `hover` 加 `cargo: 'hoist'`。没有航线时导航直飞目标，`Navigator` 到 320 米以内算进近。`GameSession.create` 的第五个参数是这一趟的定义，出生点和任务都从它来。
+
+**伤员**：`RescueRuntime.health` 从 100 往下走，黄金时间（`golden`）用完正好见底。机上有人时颠簸加速掉血，硬着陆直接扣。掉到 0 不算失败。送到时记下状况，下一个人从满状态开始，所有人的平均值进评分（顶替可选任务那一栏）。
+
+**验收**：`tools/rescue.tool.ts` 读真实地形数据，自动驾驶用和玩家一样的操纵输入把四趟全部飞完，要求 0 碰撞。
+
 ### 真实地形（`src/render/realTerrain.ts`、`src/world/realData.ts`、`tools/real/`）
 
 大峡谷是第一张用测绘数据的地图，走一条和程序生成地图并行的路：`MapDef.real` 有值时，`generateWorld` 读高程而不是算高程，`WorldView` 建 `RealTerrain` 而不是 `TerrainView`。

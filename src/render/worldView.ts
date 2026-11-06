@@ -529,7 +529,8 @@ export class WorldView {
       }
       this.clouds = new CloudLayer(map.size);
       this.scene.add(this.clouds.group);
-      this.minimap = makeMinimapCanvas(map, lowT, world.trees);
+      // 超大地图：地图要盖住能飞的整个范围
+      this.minimap = real && map.flightSize ? makeMinimapCanvas({ ...map, size: map.flightSize }, real.sunOuter, world.trees) : makeMinimapCanvas(map, lowT, world.trees);
       this.cockpit.minimap = this.minimap;
       if (!this.cockpit.loaded || !this.heli.extLoaded) {
         progress?.(0.92, '加载直升机模型');

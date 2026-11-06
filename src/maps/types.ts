@@ -10,7 +10,8 @@ export type V3 = [number, number, number];
 export type MapId = 'training' | 'japan' | 'canyon' | 'amazon' | 'fjord' | 'himalaya' | 'grandcanyon';
 
 export type PadKind = 'start' | 'delivery' | 'repair' | 'final' | 'helipad';
-export type PadStyle = 'ground' | 'roof' | 'pier' | 'platform' | 'ledge' | 'raised';
+/** field：野外的降落点，没有水泥坪，只有压平的一块地和橙色标记 */
+export type PadStyle = 'ground' | 'roof' | 'pier' | 'platform' | 'ledge' | 'raised' | 'field';
 
 /** 河流：沿下游方向排列的点 [x, z, 水面高度, 半宽] */
 export interface RiverDef {
@@ -107,6 +108,8 @@ export type ObjectiveDef =
       padId: string;
       dwell: number;
       cargo?: 'load' | 'unload';
+      /** 运的是人，不是物资箱（救援模式） */
+      people?: boolean;
       /** 进近航点（导航用，通常位于停机坪上空） */
       approach: V3;
     }
@@ -123,7 +126,9 @@ export type ObjectiveDef =
       maxH: number;
       duration: number;
       maxSpeed: number;
-      cargo?: 'drop';
+      /** drop：投下物资；hoist：把人吊上来 */
+      cargo?: 'drop' | 'hoist';
+      people?: boolean;
       approach: V3;
     }
   | {
@@ -204,6 +209,37 @@ export interface Vista {
   look: [number, number];
 }
 
+/** 救援的一站 */
+export interface RescueStop {
+  /** 落在哪块坪上 */
+  pad: string;
+  /** 屏幕上的任务 */
+  task: string;
+  /** 调度员说的话 */
+  radio: string;
+  /** load：伤员上机；unload：把伤员送到；hoist：悬停吊运；不写：只是落地 */
+  what?: 'load' | 'unload' | 'hoist';
+  /** 落地后要停稳多久（秒） */
+  dwell?: number;
+}
+
+/** 一趟救援 */
+export interface RescueDef {
+  id: string;
+  title: string;
+  summary: string;
+  stars: number;
+  /** 大约多少公里、多少分钟（简报上显示，tests/rescue.test.ts 核对公里数） */
+  km: number;
+  minutes: [number, number];
+  /** 从哪块坪出发、机头朝向 */
+  start: string;
+  heading: number;
+  stops: RescueStop[];
+  /** 伤员撑得住多少分钟 */
+  golden: number;
+}
+
 /** 真实地形的一层：高程网格 + 航拍影像（public/<base> 下面），见 tools/real/prep_grandcanyon.py */
 export interface RealLevelDef {
   /** 边长（米） */
@@ -233,6 +269,12 @@ export interface RealTerrainDef {
 
 export interface MapDef {
   id: MapId;
+  /** 超大地图：能飞的范围（边长，米），比核心区大，核心区外接中圈的高程 */
+  flightSize?: number;
+  /** 超大地图上的救援任务 */
+  rescues?: RescueDef[];
+  /** 核心区外面的降落点周围种的树：哪块坪、什么树、多大；keep：坪周围多远不种 */
+  outerForest?: Array<{ pad: string; kinds: TreeType[]; scale: [number, number]; keep?: number }>;
   /** 树叶的整体偏色（默认不偏） */
   leafTint?: [number, number, number];
   /** 真实地形：高度和地表都来自测绘数据，不走程序生成 */

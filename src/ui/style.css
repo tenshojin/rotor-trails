@@ -1458,6 +1458,100 @@ kbd.big.on {
 .free-actions .primary {
   grid-column: 1 / -1;
 }
+/* 救援 */
+.rescue-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.rescue-card {
+  min-height: 170px;
+}
+@media (max-width: 760px) {
+  .rescue-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.rescue-panel {
+  position: absolute;
+  top: 74px;
+  right: 14px;
+  width: min(330px, calc(100% - 28px));
+  padding: 10px 14px 11px;
+  background: rgba(7, 16, 24, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-left: 3px solid #e8641c;
+  border-radius: 10px;
+  color: #dfe9f0;
+  font-size: 14px;
+  line-height: 1.45;
+  z-index: 11;
+  pointer-events: none;
+}
+.rescue-panel.hidden {
+  display: none;
+}
+.rescue-panel.compact .rp-task,
+.rescue-panel.compact .rp-nav,
+.rescue-panel.compact .rp-hint,
+.rescue-panel.compact .rp-radio {
+  display: none !important;
+}
+.rp-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #ffb27a;
+  letter-spacing: 0.04em;
+}
+.rp-task {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  margin: 2px 0 4px;
+}
+.rp-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.rp-arrow {
+  display: inline-block;
+  font-size: 19px;
+  line-height: 1;
+  color: #7fe0ff;
+}
+.rp-hint {
+  color: #ffd27a;
+  margin-top: 3px;
+}
+.rp-radio {
+  color: #b8c7d2;
+  margin-top: 5px;
+  font-size: 13px;
+}
+.rp-life {
+  margin-top: 7px;
+}
+.rp-life > div {
+  height: 5px;
+  margin-top: 3px;
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.rp-life i {
+  display: block;
+  height: 100%;
+  background: #5fd38a;
+}
+.rp-life.bad i {
+  background: #e8a020;
+}
+.rp-life.worse i {
+  background: #e84a3a;
+}
+
 /* 课程表 */
 .course-tabs {
   display: flex;

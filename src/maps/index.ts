@@ -11,7 +11,7 @@ import { GRAND_CANYON } from './grandcanyon';
 
 export const MAPS: MapDef[] = [TRAINING, JAPAN, CANYON, AMAZON, FJORD_MAP, HIMALAYA];
 
-/** 真实地形的地图：只有休闲飞行，数据要联网下载，不进任务流程 */
+/** 真实地形的超大地图：数据要联网下载，玩法是救援模式和休闲飞行，不进关卡流程 */
 export const REAL_MAPS: MapDef[] = [GRAND_CANYON];
 
 export function registerMap(m: MapDef): void {
