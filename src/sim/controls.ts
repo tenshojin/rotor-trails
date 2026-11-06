@@ -223,6 +223,41 @@ const defs: ControlDef[] = [
 
 export const CONTROLS: ReadonlyMap<string, ControlDef> = new Map(defs.map((d) => [d.id, d]));
 
+/** 手够不到时最多等多久（秒）：模型卡住也不能让按钮失灵 */
+const PRESS_WAIT = 0.9;
+
+/**
+ * 点下去到手指碰到控件之间的排队：点的时候手才抬起来，碰到的那一刻才算按下。
+ * 连着点了几个控件时，手一个一个按过去。
+ */
+export class PressQueue<T> {
+  private items: Array<{ spot: T; dir: number; age: number }> = [];
+
+  get length(): number {
+    return this.items.length;
+  }
+
+  push(spot: T, dir: number): void {
+    // 滚轮滚得再快也别排出一长串
+    if (this.items.length < 12) this.items.push({ spot, dir, age: 0 });
+  }
+
+  clear(): void {
+    this.items.length = 0;
+  }
+
+  /** 每帧调用。reach：让手去够这个控件，返回够到了没有。够到的交给 press */
+  step(dt: number, reach: (spot: T) => boolean, press: (spot: T, dir: number) => void): void {
+    if (this.items.length) this.items[0].age += dt;
+    while (this.items.length) {
+      const head = this.items[0];
+      if (!reach(head.spot) && head.age < PRESS_WAIT) return;
+      this.items.shift();
+      press(head.spot, head.dir);
+    }
+  }
+}
+
 /** 这个控件现在能不能动。护盖合着时碰不到里面的开关 */
 export function blocked(def: ControlDef, s: Systems): string | null {
   if (def.id === 'emer_lever' && s.c.emerGuard < 0.5) return '先掀开护盖';

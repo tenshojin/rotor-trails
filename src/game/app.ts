@@ -20,7 +20,7 @@ import type { AssistId } from '../config/flight';
 import { Input } from './input';
 import { SaveStore, type StorageLike } from './save';
 import { keyName, QUALITY, type Settings } from './settings';
-import { blocked, GPS_RANGES, operate, readout, type ActEnv, type ReadEnv } from '../sim/controls';
+import { blocked, GPS_RANGES, operate, PressQueue, readout, type ActEnv, type ReadEnv } from '../sim/controls';
 import { SimPanel } from '../ui/simPanel';
 import type { Spot } from '../render/cockpitControls';
 import { LESSONS, TUTORIAL_STEPS, Tutorial, type TutorialCtx } from './tutorial';
@@ -134,6 +134,10 @@ export class App {
   private autoStart = false;
   private autoT = 0;
   private dragAcc = 0;
+  /** 点了、手还没碰到的控件 */
+  private readonly presses = new PressQueue<Spot>();
+  /** 灯测试按一下也要亮一会儿 */
+  private lampT = 0;
   private rect: DOMRect | null = null;
   fps = 0;
   /** 实际使用的显卡名称（renderer.init() 之后才知道） */
@@ -540,6 +544,7 @@ export class App {
     this.view.rig.zoom = 1;
     this.checklistDone = false;
     this.autoStart = false;
+    this.presses.clear();
     this.state = 'ready';
     this.ui.loading('编译着色器（第一次进入会慢一些）', 0.99, cfg.map);
     await this.warmUp();
@@ -813,6 +818,7 @@ export class App {
     if (!on) {
       this.simPanel?.hide();
       this.autoStart = false;
+      this.presses.clear();
       this.view.cockpit.controls?.highlight(null, 0);
     }
   }
@@ -825,8 +831,8 @@ export class App {
     if (!sys) return;
     const [ex, ey] = I.edgeLook(dt);
     if (ex || ey) v.rig.look(ex, ey);
+    // 鼠标指着只是在看：显示名称和读数，手不动。点下去手才抬起来
     const spot = I.mouseInside ? v.pickControl(I.mouseX, I.mouseY) : null;
-    v.pilot?.hover(spot);
     v.focusAt(I.mouseX, I.mouseY, spot, dt);
     for (const c of I.takeClicks()) {
       if (spot && (c.button === 0 || c.button === 2)) this.useControl(s, spot, c.button === 0 ? 1 : -1);
@@ -846,7 +852,18 @@ export class App {
         this.useControl(s, spot, n);
       }
     }
-    if (!I.mouseHeld) sys.lampTest = false;
+    const hand = v.pilot;
+    this.presses.step(
+      dt,
+      (target) => {
+        hand?.reachFor(target);
+        return hand?.touching(target) ?? true;
+      },
+      (target, dir) => this.pressNow(s, target, dir),
+    );
+    if (I.mouseHeld && spot) hand?.hold(spot);
+    this.lampT = Math.max(0, this.lampT - dt);
+    if (!I.mouseHeld && this.lampT <= 0) sys.lampTest = false;
     v.cockpit.mapRange = GPS_RANGES[sys.c.gpsRange] ?? 2000;
     // 检查单：冷舱到旋翼 100% 之前一直在
     const list = sys.checklist(s.flight.nr);
@@ -856,7 +873,7 @@ export class App {
     v.cockpit.controls?.highlight(this.settings.hints && pending ? pending.spot : null, this.t);
     if (this.autoStart && pending) {
       this.autoT -= dt;
-      if (this.autoT <= 0) {
+      if (this.autoT <= 0 && !this.presses.length) {
         this.autoT = 0.75;
         const target = v.cockpit.controls?.get(pending.spot);
         if (target && sys.c[pending.key] !== pending.want) this.useControl(s, target, 1);
@@ -878,7 +895,14 @@ export class App {
     return { nr: t.rotorRpm, torque: t.torque, airspeed: t.airspeed, altitude: s.altitudeMSL(), vs: s.body.vel.y, heading: ((t.heading * 180) / Math.PI + 360) % 360, slip: t.sideslip };
   }
 
+  /** 点了控件：手伸过去，手指碰到的那一刻才算按下（飞行员模型没加载时直接生效） */
   private useControl(s: GameSession, spot: Spot, dir: number): void {
+    if (spot.def.type === 'info') return;
+    if (this.view.pilot?.loaded) this.presses.push(spot, dir);
+    else this.pressNow(s, spot, dir);
+  }
+
+  private pressNow(s: GameSession, spot: Spot, dir: number): void {
     const sys = s.sys;
     if (!sys) return;
     const env: ActEnv = {
@@ -889,6 +913,7 @@ export class App {
       toast: (text) => this.hud.toast(text, 'info', 2000),
     };
     const moved = operate(spot.def, sys, dir, env);
+    if (sys.lampTest) this.lampT = 0.5;
     this.view.pilot?.poke(spot);
     if (spot.kind === 'press') this.view.cockpit.controls?.pressAnim(spot);
     if (moved) this.audio.control(spot.def.sound);

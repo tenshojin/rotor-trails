@@ -93,6 +93,8 @@ export class PilotBody {
   private goal = new THREE.Vector3();
   private leaveT = 0;
   private pokeT = 0;
+  /** 点了控件、手还在路上：这时候手不能被总距抢回去 */
+  private pressing = false;
   private wantPinch = false;
 
   constructor(private readonly convert: (m: THREE.MeshStandardMaterial) => THREE.Material) {
@@ -200,22 +202,29 @@ export class PilotBody {
     for (const m of this.head) m.visible = !cockpit;
   }
 
-  /** 鼠标指着的控件。手会伸过去；指着别的地方一会儿后收回 */
-  hover(spot: Spot | null): void {
-    if (spot && spot.def.type !== 'info' && spot.kind !== 'zone') {
-      this.target = spot;
-      this.leaveT = 0;
-    } else if (spot?.id === 'gauge_ann' || spot?.id === 'gauge_efb') {
-      this.target = spot;
-      this.leaveT = 0;
-    }
+  /** 点了控件：手抬起来伸过去。鼠标只是指着的时候手不动，那只是在看 */
+  reachFor(spot: Spot): void {
+    this.target = spot;
+    this.leaveT = 0;
+    this.pressing = true;
   }
 
-  /** 按下去：手指往控件上戳一下 */
+  /** 手指到了没有 */
+  touching(spot: Spot): boolean {
+    return this.target === spot && this.reach > 0.9 && this.goal.distanceToSquared(spot.center) < 0.0004;
+  }
+
+  /** 鼠标按着不放：手留在控件上 */
+  hold(spot: Spot): void {
+    if (this.target === spot) this.leaveT = 0;
+  }
+
+  /** 按下去：手指往控件上戳一下，过一会儿收回 */
   poke(spot: Spot): void {
     this.target = spot;
     this.pokeT = 0.2;
     this.leaveT = 0;
+    this.pressing = false;
   }
 
   private setWorld(b: THREE.Bone, world: THREE.Quaternion, parent: THREE.Quaternion): void {
@@ -287,14 +296,14 @@ export class PilotBody {
     const R = this.arms.R!;
     const L = this.arms.L!;
     // ---------- 左手要不要伸出去 ----------
-    if (p.collectiveKey) this.target = null;
+    if (p.collectiveKey && !this.pressing && this.pokeT <= 0) this.target = null;
     this.pokeT = Math.max(0, this.pokeT - dt);
     if (this.target) {
       this.leaveT += dt;
       if (this.leaveT > 1.6 && this.pokeT <= 0) this.target = null;
     }
     const reachWanted = this.target ? 1 : 0;
-    this.reach += (reachWanted - this.reach) * (1 - Math.exp(-dt * (reachWanted ? 9 : 7)));
+    this.reach += (reachWanted - this.reach) * (1 - Math.exp(-dt * (reachWanted ? 8 : 6)));
     if (this.target) {
       this.goal.lerp(this.target.center, this.reach < 0.02 ? 1 : 1 - Math.exp(-dt * 16));
       this.wantPinch = this.target.kind === 'knob' || this.target.kind === 'lever';
