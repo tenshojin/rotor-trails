@@ -49,12 +49,62 @@ const PAD_COLOR: Record<PadDef['kind'], number> = {
 };
 
 /** 停机坪：顶面 = pad.pos[1]，碰撞体标记为 pad（降落判定用）。 */
+/** 一个人：站着或者躺着。只有几个方块，从驾驶舱看是个小人，够了 */
+function person(B: PropBuilder, x: number, z: number, ry: number, shirt: number, lying = false): void {
+  const o = { solid: false };
+  const skin = 0xc69c7c;
+  const pants = 0x36404a;
+  const c = Math.cos(ry);
+  const s = Math.sin(ry);
+  const at = (lx: number, lz: number): [number, number] => [x + lx * c + lz * s, z - lx * s + lz * c];
+  if (lying) {
+    const [hx, hz] = at(0, -0.72);
+    const [bx, bz] = at(0, -0.2);
+    const [lx, lz] = at(0, 0.5);
+    B.box(hx, 0.32, hz, 0.2, 0.2, 0.22, skin, o);
+    B.box(bx, 0.3, bz, 0.42, 0.22, 0.72, shirt, o);
+    B.box(lx, 0.27, lz, 0.34, 0.18, 0.78, pants, o);
+    return;
+  }
+  B.box(x, 0.42, z, 0.32, 0.84, 0.22, pants, o);
+  B.box(x, 1.14, z, 0.42, 0.62, 0.26, shirt, o);
+  B.box(x, 1.58, z, 0.2, 0.24, 0.22, skin, o);
+  // 一只手举起来招手
+  const [ax, az] = at(0.3, 0);
+  B.box(ax, 1.62, az, 0.1, 0.7, 0.1, shirt, o);
+}
+
+/** 野外的降落点：没有水泥坪。地压平了，四角铺橙色布板，人在坪边上等着 */
+function buildFieldPad(B: PropBuilder, pad: PadDef, tag: { kind: 'pad'; padId: string; id: string }): void {
+  const s = pad.size;
+  // 看不见的落地面：起落架的射线打在它上面才算落在坪上
+  B.colliderBox(0, -0.1, 0, s / 2, 0.1, s / 2, 0, tag);
+  const e = s / 2 - 0.8;
+  const mark = 0xe8641c;
+  for (const [cx, cz] of [[-e, -e], [e, -e], [e, e], [-e, e]]) {
+    B.flat(cx - Math.sign(cx) * 1.1, 0.04, cz, 2.8, 0.7, mark, 'cloth');
+    B.flat(cx, 0.045, cz - Math.sign(cz) * 1.1, 0.7, 2.8, mark, 'cloth');
+  }
+  const side = s / 2 + 4;
+  B.flat(side, 0.04, 0, 2.6, 3.4, 0x2a6fd0, 'cloth');
+  B.box(side, 0.12, 0.1, 0.62, 0.1, 2.0, 0xd8d8d0, { solid: false });
+  person(B, side, 0, 0, 0xc8402a, true);
+  person(B, side - 2, -1.4, 0.6, 0xe8a020);
+  person(B, side + 1.6, 1.2, -0.8, 0x3a7a3a);
+  B.box(side + 2.4, 0.3, -1.4, 0.5, 0.6, 0.34, 0x8a4a2a, { solid: false });
+  B.footprint(s * 0.75 + 6);
+}
+
 export function buildPad(B: PropBuilder, pad: PadDef, ctx: PropCtx): void {
   const [x, y, z] = pad.pos;
   const s = pad.size;
   const rot = pad.rotY ?? 0;
   B.at(x, y, z, rot, 1);
   const padTag = { kind: 'pad' as const, padId: pad.id, id: pad.id };
+  if (pad.style === 'field') {
+    buildFieldPad(B, pad, padTag);
+    return;
+  }
   const structTag = { kind: 'structure' as const, id: pad.id + ':base' };
   const style = pad.style;
   const ground = ctx.ground(x, z);

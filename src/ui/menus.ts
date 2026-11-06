@@ -2,8 +2,8 @@
 
 import { ASSISTS, type AssistId } from '../config/flight';
 import { TIME_OF_DAY, type TimeOfDay } from '../render/timeOfDay';
-import type { MapDef } from '../maps/types';
-import type { MapRecord } from '../game/save';
+import type { MapDef, RescueDef } from '../maps/types';
+import type { MapRecord, RescueRecord } from '../game/save';
 import { ACTION_LABEL, DEFAULT_BINDINGS, QUALITY, keyName, type Action, type Settings } from '../game/settings';
 import type { ScoreResult } from '../sim/scoring';
 import type { LandingMetrics } from '../sim/mission';
@@ -155,7 +155,7 @@ export class UI {
     );
   }
 
-  main(opts: { warning: string | null; tutorialDone: boolean }, on: { play: () => void; free: () => void; tutorial: () => void; settings: () => void; help: () => void; about: () => void }): void {
+  main(opts: { warning: string | null; tutorialDone: boolean }, on: { play: () => void; rescue: () => void; free: () => void; tutorial: () => void; settings: () => void; help: () => void; about: () => void }): void {
     const el = this.show(
       h(`<div class="screen main-menu">
         <div class="title-block">
@@ -164,6 +164,7 @@ export class UI {
         </div>
         <div class="menu-col">
           <button class="btn primary" data-a="play">开始游戏</button>
+          <button class="btn" data-a="rescue">救援任务 <span class="tag">超大地图</span></button>
           <button class="btn" data-a="free">休闲飞行</button>
           <button class="btn" data-a="tutorial">飞行训练${opts.tutorialDone ? '' : ' <span class="tag">推荐先玩</span>'}</button>
           <button class="btn" data-a="settings">设置</button>
@@ -173,33 +174,35 @@ export class UI {
         <div class="menu-foot">${opts.warning ? `<div class="warnbox">${opts.warning}</div>` : ''}<span>v1.0 · 没有时间限制，按自己的节奏飞行</span></div>
       </div>`),
     );
-    this.bind(el, { play: on.play, free: on.free, tutorial: on.tutorial, settings: on.settings, help: on.help, about: on.about });
+    this.bind(el, { play: on.play, rescue: on.rescue, free: on.free, tutorial: on.tutorial, settings: on.settings, help: on.help, about: on.about });
   }
 
   /** 飞行训练的课程表 */
-  training(lessons: Lesson[], done: number[], on: { start: (lesson: number) => void; back: () => void }): void {
+  training(lessons: Lesson[], done: number[], course: 'flight' | 'sim', on: { start: (lesson: number) => void; course: (c: 'flight' | 'sim') => void; back: () => void }): void {
+    const sim = course === 'sim';
     const finished = lessons.every((_, i) => done.includes(i));
     const next = finished ? 0 : Math.max(0, lessons.findIndex((_, i) => !done.includes(i)));
     const rows = lessons
       .map((l, i) => `<button type="button" class="lesson ${done.includes(i) ? 'done' : ''}" data-a="lesson" data-i="${i}"><span class="ls-no">${done.includes(i) ? '✓' : i + 1}</span><span class="ls-body"><b>${l.title}</b><span>${l.sub}</span></span></button>`)
       .join('');
     const el = this.show(
-      h(`<div class="screen"><div class="screen-head"><button class="btn ghost" data-a="back">← 返回</button><h2>飞行训练</h2><span class="muted">不需要任何基础。全部学完大约 10 分钟，撞了也不要紧</span></div>
+      h(`<div class="screen"><div class="screen-head"><button class="btn ghost" data-a="back">← 返回</button><h2>飞行训练</h2><span class="muted">${sim ? '学过基础飞行再来。全部学完大约 20 分钟' : '不需要任何基础。全部学完大约 10 分钟，撞了也不要紧'}</span></div>
+      <div class="course-tabs" role="tablist"><button type="button" role="tab" aria-selected="${!sim}" class="${sim ? '' : 'on'}" data-a="flight">基础飞行</button><button type="button" role="tab" aria-selected="${sim}" class="${sim ? 'on' : ''}" data-a="sim">超仿真</button></div>
       <div class="train"><div class="train-side card"><div class="brief-hero" style="background-image:url(ui/map_training.webp)" aria-hidden="true"></div>
-        <p class="lead">坐进驾驶舱，一步一步学会飞直升机：从转头看四周开始，到能自己飞到另一块停机坪安全降落。</p>
+        <p class="lead">${sim ? '没有任何飞行辅助：亲手启动发动机，靠自己悬停，搞懂飞机为什么总想往右转，最后学会发动机停车时怎么活下来。' : '坐进驾驶舱，一步一步学会飞直升机：从转头看四周开始，到能自己飞到另一块停机坪安全降落。'}</p>
         <button class="btn primary big" data-a="go">${done.length === 0 ? '从第 1 课开始' : finished ? '从头再学一遍' : `继续学第 ${next + 1} 课`}</button>
         <p class="muted">飞过的人可以直接点右边任何一课。</p></div>
       <div class="lessons">${rows}</div></div></div>`),
     );
-    this.bind(el, { go: () => on.start(next), lesson: (b) => on.start(Number(b.dataset.i)), back: on.back });
+    this.bind(el, { go: () => on.start(next), lesson: (b) => on.start(Number(b.dataset.i)), flight: () => on.course('flight'), sim: () => on.course('sim'), back: on.back });
   }
 
   /** 训练结束 */
-  trainingDone(landing: LandingMetrics | null, on: { next: () => void; free: () => void; again: () => void; menu: () => void }): void {
+  trainingDone(landing: LandingMetrics | null, sim: boolean, on: { next: () => void; free: () => void; again: () => void; menu: () => void }): void {
     const el = this.show(
-      h(`<div class="screen center dim"><div class="card narrow"><div class="hud-label">训练完成</div><h2>你会飞直升机了</h2>
+      h(`<div class="screen center dim"><div class="card narrow"><div class="hud-label">训练完成</div><h2>${sim ? '你能亲手飞这架飞机了' : '你会飞直升机了'}</h2>
       ${landing ? `<p>最后这次降落：<b>${GRADE_LABEL[landing.grade]}</b>（下降速度 ${landing.descent.toFixed(1)} m/s）</p>` : ''}
-      <p>起飞、悬停、前进刹车、转向、跟着导航飞、在风里定住、安全降落，你都做到了。</p>
+      <p>${sim ? '冷舱启动、无辅助悬停、配平反扭矩、前飞转弯、进近降落、关车、发动机停车后自转落地，你都做到了。' : '起飞、悬停、前进刹车、转向、跟着导航飞、在风里定住、安全降落，你都做到了。'}</p>
       <p class="muted">忘了怎么操作？暂停菜单里有“操作说明”，也可以回来重学任何一课。</p>
       <button class="btn primary" data-a="next">开始第一个任务</button>
       <button class="btn" data-a="free">先随便飞飞（休闲飞行）</button>
@@ -215,10 +218,10 @@ export class UI {
         const r = records[m.id];
         return `<button type="button" class="map-card map-${m.id}" data-a="pick" data-i="${i}" aria-labelledby="map-name-${m.id}">
           <span class="mc-img" style="background-image:url(ui/map_${m.id}.webp)" aria-hidden="true"></span>
-          <span class="mc-body">${free ? `<span class="mc-head"><span class="mc-no">${m.region}</span></span>` : `<span class="mc-head"><span class="mc-no">${m.id === 'training' ? '训练' : `第 ${maps.filter((x) => x.id !== 'training').indexOf(m) + 1} 关`}</span><span class="mc-stars" aria-label="推荐难度 ${m.difficulty} / 5">${stars(m.difficulty)}</span></span>`}
+          <span class="mc-body">${free ? `<span class="mc-head"><span class="mc-no">${m.region}</span></span>` : `<span class="mc-head"><span class="mc-no">${m.id === 'training' ? '训练' : m.real ? '超大地图' : `第 ${maps.filter((x) => x.id !== 'training' && !x.real).indexOf(m) + 1} 关`}</span><span class="mc-stars" aria-label="推荐难度 ${m.difficulty} / 5">${stars(m.difficulty)}</span></span>`}
           <span class="mc-name" id="map-name-${m.id}">${m.name}</span><span class="mc-sub">${m.subtitle}</span>
           <span class="mc-desc">${m.description}</span>
-          ${free ? '' : `<span class="mc-foot"><span>推荐：${ASSISTS[m.recommendedAssist].label}</span>${r?.completed ? `<span class="mc-best">最佳 ${r.bestRating} · ${r.bestScore}</span>` : '<span class="muted">未完成</span>'}</span>`}</span>
+          ${free ? '' : m.real ? `<span class="mc-foot"><span>救援模式 · ${m.rescues?.length ?? 0} 趟任务</span></span>` : `<span class="mc-foot"><span>推荐：${ASSISTS[m.recommendedAssist].label}</span>${r?.completed ? `<span class="mc-best">最佳 ${r.bestRating} · ${r.bestScore}</span>` : '<span class="muted">未完成</span>'}</span>`}</span>
         </button>`;
       })
       .join('');
@@ -227,6 +230,80 @@ export class UI {
       <div class="map-grid">${cards}</div></div>`),
     );
     this.bind(el, { pick: (b) => on.pick(maps[Number(b.dataset.i)]), back: on.back });
+  }
+
+  /** 救援任务：选一趟 */
+  rescueSelect(m: MapDef, records: Record<string, RescueRecord>, on: { pick: (r: RescueDef) => void; back: () => void }): void {
+    const list = m.rescues ?? [];
+    const cards = list
+      .map((r, i) => {
+        const rec = records[r.id];
+        return `<button type="button" class="map-card rescue-card" data-a="pick" data-i="${i}" aria-labelledby="rescue-${r.id}">
+          <span class="mc-body"><span class="mc-head"><span class="mc-no">约 ${r.km} 公里 · ${r.minutes[0]}~${r.minutes[1]} 分钟</span><span class="mc-stars" aria-label="难度 ${r.stars} / 5">${stars(r.stars)}</span></span>
+          <span class="mc-name" id="rescue-${r.id}">${r.title}</span>
+          <span class="mc-desc">${r.summary}</span>
+          <span class="mc-foot"><span>${r.stops.length} 站</span>${rec?.runs ? `<span class="mc-best">最佳 ${rec.bestRating} · ${rec.bestScore}</span>` : '<span class="muted">未完成</span>'}</span></span>
+        </button>`;
+      })
+      .join('');
+    const el = this.show(
+      h(`<div class="screen"><div class="screen-head"><button class="btn ghost" data-a="back">← 返回</button><h2>救援任务</h2><span class="muted">${m.name} · 超大地图：41 公里见方，一趟要飞很久</span></div>
+      <div class="map-grid rescue-grid">${cards}</div></div>`),
+    );
+    this.bind(el, { pick: (b) => on.pick(list[Number(b.dataset.i)]), back: on.back });
+  }
+
+  /** 救援任务的简报：时段、天气、飞行方式 */
+  rescueBrief(m: MapDef, r: RescueDef, settings: Settings, on: { start: (weather: string, assist: AssistId, time: TimeOfDay) => void; back: () => void }): void {
+    let weather = m.defaultWeather;
+    let time: TimeOfDay = 'day';
+    let assist: AssistId = settings.assist;
+    const stops = r.stops.map((s, i) => `<li><b>${i + 1}. ${s.task}</b><span>${s.what === 'hoist' ? '落不下去，要悬停吊运' : s.what === 'load' ? '落地接人' : s.what === 'unload' ? '落地交接' : '落地'}</span></li>`).join('');
+    const el = this.show(
+      h(`<div class="screen"><div class="screen-head"><button class="btn ghost" data-a="back">← 返回</button><h2>${r.title}</h2><span class="muted">${stars(r.stars)} · 约 ${r.km} 公里 · ${r.minutes[0]}~${r.minutes[1]} 分钟</span></div>
+      <div class="brief">
+        <div class="brief-main card">
+          <div class="brief-hero" style="background-image:url(ui/map_${m.id}.webp)" aria-hidden="true"></div>
+          <p class="lead">${r.summary}</p>
+          <h3>航线</h3><ol class="obj-list">${stops}</ol>
+          <p class="muted">伤员的状况从接到电话起一直在往下走，飞得颠簸掉得更快。掉到 0 不算失败，只是成绩很难看。核心区以外的地形数据粗一些，飞低了会比较模糊。</p>
+          ${m.real ? `<p class="muted">${m.real.credit}</p>` : ''}
+        </div>
+        <div class="brief-side">
+          <div class="card"><h3 id="brief-time">时段</h3><div class="opts" data-group="time" role="group" aria-labelledby="brief-time">${(Object.keys(TIME_OF_DAY) as TimeOfDay[])
+            .map((k) => `<button type="button" class="opt-card ${k === time ? 'sel' : ''}" data-a="time" data-v="${k}" aria-pressed="${k === time}"><b>${TIME_OF_DAY[k].label}</b><span>${TIME_OF_DAY[k].desc}</span></button>`)
+            .join('')}</div></div>
+          <div class="card"><h3 id="brief-weather">天气</h3><div class="opts" data-group="weather" role="group" aria-labelledby="brief-weather">${m.weathers
+            .map((w) => `<button type="button" class="opt-card ${w.id === weather ? 'sel' : ''}" data-a="weather" data-v="${w.id}" aria-pressed="${w.id === weather}"><b>${w.label}</b><span>${w.desc}</span></button>`)
+            .join('')}</div></div>
+          <div class="card"><h3 id="brief-assist">飞行辅助</h3><div class="opts" data-group="assist" role="group" aria-labelledby="brief-assist">${(Object.keys(ASSISTS) as AssistId[])
+            .map((k) => `<button type="button" class="opt-card ${k === assist ? 'sel' : ''}" data-a="assist" data-v="${k}" aria-pressed="${k === assist}"><b>${ASSISTS[k].label}</b><span>${ASSISTS[k].desc}</span></button>`)
+            .join('')}</div></div>
+          <button class="btn primary big" data-a="start">接受任务</button>
+        </div>
+      </div></div>`),
+    );
+    const sel = (group: string, v: string) => el.querySelectorAll<HTMLElement>(`[data-group="${group}"] .opt-card`).forEach((c) => {
+      const selected = c.dataset.v === v;
+      c.classList.toggle('sel', selected);
+      c.setAttribute('aria-pressed', String(selected));
+    });
+    this.bind(el, {
+      weather: (b) => {
+        weather = b.dataset.v!;
+        sel('weather', weather);
+      },
+      time: (b) => {
+        time = b.dataset.v as TimeOfDay;
+        sel('time', time);
+      },
+      assist: (b) => {
+        assist = b.dataset.v as AssistId;
+        sel('assist', assist);
+      },
+      start: () => on.start(weather, assist, time),
+      back: on.back,
+    });
   }
 
   briefing(m: MapDef, rec: MapRecord | undefined, settings: Settings, on: { start: (weather: string, assist: AssistId, time: TimeOfDay) => void; back: () => void }): void {
@@ -477,19 +554,19 @@ export class UI {
     });
   }
 
-  result(opts: { map: MapDef; score: ScoreResult; best: boolean; time: number; landing: LandingMetrics | null; optional: Array<{ title: string; done: boolean }>; next: MapDef | null; tutorial: boolean }, on: { again: () => void; maps: () => void; next: () => void; menu: () => void }): void {
+  result(opts: { map: MapDef; title?: string; distance?: number; score: ScoreResult; best: boolean; time: number; landing: LandingMetrics | null; optional: Array<{ title: string; done: boolean }>; next: MapDef | null; tutorial: boolean }, on: { again: () => void; maps: () => void; next: () => void; menu: () => void }): void {
     const s = opts.score;
     const rows = s.breakdown.map((b) => `<tr><td>${b.label}</td><td class="muted">${b.note ?? ''}</td><td class="num">${b.value > 0 ? '+' : ''}${b.value}</td></tr>`).join('');
     const el = this.show(
       h(`<div class="screen center dim"><div class="card wide result">
-        <div class="res-head"><div><div class="hud-label">${opts.tutorial ? '训练完成' : '任务完成'}</div><h2>${opts.map.name}</h2></div><div class="rating r-${s.rating}">${opts.tutorial ? '✔' : s.rating}</div></div>
+        <div class="res-head"><div><div class="hud-label">${opts.tutorial ? '训练完成' : '任务完成'}</div><h2>${opts.title ?? opts.map.name}</h2></div><div class="rating r-${s.rating}">${opts.tutorial ? '✔' : s.rating}</div></div>
         ${opts.tutorial ? '<p>你已经掌握了起飞、加速、减速、转向、高度控制、悬停、侧风修正和安全降落。可以开始正式地图了！</p>' : ''}
         <table class="score">${rows}<tr class="total"><td>总分</td><td></td><td class="num">${s.total}</td></tr></table>
         ${opts.best && !opts.tutorial ? '<div class="newbest">新的最佳成绩！</div>' : ''}
         <div class="res-grid">
           <div><span class="muted">最终降落</span><b>${opts.landing ? `${GRADE_LABEL[opts.landing.grade]} · 下降 ${opts.landing.descent.toFixed(1)} m/s · 漂移 ${opts.landing.horizontal.toFixed(1)} m/s · 偏移 ${opts.landing.offset.toFixed(1)} m` : '—'}</b></div>
           <div><span class="muted">用时（仅记录，不计分）</span><b>${fmtTime(opts.time)}</b></div>
-          <div><span class="muted">可选任务</span><b>${opts.optional.map((o) => `${o.done ? '✔' : '○'} ${o.title}`).join('<br>') || '—'}</b></div>
+          ${opts.distance === undefined ? `<div><span class="muted">可选任务</span><b>${opts.optional.map((o) => `${o.done ? '✔' : '○'} ${o.title}`).join('<br>') || '—'}</b></div>` : `<div><span class="muted">飞行距离</span><b>${(opts.distance / 1000).toFixed(1)} 公里</b></div>`}
         </div>
         <div class="btn-row">${opts.next ? `<button class="btn primary" data-a="next">下一张地图：${opts.next.name}</button>` : ''}<button class="btn" data-a="again">再飞一次</button><button class="btn" data-a="maps">地图选择</button><button class="btn ghost" data-a="menu">主菜单</button></div>
       </div></div>`),

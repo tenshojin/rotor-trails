@@ -5,7 +5,7 @@ import { makeFlowMap, type FlowMap } from './flow';
 import type { MapDef, PadDef, V3 } from '../maps/types';
 import { obstacleTop } from '../sim/routeCheck';
 import { HeightBuilder, type Heightfield } from '../sim/terrain';
-import { bridgeDeckY, buildingFrame, loadRealData, loadRealTrees, type RealData } from './realData';
+import { bridgeDeckY, buildingFrame, flattenGrid, loadRealData, loadRealTrees, meanHeight, outerForest, type RealData } from './realData';
 import { erode } from './erosion';
 import { dissect } from './fluvial';
 import { PropBuilder, type ColliderSpec } from './propBuilder';
@@ -63,6 +63,16 @@ function protectMask(map: MapDef): Float32Array {
   return mask;
 }
 
+const inCore = (p: PadDef, half: number): boolean => Math.abs(p.pos[0]) < half - p.size && Math.abs(p.pos[2]) < half - p.size;
+
+/** 真实地形上的坪：高度写 0 的，就地取这块地的平均高度 */
+function settlePad(p: PadDef, real: RealData, half: number): PadDef {
+  if (p.pos[1] !== 0) return p;
+  const g = real.levels[inCore(p, half) ? 0 : 1];
+  const y = meanHeight(g, p.pos[0], p.pos[2], p.size * 0.5) + (p.style === 'field' ? 0.06 : 0.45);
+  return { ...p, pos: [p.pos[0], y, p.pos[2]] };
+}
+
 export async function generateWorld(map: MapDef, withMesh: boolean, progress?: ProgressFn): Promise<WorldData> {
   // 自动航点高度与补给绑定属于这次生成的结果，不应写回共享的地图配方。
   map = {
@@ -79,12 +89,20 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
     hb.data.set(real.levels[0].data);
     // 地图外面的远景和阳光的山影都从测绘数据里取
     map.farTerrain = (x, z) => real.heightAt(x, z);
+    map.pads = map.pads.map((p) => settlePad(p, real, map.size / 2));
   }
   map.buildTerrain(hb);
   // 地面停机坪：压平地形（坪面略高于地面）
   for (const p of map.pads) {
+    if (p.style !== 'ground' && p.style !== 'field') continue;
+    const sink = p.style === 'field' ? 0.06 : 0.45;
+    if (real && !inCore(p, map.size / 2)) {
+      // 核心区外面的坪：压的是中圈的网格（20 米一格），范围要盖住坪和旋翼
+      flattenGrid(real.levels[1], p.pos[0], p.pos[2], p.size * 0.72 + 12, p.pos[1] - sink, 60);
+      continue;
+    }
+    hb.flatten(p.pos[0], p.pos[2], p.size * (p.style === 'field' ? 1 : 0.72), p.pos[1] - sink, 18);
     if (p.style === 'ground') {
-      hb.flatten(p.pos[0], p.pos[2], p.size * 0.72, p.pos[1] - 0.45, 18);
       hb.paintCircle(1, p.pos[0], p.pos[2], p.size * 0.8, 8, 0.8);
       hb.paintCircle(2, p.pos[0], p.pos[2], p.size * 0.8 + 6, 6, 1);
     }
@@ -109,6 +127,7 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
   }
   map.paintFinal?.(hb);
   const terrain = hb.build();
+  if (real && map.flightSize) terrain.outer = real.sunOuter;
   progress?.(0.45, '布置建筑与停机坪');
   await tick();
   const waterLevel = map.waterLevel;
@@ -151,7 +170,8 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
     const len = Math.hypot(b[2] - b[0], b[3] - b[1]);
     B.colliders.push({ kind: 'box', c: [(b[0] + b[2]) / 2, bridgeDeckY(terrain, b) + 2, (b[1] + b[3]) / 2], h: [len / 2, 3, 1.4], rotY: -Math.atan2(b[3] - b[1], b[2] - b[0]), tag: { kind: 'structure', id: 'bridge' } });
   }
-  const trees = (map.real && (await loadRealTrees(map.real, terrain, keepOut))) || scatterTrees(map, terrain, hb.surface, B.footprints, flow);
+  const realTrees = map.real && (await loadRealTrees(map.real, terrain, keepOut));
+  const trees = realTrees ? outerForest(map, terrain, realTrees, map.flightSize ?? map.size) : scatterTrees(map, terrain, hb.surface, B.footprints, flow);
   // 画面用的最细一层换成压平停机坪之后的高度，和物理碰撞面是同一份数据
   const realView = real && { ...real, levels: [{ ...real.levels[0], data: terrain.data }, ...real.levels.slice(1)] };
   const world: WorldData = { map, terrain, surface: hb.surface, flow, builder: B, colliders: B.colliders, trees, pads, ctx, real: realView };

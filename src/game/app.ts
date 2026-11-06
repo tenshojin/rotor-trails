@@ -23,7 +23,10 @@ import { keyName, QUALITY, type Settings } from './settings';
 import { blocked, GPS_RANGES, operate, PressQueue, readout, type ActEnv, type ReadEnv } from '../sim/controls';
 import { SimPanel } from '../ui/simPanel';
 import type { Spot } from '../render/cockpitControls';
-import { LESSONS, TUTORIAL_STEPS, Tutorial, type TutorialCtx } from './tutorial';
+import { LESSONS, Tutorial, type TutorialCtx } from './tutorial';
+import { SIM_LESSONS } from './simTutorial';
+import { RescuePanel } from '../ui/rescuePanel';
+import type { RescueDef } from '../maps/types';
 import { isTimeOfDay, type TimeOfDay } from '../render/timeOfDay';
 import { waitForOperation } from './pending';
 import { InstrumentLists } from './instrumentLists';
@@ -37,14 +40,20 @@ interface RunConfig {
   tutorial: boolean;
   /** 教学从第几课开始 */
   lesson?: number;
+  /** 哪一门课：基础飞行还是超仿真 */
+  course?: Course;
   /** 休闲模式：没有任务，随便飞 */
   free?: boolean;
+  /** 救援模式：这一趟的任务 */
+  rescue?: RescueDef;
   /** 时段（只影响画面） */
   time?: TimeOfDay;
 }
 
-const TUTORIAL_ANCHOR = (i: number): boolean => TUTORIAL_STEPS[i]?.anchor === true;
+type Course = 'flight' | 'sim';
 
+const _spotPos = new THREE.Vector3();
+const _screen = { x: 0, y: 0, behind: false };
 const _wB = new THREE.Vector3();
 const _qInv = new THREE.Quaternion();
 
@@ -130,6 +139,7 @@ export class App {
   private lowFps = 0;
   /** 超仿真 */
   private simPanel: SimPanel | null = null;
+  private rescuePanel: RescuePanel | null = null;
   private checklistDone = false;
   private autoStart = false;
   private autoT = 0;
@@ -275,6 +285,7 @@ export class App {
     this.hud.dispose();
     this.tutBox.remove();
     this.simPanel?.dispose();
+    this.rescuePanel?.dispose();
     this.canvas.remove();
     if (this.pendingOperations === 0) this.disposeView();
   }
@@ -311,9 +322,10 @@ export class App {
     if (auto) {
       const m = auto;
       const tp = params.get('time');
+      const rescue = m.rescues?.find((r) => r.id === params.get('rescue'));
       const assist = params.get('assist');
       const weather = m.weathers.find((w) => w.id === params.get('weather'))?.id ?? m.defaultWeather;
-      await this.startRun({ map: m, weather, assist: assist === 'novice' || assist === 'standard' || assist === 'challenge' || assist === 'sim' ? assist : this.settings.assist, tutorial: auto.id === 'training' && params.get('tutorial') !== '0' && params.get('free') !== '1', lesson: Number(params.get('lesson') ?? 0) || 0, free: params.get('free') === '1' || !!m.real, time: isTimeOfDay(tp) ? tp : 'day' });
+      await this.startRun({ map: m, weather, assist: assist === 'novice' || assist === 'standard' || assist === 'challenge' || assist === 'sim' ? assist : this.settings.assist, tutorial: auto.id === 'training' && params.get('tutorial') !== '0' && params.get('free') !== '1', lesson: Number(params.get('lesson') ?? 0) || 0, course: assist === 'sim' ? 'sim' : 'flight', rescue, free: !rescue && (params.get('free') === '1' || !!m.real), time: isTimeOfDay(tp) ? tp : 'day' });
       if (params.get('autostart') === '1') this.beginFlight();
     } else {
       this.mainMenu();
@@ -372,6 +384,7 @@ export class App {
       { warning: [this.loadWarning, touchOnlyWarning(), gpuWarning(this.gpu), this.save.warning].filter(Boolean).join('<br>') || null, tutorialDone: this.save.data.tutorialDone },
       {
         play: () => this.mapSelect(),
+        rescue: () => this.rescueSelect(),
         free: () => this.freeSelect(),
         tutorial: () => this.trainingMenu(),
         settings: () => this.openSettings(),
@@ -382,11 +395,27 @@ export class App {
   }
 
   /** 飞行训练的课程表：从头学，或者直接选一课 */
-  trainingMenu(): void {
+  trainingMenu(course: Course = 'flight'): void {
     this.state = 'menu';
-    this.ui.training(LESSONS, this.save.data.lessonsDone, {
-      start: (lesson) => void this.startRun({ map: getMap('training'), weather: 'clear', assist: 'novice', tutorial: true, lesson }),
+    const sim = course === 'sim';
+    this.ui.training(sim ? SIM_LESSONS : LESSONS, sim ? this.save.data.simLessonsDone : this.save.data.lessonsDone, course, {
+      start: (lesson) => void this.startRun({ map: getMap('training'), weather: 'clear', assist: sim ? 'sim' : 'novice', tutorial: true, lesson, course }),
+      course: (c) => this.trainingMenu(c),
       back: () => this.mainMenu(),
+    });
+  }
+
+  /** 救援任务：超大地图上挑一趟 */
+  rescueSelect(): void {
+    this.state = 'menu';
+    const m = REAL_MAPS[0];
+    this.ui.rescueSelect(m, this.save.data.rescues, { pick: (r) => this.rescueBrief(m, r), back: () => this.mainMenu() });
+  }
+
+  private rescueBrief(m: MapDef, r: RescueDef): void {
+    this.ui.rescueBrief(m, r, this.settings, {
+      start: (weather, assist, time) => void this.startRun({ map: m, weather, assist, tutorial: false, time, rescue: r }),
+      back: () => this.rescueSelect(),
     });
   }
 
@@ -408,7 +437,7 @@ export class App {
     this.state = 'menu';
     const list = [...CAMPAIGN.filter((id) => MAPS.find((m) => m.id === id)).map((id) => getMap(id)), getMap('training')];
     // 训练场的正门是课程表
-    this.ui.mapSelect(list, this.save.data.maps, { pick: (m) => (m.id === 'training' ? this.trainingMenu() : this.briefing(m)), back: () => this.mainMenu() });
+    this.ui.mapSelect([...list, ...REAL_MAPS], this.save.data.maps, { pick: (m) => (m.id === 'training' ? this.trainingMenu() : m.real ? this.rescueSelect() : this.briefing(m)), back: () => this.mainMenu() });
   }
 
   briefing(m: MapDef): void {
@@ -520,7 +549,7 @@ export class App {
     this.ui.loading('初始化物理', 0.98, cfg.map);
     if (cfg.assist === 'sim') await this.view.ensurePilot();
     this.view.setDof?.(cfg.assist === 'sim' && !cfg.tutorial);
-    const session = await GameSession.create(this.world, cfg.weather, cfg.assist, cfg.free === true);
+    const session = await GameSession.create(this.world, cfg.weather, cfg.assist, cfg.free === true, cfg.rescue);
     if (this.disposed) {
       session.dispose();
       return;
@@ -529,10 +558,14 @@ export class App {
     // 先推进一个物理步（停在坪上，无副作用），让 HUD 在“点击开始”画面里就显示真实的密度、航点等数值
     this.session.step();
     this.session.drainEvents();
-    this.tutorial = cfg.tutorial ? new Tutorial(this.settings) : null;
+    this.tutorial = cfg.tutorial ? new Tutorial(this.settings, cfg.course === 'sim' ? SIM_LESSONS : LESSONS) : null;
     this.tutorialHtml = '';
     this.hud.setTutorial?.(null);
     this.hud.setFree?.(cfg.free === true);
+    if (cfg.rescue) {
+      this.rescuePanel ??= new RescuePanel(this.root);
+      this.rescuePanel.show(cfg.rescue.title, cfg.assist !== 'sim');
+    } else this.rescuePanel?.hide();
     this.hud.setCinema?.(false);
     this.cruise = null;
     // 超仿真是冷舱启动，要停在坪上；休闲飞行直接从第一个景点开始
@@ -551,11 +584,11 @@ export class App {
     await this.warmUp();
     this.assertActive();
     this.hud.show(true);
-    this.applySim(cfg.assist === 'sim' && !cfg.tutorial);
+    this.applySim(cfg.assist === 'sim');
     const k = (a: keyof Settings['bindings']) => keyName(this.settings.bindings[a][0]);
     const controls = !this.settings.hints ? '' : cfg.assist === 'sim' ? `<br>冷舱启动：照左上角的检查单操作，鼠标点按钮 · 鼠标移到屏幕边转头 · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 杆 · <kbd>${k('up')}</kbd>/<kbd>${k('down')}</kbd> 总距 · <kbd>C</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平` : `<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>${k('pause')}</kbd> 暂停`;
     this.ui.clickToStart(
-      cfg.tutorial ? `第 ${(cfg.lesson ?? 0) + 1} 课 · ${LESSONS[cfg.lesson ?? 0].title}` : cfg.free ? `休闲飞行 · ${cfg.map.name}` : cfg.map.name,
+      this.tutorial ? `第 ${(cfg.lesson ?? 0) + 1} 课 · ${this.tutorial.lessons[cfg.lesson ?? 0].title}` : cfg.rescue ? `救援 · ${cfg.rescue.title}` : cfg.free ? `休闲飞行 · ${cfg.map.name}` : cfg.map.name,
       cfg.tutorial ? '跟着屏幕下方的提示做，每次只学一个动作。' : cfg.free ? `没有任务，没有计时。想去哪儿就去哪儿，懒得飞就按 <kbd>${k('cruise')}</kbd> 让它自己飞。` : `${this.session.mission.current()?.def.title ?? ''}${controls}`,
       () => this.beginFlight(),
     );
@@ -645,17 +678,20 @@ export class App {
       const t = this.tutorial;
       // 每一课开头都是安全的状态（悬停或停在地面）：撞了回到这里
       t.onStep = (i) => {
-        if (TUTORIAL_ANCHOR(i)) s.saveCheckpoint('教学', true);
+        if (t.steps[i]?.anchor) s.saveCheckpoint('教学', true);
       };
       t.onLesson = (lesson) => {
         this.audio.success();
-        if (!this.save.data.lessonsDone.includes(lesson)) {
-          this.save.data.lessonsDone.push(lesson);
+        const done = this.run?.course === 'sim' ? this.save.data.simLessonsDone : this.save.data.lessonsDone;
+        if (!done.includes(lesson)) {
+          done.push(lesson);
           this.save.save();
         }
       };
       t.start(s, this.run?.lesson ?? 0);
       this.tutBox.classList.remove('hidden');
+      // 超仿真要低头看仪表板：卡片放到上面，别挡住开关
+      this.tutBox.classList.toggle('top', this.run?.course === 'sim');
     }
     if (this.input.lockFailed) this.hud.toast('鼠标锁定不可用：按住鼠标拖动或使用方向键观察', 'warn', 6000);
   }
@@ -835,8 +871,11 @@ export class App {
     // 鼠标指着只是在看：显示名称和读数，手不动。点下去手才抬起来
     const spot = I.mouseInside ? v.pickControl(I.mouseX, I.mouseY) : null;
     v.focusAt(I.mouseX, I.mouseY, spot, dt);
+    const tut = this.tutorial;
+    this.tutorialCtx.hover = spot?.id ?? null;
     for (const c of I.takeClicks()) {
-      if (spot && (c.button === 0 || c.button === 2)) this.useControl(s, spot, c.button === 0 ? 1 : -1);
+      // （教学的说明页上点鼠标是“看完了”，不是按开关）
+      if (spot && (c.button === 0 || c.button === 2) && !tut?.step?.manual) this.useControl(s, spot, c.button === 0 ? 1 : -1);
     }
     const wheel = I.takeWheel();
     if (wheel) {
@@ -868,10 +907,12 @@ export class App {
     v.cockpit.mapRange = GPS_RANGES[sys.c.gpsRange] ?? 2000;
     // 检查单：冷舱到旋翼 100% 之前一直在
     const list = sys.checklist(s.flight.nr);
-    const pending = this.checklistDone ? null : list.find((r) => !r.done) ?? null;
+    const pending = this.checklistDone || tut ? null : list.find((r) => !r.done) ?? null;
     if (!pending) this.checklistDone = true;
     this.simPanel?.checklist(this.checklistDone ? null : list);
-    v.cockpit.controls?.highlight(this.settings.hints && pending ? pending.spot : null, this.t);
+    const lit = tut ? tut.control(s) : this.settings.hints && pending ? pending.spot : null;
+    v.cockpit.controls?.highlight(lit, this.t);
+    if (tut) tut.lookHint = this.lookHint(lit);
     if (this.autoStart && pending) {
       this.autoT -= dt;
       if (this.autoT <= 0 && !this.presses.length) {
@@ -889,6 +930,21 @@ export class App {
       this.simPanel?.hideTooltip();
       this.canvas.classList.remove('sim-cursor-hot');
     }
+  }
+
+  /** 教学要点的控件不在视野里：告诉玩家往哪边看 */
+  private lookHint(id: string | null): string {
+    const spot = id ? this.view.cockpit.controls?.get(id) : null;
+    if (!spot) return '';
+    const p = this.view.cockpit.root.localToWorld(_spotPos.copy(spot.center));
+    const q = this.view.project(p, _screen);
+    const w = innerWidth * 0.08;
+    const h = innerHeight * 0.08;
+    const dx = q.behind ? 1 : q.x < w ? -1 : q.x > innerWidth - w ? 1 : 0;
+    const dy = q.behind ? 0 : q.y < h ? -1 : q.y > innerHeight - h ? 1 : 0;
+    if (!dx && !dy) return '';
+    const way = `${dx < 0 ? '左' : dx > 0 ? '右' : ''}${dy < 0 ? '上' : dy > 0 ? '下' : ''}`;
+    return `光圈在视野外：把鼠标移到屏幕${way}边，往${way}看。`;
   }
 
   private readEnv(s: GameSession): ReadEnv {
@@ -1052,6 +1108,7 @@ export class App {
       if (this.completeTimer <= 0) this.showResult();
     }
     if (s && (this.state === 'playing' || this.state === 'paused' || this.state === 'ready' || this.state === 'failed')) {
+      if (s.rescue && this.state === 'playing') this.rescuePanel?.update(s);
       this.view.render(s, { dt: renderDt, t: this.t, alpha });
       this.hud.update(s, this.view, this.settings, this.t);
       this.view.drawInstruments(this.t, this.instrumentData(s));
@@ -1199,7 +1256,7 @@ export class App {
       route: this.instrumentLists.route,
       objectives: this.instrumentLists.objectives,
       pickups: this.instrumentLists.pickups,
-      mapSize: s.world.map.size,
+      mapSize: s.world.map.flightSize ?? s.world.map.size,
       speedUnit: this.settings.speedUnit,
     };
   }
@@ -1287,7 +1344,7 @@ export class App {
           else if (m.type === 'landingRejected') hud.toast(`着陆不合格：${m.metrics.reasons.join('，')}。请起飞后重新降落`, 'bad', 5000);
           else if (m.type === 'landingAccepted') hud.toast(`着陆合格（${GRADE_LABEL[m.metrics.grade]}），保持停稳…`, 'good', 2500);
           else if (m.type === 'inspectPoint') hud.toast(`巡查完成：${m.label}（剩余 ${m.remaining}）`, 'good');
-          else if (m.type === 'cargo') hud.toast(m.action === 'load' ? '物资已装载' : m.action === 'drop' ? '物资已投放' : '物资已卸载', 'good');
+          else if (m.type === 'cargo') hud.toast(this.run?.rescue ? (m.action === 'load' ? '伤员已上机' : '伤员已交接') : m.action === 'load' ? '物资已装载' : m.action === 'drop' ? '物资已投放' : '物资已卸载', 'good');
           else if (m.type === 'lockedPad') hud.toast(m.message, 'warn', 4000);
           break;
         }
@@ -1354,6 +1411,7 @@ export class App {
       collisions: s.damage.collisions,
       finalLanding: s.mission.finalLanding,
       safeRecoveries: s.stats.safeRecoveries,
+      patient: s.rescue ? s.rescue.score : undefined,
     });
     let best = false;
     if (run.tutorial) {
@@ -1361,7 +1419,7 @@ export class App {
       this.save.save();
       this.tutBox.classList.add('hidden');
       this.hud.setTutorial?.(null);
-      this.ui.trainingDone(s.mission.finalLanding, {
+      this.ui.trainingDone(s.mission.finalLanding, run.course === 'sim', {
         next: () => {
           this.quitToMenu();
           this.briefing(getMap('japan'));
@@ -1372,18 +1430,21 @@ export class App {
         },
         again: () => {
           this.quitToMenu();
-          this.trainingMenu();
+          this.trainingMenu(run.course ?? 'flight');
         },
         menu: () => this.quitToMenu(),
       });
       return;
-    } else best = this.save.recordResult(run.map.id, score.total, score.rating, s.mission.optional.filter((o) => o.status === 'done').map((o) => o.def.id), s.t);
+    } else if (run.rescue) best = this.save.recordRescue(run.rescue.id, score.total, score.rating, s.t);
+    else best = this.save.recordResult(run.map.id, score.total, score.rating, s.mission.optional.filter((o) => o.status === 'done').map((o) => o.def.id), s.t);
     const idx = CAMPAIGN.indexOf(run.map.id);
     const nextId = run.tutorial ? 'japan' : idx >= 0 && idx < CAMPAIGN.length - 1 ? CAMPAIGN[idx + 1] : null;
     const next = nextId && MAPS.find((m) => m.id === nextId) ? getMap(nextId) : null;
     this.ui.result(
       {
         map: run.map,
+        title: run.rescue?.title,
+        distance: run.rescue ? s.stats.distance : undefined,
         score,
         best,
         time: s.t,
@@ -1396,7 +1457,8 @@ export class App {
         again: () => void this.restart(),
         maps: () => {
           this.quitToMenu();
-          this.mapSelect();
+          if (run.rescue) this.rescueSelect();
+          else this.mapSelect();
         },
         next: () => next && this.briefing(next),
         menu: () => this.quitToMenu(),
