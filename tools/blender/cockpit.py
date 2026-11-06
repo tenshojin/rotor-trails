@@ -1725,6 +1725,9 @@ if DO_BAKE:
     ao_png = os.path.abspath('art/out/cockpit_ao.png')
     K.bake_ao(whole, ao_png, size=4096, samples=96, distance=0.35)
     print('BAKED', ao_png, round(time.time() - t0, 1), 's')
+    # 舱内的天光：窗户进来、在内饰之间反弹之后每一点接到多少（游戏里代替一层均匀的补光）
+    K.bake_light(whole, os.path.abspath('art/out/cockpit_gi.png'), size=2048, samples=192, hide=[o for o in DYNAMIC if o.name.startswith(('glass_', 'gglass_'))])
+    print('BAKED GI', round(time.time() - t0, 1), 's')
     for name, origin, props in moving:
         before = set(bpy.context.scene.objects)
         K.select_only(whole)

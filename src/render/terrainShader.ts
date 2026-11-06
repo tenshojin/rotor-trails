@@ -409,6 +409,19 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     col.mulAssign(float(1).add(windK.mul(meadow).mul(0.24)));
     // 草簇的起伏也接光：太阳低的时候草地是一片细碎的明暗
     nb.assign(normalize(nb.add(vec3(tuft.sub(tuftAt(vec2(1.1, 0))), 0.0, tuft.sub(tuftAt(vec2(0, 1.1)))).mul(meadow.mul(1.6)))));
+    // 近处的颗粒：航拍贴图拉到几十米以内就是一片糊，这里叠两层细碎的明暗（草丛、土块、小石子）。
+    // 不用贴图，用噪声图的高频通道：放在 1 米、3 米两个尺度上，两层错开就看不出重复
+    const nearK = float(1).sub(smoothstep(35.0, 160.0, length(P.sub(cameraPosition)))).mul(float(1).sub(rockW.mul(0.5))).toVar();
+    If(nearK.greaterThan(0.01), () => {
+      const g1 = texture(noise, P.xz.div(3.1)).grad(dPx.xz.div(3.1), dPy.xz.div(3.1)).b;
+      const g2 = texture(noise, P.xz.div(1.13).add(0.37)).grad(dPx.xz.div(1.13), dPy.xz.div(1.13)).g;
+      const speck = g1.mul(0.6).add(g2.mul(0.4)).sub(0.5).toVar();
+      col.mulAssign(float(1).add(speck.mul(nearK).mul(0.95)));
+      // 明暗的高低也算进法线：逆光时草地有了凹凸
+      const gx = texture(noise, P.xz.add(vec2(0.11, 0)).div(1.13).add(0.37)).grad(dPx.xz.div(1.13), dPy.xz.div(1.13)).g.sub(g2);
+      const gz = texture(noise, P.xz.add(vec2(0, 0.11)).div(1.13).add(0.37)).grad(dPx.xz.div(1.13), dPy.xz.div(1.13)).g.sub(g2);
+      nb.assign(normalize(nb.add(vec3(gx, 0.0, gz).mul(nearK.mul(1.5)))));
+    });
     // 宏观地貌：岩壁加上三平面投影的脊状浮雕（两个尺度），平缓的地面只加一点起伏；明暗再跟着真实的沟谷与山脊走
     const cavS = mac.r.mul(2.0).sub(1.0);
     const cavL = mac.g.mul(2.0).sub(1.0);

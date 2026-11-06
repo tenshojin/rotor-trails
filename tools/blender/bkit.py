@@ -693,6 +693,87 @@ def bake_ao(ob, path, size=4096, samples=64, distance=0.3, uv='AO', margin=8):
     return img
 
 
+def bake_light(ob, path, size=2048, samples=256, uv='AO', margin=8, hide=()):
+    """把舱内的光烘焙到一张图：天空光从窗户进来，在内饰之间反弹几次以后，每一点接到多少。
+    白天的颜色由游戏决定，这里的世界是白的：上半球亮度 1，下半球（地面）0.35。
+    存的是平方根（暗处精度够用），游戏里平方回来。hide：烘焙时不挡光的物体（窗玻璃）。"""
+    import numpy as np
+
+    sc = bpy.context.scene
+    sc.render.engine = 'CYCLES'
+    use_gpu()
+    sc.cycles.samples = samples
+    sc.cycles.max_bounces = 6
+    sc.cycles.diffuse_bounces = 5
+    w = bpy.data.worlds.new('gi_sky')
+    sc.world = w
+    w.use_nodes = True
+    nt = w.node_tree
+    bg = nt.nodes.get('Background')
+    tc = nt.nodes.new('ShaderNodeTexCoord')
+    sep = nt.nodes.new('ShaderNodeSeparateXYZ')
+    ramp = nt.nodes.new('ShaderNodeValToRGB')
+    nt.links.new(tc.outputs['Generated'], sep.inputs['Vector'])
+    ramp.color_ramp.elements[0].position = 0.45
+    ramp.color_ramp.elements[0].color = (0.35, 0.35, 0.35, 1)
+    ramp.color_ramp.elements[1].position = 0.55
+    ramp.color_ramp.elements[1].color = (1, 1, 1, 1)
+    # z 从 -1..1 映射到 0..1
+    mp = nt.nodes.new('ShaderNodeMath')
+    mp.operation = 'MULTIPLY_ADD'
+    mp.inputs[1].default_value = 0.5
+    mp.inputs[2].default_value = 0.5
+    nt.links.new(sep.outputs['Z'], mp.inputs[0])
+    nt.links.new(mp.outputs[0], ramp.inputs['Fac'])
+    nt.links.new(ramp.outputs['Color'], bg.inputs['Color'])
+    bg.inputs['Strength'].default_value = 1.0
+    for o in hide:
+        o.hide_render = True
+    img = bpy.data.images.new('gi_bake', size, size, alpha=False, float_buffer=True)
+    img.colorspace_settings.name = 'Non-Color'
+    added = []
+    for i, mat in enumerate(ob.data.materials):
+        if mat is None:
+            ob.data.materials[i] = material('bake_fallback', 0x202022, rough=0.6)
+    for mat in ob.data.materials:
+        nt2 = mat.node_tree
+        n = nt2.nodes.new('ShaderNodeTexImage')
+        n.image = img
+        u = nt2.nodes.new('ShaderNodeUVMap')
+        u.uv_map = uv
+        nt2.links.new(u.outputs['UV'], n.inputs['Vector'])
+        for x in nt2.nodes:
+            x.select = False
+        n.select = True
+        nt2.nodes.active = n
+        added.append((nt2, n, u))
+    me = ob.data
+    keep = me.uv_layers.active.name
+    me.uv_layers.active = me.uv_layers[uv]
+    sc.render.bake.margin = margin
+    select_only(ob)
+    with bpy.context.temp_override(active_object=ob, object=ob, selected_objects=[ob], selected_editable_objects=[ob]):
+        bpy.ops.object.bake(type='DIFFUSE', pass_filter={'DIRECT', 'INDIRECT'}, use_clear=True, margin=margin)
+    me.uv_layers.active = me.uv_layers[keep]
+    px = np.empty(size * size * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    px = px.reshape(size, size, 4)
+    enc = np.clip(np.sqrt(np.clip(px[..., :3], 0, 1)), 0, 1)
+    out = bpy.data.images.new('gi_out', size, size, alpha=False, float_buffer=False)
+    out.colorspace_settings.name = 'Non-Color'
+    flat = np.concatenate([enc, np.ones((size, size, 1), np.float32)], 2).ravel()
+    out.pixels.foreach_set(flat)
+    out.filepath_raw = os.path.abspath(path)
+    out.file_format = 'PNG'
+    out.save()
+    for nt2, n, u in added:
+        nt2.nodes.remove(n)
+        nt2.nodes.remove(u)
+    for o in hide:
+        o.hide_render = False
+    return out
+
+
 def look_at(ob, target):
     d = Vector(target) - ob.location
     ob.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()

@@ -52,7 +52,7 @@ interface RingDef {
 }
 
 /** 近圈（半径约 88 米）、中圈 */
-const NEAR: RingDef = { tile: 16, range: 5, per: 230, size: [0.6, 1.35], tall: [0.8, 1.3], agl: 130, budget: 8 };
+const NEAR: RingDef = { tile: 16, range: 5, per: 620, size: [0.55, 1.2], tall: [0.75, 1.25], agl: 130, budget: 5 };
 const MID: RingDef = { tile: 48, range: 10, per: 340, size: [2.3, 4.4], tall: [0.42, 0.7], agl: 420, budget: 4 };
 /** 各画质的中圈半径（块）：0 = 不画 */
 export const GRASS_MID: Record<string, number> = { low: 0, medium: 5, high: 8, ultra: 10 };
@@ -246,7 +246,7 @@ export class GroundCover {
       // 同一丛里草叶的深浅、不同丛之间的色差
       const vary = texture(noise, P.xz.mul(0.37)).g.mul(0.5).add(0.78);
       // （地表颜色图是平均的反照率，比照了太阳的地面暗：中圈提亮一点，不然草团是地上一块块深色的斑）
-      m.colorNode = vec4(base.mul(t.r.mul(1.15).add(0.1)).mul(vary).mul(mid ? 1.7 : 1), t.a.mul(fade));
+      m.colorNode = vec4(base.mul(t.r.mul(1.15).add(0.1)).mul(vary).mul(mid ? 1.7 : 1.5), t.a.mul(fade));
       // 双面渲染时背面不翻转法线，否则一半草叶是黑的
       m.normalNode = normalViewGeometry;
       // 风：草尖晃动

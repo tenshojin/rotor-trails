@@ -323,32 +323,59 @@ def pine():
     add(mass_tree('pine_2', 7, 0.28, 7.5, 3.4, 2.0))
 
 
+def bough(mb, root, d, length, width, droop, curl, rng, rect, cc, segs):
+    """一根下垂的枝：沿长度分几节往下弯、枝梢再翘回来一点。贴图的左边是枝根，右边是枝梢。"""
+    side = Vector((-d.y, d.x, 0)).normalized()
+    pts = [Vector(root)]
+    ang = droop
+    step = length / segs
+    p = Vector(root)
+    for k in range(segs):
+        ang += curl * (1 - 2.2 * k / max(1, segs - 1))
+        v = (d * math.cos(ang) - Vector((0, 0, math.sin(ang)))).normalized()
+        p = p + v * step
+        pts.append(p.copy())
+    u0, v0, u1, v1 = rect
+    # 两侧的小枝也微微下垂：截面是一个倒 V，不是一块平板
+    for k in range(segs):
+        a, c = pts[k], pts[k + 1]
+        ta, tc = k / segs, (k + 1) / segs
+        for s0, s1, va, vb in ((-1.0, 0.0, v0, (v0 + v1) / 2), (0.0, 1.0, (v0 + v1) / 2, v1)):
+            sag = 0.22 * width
+            p00 = a + side * (s0 * width / 2) - Vector((0, 0, abs(s0) * sag))
+            p01 = a + side * (s1 * width / 2) - Vector((0, 0, abs(s1) * sag))
+            p11 = c + side * (s1 * width / 2) - Vector((0, 0, abs(s1) * sag))
+            p10 = c + side * (s0 * width / 2) - Vector((0, 0, abs(s0) * sag))
+            ua = u0 + (u1 - u0) * ta
+            ub = u0 + (u1 - u0) * tc
+            nrm = [(q - Vector(cc) + Vector((0, 0, 0.8))).normalized() for q in (p00, p01, p11, p10)]
+            mb.face([p00, p01, p11, p10], [(ua, va), (ua, vb), (ub, vb), (ub, va)], nrm, LEAF)
+
+
 def spruce():
-    """挪威云杉：一层层下垂的枝条组成圆锥；每根枝条一张水平卡 + 一张竖直交叉卡，从侧面看也是满的。"""
-    for lod, (step, per) in enumerate([(0.55, 8), (1.1, 4)]):
+    """挪威云杉：一轮一轮的枝。上面的枝短而上扬，下面的枝长而下垂，每一根都是弯的。
+    轮廓参差不齐才像真树：枝长、间距、下垂角都带随机，偶尔缺一根。"""
+    for lod, (step, per, segs) in enumerate([(0.34, 8, 3), (0.72, 6, 2)]):
         rng = random.Random(16)
         mb = MB()
         top = 16.5
-        mb.tube([(0, 0, 0), (0, 0, top * 0.5), (0, 0, top)], [0.32, 0.18, 0.04], 10 if lod == 0 else 5, BARK)
-        z = 1.4
-        while z < top - 0.6:
-            k = (z - 1.4) / (top - 1.4)
-            R = 2.8 * (1 - k) ** 0.95 + 0.3
+        mb.tube([(0, 0, 0), (0.02, 0.01, top * 0.5), (0, 0, top)], [0.32, 0.18, 0.03], 10 if lod == 0 else 5, BARK)
+        z = 1.0
+        while z < top - 0.35:
+            k = (z - 1.0) / (top - 1.0)
+            R = 3.15 * (1 - k) ** 0.88 + 0.28
             a0 = rng.uniform(0, 2 * math.pi)
-            n = max(3, round(per * (0.55 + 0.45 * (1 - k))))
+            n = max(3, round(per * (0.6 + 0.4 * (1 - k))))
             for i in range(n):
-                a = a0 + 2 * math.pi * i / n + rng.uniform(-0.2, 0.2)
+                if rng.random() < 0.08:
+                    continue
+                a = a0 + 2 * math.pi * i / n + rng.uniform(-0.28, 0.28)
                 d = Vector((math.cos(a), math.sin(a), 0))
-                droop = math.radians(rng.uniform(12, 26))
-                dirv = (d * math.cos(droop) - Vector((0, 0, math.sin(droop)))).normalized()
-                side = Vector((-d.y, d.x, 0))
-                up = side.cross(dirv).normalized()
-                c = Vector((0, 0, z)) + dirv * R * 0.5
-                cc = (0, 0, z - 0.6)
-                h = max(0.8, R * (0.75 if lod == 0 else 1.0))
-                mb.quad(c, dirv, side, R * 1.1, h, S_SPRUCE, cc)
-                mb.quad(c - up * h * 0.15, dirv, up, R * 1.05, h * 0.7, S_SPRUCE, cc)
-            z += step * rng.uniform(0.85, 1.15)
+                L = R * rng.uniform(0.72, 1.14)
+                # 下部的枝下垂，顶部的枝上扬
+                droop = math.radians(-14 + 38 * (1 - k) + rng.uniform(-7, 9))
+                bough(mb, (d.x * 0.08, d.y * 0.08, z + rng.uniform(-0.1, 0.1)), d, L, L * 0.86, droop, math.radians(12), rng, S_SPRUCE, (0, 0, z - 0.6), segs)
+            z += step * rng.uniform(0.8, 1.2) * (0.72 + 0.5 * (1 - k))
         add(mb.build(f'spruce_{lod}'))
     add(mass_tree('spruce_2', 2, 0.3, 9, 2.8, 7.5, cone=True))
 

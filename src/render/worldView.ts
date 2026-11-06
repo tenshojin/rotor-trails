@@ -767,6 +767,7 @@ export class WorldView {
       }
       this.cockpit.wiperMode = sys ? sys.wiperSpeed : -1;
       this.cockpit.glassUniforms.uFog.value = sys ? sys.fog : 0;
+      this.cockpit.glassUniforms.uOutside.value = cockpitView ? 0 : 1;
       this.cockpit.updateGlass(f.t, weather.rain, tel.airspeed, s.buffs.shieldActive ? 0.25 + 0.15 * Math.sin(f.t * 6) : 0, this.renderer.toneMappingExposure);
       if (this.landing) {
         // 机头下面的着陆灯：朝前下方，离地面越近越亮堂
@@ -785,6 +786,7 @@ export class WorldView {
       cam.lookAt(idle.target);
       this.heli.root.visible = true;
       this.heli.setCockpitView(false);
+      this.cockpit.glassUniforms.uOutside.value = 1;
       this.cockpit.root.visible = this.heli.extLoaded && this.cockpit.loaded;
       this.heli.update(f.t, f.dt, 1);
     }

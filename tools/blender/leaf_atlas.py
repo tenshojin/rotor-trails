@@ -94,29 +94,64 @@ def needles(greens, tufts, length, spread):
 
 
 def spruce_branch(greens):
-    """下垂的云杉枝：中间一根枝条，两侧鱼骨状的针叶小枝。"""
-    im = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    """一根完整的云杉枝：从左边的枝根长到右边的枝梢。
+    轮廓是羽毛状的三角形：主枝两侧一级小枝，小枝上再分二级，针叶贴着小枝朝前长，枝梢是嫩绿色。
+    不能画成实心的长方形：树冠的轮廓全靠这些缺口。"""
+    W = S * 2
+    im = Image.new('RGBA', (W, W), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
-    for row in range(3):
-        y0 = S * (0.2 + 0.3 * row)
-        d.line([(S * 0.05, y0), (S * 0.95, y0 + S * 0.04)], fill=(70, 50, 34, 255), width=9)
-        for i in range(22):
-            x = S * (0.07 + 0.86 * i / 22) + rnd.uniform(-8, 8)
-            yy = y0 + S * 0.04 * i / 22
-            L = S * 0.12 * (1 - 0.55 * i / 22) + S * 0.03
+    wood = (58, 42, 30, 255)
+    y0 = W * 0.5
+
+    def needle_line(x0, y_0, x1, y1, density, ln, tip_k):
+        """沿一根小枝画针叶：朝枝梢方向斜着长，靠近枝梢颜色变浅"""
+        dx, dy = x1 - x0, y1 - y_0
+        L = math.hypot(dx, dy) or 1
+        ux, uy = dx / L, dy / L
+        n = int(L * density)
+        for k in range(n):
+            t = k / max(1, n - 1)
+            px, py = x0 + dx * t, y_0 + dy * t
             for sgn in (-1, 1):
-                ang = sgn * rnd.uniform(0.9, 1.25)
-                ex, ey = x + math.cos(ang) * L * 0.6, yy + math.sin(ang) * L
-                d.line([(x, yy), (ex, ey)], fill=(70, 50, 34, 255), width=4)
-                # 小枝上密集、方向随机的短针叶
-                for j in range(60):
-                    t = rnd.random()
-                    px, py = x + (ex - x) * t, yy + (ey - yy) * t
-                    b = rnd.uniform(0, 2 * math.pi)
-                    nl = rnd.uniform(10, 22)
-                    col = jitter(shade(rnd.choice(greens), 0.65 + 0.5 * rnd.random()), 0.12)
-                    d.line([(px, py), (px + math.cos(b) * nl, py + math.sin(b) * nl)], fill=col + (255,), width=5)
-    return im
+                a = sgn * rnd.uniform(0.45, 0.95)
+                ca, sa = math.cos(a), math.sin(a)
+                vx, vy = ux * ca - uy * sa, ux * sa + uy * ca
+                nl = ln * rnd.uniform(0.75, 1.2)
+                # 老针叶深，枝梢的新针叶浅一些、偏黄
+                g = rnd.choice(greens)
+                f = 0.5 + 0.55 * rnd.random() + tip_k * t * 0.9
+                col = shade(g, f)
+                if tip_k > 0 and t > 0.7:
+                    col = (min(255, int(col[0] * 1.4)), min(255, int(col[1] * 1.22)), col[2])
+                d.line([(px, py), (px + vx * nl, py + vy * nl)], fill=col + (255,), width=3)
+
+    # 主枝微微弯曲
+    pts = [(W * (0.02 + 0.94 * t), y0 + math.sin(t * 2.2) * W * 0.012) for t in [i / 24 for i in range(25)]]
+    for a, c in zip(pts, pts[1:]):
+        d.line([a, c], fill=wood, width=11)
+    n1 = 25
+    for i in range(n1):
+        t = (i + 0.3) / n1
+        bx, by = pts[int(t * 24)]
+        # 三角形的外包络：枝根宽，枝梢窄，再加一点随机
+        L = W * 0.40 * (1 - t) ** 0.72 * rnd.uniform(0.72, 1.08) + W * 0.02
+        for sgn in (-1, 1):
+            ang = sgn * rnd.uniform(0.62, 1.05)
+            cx, cy = bx + math.cos(ang) * L, by + math.sin(ang) * L
+            d.line([(bx, by), (cx, cy)], fill=wood, width=6)
+            needle_line(bx, by, cx, cy, 0.24, W * 0.016, 0.0)
+            # 二级小枝
+            m = max(2, int(L / (W * 0.038)))
+            for k in range(1, m):
+                s = k / m
+                sx, sy = bx + (cx - bx) * s, by + (cy - by) * s
+                l2 = L * 0.34 * (1 - s) ** 0.6 * rnd.uniform(0.7, 1.15) + W * 0.012
+                for s2 in (-1, 1):
+                    a2 = ang + s2 * rnd.uniform(0.55, 0.95)
+                    ex, ey = sx + math.cos(a2) * l2, sy + math.sin(a2) * l2
+                    d.line([(sx, sy), (ex, ey)], fill=wood, width=3)
+                    needle_line(sx, sy, ex, ey, 0.30, W * 0.0125, 1.0)
+    return im.resize((S, S), Image.LANCZOS)
 
 
 def palm_frond(greens):

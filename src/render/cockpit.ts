@@ -3,7 +3,7 @@
 // 窗玻璃使用带雨滴/水流效果的材质。模型加载失败时座舱内部为空，游戏照常可玩。
 
 import * as THREE from 'three/webgpu';
-import { abs, atan, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, clamp, dot, float, materialColor, max, mix, modelWorldMatrix, modelWorldMatrixInverse, normalGeometry, normalize, positionGeometry, positionWorld, pow, reflect, select, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4, vertexColor, viewportSharedTexture } from 'three/tsl';
+import { abs, atan, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, clamp, dot, float, materialColor, max, min, mix, modelWorldMatrix, modelWorldMatrixInverse, normalGeometry, normalize, normalWorld, positionGeometry, positionWorld, pow, reflect, select, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4, vertexColor, viewportSharedTexture } from 'three/tsl';
 import { FOG } from './atmosphere';
 import { VFOG } from './volumetricFog';
 import { loadGltf } from './gltf';
@@ -21,6 +21,8 @@ export const EYE = new THREE.Vector3(0.45, 0.42, -1.0);
 const MODEL_URL = 'models/cockpit.glb';
 /** Blender 烘焙的环境光遮蔽（使用模型的第二套 UV） */
 const AO_URL = 'models/cockpit_ao.jpg';
+/** 烘焙的舱内光照（同一套 UV）：天光从窗户进来、在内饰之间反弹以后每一点接到多少，存的是平方根 */
+const GI_URL = 'models/cockpit_gi.jpg';
 const DEG = Math.PI / 180;
 /** 遮光罩顶面（机体坐标）：高度、范围。风挡里映出来的主要就是它 */
 const GLARE_Y = 0.17;
@@ -31,6 +33,18 @@ const WIPER_AIM: Array<[number, number, number]> = [[0.5, 0.0, -2.1], [-0.34, 0.
 const WIPER_LEN = 0.56;
 const WIPER_REST = 1.95;
 const WIPER_SWEEP = 2.1;
+
+const hexVec = (hex: number): THREE.Node<'vec3'> => {
+  const c = new THREE.Color().setHex(hex);
+  return vec3(c.r, c.g, c.b);
+};
+const PAINT_WHITE = hexVec(0xe9eaeb);
+const PAINT_DARK = hexVec(0x1f2a3a);
+const PAINT_RED = hexVec(0xc0281e);
+
+/** 烘焙光照的强度：反弹光（补光）和环境贴图的遮蔽 */
+const GI_FILL = 1.9;
+const GI_ENV = 2.2;
 
 /** 舱内补光：四面是窗的机舱里，天空和地面的光在内饰之间来回反射，背光的角落也不会全黑。
  * 环境贴图只算得到“这一点看得见多少天空”，算不到这部分反射，所以另加一项（颜色和亮度由 WorldView 按天空每帧设置）。 */
@@ -74,7 +88,7 @@ const _controlAxis = new THREE.Vector3(1, 0, 0);
 
 export class Cockpit {
   readonly root = new THREE.Group();
-  readonly glassUniforms = { uRain: uniform(0), uTime: uniform(0), uFlow: uniform(0), uShield: uniform(0), uWipe: uniform(new THREE.Vector3(0, 0, 0)), uWipeOn: uniform(0), uFog: uniform(0) };
+  readonly glassUniforms = { uRain: uniform(0), uTime: uniform(0), uFlow: uniform(0), uShield: uniform(0), uWipe: uniform(new THREE.Vector3(0, 0, 0)), uWipeOn: uniform(0), uFog: uniform(0), uOutside: uniform(0) };
   /** 两支雨刷（转轴绕玻璃法线转） */
   private wipers: Array<{ pivot: THREE.Group; x: number; y: number; side: number }> = [];
   private wipeT = 0;
@@ -96,6 +110,7 @@ export class Cockpit {
   private lastDraw = -1;
   private lastSlow = -1;
   private disposed = false;
+  private gi: THREE.Texture | null = null;
   /** 能点的按钮和开关（超仿真里才响应，其他模式只是摆在对应位置上） */
   controls: CockpitControls | null = null;
   /** 不是超仿真时：所有开关停在“飞机运转中”的位置 */
@@ -117,14 +132,16 @@ export class Cockpit {
   }
 
   private async load(): Promise<void> {
-    const [modelResult, aoResult] = await Promise.allSettled([
+    const [modelResult, aoResult, giResult] = await Promise.allSettled([
       loadGltf(MODEL_URL),
       new THREE.TextureLoader().loadAsync(new URL(AO_URL, document.baseURI).href).catch((error) => {
         console.warn('驾驶舱 AO 贴图加载失败，使用未烘焙遮蔽的材质：', error);
         return null;
       }),
+      new THREE.TextureLoader().loadAsync(new URL(GI_URL, document.baseURI).href).catch(() => null),
     ]);
     const ao = aoResult.status === 'fulfilled' ? aoResult.value : null;
+    const gi = giResult.status === 'fulfilled' ? giResult.value : null;
     if (modelResult.status === 'rejected') {
       if (ao) disposeTextures([ao]);
       throw modelResult.reason;
@@ -134,6 +151,7 @@ export class Cockpit {
     if (this.disposed) {
       resources.dispose();
       if (ao) disposeTextures([ao]);
+      if (gi) disposeTextures([gi]);
       return;
     }
     this.sourceResources = resources;
@@ -143,6 +161,14 @@ export class Cockpit {
       ao.colorSpace = THREE.NoColorSpace;
       ao.anisotropy = 8;
       this.textures.push(ao);
+    }
+    if (gi) {
+      gi.flipY = false;
+      gi.channel = 1;
+      gi.colorSpace = THREE.NoColorSpace;
+      gi.anisotropy = 8;
+      this.textures.push(gi);
+      this.gi = gi;
     }
     const scene = gltf.scene;
     const glass = this.makeGlassMaterial(false);
@@ -303,10 +329,26 @@ export class Cockpit {
     }
     // 外表面的漆、本身发光的灯、金属（没有漫反射）都不加补光
     const dark = src.emissive.r + src.emissive.g + src.emissive.b === 0;
+    // 机身涂装：分色线逐像素算（和 tools/blender/heli_shape.py 的 livery_slot 同一条规则）。
+    // 按面分配材质时，分色线穿过开窗处的碎三角形，从外面看是一条锯齿
+    if (src.name.startsWith('cp_paint')) {
+      const y = positionGeometry.y;
+      const w = float(0.006);
+      const dk = float(1).sub(smoothstep(float(-0.45).sub(w), float(-0.45).add(w), y));
+      const stripe = smoothstep(float(-0.13).sub(w), float(-0.13).add(w), y).mul(float(1).sub(smoothstep(w.negate(), w, y))).mul(step(-2.15, positionGeometry.z));
+      nm.colorNode = vec4(mix(mix(PAINT_WHITE, PAINT_DARK, dk), PAINT_RED, stripe), 1);
+    }
+    // 环境贴图只知道“这一点朝着哪边”，不知道头顶还有舱顶：用烘焙的光照压一压，舱里才有明暗
+    const giTex = ao && this.gi ? texture(this.gi, uv(1)).rgb : null;
+    const giLin = giTex ? giTex.mul(giTex) : null;
+    if (giLin && !src.name.startsWith('cp_paint')) {
+      nm.aoMap = null;
+      nm.aoNode = min(texture(ao!, uv(1)).r, dot(giLin, vec3(0.3, 0.55, 0.15)).mul(GI_ENV).add(0.03));
+    }
     if (dark && !src.name.startsWith('cp_paint') && src.metalness < 0.9) {
-      const occl = ao ? texture(ao, uv(1)).r : float(0.65);
+      const occl = giLin ?? (ao ? texture(ao, uv(1)).r : float(0.65));
       const col = (materialColor as unknown as THREE.Node<'vec4'>).rgb;
-      let glow: THREE.Node<'vec3'> = col.mul(CABIN_FILL).mul(occl).mul(1 - src.metalness);
+      let glow: THREE.Node<'vec3'> = col.mul(CABIN_FILL).mul(occl).mul(giLin ? GI_FILL : 1).mul(1 - src.metalness);
       // 表盘刻度、面板字样（贴图里亮的部分）：夜里从里面亮起来，略带暖色
       if (src.name === 'cp_gauges' || src.name === 'cp_gauge_overlay' || src.name === 'cp_panelfront') {
         const tex = texture(src.map!, uv()).rgb;
@@ -383,10 +425,17 @@ export class Cockpit {
     const vdir = normalize(positionWorld.sub(cameraPosition));
     const sunK = pow(max(dot(vdir, FOG.sunDir), 0.0), 10.0);
     const glare = VFOG.sun.mul(dust.mul(sunK.mul(0.12).add(0.004)));
-    const alpha = clamp(w.mul(0.38).add(opacity).add(dust.mul(0.03)).add(fogPatch.mul(0.62)), 0.0, 1.0).add(GU.uShield.mul(0.08)).toVar();
+    const alpha = clamp(w.mul(0.38).add(opacity).add(dust.mul(0.03)).add(fogPatch.mul(0.62)).add(GU.uOutside.mul(0.1)), 0.0, 1.0).add(GU.uShield.mul(0.08)).toVar();
     mat.opacityNode = alpha;
+    // 从外面看：玻璃是一面斜着的镜子，映着天。透明材质的高光会被不透明度压掉，这里按菲涅尔单独加回来
+    const nOut = normalize(normalWorld).toVar();
+    const nFace = select(dot(nOut, vdir).greaterThan(0.0), nOut.negate(), nOut);
+    const rOut = reflect(vdir, nFace).toVar();
+    const fOut = float(0.05).add(float(0.95).mul(pow(float(1).sub(clamp(dot(nFace, vdir).negate(), 0.0, 1.0)), 5.0)));
+    const skyRefl = mix(FOG.color as unknown as THREE.Node<'vec3'>, vec3(0.42, 0.6, 0.95), clamp(rOut.y.mul(1.4), 0.0, 1.0)).mul(smoothstep(-0.25, 0.05, rOut.y).mul(0.75).add(0.25));
+    const outside = skyRefl.mul(fOut).mul(GU.uOutside).mul(2.6).div(alpha);
     if (roof) {
-      mat.emissiveNode = glare;
+      mat.emissiveNode = glare.add(outside);
       return mat;
     }
     // 风挡内侧的倒影：坐在舱里透过玻璃往外看，下半截总叠着一层遮光罩顶面的影子，天暗、外面是深色的山时最明显。
@@ -410,7 +459,7 @@ export class Cockpit {
     const fres = float(0.05).add(float(0.95).mul(pow(float(1).sub(ndv), 5.0)));
     const seen = viewportSharedTexture(clamp(uvq, 0.002, 0.998)).rgb;
     // 玻璃按 alpha 混合：想叠加上 seen × 菲涅尔，发光项要除以 alpha
-    mat.emissiveNode = glare.add(seen.mul(fres).mul(inside).div(alpha));
+    mat.emissiveNode = glare.add(seen.mul(fres).mul(inside).mul(float(1).sub(GU.uOutside)).div(alpha)).add(outside);
     return mat;
   }
 
