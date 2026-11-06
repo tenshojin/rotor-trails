@@ -21,6 +21,7 @@ export type Action =
   | 'hud'
   | 'cruise'
   | 'trim'
+  | 'photo'
   | 'lookLeft'
   | 'lookRight'
   | 'lookUp'
@@ -45,6 +46,7 @@ export const ACTION_LABEL: Record<Action, string> = {
   hud: 'HUD 显示（自动 / 完整 / 隐藏）',
   cruise: '自动巡航 开/关（休闲模式）',
   trim: '配平：把现在的杆位设成中立点（超仿真）',
+  photo: '截图（存成图片，不带 HUD）',
   lookLeft: '向左看（无鼠标锁定时）',
   lookRight: '向右看',
   lookUp: '向上看',
@@ -71,6 +73,7 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   hud: ['KeyU'],
   cruise: ['KeyJ'],
   trim: ['KeyT'],
+  photo: ['KeyF'],
   lookLeft: ['ArrowLeft'],
   lookRight: ['ArrowRight'],
   lookUp: ['ArrowUp'],

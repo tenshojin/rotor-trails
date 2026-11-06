@@ -3,8 +3,8 @@
 
 import { isBindingCode, type Action, type Settings } from './settings';
 
-type EdgeAction = 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim';
-const EDGE: EdgeAction[] = ['hover', 'boost', 'center', 'pause', 'view', 'nav', 'mapRange', 'hud', 'cruise', 'trim'];
+type EdgeAction = 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim' | 'photo';
+const EDGE: EdgeAction[] = ['hover', 'boost', 'center', 'pause', 'view', 'nav', 'mapRange', 'hud', 'cruise', 'trim', 'photo'];
 
 /** 鼠标移到屏幕边上转头：从离边 EDGE_ZONE 处开始转，越靠边越快 */
 const EDGE_ZONE = 0.2;
@@ -191,7 +191,7 @@ export class Input {
     if (!actions) return;
     if (!e.repeat && !this.down.has(e.code)) {
       const wasActive = this.active;
-      for (const a of actions) if ((EDGE as string[]).includes(a) && (this.active || a === 'pause')) this.onEdge?.(a as EdgeAction);
+      for (const a of actions) if ((EDGE as string[]).includes(a) && (this.active || a === 'pause' || a === 'photo')) this.onEdge?.(a as EdgeAction);
       // A remapped Enter/Space can resume from a focused menu button. Consuming
       // that transition prevents its native click (and the tutorial skip key)
       // from also acting on the same physical press.

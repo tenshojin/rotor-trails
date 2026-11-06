@@ -2,15 +2,18 @@
 // 只是立起来了；墙是木头和石头的颜色，一层层的窗户用着色器画。一个网格一次画完。
 
 import * as THREE from 'three/webgpu';
-import { attribute, float, fract, mix, positionWorld, step, texture, vec3, vec4, vertexColor } from 'three/tsl';
+import { attribute, dot, float, floor, fract, mix, positionWorld, sin, step, texture, uniform, vec2, vec3, vec4, vertexColor } from 'three/tsl';
 import type { RealBridgeDef, RealBuildingDef } from '../maps/types';
 import { bridgeDeckY, buildingFrame } from '../world/realData';
 import type { Heightfield } from '../sim/terrain';
+import { getNoiseTexture } from './textures';
 
 export class RealBuildings {
   readonly group = new THREE.Group();
   private readonly geo = new THREE.BufferGeometry();
   private readonly mat: THREE.MeshStandardNodeMaterial;
+  /** 1 = 天黑了，窗户亮灯 */
+  readonly night = uniform(0);
 
   constructor(list: readonly RealBuildingDef[], bridges: readonly RealBridgeDef[], terrain: Heightfield, image: THREE.Texture) {
     const pos: number[] = [];
@@ -55,20 +58,31 @@ export class RealBuildings {
         const t0 = at(u0, v0, f.top);
         quad(a, t0, t1, bb, cross(sub(t0, a), sub(bb, a)), 0, f.top - f.base, Math.hypot(u1 - u0, v1 - v0), rows, tint);
       }
-      const A = at(-hw, -hd, f.top);
-      const B = at(hw, -hd, f.top);
-      const C = at(hw, hd, f.top);
-      const D = at(-hw, hd, f.top);
+      // 坡屋顶伸出墙外一点，檐下才有影子，不是一个盒子扣了个盖
+      const eave = ridge > 0 ? 0.8 : 0;
+      const ey = f.top - eave * 0.35;
+      const A = at(-hw - eave, -hd - eave, ey);
+      const B = at(hw + eave, -hd - eave, ey);
+      const C = at(hw + eave, hd + eave, ey);
+      const D = at(-hw - eave, hd + eave, ey);
       if (ridge > 0) {
         // 两面坡，屋脊顺着长边
-        const R0 = at(-hw, 0, f.top + ridge);
-        const R1 = at(hw, 0, f.top + ridge);
+        const R0 = at(-hw - eave, 0, f.top + ridge);
+        const R1 = at(hw + eave, 0, f.top + ridge);
         quad(A, R0, R1, B, cross(sub(R0, A), sub(B, A)), 1, 0, 0, 0, tint);
         quad(D, C, R1, R0, cross(sub(C, D), sub(R0, D)), 1, 0, 0, 0, tint);
-        // 山墙
-        pos.push(...A, ...D, ...R0, ...B, ...R1, ...C);
-        const n0 = cross(sub(D, A), sub(R0, A));
-        const n1 = cross(sub(R1, B), sub(C, B));
+        // 山墙（缩回墙面的位置）和屋檐的底面
+        const gA = at(-hw, -hd, f.top);
+        const gB = at(hw, -hd, f.top);
+        const gC = at(hw, hd, f.top);
+        const gD = at(-hw, hd, f.top);
+        const g0 = at(-hw, 0, f.top + ridge * 0.92);
+        const g1 = at(hw, 0, f.top + ridge * 0.92);
+        pos.push(...gA, ...gD, ...g0, ...gB, ...g1, ...gC);
+        quad(A, B, gB, gA, [0, -1, 0], 0, 0, 0, 0, [0.09, 0.075, 0.06]);
+        quad(C, D, gD, gC, [0, -1, 0], 0, 0, 0, 0, [0.09, 0.075, 0.06]);
+        const n0 = cross(sub(gD, gA), sub(g0, gA));
+        const n1 = cross(sub(g1, gB), sub(gC, gB));
         for (let q = 0; q < 3; q++) nor.push(...n0);
         for (let q = 0; q < 3; q++) nor.push(...n1);
         for (let q = 0; q < 6; q++) {
@@ -136,9 +150,18 @@ export class RealBuildings {
     // 墙上的窗：一层 3.2 米，从檐口往下数，有几层画几排；一个开间 3.8 米
     const fy = fract(info.x.div(3.2));
     const fx = fract(info.y.div(3.8));
-    const pane = step(0.32, fx).mul(step(fx, 0.68)).mul(step(0.3, fy)).mul(step(fy, 0.72)).mul(step(info.x, info.w));
-    const walls = mix(vertexColor().rgb, vec3(0.035, 0.045, 0.055), pane.mul(0.9));
+    const pane = step(0.32, fx).mul(step(fx, 0.68)).mul(step(0.3, fy)).mul(step(fy, 0.72)).mul(step(info.x, info.w)).toVar();
+    // 墙面不是一个颜色：雨水和年头留下的深浅，最下面是一圈石头的墙基
+    const stain = texture(getNoiseTexture(), vec2(info.y.div(31.0), info.x.div(23.0))).r.mul(0.5).add(0.75);
+    const footing = step(info.w.add(0.5), info.x).mul(step(0.01, info.w));
+    const walls = mix(mix(vertexColor().rgb.mul(stain), vec3(0.22, 0.2, 0.17), footing), vec3(0.035, 0.045, 0.055), pane.mul(0.9));
     m.colorNode = vec4(mix(walls, roof, info.z), float(1));
+    // 玻璃反光
+    m.roughnessNode = mix(float(0.85), float(0.18), pane);
+    // 夜里一部分窗户亮着灯：按窗户的格子取随机数
+    const cellId = vec2(floor(info.y.div(3.8)), floor(info.x.div(3.2)));
+    const lit = step(0.55, fract(sin(dot(cellId, vec2(12.9898, 78.233)).add(info.w.mul(3.1))).mul(43758.5453)));
+    m.emissiveNode = vec3(1.0, 0.56, 0.24).mul(pane.mul(lit).mul(this.night).mul(1.1));
     this.mat = m;
     const mesh = new THREE.Mesh(this.geo, m);
     mesh.castShadow = true;

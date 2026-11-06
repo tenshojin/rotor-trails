@@ -16,7 +16,7 @@ import { loadModelLib, MODEL_FILES, type ModelLib } from './modelLib';
 import { loadDetailTextures } from './detailTextures';
 import { NavView } from './navView';
 import { PropsView } from './propsView';
-import { SkyDome } from './sky';
+import { CLOUD, SkyDome } from './sky';
 import { FOG, sceneFog, WIND } from './atmosphere';
 import { DOF, buildPost, protectTransparent, CONTACT, SCOTOPIC, type Post } from './post';
 import { markNearShadow, SunShadows } from './sunShadows';
@@ -506,7 +506,8 @@ export class WorldView {
       // 积云层：一般在雾的基准高度之上 1300 m（夏季海边的晴天积云底约 1000~1500 m），且高于最高的山顶
       let maxH = -Infinity;
       for (let i = 0; i <= 32; i++) for (let j = 0; j <= 32; j++) maxH = Math.max(maxH, hf.heightAt(-hf.half + (i * hf.size) / 32, -hf.half + (j * hf.size) / 32));
-      const cloudBase = Math.max(this.fogBaseY + 1300, maxH + 250);
+      const cloudBase = map.cloudBase ?? Math.max(this.fogBaseY + 1300, maxH + 250);
+      CLOUD.size.value = map.cloudSize ?? 3400;
       this.sky.setVolumetric(0, cloudBase, cloudBase + 1300);
       if (map.waterLevel !== null) {
         const depth = makeWaterDepthTexture(world.terrain, map.waterLevel);
@@ -967,6 +968,7 @@ export class WorldView {
       this.rivers?.update(f.t);
       this.grass?.update(f.t, cp);
       this.scatter?.update(cp);
+      if (this.buildings && this.sky) this.buildings.night.value = this.sky.night;
       if (s && this.wash) {
         this.wash.update(f.dt, s, cam);
         this.water?.setWash(this.wash.state.x, this.wash.state.z, this.wash.state.water);
@@ -1075,7 +1077,8 @@ export class WorldView {
   }
 
   drawInstruments(t: number, d: InstrumentData): void {
-    this.cockpit.drawInstruments(t, d);
+    // 在外面看的时候看不到仪表，不用画
+    if (this.rig.mode === 'cockpit') this.cockpit.drawInstruments(t, d);
   }
 
   /** 投影世界坐标到屏幕（像素），在相机后方时返回 null。 */

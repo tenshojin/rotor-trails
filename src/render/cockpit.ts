@@ -67,6 +67,8 @@ interface Screen {
   mat: THREE.MeshBasicMaterial;
   /** 断电后画过一次黑屏，不用每次重画 */
   dark: boolean;
+  /** 下次该重画的时间（秒） */
+  due: number;
 }
 
 const SCREEN_SIZE: Record<Screen['kind'], [number, number]> = {
@@ -107,8 +109,8 @@ export class Cockpit {
   private mats = new Set<THREE.Material>();
   private geos = new Set<THREE.BufferGeometry>();
   private textures: THREE.Texture[] = [];
-  private lastDraw = -1;
-  private lastSlow = -1;
+  /** 下一帧从哪块屏看起：轮着来，后面的屏不会老排不上 */
+  private nextScreen = 0;
   private disposed = false;
   private gi: THREE.Texture | null = null;
   /** 能点的按钮和开关（超仿真里才响应，其他模式只是摆在对应位置上） */
@@ -379,7 +381,7 @@ export class Cockpit {
     m.receiveShadow = false;
     this.mats.add(mat);
     this.textures.push(tex);
-    this.screens.push({ tex, ctx, w, h, kind, mat, dark: false });
+    this.screens.push({ tex, ctx, w, h, kind, mat, dark: false, due: 0 });
   }
 
   private makeGlassMaterial(roof: boolean): THREE.MeshStandardNodeMaterial {
@@ -522,7 +524,8 @@ export class Cockpit {
     this.glassUniforms.uShield.value = shield;
   }
 
-  /** 机械指针每帧更新；电子屏约 20 Hz 重绘（告警灯板 8 Hz）。 */
+  /** 机械指针每帧更新；电子屏各按各的频率重绘（见 screenPeriod）。
+   * 一帧最多重画两块屏：画布传到显卡很贵，九块挤在同一帧的话每 0.12 秒就多花十几毫秒，飞起来一顿一顿的 */
   drawInstruments(t: number, d: InstrumentData): void {
     if (!this.loaded) return;
     const y = d.sys;
@@ -546,41 +549,42 @@ export class Cockpit {
     this.setNeedle('ndl_clock_sec', sec * 6);
     this.setNeedle('ndl_clock_min', (now.getMinutes() + sec / 60) * 6);
     this.setNeedle('ndl_clock_hour', ((now.getHours() % 12) + now.getMinutes() / 60) * 30);
-    if (t - this.lastDraw < 0.05) return;
-    this.lastDraw = t;
-    const slow = t - this.lastSlow >= 0.12;
-    if (slow) this.lastSlow = t;
-    for (const s of this.screens) {
-      if (!this.screenOn(s.kind, d)) {
-        if (!s.dark) {
-          drawOff(s.ctx, s.w, s.h);
-          s.tex.needsUpdate = true;
-          s.dark = true;
-        }
-        continue;
-      }
-      s.dark = false;
-      if (s.kind === 'vemd1') drawVemdTop(s.ctx, d, s.w, s.h);
-      else if (s.kind === 'vemd2') {
-        if (!slow) continue;
-        drawVemdBottom(s.ctx, d, s.w, s.h);
-      } else if (s.kind === 'ai') drawAttitude(s.ctx, d, s.w, s.h);
-      else if (s.kind === 'gps') drawGps(s.ctx, d, this.minimap, this.mapRange, s.w, s.h);
-      else if (s.kind === 'ann') {
-        if (!slow) continue;
-        drawAnnunciator(s.ctx, d, s.w, s.h, t);
-      } else if (s.kind === 'efb') {
-        if (!slow) continue;
-        drawEfb(s.ctx, d, this.minimap, this.mapRange, s.w, s.h);
-      } else {
-        if (!slow) continue;
-        if (s.kind === 'radio') drawRadio(s.ctx, d, s.w, s.h);
-        else if (s.kind === 'xpdr') drawXpdr(s.ctx, d, s.w, s.h, t);
-        else if (s.kind === 'hobbs') drawHobbs(s.ctx, d, s.w, s.h);
-        else drawTrack(s.ctx, d, s.w, s.h);
-      }
+    const n = this.screens.length;
+    let budget = 2;
+    for (let k = 0; k < n && budget > 0; k++) {
+      const i = (this.nextScreen + k) % n;
+      const s = this.screens[i];
+      // （新开一局时间从头算，比 0.6 秒还远的是上一局留下的）
+      if (t < s.due && s.due - t <= 0.6) continue;
+      s.due = t + this.screenPeriod(s.kind, !!y);
+      const on = this.screenOn(s.kind, d);
+      if (!on && s.dark) continue;
+      budget--;
+      this.nextScreen = (i + 1) % n;
+      s.dark = !on;
       s.tex.needsUpdate = true;
+      if (!on) drawOff(s.ctx, s.w, s.h);
+      else if (s.kind === 'vemd1') drawVemdTop(s.ctx, d, s.w, s.h);
+      else if (s.kind === 'vemd2') drawVemdBottom(s.ctx, d, s.w, s.h);
+      else if (s.kind === 'ai') drawAttitude(s.ctx, d, s.w, s.h);
+      else if (s.kind === 'gps') drawGps(s.ctx, d, this.minimap, this.mapRange, s.w, s.h);
+      else if (s.kind === 'ann') drawAnnunciator(s.ctx, d, s.w, s.h, t);
+      else if (s.kind === 'efb') drawEfb(s.ctx, d, this.minimap, this.mapRange, s.w, s.h);
+      else if (s.kind === 'radio') drawRadio(s.ctx, d, s.w, s.h);
+      else if (s.kind === 'xpdr') drawXpdr(s.ctx, d, s.w, s.h, t);
+      else if (s.kind === 'hobbs') drawHobbs(s.ctx, d, s.w, s.h);
+      else drawTrack(s.ctx, d, s.w, s.h);
     }
+  }
+
+  /** 多久重画一次（秒）。姿态仪要跟手；超仿真里按钮按下去屏幕要马上有反应；别的模式下无线电这些屏只是摆设 */
+  private screenPeriod(kind: Screen['kind'], sim: boolean): number {
+    if (kind === 'ai') return 0.05;
+    if (kind === 'vemd1') return sim ? 0.05 : 0.1;
+    if (kind === 'gps') return sim ? 0.08 : 0.125;
+    if (kind === 'efb') return 0.25;
+    if (sim) return 0.12;
+    return kind === 'ann' || kind === 'vemd2' ? 0.25 : 0.5;
   }
 
   /** 这块屏现在有没有电 */

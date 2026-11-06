@@ -54,7 +54,7 @@ export interface PropDef {
   p?: Record<string, number | string>;
 }
 
-export type TreeType = 'pine' | 'broadleaf' | 'canopy' | 'emergent' | 'palm' | 'spruce' | 'birch' | 'juniper' | 'shrub' | 'cactus' | 'boulder' | 'pinyon' | 'pinyon2' | 'ujuniper' | 'ujuniper2' | 'scrub';
+export type TreeType = 'pine' | 'broadleaf' | 'canopy' | 'emergent' | 'palm' | 'spruce' | 'birch' | 'juniper' | 'shrub' | 'cactus' | 'boulder' | 'pinyon' | 'pinyon2' | 'ujuniper' | 'ujuniper2' | 'scrub' | 'ponderosa';
 
 export interface VegetationRule {
   type: TreeType;
@@ -232,7 +232,8 @@ export interface RealTerrainDef {
   trees?: string;
   /** 岩层色表：按高度排的一条颜色（崖壁上的贴图被拉长了，靠它补回层次） */
   /** dip：地层不是完全水平的，高度 + x·dip[0] + z·dip[1] 才是这层岩石的位置 */
-  strata?: { image: string; y0: number; y1: number; dip: [number, number] };
+  /** basement：这个高度以下是基底的变质岩（发黑，没有水平的层） */
+  strata?: { image: string; y0: number; y1: number; dip: [number, number]; basement?: number };
   /** 核心区 5 米一格的辅助图：R 岩缝，G 河面，B 看得到的天空 */
   aux?: string;
   /** 外圈 20 米一格的辅助图，通道和 aux 一样 */
@@ -246,6 +247,10 @@ export interface RealTerrainDef {
 
 export interface MapDef {
   id: MapId;
+  /** 积云底的海拔（米）。缺省按地形算，贴着最高的山；高原上的云其实比地面高得多 */
+  cloudBase?: number;
+  /** 云团的尺度（米），缺省 3400 */
+  cloudSize?: number;
   /** 超大地图：能飞的范围（边长，米），比核心区大，核心区外接中圈的高程 */
   flightSize?: number;
   /** 核心区外面种的树：种在哪儿（x、z）、什么树、多大 */

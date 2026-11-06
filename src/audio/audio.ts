@@ -129,7 +129,15 @@ export class AudioEngine {
       this.brown = noiseBuffer(ctx, 3, true);
       this.master = ctx.createGain();
       this.master.gain.value = 0;
-      this.master.connect(ctx.destination);
+      // 平时根本碰不到（飞行时峰值不到 0.3）；撞击、警报和发动机全叠在一起的时候，别让声音削波炸耳朵
+      const limiter = ctx.createDynamicsCompressor();
+      limiter.threshold.value = -4;
+      limiter.knee.value = 3;
+      limiter.ratio.value = 20;
+      limiter.attack.value = 0.002;
+      limiter.release.value = 0.12;
+      this.master.connect(limiter);
+      limiter.connect(ctx.destination);
       this.cabinFilter = ctx.createBiquadFilter();
       this.cabinFilter.type = 'lowpass';
       this.cabinFilter.frequency.value = 3800;

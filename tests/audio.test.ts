@@ -13,6 +13,11 @@ class Node {
   frequency = new Param();
   Q = new Param();
   playbackRate = new Param();
+  threshold = new Param();
+  knee = new Param();
+  ratio = new Param();
+  attack = new Param();
+  release = new Param();
   start = vi.fn();
   stop = vi.fn();
   disconnect = vi.fn();
@@ -32,6 +37,7 @@ class Context {
   createGain(): Node { const n = new Node(); this.nodes.push(n); return n; }
   createBiquadFilter(): Node { return this.createGain(); }
   createWaveShaper(): Node { return this.createGain(); }
+  createDynamicsCompressor(): Node { return new Node(); }
   createBuffer(_channels: number, length: number) { return { getChannelData: () => new Float32Array(length) }; }
   createBufferSource(): Node { const n = this.createGain(); this.sources.push(n); return n; }
   createOscillator(): Node { return this.createBufferSource(); }

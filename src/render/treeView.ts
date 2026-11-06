@@ -35,6 +35,7 @@ import {
   vec2,
   vec3,
   vec4,
+  varyingProperty,
 } from 'three/tsl';
 import { HELI } from '../config/flight';
 import { FOG, gustAt, WASH, WASH_Y, WIND } from './atmosphere';
@@ -215,6 +216,7 @@ function buildTree(type: TreeType): [THREE.BufferGeometry, THREE.BufferGeometry]
     case 'pinyon2':
     case 'ujuniper':
     case 'ujuniper2':
+    case 'ponderosa':
     case 'juniper':
       return [
         merge([trunk(S.trunkH + 0.6, S.trunkR, 0x6a5440, 5, 0.4), blob(S.crownR, S.crownRy, 0, S.crownY, 0, 1, 0.6, 0x4d5e38), blob(S.crownR * 0.6, S.crownRy * 0.7, 1.0, S.crownY + 0.6, 0.6, 1, 0.6, 0x56683f)]),
@@ -539,6 +541,9 @@ export class TreeView {
         alphaTest: leaf ? 0.5 : 0,
       });
       for (const t of [src.map, src.normalMap, src.roughnessMap]) if (t) t.anisotropy = 8;
+      // 贴图是松树皮：南缘的矮松、刺柏皮是灰褐色的，西黄松是橙褐色的
+      if (this.dry && src.name === 'tree_bark') m.color.setRGB(0.52, 0.48, 0.46);
+      if (src.name === 'tree_bark_pond') m.color.setRGB(1.05, 0.72, 0.5);
       if (leaf && src.map) {
         // 远处（较小的 mip 级别）按级别放大不透明度，避免叶片越远越稀
         const map = src.map;
@@ -547,7 +552,8 @@ export class TreeView {
         const tuv = uv().mul(sz);
         const ddx = dFdx(tuv);
         const ddy = dFdy(tuv);
-        const boost = max(0.0, log2(max(dot(ddx, ddx), dot(ddy, ddy))).mul(0.5)).mul(0.25).add(1.0);
+        // （干旱地带的树小，叶卡一两米宽：放大多了卡片糊成实心的方块，树冠成了迷彩球）
+        const boost = max(0.0, log2(max(dot(ddx, ddx), dot(ddy, ddy))).mul(0.5)).mul(this.dry ? 0.17 : 0.25).add(1.0);
         const c = texture(map, uv());
         let albedo: THREE.Node<'vec3'> = c.rgb.mul(vec3(src.color.r, src.color.g, src.color.b));
         let cover: THREE.Node<'float'> = float(1);
@@ -578,7 +584,11 @@ export class TreeView {
         const back = pow(max(dot(normalize(positionWorld.sub(cameraPosition)), FOG.sunDir), 0.0), 3.0);
         // （阳光那部分要乘山影：在山的影子里叶片没有被照透，否则一棵棵树在暗处发光）
         // （太阳很低时迎光的一面也亮：叶子是一层层竖着的，不是平铺的）
-        m.emissiveNode = albedo.mul(vec3(1.08, 1.16, 0.72)).mul(FOG.color.mul(0.13).add(VFOG.sun.mul(back.mul(0.15).add(0.018).add(VFOG.low.mul(0.16))).mul(terrainSun(positionWorld))));
+        // （干旱地带的地面又亮又裸，树冠底下有不少反上来的光：逆光时不是纯黑的剪影）
+        const fill = this.dry ? VFOG.sun.mul(0.05) : vec3(0.0);
+        // （每棵树自己的颜色也要算进去，树种的色调才不会被这层光冲掉）
+        const own = this.dry ? varyingProperty('vec3', 'vInstanceColor') : vec3(1.0);
+        m.emissiveNode = albedo.mul(own).mul(vec3(1.08, 1.16, 0.72)).mul(FOG.color.mul(0.13).add(VFOG.sun.mul(back.mul(0.15).add(0.018).add(VFOG.low.mul(0.16))).mul(terrainSun(positionWorld))).add(fill));
         // 双面渲染时背面不翻转法线（叶片法线朝树冠外侧，翻转会让背面发黑）
         m.normalNode = mass ? normalize(mix(normalViewGeometry, cameraViewMatrix.mul(vec4(0, 1, 0, 0)).xyz, 0.5)) : normalViewGeometry;
       }
@@ -640,6 +650,10 @@ export class TreeView {
       set.meshes[0].setMatrixAt(n, m4);
       if (set.tinted.length) {
         const col = treeColor(T.x[i], T.z[i], ti);
+        // （矮灌丛的贴图是细枝，又暗又碎：影子里一团黑）
+        if (this.dry && TREE_TYPES[ti] === 'scrub') col.multiplyScalar(2.2);
+        // （松针贴图是别的地图用的翠绿色，南缘的西黄松发黄发灰）
+        if (TREE_TYPES[ti] === 'ponderosa') col.multiply(ponderosaTint);
         if (ti === BOULDER && this.form && this.layers) {
           const f = this.form;
           const L = this.layers;
@@ -739,6 +753,7 @@ export class TreeView {
 }
 
 const _c = new THREE.Color();
+const ponderosaTint = new THREE.Color(0.8, 0.66, 0.46);
 /** 每棵树固定的颜色变化（由位置哈希决定）。 */
 function treeColor(x: number, z: number, ti: number): THREE.Color {
   const v = 0.8 + hash(x, z, ti) * 0.4;

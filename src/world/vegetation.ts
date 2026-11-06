@@ -37,10 +37,12 @@ export const TREE_SPECS: Record<TreeType, TreeSpec> = {
   ujuniper: { trunkH: 1.0, trunkR: 0.28, crownY: 2.5, crownR: 2.6, crownRy: 2.0, collide: true },
   ujuniper2: { trunkH: 1.0, trunkR: 0.28, crownY: 2.5, crownR: 2.6, crownRy: 2.0, collide: true },
   scrub: { trunkH: 0.2, trunkR: 0.1, crownY: 0.55, crownR: 1.25, crownRy: 0.75, collide: false },
+  // 南缘高处的西黄松：比矮松高出好几倍
+  ponderosa: { trunkH: 8, trunkR: 0.42, crownY: 13, crownR: 3.8, crownRy: 6.5, collide: true },
 };
 
 // 新树种只能加在后面：别的地图的树按下标存
-export const TREE_TYPES: TreeType[] = ['pine', 'broadleaf', 'canopy', 'emergent', 'palm', 'spruce', 'birch', 'juniper', 'shrub', 'cactus', 'boulder', 'pinyon', 'pinyon2', 'ujuniper', 'ujuniper2', 'scrub'];
+export const TREE_TYPES: TreeType[] = ['pine', 'broadleaf', 'canopy', 'emergent', 'palm', 'spruce', 'birch', 'juniper', 'shrub', 'cactus', 'boulder', 'pinyon', 'pinyon2', 'ujuniper', 'ujuniper2', 'scrub', 'ponderosa'];
 
 export interface TreeSet {
   count: number;

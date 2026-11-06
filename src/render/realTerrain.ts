@@ -6,7 +6,7 @@
 // 法线不用顶点法线：高度差在 CPU 上算成一张带 mipmap 的法线图，远处的粗网格上也有细节，太阳一动整个峡谷的明暗都跟着变。
 
 import * as THREE from 'three/webgpu';
-import { abs, attribute, Break, cameraPosition, cameraViewMatrix, clamp, dot, float, Fn, If, int, ivec2, length, Loop, max, min, mix, mod, normalize, normalWorld, positionGeometry, positionWorld, pow, smoothstep, sqrt, texture, textureLoad, time, vec2, vec3, vec4 } from 'three/tsl';
+import { abs, attribute, Break, cameraPosition, cameraViewMatrix, clamp, dot, float, Fn, If, int, ivec2, length, log2, Loop, max, min, mix, mod, normalize, normalWorld, positionGeometry, positionWorld, pow, smoothstep, sqrt, step, texture, textureLoad, time, vec2, vec3, vec4 } from 'three/tsl';
 import type { RealData, RealGrid } from '../world/realData';
 import { FOG } from './atmosphere';
 import { disposeTextures } from './disposeTextures';
@@ -304,42 +304,71 @@ export class RealTerrain {
     // 岩层的凹凸：硬层突出来，软层缩进去。不到七十度的坡上也有，只是弱一点
     let ledge: N<'float'> = float(0);
     let joint: N<'vec3'> = vec3(0);
+    /** 陡的基底岩石（内峡谷）：航拍在这些坡上拉得很长，颜色也被谷里的反光染黄了 */
+    let schist: N<'float'> = float(0);
     if (strata && st) {
       const yy = P.y.add(P.x.mul(st.dip[0])).add(P.z.mul(st.dip[1])).toVar();
       // 层面不是尺子画的
       const ys = yy.add(texture(noise, P.xz.div(1400.0)).g.sub(0.5).mul(16.0)).add(texture(noise, P.xz.div(190.0)).r.sub(0.5).mul(3.0)).toVar();
       const layUV = vec2(ys.sub(st.y0).div(st.y1 - st.y0), 0.5).toVar();
+      if (st.basement) schist = float(1).sub(smoothstep(st.basement - 20, st.basement + 20, ys)).mul(smoothstep(0.15, 0.38, float(1).sub(N0.y))).toVar();
       const lay4 = texture(strata, layUV);
-      const lay = lay4.rgb;
+      // （色表里的颜色是定了的；饱和度在这里收一点，正午的红墙不能像荧光的）
+      const lay = mix(vec3(dot(lay4.rgb, LUMW)), lay4.rgb, 0.84).toVar();
       const flat = texture(strata, layUV).level(float(5)).rgb;
       // 透明通道是这一层岩石有多硬（0.5~1）。往上一点比往下一点硬，这里就是突出的岩层的底面，朝下、暗
       const du = 0.9 / (st.y1 - st.y0);
       const hard = lay4.a.sub(0.75).mul(4.0).toVar();
-      ledge = texture(strata, layUV.add(vec2(du, 0))).a.sub(texture(strata, layUV.sub(vec2(du, 0))).a).mul(4.0).toVar();
+      // 崖壁的起伏：高程 2.5 米一格，竖直的面上只有几个点，整面墙是平的，贴上岩层就是一张木纹贴面。
+      // 这里假装有起伏：一层是几十米到几米的石柱和沟，一层是一块块沿着岩层躺着的岩体。法线跟着起伏摆，凹进去的地方暗。
+      // 墙朝哪边就沿哪边走；朝向过 45 度的地方接不上，看起来是一条竖着的裂缝，没关系。缝上取不到屏幕导数，所以 mipmap 级别自己算
+      const ax = twn.x;
+      const sel = step(0.5, ax).toVar();
+      const along = mix(P.x, P.z, sel).toVar();
+      const lvOf = (tile: number): N<'float'> => max(log2(dist.mul(0.56 / tile)), 0.0).toVar();
+      const lvA = lvOf(400);
+      const lvB = lvOf(130);
+      const pillars = (s: N<'float'>, v: N<'float'>): N<'float'> => texture(noise, vec2(s.div(400.0), v.div(1000.0))).level(lvA).r;
+      const blocks = (s: N<'float'>, v: N<'float'>): N<'float'> => texture(noise, vec2(s.div(330.0), v.div(130.0))).level(lvB).b;
+      const relief = (a: N<'float'>, c: N<'float'>): N<'float'> => a.mul(38.0).sub(c.mul(c).mul(7.0));
+      const a0 = pillars(along, ys).toVar();
+      const c0 = blocks(along, ys).toVar();
+      const h0 = relief(a0, c0).toVar();
+      const ee = max(dist.mul(0.006), 1.5).toVar();
+      const ds = relief(pillars(along.add(ee), ys), blocks(along.add(ee), ys)).sub(h0).div(ee);
+      const dv = relief(pillars(along, ys.add(ee)), blocks(along, ys.add(ee))).sub(h0).div(ee);
+      joint = vec3(float(1).sub(sel).mul(ds), dv, sel.mul(ds)).mul(-1.1).toVar();
+      const cav = a0.sub(0.5).mul(0.9).add(1.0).mul(float(1).sub(smoothstep(0.3, 0.85, c0).mul(0.3)));
+      // （一道岩层的底面不是从头到尾一条黑线，有的地方塌了，有的地方被盖住了）
+      const brk = smoothstep(0.38, 0.62, texture(noise, vec2(along.div(260.0), ys.div(90.0))).level(lvOf(260)).r);
+      ledge = texture(strata, layUV.add(vec2(du, 0))).a.sub(texture(strata, layUV.sub(vec2(du, 0))).a).mul(4.0).mul(brk).toVar();
       const low = texture(image, uv0).bias(float(4)).rgb;
       const shade = clamp(dot(low, LUMW).div(max(dot(flat, LUMW), 0.02)), 0.72, 1.28);
       // 雨水顺着崖壁流下来的痕迹：竖着的长条，有的深有的浅。沿着崖壁走的坐标分两个方向取，不管崖壁朝哪边都有变化；
       // 两种尺度都乘上一大片的噪声：一段崖壁上多，一段上少，不是等距排着的
-      const ax = twn.x;
-      const streak = (s: number, ss: number, ch: 'r' | 'g'): N<'float'> => texture(noise, vec2(P.z.mul(s), ys.mul(ss)))[ch].mul(ax).add(texture(noise, vec2(P.x.mul(s), ys.mul(ss).add(0.37)))[ch].mul(float(1).sub(ax))).sub(0.5);
+      // （痕迹跟着石柱和沟走，不是尺子画的直线）
+      const bend = a0.sub(0.5).mul(60.0).toVar();
+      const streak = (s: number, ss: number, ch: 'r' | 'g'): N<'float'> => texture(noise, vec2(P.z.add(bend).mul(s), ys.mul(ss)))[ch].mul(ax).add(texture(noise, vec2(P.x.add(bend).mul(s), ys.mul(ss).add(0.37)))[ch].mul(float(1).sub(ax))).sub(0.5);
       const patchy = texture(noise, P.xz.div(610.0)).r.mul(1.6).sub(0.2);
-      const varnish = streak(0.0031, 0.00031, 'r').mul(0.42).mul(patchy).add(streak(0.0117, 0.00093, 'g').mul(0.3).mul(float(1.2).sub(patchy.mul(0.6))));
-      col = mix(col, lay.mul(shade).mul(varnish.add(1.0)).mul(hard.mul(0.16).add(0.92)), wall);
-      // 竖向的节理：把岩层切成一块一块。沿着崖壁取噪声的差，法线左右摆
-      const j0 = 1.0 / 23.0;
-      const e = 0.9;
-      const jz = texture(noise, vec2(P.z.add(e).mul(j0 / 8.0), ys.mul(0.0013))).r.sub(texture(noise, vec2(P.z.sub(e).mul(j0 / 8.0), ys.mul(0.0013))).r);
-      const jx = texture(noise, vec2(P.x.add(e).mul(j0 / 8.0), ys.mul(0.0013).add(0.41))).r.sub(texture(noise, vec2(P.x.sub(e).mul(j0 / 8.0), ys.mul(0.0013).add(0.41))).r);
-      joint = vec3(jx.mul(float(1).sub(ax)), 0.0, jz.mul(ax)).mul(9.0).toVar();
+      // （宽的只有暗的一边、稀稀拉拉的几道：两边都有的话和横着的岩层叠在一起，整面墙成了格子布）
+      const varnish = smoothstep(0.04, 0.2, streak(0.0031, 0.00031, 'r').negate()).mul(-0.34).mul(max(patchy, 0.0)).add(streak(0.0117, 0.00093, 'g').mul(0.16).mul(float(1.2).sub(patchy.mul(0.6))));
+      // 五十几度到七十度的坡：照片的明暗还看得清，颜色已经是拉长的，崖壁的上下边上是一排竖着的牙。明暗留着，颜色换成这一层岩石的
+      const semi = smoothstep(0.4, 0.6, float(1).sub(N0.y).add(wob.mul(0.2)));
+      const grain = clamp(dot(col, LUMW).div(max(dot(low, LUMW), 0.02)), 0.6, 1.5);
+      col = mix(col, lay.mul(shade).mul(grain).mul(hard.mul(0.16).add(0.92)), semi.mul(0.85));
+      col = mix(col, lay.mul(shade).mul(varnish.add(1.0)).mul(hard.mul(0.16).add(0.92)).mul(cav), wall);
     }
     const aux = auxTex ? texture(auxTex, uv0) : null;
     // （G 通道：河边 0→0.5 是水陆交界，再往里 0.5→1 是离岸多远）
     const wet: N<'float'> = aux ? smoothstep(0.14, 0.34, aux.g).toVar() : float(0);
     const flatK = float(1).sub(wall).mul(float(1).sub(wet)).toVar();
+    // 片岩发黑发灰，和上面暖色的沉积岩分得开
+    col = mix(col, mix(vec3(dot(col, LUMW)), col, 0.45).mul(vec3(0.72, 0.71, 0.75)), schist.mul(float(1).sub(wet)));
     // 飞低了，航拍上一个像素放大成一大块，树和灌木是一团团糊的斑。这些东西近处已经是立体的了（树、散布的灌木和碎石），
     // 地面只留下十来米尺度的底色，细节交给下面的细节层
     if (core) {
-      const soil = texture(image, uv0).bias(float(3.2)).rgb;
+      // （一片灌木在航拍上是十几米的一块脏：比周围几十米的平均色暗太多的地方提起来，灌木已经立在那儿了）
+      const soil = max(texture(image, uv0).bias(float(3.2)).rgb, texture(image, uv0).bias(float(5.2)).rgb.mul(0.88));
       // （模糊之后草和土混成一片黄绿色，灰一点才像土）
       col = mix(col, mix(soil, vec3(dot(soil, LUMW)), 0.2), float(1).sub(smoothstep(45.0, 240.0, dist)).mul(flatK));
     }
@@ -380,21 +409,21 @@ export class RealTerrain {
       // 平地的三层只留给不陡的地方
       const flatD = flatK.mul(float(1).sub(steep)).toVar();
       const kC = float(1).sub(smoothstep(12.0, 170.0, dist)).toVar();
-      const gain = mix(float(1), lum(g0, 0), kN.mul(flatD)).mul(mix(float(1), lum(g1, 1), kF.mul(flatD).mul(0.7))).mul(mix(float(1), lum(g2, 1), kC.mul(flatD))).mul(mix(float(1), wallLum, kW.mul(rockK).mul(0.8))).mul(mix(float(1), rockLum, kR.mul(rockK).mul(0.6)));
+      const gain = mix(float(1), lum(g0, 0), kN.mul(flatD).mul(0.7)).mul(mix(float(1), lum(g1, 1), kF.mul(flatD).mul(0.4))).mul(mix(float(1), lum(g2, 1), kC.mul(flatD).mul(0.5))).mul(mix(float(1), wallLum, kW.mul(rockK).mul(0.8))).mul(mix(float(1), rockLum, kR.mul(rockK).mul(0.6)));
       col = col.mul(gain);
       const n0 = nxy(at(L.normal, u0, 0));
       const n1 = nxy(at(L.normal, u1, 1));
       const n2 = nxy(at(L.normal, u2, 1));
       const mx = nxy(at(L.normal, ux, 2));
       const mz = nxy(at(L.normal, uz, 2));
-      const flatN = vec3(n0.x, 0.0, n0.y).mul(kN.mul(0.75)).add(vec3(n1.x, 0.0, n1.y).mul(kF.mul(0.4))).add(vec3(n2.y.negate(), 0.0, n2.x).mul(kC.mul(0.9))).mul(flatD);
+      const flatN = vec3(n0.x, 0.0, n0.y).mul(kN.mul(0.75)).add(vec3(n1.x, 0.0, n1.y).mul(kF.mul(0.4))).add(vec3(n2.y.negate(), 0.0, n2.x).mul(kC.mul(0.6))).mul(flatD);
       const ox = nxy(at(L.normal, rx, 3));
       const oz = nxy(at(L.normal, rz, 3));
       const wallN = vec3(0.0, mx.y, mx.x).mul(a).add(vec3(mz.x, mz.y, 0.0).mul(b)).mul(kW.mul(0.7).mul(rockK)).add(vec3(0.0, ox.y, ox.x).mul(a).add(vec3(oz.x, oz.y, 0.0).mul(b)).mul(kR.mul(0.55).mul(rockK)));
       // 岩层的凹凸只有近处看得出来。离远了 mipmap 自己把它平均掉，这里不用再管
       const slopeK = smoothstep(0.3, 0.72, float(1).sub(N0.y)).mul(float(1).sub(wet)).toVar();
       const fine = float(1).sub(smoothstep(250.0, 1800.0, dist));
-      N = normalize(Nsharp.add(flatN).add(wallN).add(vec3(0, -1.0, 0).mul(ledge).mul(slopeK).mul(1.3)).add(joint.mul(wall).mul(fine)));
+      N = normalize(Nsharp.add(flatN).add(wallN).add(vec3(0, -1.0, 0).mul(ledge).mul(slopeK).mul(1.3)).add(joint.mul(max(wall, schist.mul(0.7))).mul(fine)));
     }
     // 山坳里和谷底看到的天空少，散射光也少
     let ao: N<'float'> = float(1);
@@ -422,8 +451,12 @@ export class RealTerrain {
       const body = mix(vec3(0.05, 0.095, 0.06), vec3(0.011, 0.062, 0.05), deep);
       // 白浪：比周围的水亮一截的地方（影像上的水面本身就有亮有暗，不能看绝对亮度）
       const calm = dot(texture(image, uv0).bias(float(5)).rgb, LUMW);
-      const foam = smoothstep(1.2, 1.75, dot(col, LUMW).div(max(calm, 0.02))).mul(0.85);
+      const foam0 = smoothstep(1.2, 1.75, dot(col, LUMW).div(max(calm, 0.02)));
+      // 白浪在翻：两层噪声朝不同方向走，一团团地出现又散开
+      const churn = texture(noise, P.xz.div(9.0).add(vec2(t.mul(0.19), t.mul(-0.11)))).r.mul(texture(noise, P.xz.div(3.7).sub(vec2(t.mul(0.31), t.mul(0.16)))).g);
+      const foam = clamp(foam0.mul(churn.mul(3.4).add(0.25)), 0.0, 0.92).toVar();
       col = mix(col, mix(body, vec3(0.62, 0.66, 0.62), foam), wet);
+      rough = mix(rough, float(0.75), foam.mul(wet));
       // 倒影：沿反射的方向在高度图里走，撞到崖壁就取那里的影像。出了这一层的范围就是天空
       const I = normalize(P.sub(cameraPosition)).toVar();
       const Rd = I.sub(Nw.mul(dot(I, Nw).mul(2.0))).toVar();

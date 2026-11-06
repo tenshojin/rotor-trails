@@ -18,6 +18,9 @@ export const GRAND_CANYON: MapDef = {
   description: '不是算法生成的山：每一座峰、每一层岩石都在现实里的位置上。41 公里见方，南缘北缘都能飞到。',
   difficulty: 3,
   recommendedAssist: 'standard',
+  // 夏天的积云底在南缘上方两公里左右
+  cloudBase: 4300,
+  cloudSize: 7000,
   size: 10240,
   flightSize: 40960,
   res: 4097,
@@ -33,7 +36,7 @@ export const GRAND_CANYON: MapDef = {
       { size: 163840, res: 1025, heights: 'far.dem', image: 'far.webp', base: 39, step: 0.25 },
     ],
     // 倾角是拟合的：让崖壁的高度分布最集中（往北每公里抬升约 16 米，和两岸的地层高差对得上）
-    strata: { image: 'strata.png', y0: 600, y1: 2420, dip: [-0.004, 0.016] },
+    strata: { image: 'strata.png', y0: 600, y1: 2420, dip: [-0.004, 0.016], basement: 1030 },
     aux: 'sky_river.webp',
     auxMid: 'sky_river_mid.webp',
     scatter: 'scatter.webp',
@@ -56,7 +59,7 @@ export const GRAND_CANYON: MapDef = {
   pickups: [],
   windZones: [],
   weathers: [
-    { id: 'clear', label: '晴天', kind: 'clear', desc: '高原的空气很干净，对岸的崖壁一层一层看得清楚。', params: makeWeather({ windDirFrom: 240, windSpeed: 4, gustAmp: 1, cloudCover: 0.12, visibility: 70000 }) },
+    { id: 'clear', label: '晴天', kind: 'clear', desc: '高原的空气很干净，对岸的崖壁一层一层看得清楚。', params: makeWeather({ windDirFrom: 240, windSpeed: 4, gustAmp: 1, cloudCover: 0.17, visibility: 70000 }) },
     { id: 'haze', label: '夏日薄霾', kind: 'clear', desc: '远处的岩层一层层淡下去。', params: makeWeather({ windDirFrom: 220, windSpeed: 5, gustAmp: 1.4, cloudCover: 0.25, visibility: 32000 }) },
   ],
   defaultWeather: 'clear',

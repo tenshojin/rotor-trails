@@ -409,14 +409,44 @@ FORMATIONS = [
     (0, 0.0),        # 毗湿奴片岩
     (1030, 0.9),     # 塔皮茨砂岩
     (1075, 0.3),     # 光明天使页岩（托恩托平台）
-    (1250, 0.55),    # 穆阿夫石灰岩
-    (1350, 0.5),     # 红墙石灰岩：厚层
+    (1250, 0.4),     # 穆阿夫石灰岩
+    (1350, 0.22),    # 红墙石灰岩：厚层，一整面的
     (1490, 1.0),     # 苏派群：一级级的台阶
     (1875, 0.3),     # 赫米特页岩
-    (1965, 0.35),    # 科科尼诺砂岩：大块的，横纹少
+    (1965, 0.16),    # 科科尼诺砂岩：大块的，横纹少
     (2075, 0.6),     # 托罗维普组
     (2175, 1.0),     # 凯巴布石灰岩
 ]
+
+
+# 每层岩石实际的颜色（sRGB）。航拍里竖直的崖壁只有一条缝，统计出来的颜色各层都差不多，是坡上的土色；
+# 这几层颜色分明才是大峡谷。统计的结果往这里靠，高度上的变化留着
+FORMATION_RGB = [
+    (0, (70, 62, 58)),        # 毗湿奴片岩：发黑
+    (1030, (122, 88, 68)),    # 塔皮茨砂岩：深褐
+    (1075, (140, 130, 105)),  # 光明天使页岩：灰绿
+    (1250, (150, 135, 115)),  # 穆阿夫石灰岩：灰褐
+    (1350, (158, 92, 62)),    # 红墙石灰岩：被上面流下来的红土染的
+    (1490, (166, 92, 58)),    # 苏派群：红
+    (1875, (150, 76, 52)),    # 赫米特页岩：深红
+    (1965, (216, 198, 165)),  # 科科尼诺砂岩：奶白
+    (2075, (190, 166, 132)),  # 托罗维普组：土黄
+    (2175, (196, 182, 152)),  # 凯巴布石灰岩：灰白
+]
+
+
+def formation_tint(lut, y):
+    """一层一层把平均色往实际的颜色靠（六成），层与层之间过渡十来米"""
+    ratio = np.ones_like(lut)
+    los = [lo for lo, _ in FORMATION_RGB] + [1e9]
+    for (lo, rgb), hi in zip(FORMATION_RGB, los[1:]):
+        m = (y >= lo) & (y < hi)
+        if m.sum() < 3:
+            continue
+        s = np.array(rgb, np.float64) / 255
+        lin = np.where(s <= 0.04045, s / 12.92, ((s + 0.055) / 1.055) ** 2.4)
+        ratio[m] = (lin / np.maximum(lut[m].mean(0), 1e-3)) ** 0.6
+    return lut * ndimage.gaussian_filter1d(ratio, 5.0, axis=0)
 
 
 def formation_strength(y):
@@ -470,15 +500,26 @@ def strata_lut(h, alb, px_cell, y0, y1, n=1024):
     pos = (np.arange(W) + 0.5) / W * n - 0.5
     tone, hard = bedding(y1 - y0, W)
     k = formation_strength(y0 + (np.arange(W) + 0.5) / W * (y1 - y0))
-    tone = 1 + (tone - 1) * (0.3 + 0.7 * k)
+    tone = 1 + (tone - 1) * (0.12 + 0.88 * k)
     hard = hard * k
-    fine = np.stack([np.interp(pos, np.arange(n), lut[:, c]) for c in range(3)], 1) * tone[:, None]
+    tinted = formation_tint(lut, y0 + (np.arange(n) + 0.5) / n * (y1 - y0))
+    fine = np.stack([np.interp(pos, np.arange(n), tinted[:, c]) for c in range(3)], 1) * tone[:, None]
     # 透明通道放硬度：0.5~1，不到 0 是因为有的解码器会预乘透明度，颜色不能被它带黑
     edge = ndimage.gaussian_filter1d(hard, 0.8)
     alpha = np.clip(0.75 + edge * 0.25, 0.5, 1.0)
     px = np.concatenate([lin_to_srgb(fine), alpha[:, None]], 1)[None, :, :]
     Image.fromarray((px * 255 + 0.5).astype(np.uint8), 'RGBA').save(os.path.join(OUT, 'strata.png'))
     return lut
+
+
+def warm_reds(a):
+    """航拍是从几千米高空隔着一层空气拍的，红色岩层比站在崖边看到的淡：红里透橙的地方把色度提一些、压暗一点。
+    绿的、灰的、奶油色的都不动"""
+    r = np.maximum(a[..., 0], 1e-3)
+    t = np.clip(((r - a[..., 1]) / r - 0.17) / (0.32 - 0.17), 0, 1)
+    w = (t * t * (3 - 2 * t))[..., None].astype(np.float32)
+    l = (a @ LUM)[..., None]
+    a[:] = np.maximum(l + (a - l) * (1 + 0.45 * w), 0) * (1 - 0.1 * w)
 
 
 def blend_edge(inner, outer, size_in, size_out):
@@ -690,12 +731,17 @@ def find_trees(h, alb, px_cell, limit=150000):
         sel = np.concatenate([top, rest])
         ys, xs, e, creek, dk = ys[sel], xs[sel], e[sel], creek[sel], dk[sel]
     n = len(ys)
-    # 0、4 犹他刺柏，1、5 矮松（两种形状），2 三角叶杨，3 矮灌丛
+    # 0、4 犹他刺柏，1、5 矮松（两种形状），2 三角叶杨，3 矮灌丛，6 西黄松
     two = rs.random(n) < 0.5
     kind = np.where(creek, 2, np.where(rs.random(n) < 0.6, np.where(two, 0, 4), np.where(rs.random(n) < 0.72, np.where(two, 1, 5), 3)))
     size = np.clip(0.75 + dk * 1.6 + rs.normal(0, 0.13, n), 0.6, 1.5)
     size = np.where(creek, size * 1.2, size)
     size = np.where((kind == 1) | (kind == 5), size * 0.92, size)
+    size = np.where((kind == 0) | (kind == 4), size * 0.86, size)
+    # 6 西黄松：南缘高处，航拍上影子最黑的那些（越高越多）
+    tall = ~creek & (dk > np.median(dk)) & (rs.random(n) < np.clip((e - 2060) / 170, 0, 1) * 0.3)
+    kind = np.where(tall, 6, kind)
+    size = np.where(tall, np.clip(0.8 + (dk - 0.2) * 1.1 + rs.normal(0, 0.1, n), 0.75, 1.3), size)
     # 小的灌木由散布在镜头周围现长（见 src/render/realScatter.ts），这里只留大的：远处也看得到的那些
     most = 40000
     if len(bx) > most:
@@ -761,6 +807,8 @@ def main():
     del img2
     # 亮度和颜色不再调：航拍的色调本来就是对的。以前提过亮度和饱和度，片岩成了土黄色，林下的土成了柠檬黄
     print('  中位数', float(np.median(a0 @ LUM)), float(np.median(a1 @ LUM)), float(np.median(a2 @ LUM)))
+    for a in (a0, a1, a2):
+        warm_reds(a)
     y0, y1 = 600.0, 2420.0
     strata_lut(core, a0, 1.25, y0, y1)
     river, tone = river_mask(core, a0, 2.5)

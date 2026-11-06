@@ -127,6 +127,7 @@ export class App {
   private loadWarning: string | null = null;
   /** 休闲模式的自动巡航 */
   private cruise: ScenicCruise | null = null;
+  private photoPending = false;
   private tutorialHtml = '';
   private readonly tutorialCtx: TutorialCtx = { yaw: 0, pitch: 0, held: (a) => this.input.is(a), dragLook: false };
   private controlHintHtml = '';
@@ -465,7 +466,7 @@ export class App {
       ? this.input.sim
         ? `<kbd>${k('down')}</kbd> 下降 · <kbd>${k('boost')}</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平 · <kbd>${k('hover')}</kbd> 增稳 · <kbd>${k('hud')}</kbd> 显示 HUD · <kbd>${k('pause')}</kbd> 暂停`
         : this.run?.free
-        ? `<kbd>${k('cruise')}</kbd> 自动巡航 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('hud')}</kbd> 显示仪表 · <kbd>${k('pause')}</kbd> 换时段、天气、景点`
+        ? `<kbd>${k('cruise')}</kbd> 自动巡航 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('hud')}</kbd> 显示仪表 · <kbd>${k('photo')}</kbd> 截图 · <kbd>${k('pause')}</kbd> 换时段、天气、景点`
         : `<kbd>${k('hover')}</kbd> 悬停 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('nav')}</kbd> 导航 · <kbd>${k('pause')}</kbd> 暂停`
       : '';
     if (html === this.controlHintHtml) return;
@@ -950,11 +951,16 @@ export class App {
     if (moved) this.audio.control(spot.def.sound);
   }
 
-  private onEdge(a: 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim'): void {
+  private onEdge(a: 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim' | 'photo'): void {
     const s = this.session;
     if (a === 'pause') {
       if (this.state === 'playing') this.pause();
       else if (this.state === 'paused' && !this.ui.hasModal) this.resume();
+      return;
+    }
+    if (a === 'photo') {
+      // （暂停的时候也能拍：菜单是网页元素，不在画面里）
+      if (this.state === 'playing' || (this.state === 'paused' && !this.ui.hasModal)) this.photoPending = true;
       return;
     }
     if (this.state !== 'playing' || !s) return;
@@ -994,6 +1000,24 @@ export class App {
       c.mapRange = r[(r.indexOf(c.mapRange) + 1) % r.length];
       this.hud.toast(`地图范围 ${c.mapRange / 1000} km`, 'info', 1500);
     }
+  }
+
+  /** 把这一帧存成图片。显卡画的画面只有刚画完的时候读得到，所以在 frame 里画完马上调。HUD 是网页元素，不在图里 */
+  private savePhoto(): void {
+    this.canvas.toBlob((blob) => {
+      if (!blob) {
+        this.hud.toast('这个浏览器存不了截图', 'warn', 2000);
+        return;
+      }
+      const p = (n: number): string => String(n).padStart(2, '0');
+      const d = new Date();
+      const a = document.createElement('a');
+      a.download = `rotor-trails-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.png`;
+      a.href = URL.createObjectURL(blob);
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      this.hud.toast('截图已存到下载文件夹', 'good', 1800);
+    }, 'image/png');
   }
 
   // ---------------- 主循环 ----------------
@@ -1083,6 +1107,10 @@ export class App {
     }
     if (s && (this.state === 'playing' || this.state === 'paused' || this.state === 'ready' || this.state === 'failed')) {
       this.view.render(s, { dt: renderDt, t: this.t, alpha });
+      if (this.photoPending) {
+        this.photoPending = false;
+        this.savePhoto();
+      }
       this.hud.update(s, this.view, this.settings, this.t);
       this.view.drawInstruments(this.t, this.instrumentData(s));
       this.audio.update(this.audioState(this.state !== 'playing'), dt);
@@ -1131,6 +1159,7 @@ export class App {
         this.hud.toast('已取消自动巡航，你来飞', 'info', 2500);
       } else this.cruise.update();
     }
+    this.hud.autoFlight = this.cruise !== null;
     const [dx, dy] = I.takeLook(dt);
     if (dx || dy) this.view.rig.look(dx, dy);
     if (I.sim) this.simControls(s, dt);

@@ -29,6 +29,8 @@ export const CLOUD = {
   top: uniform(2800),
   /** 云量 0..1 */
   cover: uniform(0.3),
+  /** 云团的尺度（米）：越大云越大、越少 */
+  size: uniform(3400),
   /** 风吹过的距离（米） */
   windM: uniform(new THREE.Vector2()),
   /** 指向太阳的单位向量 */
@@ -61,7 +63,7 @@ export function cloudDensity(p: THREE.Node<'vec3'>, fineDetail = false): THREE.N
   // 积云的高度轮廓：底部平整（很快变浓），往上逐渐收窄成圆顶
   const prof = smoothstep(0.0, 0.09, hn).mul(float(1).sub(smoothstep(0.28, 1.0, hn)));
   // 三维 Perlin-Worley 团块（菜花状）：一大一小两个尺度混合
-  const uvw = vec3(q.x, p.y.mul(1.4), q.y).div(3400.0);
+  const uvw = vec3(q.x, p.y.mul(1.4), q.y).div(CLOUD.size);
   const shape = texture3D(noise3, uvw).level(float(0));
   const big = texture3D(noise3, uvw.mul(0.29).add(0.13)).level(float(0));
   const d0 = mix(big.r, shape.r.mul(shape.a.mul(0.35).add(0.65)), 0.62).mul(prof);
@@ -238,12 +240,13 @@ function skyColorNode(U: SkyU, noise: THREE.Texture, cloudTex: THREE.TextureNode
     const starK = U.night.mul(smoothstep(0.015, 0.2, h)).mul(float(1).sub(U.overcast)).mul(U.disc);
     col.addAssign(starField(d, noise, U.time).mul(starK));
     // 太阳圆盘（高亮，后期泛光会让它自然晕开）+ 宽光晕；月亮小而清楚，表面有深浅
-    const disc = smoothstep(0.99955, 0.99975, sd);
+    // （真太阳的半径只有 0.27 度。画大了白天就是天上一个白盘子，亮度够高的话泛光自然会晕开）
+    const disc = smoothstep(0.99982, 0.99992, sd);
     const moonFace = texture(noise, d.xz.mul(26.0)).r.mul(0.5).add(0.62);
     const discK = mix(float(38.0), moonFace.mul(11.0), U.night);
-    const glowK = mix(float(1.2), float(0.09), U.night);
+    const glowK = mix(float(0.85), float(0.09), U.night);
     const wideK = mix(float(0.05), float(0.018), U.night);
-    col.addAssign(U.sunColor.mul(disc.mul(discK).mul(U.disc).add(pow(sd, 400.0).mul(glowK).mul(U.disc)).add(pow(sd, 24.0).mul(wideK))).mul(U.sunVis));
+    col.addAssign(U.sunColor.mul(disc.mul(discK).mul(U.disc).add(pow(sd, 1300.0).mul(glowK).mul(U.disc)).add(pow(sd, 160.0).mul(glowK).mul(0.09).mul(U.disc)).add(pow(sd, 24.0).mul(wideK))).mul(U.sunVis));
     // 高空卷云：万米高空的冰晶云，一缕一缕顺着高空风拉长，薄到能透出蓝天，在积云之上给天空添一层纵深
     const ciuv = d.xz.div(hh.add(0.08));
     const ci0 = fbm(vec2(ciuv.x.mul(0.05).add(ciuv.y.mul(0.02)), ciuv.y.mul(0.16).sub(ciuv.x.mul(0.05))).add(U.wind.mul(0.4)));

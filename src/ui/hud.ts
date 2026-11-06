@@ -63,6 +63,12 @@ export class Hud {
   private tutKey = '';
   /** 休闲模式：没有任务和导航，平时只留航向和一行读数 */
   private free = false;
+  /** 自动巡航开着 */
+  autoFlight = false;
+  /** 动力到顶：这一次从什么时候开始、最后一次是什么时候 */
+  private limitOn = false;
+  private limitAt = -99;
+  private limitT = -99;
   showDebug = false;
   private proj = { x: 0, y: 0, behind: false };
   private pkPos = new THREE.Vector3();
@@ -326,7 +332,15 @@ export class Hud {
     // 告警
     const warns: string[] = [];
     if (s.terrainWarning !== null) warns.push(`<div class="w red">地形！ ${s.terrainWarning} 秒内接近地面 — 拉升或减速</div>`);
-    if (tel.torqueLimited && s.agl > 3 && !this.tut) warns.push('<div class="w amber">动力已达上限</div>');
+    // 动力到顶只在刚碰到时提醒一下，之后看右边面板：高原上爬升经常顶着上限飞，横幅一直挂着很烦。自动巡航时不是玩家在飞，不用提醒
+    if (!tel.torqueLimited) {
+      if (t - this.limitT > 4) this.limitOn = false;
+    } else {
+      if (!this.limitOn) this.limitAt = t;
+      this.limitOn = true;
+      this.limitT = t;
+    }
+    if (tel.torqueLimited && s.agl > 3 && !this.tut && !this.autoFlight && t - this.limitAt < 3) warns.push('<div class="w amber">动力已达上限</div>');
     if (vs < -4 && s.agl < 12 && s.agl > 0.5) warns.push('<div class="w amber">下降过快</div>');
     if (s.weatherInCloud > 0.5) warns.push('<div class="w amber">在云中：依靠仪表与导航飞行</div>');
     if (st === 'critical') warns.push('<div class="w red">严重受损：前往维修点或谨慎飞行</div>');

@@ -26,7 +26,10 @@ BARK = K.material('tree_bark', 0x808080, rough=1.0, tex='art/out/tex/pine_bark_d
 PALMB = K.material('tree_bark_palm', 0x808080, rough=1.0, tex='art/out/tex/palm_bark_diffuse_1024.jpg',
                    normal='art/out/tex/palm_bark_nor_gl_1024.jpg', rough_tex='art/out/tex/palm_bark_rough_1024.jpg')
 CACTUS = K.material('tree_cactus', 0x4f6e3a, rough=0.7)
-MATS = [BARK, LEAF, PALMB, CACTUS]
+# 西黄松的树皮：贴图一样，游戏里按名字染成橙褐色（见 treeView.ts）
+PONDB = K.material('tree_bark_pond', 0x808080, rough=1.0, tex='art/out/tex/pine_bark_diffuse_1024.jpg',
+                   normal='art/out/tex/pine_bark_nor_gl_1024.jpg', rough_tex='art/out/tex/pine_bark_rough_1024.jpg')
+MATS = [BARK, LEAF, PALMB, CACTUS, PONDB]
 MI = {m.name: i for i, m in enumerate(MATS)}
 
 
@@ -35,11 +38,18 @@ def slot(col, row, w=1, h=1):
     return (col / 4, 1 - (row + h) / 4, (col + w) / 4, 1 - row / 4)
 
 
-S_BROAD, S_PINE, S_SPRUCE, S_TROP = slot(0, 0), slot(1, 0), slot(2, 0), slot(3, 0)
-S_BIRCH, S_JUNI, S_SHRUB, S_MASS = slot(0, 1), slot(1, 1), slot(2, 1), slot(3, 1)
+def card_slot(col, row):
+    """叶卡用的格子：四边各退几个像素，卡片边上采不到隔壁格子"""
+    u0, v0, u1, v1 = slot(col, row)
+    k = 8 / 2048
+    return (u0 + k, v0 + k, u1 - k, v1 - k)
+
+
+S_BROAD, S_PINE, S_SPRUCE, S_TROP = card_slot(0, 0), card_slot(1, 0), card_slot(2, 0), card_slot(3, 0)
+S_BIRCH, S_JUNI, S_SHRUB, S_MASS = card_slot(0, 1), card_slot(1, 1), card_slot(2, 1), slot(3, 1)
 S_PALM = slot(0, 2, 2, 1)
 S_BIRCHBARK = slot(2, 2)
-S_PINYON, S_UJUNI, S_SCRUB, S_RIMMASS = slot(3, 2), slot(0, 3), slot(1, 3), slot(2, 3)
+S_PINYON, S_UJUNI, S_SCRUB, S_RIMMASS = card_slot(3, 3), card_slot(0, 3), card_slot(1, 3), slot(2, 3)
 
 
 class MB:
@@ -485,7 +495,7 @@ def pinyon(name, seed, tall):
 
 def ujuniper(name, seed, lean):
     """犹他刺柏：从根上就分成几根扭着长的干，一边长得多一边长得少，枝头是几团灰绿色的鳞叶，常有枯枝露在外面"""
-    for lod, (cards, sz) in enumerate([(12, 1.2), (4, 2.0)]):
+    for lod, (cards, sz) in enumerate([(15, 1.0), (5, 1.8)]):
         rng = random.Random(seed)
         mb = MB()
         side = Vector((math.cos(lean), math.sin(lean), 0))
@@ -507,13 +517,42 @@ def ujuniper(name, seed, lean):
         pads = []
         for t in tips:
             pads.append((t + Vector((rng.uniform(-0.3, 0.3), rng.uniform(-0.3, 0.3), rng.uniform(0.0, 0.6))), rng.uniform(1.0, 1.4)))
-        for i in range(5):
+        # （比宽更高，一边多一边少：不是一个球）
+        for i in range(6):
             ang = rng.uniform(0, 2 * math.pi)
-            r = rng.uniform(0.9, 2.1) * (1.25 if math.cos(ang - lean) > 0 else 0.8)
-            pads.append((cc + Vector((math.cos(ang) * r, math.sin(ang) * r, rng.uniform(-1.2, 1.1))), rng.uniform(0.75, 1.2)))
-        pads_on(mb, rng, pads, cc, S_UJUNI, cards, sz, flat=0.7)
+            r = rng.uniform(0.7, 1.75) * (1.25 if math.cos(ang - lean) > 0 else 0.8)
+            pads.append((cc + Vector((math.cos(ang) * r, math.sin(ang) * r, rng.uniform(-1.3, 1.6))), rng.uniform(0.7, 1.1)))
+        pads_on(mb, rng, pads, cc, S_UJUNI, cards, sz, flat=0.85)
         add(mb.build(f'{name}_{lod}'))
     add(mass_tree(f'{name}_2', 1.0, 0.25, 2.5, 2.5, 2.0, rect=S_RIMMASS))
+
+
+def ponderosa():
+    """西黄松：南缘高处最大的树。笔直的橙褐色树干，下半截没有枝，枝一层层平伸、梢头上翘，针叶一大簇一大簇长在枝头。
+    树冠又高又疏，看得见天，和一人多高的矮松、刺柏混在一起，林子才有高有低"""
+    H = 19.0
+    for lod, (cards, sz) in enumerate([(9, 1.35), (3, 2.3)]):
+        rng = random.Random(61)
+        mb = MB()
+        tp = curve(rng, (0, 0, 0), (rng.uniform(-0.3, 0.3), rng.uniform(-0.3, 0.3), H), 0.25, n=8 if lod == 0 else 3)
+        mb.tube(tp, [0.46 * (1 - i / (len(tp) - 1)) ** 0.9 + 0.04 for i in range(len(tp))], 10 if lod == 0 else 5, PONDB)
+        cc = Vector((0, 0, H * 0.68))
+        pads = []
+        n = 24
+        for i in range(n):
+            t = i / (n - 1)
+            z = H * (0.42 + 0.56 * t)
+            ang = i * 2.4 + rng.uniform(-0.4, 0.4)
+            # 下面的枝长、上面的枝短：树冠上尖下圆；下面的枝往下垂，上面的往上翘
+            L = (1 - t) ** 0.7 * 3.9 * rng.uniform(0.75, 1.1) + 0.7
+            base = along(tp, z)
+            tip = base + Vector((math.cos(ang), math.sin(ang), 0)) * L + Vector((0, 0, rng.uniform(-0.2, 0.5) + L * (-0.18 if t < 0.4 else 0.14)))
+            mb.tube(curve(rng, base, tip, 0.15, n=3 if lod == 0 else 1), [0.13, 0.09, 0.06, 0.035][: (4 if lod == 0 else 2)], 5 if lod == 0 else 3, PONDB)
+            pads.append((tip, rng.uniform(1.0, 1.45)))
+        pads.append((Vector((tp[-1].x, tp[-1].y, H + 0.2)), 1.1))
+        pads_on(mb, rng, pads, cc, S_PINE, cards, sz, flat=0.7)
+        add(mb.build(f'ponderosa_{lod}'))
+    add(mass_tree('ponderosa_2', H * 0.5, 0.36, H * 0.68, 3.6, H * 0.34, bark=PONDB, rect=S_RIMMASS))
 
 
 def scrub():
@@ -590,6 +629,7 @@ pinyon('pinyon2', 37, 0.82)
 ujuniper('ujuniper', 41, 0.6)
 ujuniper('ujuniper2', 43, 3.4)
 scrub()
+ponderosa()
 
 for i, ob in enumerate(ROOTS):
     tris = sum(len(p.vertices) - 2 for p in ob.data.polygons)
@@ -599,7 +639,7 @@ if PREVIEW:
     os.makedirs(PREVIEW, exist_ok=True)
     K.world_sky(1.0, sun_dir=(0.5, -0.6, 0.7), sun_strength=4.0)
     K.box('ground', (500, 400, 0.1), (65, 0, -0.05), K.material('ground', 0x6f7a52, rough=0.95))
-    order = ['pinyon', 'pinyon2', 'ujuniper', 'ujuniper2', 'scrub', 'broadleaf', 'pine', 'spruce', 'birch', 'palm', 'juniper', 'shrub', 'cactus', 'canopy', 'emergent']
+    order = ['pinyon', 'pinyon2', 'ujuniper', 'ujuniper2', 'scrub', 'ponderosa', 'broadleaf', 'pine', 'spruce', 'birch', 'palm', 'juniper', 'shrub', 'cactus', 'canopy', 'emergent']
     wide = K.camera('cam_wide', (65, -150, 20), (65, 0, 13), fov_deg=52)
     close = K.camera('cam_close', (40, -62, 9), (40, 0, 5), fov_deg=58)
     for lod in (0, 1, 2):

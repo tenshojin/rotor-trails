@@ -61,7 +61,7 @@ export async function gunzip(bytes: ArrayBuffer): Promise<ArrayBuffer> {
 }
 
 /** 影像里认出来的树：文件里种类的编号（见 prep_grandcanyon.py 的 find_trees） */
-const REAL_TREE_TYPES: TreeType[] = ['ujuniper', 'pinyon', 'broadleaf', 'scrub', 'ujuniper2', 'pinyon2'];
+const REAL_TREE_TYPES: TreeType[] = ['ujuniper', 'pinyon', 'broadleaf', 'scrub', 'ujuniper2', 'pinyon2', 'ponderosa'];
 
 /** 房子的底和檐口：地面不平，墙要一直埋到最低的角下面，檐口按平均的地面算，最高的角上也要留出一人高 */
 export function buildingFrame(terrain: Heightfield, b: RealBuildingDef): { base: number; top: number } {

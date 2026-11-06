@@ -252,26 +252,36 @@ def pinyon_tufts(greens):
 
 
 def juniper_sprays(greens):
-    """犹他刺柏：鳞叶贴着小枝长，一根根像细绳，再分成小叉，缠成一团蓬松的灰绿色。偶尔有几颗蓝灰色的果子"""
+    """犹他刺柏：鳞叶贴着小枝长。一根根细绳离远了就糊成一块实心的布（树冠成了迷彩球），
+    所以画成一撮一撮的，撮和撮之间留出大缝，缩小以后还是一团团的。偶尔有几颗蓝灰色的果子"""
     im = Image.new('RGBA', (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     c = S / 2
-
-    def spray(x, y, a, L, w, depth, k):
-        n = rnd.randint(3, 5)
-        for _ in range(n):
-            a += rnd.uniform(-0.32, 0.32)
-            nx, ny = x + math.cos(a) * L, y + math.sin(a) * L
-            col = jitter(shade(rnd.choice(greens), k), 0.1)
-            d.line([(x, y), (nx, ny)], fill=col + (255,), width=int(w))
-            x, y = nx, ny
-            if depth > 0 and rnd.random() < 0.8:
-                spray(x, y, a + rnd.choice((-1, 1)) * rnd.uniform(0.45, 0.95), L * 0.72, max(3, w * 0.8), depth - 1, k * rnd.uniform(0.92, 1.1))
-
-    for i in range(34):
+    tips = []
+    for _ in range(7):
         a = rnd.uniform(0, 2 * math.pi)
-        r = rnd.random() ** 0.6 * S * 0.34
-        spray(c + math.cos(a) * r, c + math.sin(a) * r, a + rnd.uniform(-0.7, 0.7), S * 0.04, 8, 3, 0.62 + 0.6 * i / 34)
+        x, y = c, c
+        for k in range(5):
+            a += rnd.uniform(-0.45, 0.45)
+            L = rnd.uniform(0.055, 0.095) * S
+            nx, ny = x + math.cos(a) * L, y + math.sin(a) * L
+            d.line([(x, y), (nx, ny)], fill=(62, 50, 40, 255), width=max(3, 11 - k * 2))
+            x, y = nx, ny
+            tips.append((x, y, a))
+            if rnd.random() < 0.55:
+                b = a + rnd.choice((-1, 1)) * rnd.uniform(0.6, 1.1)
+                tips.append((x + math.cos(b) * L * 0.9, y + math.sin(b) * L * 0.9, b))
+    rnd.shuffle(tips)
+    for t, (x, y, a) in enumerate(tips):
+        k = 0.6 + 0.7 * t / len(tips)
+        for _ in range(34):
+            b = a + rnd.uniform(-1.0, 1.0)
+            L = 0.06 * S * rnd.uniform(0.45, 1.0)
+            sx, sy = x + rnd.uniform(-10, 10), y + rnd.uniform(-10, 10)
+            mx, my = sx + math.cos(b) * L * 0.5 + rnd.uniform(-5, 5), sy + math.sin(b) * L * 0.5 + rnd.uniform(-5, 5)
+            ex, ey = sx + math.cos(b) * L, sy + math.sin(b) * L
+            col = jitter(shade(rnd.choice(greens), k), 0.1)
+            d.line([(sx, sy), (mx, my), (ex, ey)], fill=col + (255,), width=rnd.choice((5, 6, 7)))
     for _ in range(26):
         a = rnd.uniform(0, 2 * math.pi)
         r = rnd.random() ** 0.5 * S * 0.4
@@ -319,10 +329,11 @@ def rim_mass():
 
 
 PINY = [(50, 64, 46), (60, 72, 50), (42, 56, 42), (66, 76, 50)]
-UJUN = [(82, 92, 68), (92, 100, 74), (72, 82, 62), (98, 104, 76)]
-SCRB = [(76, 84, 58), (92, 96, 66), (64, 72, 52)]
+UJUN = [(60, 70, 54), (68, 76, 58), (52, 62, 50), (74, 80, 60)]
+SCRB = [(74, 80, 62), (88, 92, 72), (62, 68, 54)]
 RIMG = [(84, 98, 72), (98, 110, 80), (70, 86, 66), (60, 78, 58)]
-atlas.paste(pinyon_tufts(PINY), (S * 3, S * 2))
+# （矮松不挨着白桦树皮那一格：图集缩小采样时，白色会从格子边上渗进来，树冠上一道道白线）
+atlas.paste(pinyon_tufts(PINY), (S * 3, S * 3))
 atlas.paste(juniper_sprays(UJUN), (0, S * 3))
 atlas.paste(scrub_twigs(SCRB), (S, S * 3))
 atlas.paste(rim_mass(), (S * 2, S * 3))
@@ -346,6 +357,13 @@ def bleed(im):
     return Image.fromarray(np.clip(np.concatenate([out, al[..., None]], -1) * 255 + 0.5, 0, 255).astype(np.uint8), 'RGBA')
 
 
-atlas = bleed(atlas)
+# 一格一格地填：透明的地方只用本格的颜色，隔壁的白桦树皮不会染到这边的叶子边上
+C = atlas.width // 4
+for j in range(4):
+    for i in range(4):
+        box = (i * C, j * C, (i + 1) * C, (j + 1) * C)
+        cell = atlas.crop(box)
+        if cell.getchannel('A').getbbox():
+            atlas.paste(bleed(cell), box)
 atlas.save(os.path.join(OUT, 'leaves.png'))
 print('ok', OUT)

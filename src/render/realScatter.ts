@@ -73,7 +73,7 @@ interface RingDef {
 /** 由近到远。外圈的格子大、东西大、几何体简单 */
 const RINGS: RingDef[] = [
   { kind: 'shrub', cell: 1.7, half: 66, inner: 0, p: 0.5, size: [0.3, 0.95], detail: 0, agl: 240, shadow: true, seed: 1.7 },
-  { kind: 'shrub', cell: 3.4, half: 112, inner: 96, p: 0.9, size: [0.42, 1.1], detail: 1, agl: 700, shadow: false, seed: 3.1 },
+  { kind: 'shrub', cell: 3.4, half: 112, inner: 96, p: 0.9, size: [0.42, 1.1], detail: 2, agl: 700, shadow: false, seed: 3.1 },
   { kind: 'rock', cell: 0.9, half: 60, inner: 0, p: 0.3, size: [0.05, 0.55], detail: 0, agl: 200, shadow: true, seed: 5.3 },
   { kind: 'rock', cell: 3.6, half: 80, inner: 50, p: 0.3, size: [0.3, 1.3], detail: 0, agl: 520, shadow: false, seed: 7.9 },
   { kind: 'grass', cell: 1.15, half: 56, inner: 0, p: 0.5, size: [0.3, 0.62], detail: 0, agl: 110, shadow: false, seed: 9.2 },
@@ -96,23 +96,30 @@ function rng(seed: number): () => number {
   };
 }
 
-/** 碎石：二十个面的多面体，顶点推开一点，有棱有角。面法线由着色器算（flatShading） */
+/** 碎石：二十个面的多面体，顶点推开一点，有棱有角。面法线由着色器算（flatShading），所以顶点可以共用：
+ * 12 个顶点，不是 60 个。这几圈碎石一共几万块，顶点着色器里要查地形，少算五倍 */
 function rockGeometry(): THREE.BufferGeometry {
-  const g = new THREE.IcosahedronGeometry(1, 0);
-  const pos = g.getAttribute('position');
+  const src = new THREE.IcosahedronGeometry(1, 0);
+  const pos = src.getAttribute('position');
   const r = rng(131);
-  // 非索引几何体里同一个顶点有好几份：按位置记住，推开的量才一样，面之间不裂缝
-  const moved = new Map<string, [number, number, number]>();
+  const index = new Map<string, number>();
+  const verts: number[] = [];
+  const faces: number[] = [];
   for (let i = 0; i < pos.count; i++) {
     const key = `${pos.getX(i).toFixed(3)},${pos.getY(i).toFixed(3)},${pos.getZ(i).toFixed(3)}`;
-    let m = moved.get(key);
-    if (!m) {
+    let n = index.get(key);
+    if (n === undefined) {
+      n = verts.length / 3;
       const k = 0.7 + r() * 0.6;
-      m = [pos.getX(i) * k * (0.8 + r() * 0.5), pos.getY(i) * k * 0.72 + 0.12, pos.getZ(i) * k * (0.8 + r() * 0.5)];
-      moved.set(key, m);
+      verts.push(pos.getX(i) * k * (0.8 + r() * 0.5), pos.getY(i) * k * 0.72 + 0.12, pos.getZ(i) * k * (0.8 + r() * 0.5));
+      index.set(key, n);
     }
-    pos.setXYZ(i, m[0], m[1], m[2]);
+    faces.push(n);
   }
+  src.dispose();
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  g.setIndex(faces);
   g.computeVertexNormals();
   return g;
 }
@@ -357,13 +364,14 @@ export class RealScatter {
     const gl = dot(ground, vec3(0.2126, 0.7152, 0.0722));
     let tint: N<'vec3'>;
     if (leaf) {
-      tint = mix(vec3(0.82, 0.84, 0.76), vec3(1.2, 1.18, 1.02), h.y);
+      tint = mix(vec3(1.3, 1.34, 1.2), vec3(1.8, 1.78, 1.5), h.y);
     } else if (bark) {
       tint = vec3(0.1, 0.085, 0.07);
     } else if (shrub) {
       // 图集里的颜色乘这个：峡谷里发黑，南缘的灰绿一些，隔几丛有一丛枯黄的
       const rim = smoothstep(1900.0, 2100.0, y0);
-      const dark = mix(vec3(0.95, 0.9, 0.82), vec3(1.45, 1.38, 1.15), h.y);
+      // （真的黑灌木反照率也有一成多：太暗的话影子里就是一地黑胡椒）
+      const dark = mix(vec3(1.9, 1.8, 1.6), vec3(2.7, 2.5, 2.1), h.y);
       const pale = mix(vec3(1.5, 1.5, 1.25), vec3(2.1, 2.05, 1.6), h.y);
       tint = mix(mix(dark, pale, rim), vec3(2.3, 1.8, 1.1), step(0.9, h.x).mul(0.8));
     } else if (rock) {
@@ -383,7 +391,7 @@ export class RealScatter {
       const albedo = t.rgb.mul(col).mul(low);
       m.colorNode = vec4(albedo, min(t.a.mul(1.5), 1.0));
       // 影子里的灌木也不是黑的：地面反上来的光和天光
-      m.emissiveNode = albedo.mul(VFOG.sun.mul(0.07).add(FOG.color.mul(0.16)));
+      m.emissiveNode = albedo.mul(VFOG.sun.mul(0.07).add(FOG.color.mul(0.16)).add(vertexStage(ground).mul(VFOG.sun).mul(0.3)));
       m.normalNode = normalize(cameraViewMatrix.mul(vec4(vertexStage(normalWorldOf(ca, sa)).mul(0.8).add(vec3(0, 0.3, 0)), 0.0)).xyz);
     } else if (rock) {
       const pu = positionGeometry.xz.mul(0.31).add(positionGeometry.y.mul(0.23)).add(vertexStage(vec2(h.y, h.z)));
@@ -415,8 +423,12 @@ export class RealScatter {
     const agl = cam.y - T;
     this.group.visible = this.range > 0 && agl < 920;
     if (!this.group.visible) return;
+    // 外圈的树：一圈够不到核心区外面的时候一棵也长不出来，但几百万个顶点还是要跑一遍
+    const core = this.data.levels[0].half;
+    const edge = Math.max(Math.abs(cam.x), Math.abs(cam.z));
     for (const r of this.rings) {
-      r.mesh.visible = agl < r.def.agl;
+      const tree = r.def.kind === 'leaf' || r.def.kind === 'bark';
+      r.mesh.visible = agl < r.def.agl && (!tree || edge + r.reach.value > core);
       if (!r.mesh.visible) continue;
       r.origin.value.set(Math.floor(cam.x / r.def.cell), Math.floor(cam.z / r.def.cell));
     }
@@ -432,7 +444,7 @@ export class RealScatter {
 }
 
 export interface ScatterModels {
-  /** 灌木的两级细节 */
+  /** 灌木的三级细节 */
   shrub: THREE.BufferGeometry[];
   /** 外圈的树：简化过的一级 */
   trees: Array<{ leaf: THREE.BufferGeometry; bark: THREE.BufferGeometry | null }>;
@@ -449,9 +461,11 @@ export function scatterModels(lib: TreeLib | null): ScatterModels | null {
   for (const type of ['pinyon', 'ujuniper'] as const) {
     const parts = lib?.get(type)?.[1];
     const leaf = parts?.find((p) => p.source.name.includes('leaves'));
-    if (leaf) trees.push({ leaf: leaf.geometry, bark: parts?.find((p) => p !== leaf)?.geometry ?? null });
+    // （树干用最简单的一级：只露出来一小截，一棵顶一棵的顶点数）
+    const trunk = lib?.get(type)?.[2]?.find((p) => !p.source.name.includes('leaves')) ?? parts?.find((p) => p !== leaf);
+    if (leaf) trees.push({ leaf: leaf.geometry, bark: trunk?.geometry ?? null });
   }
-  return { shrub: [lods[0][0].geometry, lods[1][0].geometry], trees, map };
+  return { shrub: [lods[0][0].geometry, lods[1][0].geometry, lods[2][0].geometry], trees, map };
 }
 
 function abs2(a: N<'float'>): N<'float'> {

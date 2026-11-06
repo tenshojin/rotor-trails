@@ -58,7 +58,9 @@ export class ScenicCruise {
     const tel = s.flight.telemetry;
     const hdg = wrap360(tel.heading * RAD);
     const err = headingDelta(hdg, Math.atan2(tx - b.pos.x, -(tz - b.pos.z)) * RAD);
-    inp.turn = clamp(err / 26, -1, 1);
+    // 看风景的转弯：最多压二十度坡，地平线不要歪得厉害
+    const gentle = Math.min(1, (20 / RAD) / s.flight.assist.maxBank);
+    inp.turn = clamp(err / 26, -gentle, gentle);
     // 大角度转弯时慢下来，弯才转得优雅
     let want = Math.abs(err) > 45 ? 18 : SPEED;
     const sinH = Math.sin(tel.heading);

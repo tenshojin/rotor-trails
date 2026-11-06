@@ -390,6 +390,24 @@ a {
   flex-direction: column;
   gap: 14px;
 }
+/* 选项排成两列，开始按钮贴在底边：一屏看得到，不用往下滚才找到 */
+.brief-side .opts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.brief-side .card {
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+.brief-side .card h3 {
+  margin-top: 0;
+}
+.brief-side > .btn.big {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  box-shadow: 0 -14px 28px rgba(4, 8, 12, 0.85);
+}
 .obj-list {
   margin: 0;
   padding-left: 20px;
