@@ -193,14 +193,15 @@ export function screenMirror(nW: N<'vec3'>, foam: N<'float'>, depthNode: THREE.T
       });
     }
     const wFar = far.a.mul(live).mul(float(1).sub(k));
-    // spread：波浪把倒影上下拉开多少（屏幕比例）。几点采样 + 每像素抖动（逐帧变化），时间抗锯齿再把它抹平
+    // spread：波浪把倒影上下拉开多少（屏幕比例）。靠固定的多点采样模糊，逐帧抖动只留一点点：
+    // 全靠抖动的话，悬停时时间抗锯齿能抹平，高速飞行时抹不平，远处的海面是一层飞快乱窜的颗粒
     const fr = (sky.u.frame as unknown as N<'float'>).mul(5.588238);
-    const jit = interleavedGradientNoise(screenCoordinate.xy.add(fr)).sub(0.5).mul(0.66);
-    const jx = interleavedGradientNoise(screenCoordinate.yx.add(fr.mul(1.7)).add(23.0)).sub(0.5);
+    const jit = interleavedGradientNoise(screenCoordinate.xy.add(fr)).sub(0.5).mul(0.2);
+    const jx = interleavedGradientNoise(screenCoordinate.yx.add(fr.mul(1.7)).add(23.0)).sub(0.5).mul(0.3);
     const sp = spread.toVar();
-    const offs = [-0.66, 0, 0.66];
+    const offs = [-0.8, -0.4, 0, 0.4, 0.8];
     const tap = (uvq: N<'vec2'>, o: number) => vec2(uvq.x, clamp(uvq.y.add(jit.add(o).mul(sp)), 0.002, 0.998));
-    const seen = offs.map((o) => viewportSharedTexture(tap(huv, o)).rgb).reduce((a, b) => a.add(b)).mul(1 / 3);
+    const seen = offs.map((o) => viewportSharedTexture(tap(huv, o)).rgb).reduce((a, b) => a.add(b)).mul(1 / offs.length);
     // 云的倒影：左右也要散开一点，否则竖着抹开的云是一块块直边的方块
     const cloudTap = (uvq: N<'vec2'>, ox: number, oy: number) => vec2(clamp(uvq.x.add(jx.add(ox).mul(sp).mul(1.3)), 0.0, 1.0), clamp(uvq.y.add(jit.add(oy).mul(sp).mul(2.0)), 0.002, 0.998));
     // 天空：光线走到无穷远落在画面的哪里（云只有画面里才有）

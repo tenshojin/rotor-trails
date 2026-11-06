@@ -98,10 +98,12 @@ export class WaterView {
 
   constructor(map: MapDef, depthTex: THREE.Texture, reversedDepth: boolean, field: ReflectField | null, sky: SkyDome) {
     const level = map.waterLevel ?? 0;
-    // 水面一直铺到地平线（跟着相机走，波浪按世界坐标算，所以看不出移动）：
-    // 否则水面在地图外几公里就到头了，再往外是一条灰色的天空底边
-    const size = 64000;
-    const geo = new THREE.PlaneGeometry(size, size, 1, 1);
+    // 水面一直铺到地平线，否则在地图外几公里就到头了，再往外是一条灰色的天空底边。
+    // 网格不能跟着镜头走：那样它在画面里是不动的，运动向量全是 0，而波纹其实在高速后退。
+    // 时间抗锯齿按 0 去对齐上一帧，全错位，飞得越快，远处的细波和倒影的抖动窜得越快。镜头飞不出地图，铺大一点就够了
+    const size = 80000;
+    // （分成小格：一整块几十公里的面，像素的世界坐标是从几十公里外的顶点插值出来的，远处不够准）
+    const geo = new THREE.PlaneGeometry(size, size, 96, 96);
     geo.rotateX(-Math.PI / 2);
     const muddy = map.id === 'amazon' ? 1 : 0;
     const noise = getNoiseTexture();
@@ -260,9 +262,7 @@ export class WaterView {
     this.mesh.renderOrder = 1;
   }
 
-  update(t: number, windX: number, windZ: number, windSpeed: number, rain: number, cam: THREE.Vector3): void {
-    this.mesh.position.x = cam.x;
-    this.mesh.position.z = cam.z;
+  update(t: number, windX: number, windZ: number, windSpeed: number, rain: number): void {
     this.u.time.value = t;
     this.u.wind.value.set(windX, windZ);
     this.u.wave.value = Math.min(1, windSpeed / 14);
