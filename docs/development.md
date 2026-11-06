@@ -72,13 +72,13 @@ python -I tools/real/prep_grandcanyon.py art/src/real/grandcanyon public/real/gr
 
 第二步生成高程、影像、岩层色表、树，还有核心区和外圈的辅助图（`sky_river.webp`、`sky_river_mid.webp`）和地面散布的疏密图（`scatter.webp`）。跑完看一下 `public/real/grandcanyon/meta.json` 的 `bases`，要和 `src/maps/grandcanyon.ts` 里每层的 `base` 一样：河面压平之后最低点可能变，差一米整张图的高度都错（`tests/real-data.test.ts` 会查）。
 
-在线服务在地图中西部（x -5000 ~ -1000，z -5000 ~ 1800）只有 10 米的高程。要换成 1 米的激光测绘，在第二步之前多跑一步，下载 266 MB，同样不进仓库：
+在线服务在地图中西部（x -5000 ~ -1000，z -5000 ~ 1800）只有 10 米的高程，提交的数据已经换成了 1 米的激光测绘。重新生成时要在第二步之前多跑一步，下载 266 MB，同样不进仓库：
 
 ```bash
 python -I tools/real/fetch_lidar.py art/src/real/grandcanyon/lidar
 ```
 
-`prep_grandcanyon.py` 的 `merge_lidar` 看到这个目录里有 `.tif` 就会换上去，没有就用服务里的数据。
+`prep_grandcanyon.py` 的 `merge_lidar` 看到这个目录里有 `.tif` 就会换上去；没有这一步，这一块会退回服务里的 10 米数据。
 
 改了 `tools/blender/leaf_atlas.py` 的颜色要重新生成 `public/models/trees.glb`，步骤见下一节。
 

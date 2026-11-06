@@ -86,9 +86,10 @@ def merge_lidar(core):
         have[sub] = np.maximum(have[sub], take.astype(np.float32))
     diff = (new - core)[have > 0.5]
     print('  新数据覆盖', round(float((have > 0.5).mean()), 3), '和原来的高差：中位数', round(float(np.median(diff)), 2), '标准差', round(float(diff.std()), 2))
-    # 高差的中位数当系统差，去掉，接缝才对得上
-    new = new - float(np.median(diff))
-    k = np.clip(ndimage.gaussian_filter(ndimage.binary_erosion(have > 0.5, iterations=6).astype(np.float32), 5.0) * 1.0, 0, 1)
+    # 高差的中位数当系统差，去掉，接缝才对得上。没有新数据的地方 new 是 0，一点都不能混进来，不然地上是一条深沟
+    new = np.where(have > 0.5, new - float(np.median(diff)), core)
+    t = np.clip(ndimage.distance_transform_edt(have > 0.5).astype(np.float32) * cell / 60.0, 0, 1)
+    k = t * t * (3 - 2 * t)
     return (core * (1 - k) + new * k).astype(np.float32)
 
 

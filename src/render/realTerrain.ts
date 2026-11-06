@@ -286,6 +286,11 @@ export class RealTerrain {
     const nx = nTex.r.mul(2.0).sub(1.0);
     const nz = nTex.g.mul(2.0).sub(1.0);
     const N0 = normalize(vec3(nx, sqrt(max(float(1).sub(nx.mul(nx)).sub(nz.mul(nz)), 0.0)), nz)).toVar();
+    // 明暗要比高程看起来硬：和十几米尺度的平均法线比，差的部分放大。山脊和沟的边一下就利了，山的形状不变
+    const nLow = texture(lv.normal, uv0).bias(float(3));
+    const sx = nx.add(nx.sub(nLow.r.mul(2.0).sub(1.0)).mul(0.9));
+    const sz = nz.add(nz.sub(nLow.g.mul(2.0).sub(1.0)).mul(0.9));
+    const Nsharp = normalize(vec3(sx, sqrt(max(float(1).sub(nx.mul(nx)).sub(nz.mul(nz)), 0.02)), sz)).toVar();
     const dist = length(P.sub(cameraPosition)).toVar();
     // （层与层之间的过渡烘在影像里了，见 prep_grandcanyon.py 的 blend_edge）
     let col: N<'vec3'> = texture(image, uv0).rgb;
@@ -354,6 +359,14 @@ export class RealTerrain {
       const u2 = vec2(P.z.negate(), P.x).div(L.tiles[1] * 0.8).add(0.21);
       const ux = vec2(P.z, P.y.negate()).div(L.tiles[2]);
       const uz = vec2(P.x, P.y.negate()).div(L.tiles[2]).add(0.41);
+      // 陡坡（三十多度以上）：从正上方贴的细节层在坡上被拉长了。改成贴在坡面上，一层几米、一层几十米的石头。
+      // 大的这层坐标用噪声扭一下，几十米一格的重复在大面积的山坡上一眼就看得出来
+      const steep = smoothstep(0.2, 0.5, float(1).sub(N0.y)).mul(float(1).sub(wet)).toVar();
+      const kR = float(1).sub(smoothstep(120.0, 1500.0, dist)).toVar();
+      const warp = texture(noise, P.xz.div(420.0)).rg.sub(0.5).mul(16.0).toVar();
+      const big = L.tiles[3] * 3.3;
+      const rx = vec2(P.z.add(warp.x), P.y.negate().add(warp.y)).div(big);
+      const rz = vec2(P.x.add(warp.y), P.y.negate().sub(warp.x)).div(big).add(0.29);
       const g0 = at(L.color, u0, 0);
       const g1 = at(L.color, u1, 1);
       const g2 = at(L.color, u2, 1);
@@ -362,20 +375,26 @@ export class RealTerrain {
       const a = twn.x;
       const b = float(1).sub(a);
       const wallLum = lum(wx, 2).mul(a).add(lum(wz, 2).mul(b));
+      const rockLum = lum(at(L.color, rx, 3), 3).mul(a).add(lum(at(L.color, rz, 3), 3).mul(b));
+      const rockK = max(wall, steep).toVar();
+      // 平地的三层只留给不陡的地方
+      const flatD = flatK.mul(float(1).sub(steep)).toVar();
       const kC = float(1).sub(smoothstep(12.0, 170.0, dist)).toVar();
-      const gain = mix(float(1), lum(g0, 0), kN.mul(flatK)).mul(mix(float(1), lum(g1, 1), kF.mul(flatK).mul(0.7))).mul(mix(float(1), lum(g2, 1), kC.mul(flatK))).mul(mix(float(1), wallLum, kW.mul(wall).mul(0.8)));
+      const gain = mix(float(1), lum(g0, 0), kN.mul(flatD)).mul(mix(float(1), lum(g1, 1), kF.mul(flatD).mul(0.7))).mul(mix(float(1), lum(g2, 1), kC.mul(flatD))).mul(mix(float(1), wallLum, kW.mul(rockK).mul(0.8))).mul(mix(float(1), rockLum, kR.mul(rockK).mul(0.6)));
       col = col.mul(gain);
       const n0 = nxy(at(L.normal, u0, 0));
       const n1 = nxy(at(L.normal, u1, 1));
       const n2 = nxy(at(L.normal, u2, 1));
       const mx = nxy(at(L.normal, ux, 2));
       const mz = nxy(at(L.normal, uz, 2));
-      const flatN = vec3(n0.x, 0.0, n0.y).mul(kN.mul(0.75)).add(vec3(n1.x, 0.0, n1.y).mul(kF.mul(0.4))).add(vec3(n2.y.negate(), 0.0, n2.x).mul(kC.mul(0.9))).mul(flatK);
-      const wallN = vec3(0.0, mx.y, mx.x).mul(a).add(vec3(mz.x, mz.y, 0.0).mul(b)).mul(kW.mul(0.7).mul(wall));
+      const flatN = vec3(n0.x, 0.0, n0.y).mul(kN.mul(0.75)).add(vec3(n1.x, 0.0, n1.y).mul(kF.mul(0.4))).add(vec3(n2.y.negate(), 0.0, n2.x).mul(kC.mul(0.9))).mul(flatD);
+      const ox = nxy(at(L.normal, rx, 3));
+      const oz = nxy(at(L.normal, rz, 3));
+      const wallN = vec3(0.0, mx.y, mx.x).mul(a).add(vec3(mz.x, mz.y, 0.0).mul(b)).mul(kW.mul(0.7).mul(rockK)).add(vec3(0.0, ox.y, ox.x).mul(a).add(vec3(oz.x, oz.y, 0.0).mul(b)).mul(kR.mul(0.55).mul(rockK)));
       // 岩层的凹凸只有近处看得出来。离远了 mipmap 自己把它平均掉，这里不用再管
       const slopeK = smoothstep(0.3, 0.72, float(1).sub(N0.y)).mul(float(1).sub(wet)).toVar();
       const fine = float(1).sub(smoothstep(250.0, 1800.0, dist));
-      N = normalize(N0.add(flatN).add(wallN).add(vec3(0, -1.0, 0).mul(ledge).mul(slopeK).mul(1.3)).add(joint.mul(wall).mul(fine)));
+      N = normalize(Nsharp.add(flatN).add(wallN).add(vec3(0, -1.0, 0).mul(ledge).mul(slopeK).mul(1.3)).add(joint.mul(wall).mul(fine)));
     }
     // 山坳里和谷底看到的天空少，散射光也少
     let ao: N<'float'> = float(1);
