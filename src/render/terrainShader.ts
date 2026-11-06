@@ -23,6 +23,7 @@ import {
   int,
   length,
   max,
+  min,
   mix,
   normalize,
   normalWorld,
@@ -41,7 +42,7 @@ import {
   mx_noise_float,
 } from 'three/tsl';
 import type { RockFormDef } from '../world/rockForm';
-import { FOG } from './atmosphere';
+import { gustAt, FOG, WIND } from './atmosphere';
 import { GI } from './giField';
 import { terrainSun } from './sunMap';
 import type { TerrainLayers } from './terrainLayers';
@@ -87,6 +88,8 @@ export interface TerrainUniforms {
   snowLine: number;
   rockSlope: number;
   waterLevel: number;
+  /** 这张图的草有多少（1 = 草地多，荒漠很少） */
+  grassy: number;
   /** 雨后地面变湿（0..1），每帧更新 */
   uWet: ReturnType<typeof makeWetUniform>;
   /** 地层（见 world/rockForm.ts）：有地层表时，岩石的颜色按它查 */
@@ -390,6 +393,22 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     // 从空中看，平地是几百米一块的贴图，容易显得干净得不真实：加一层十几米到上百米尺度的深浅，离得越远越明显
     const mottle = n2.sub(0.5).mul(0.24).add(n3.sub(0.5).mul(0.2)).add(n1.sub(0.5).mul(0.2));
     col.mulAssign(float(1).add(mottle.mul(smoothstep(60.0, 500.0, length(P.sub(cameraPosition)))).mul(float(1).sub(snowW.mul(0.8)))));
+    // 草地：真的草地不是一层平滑的绿，远远看也是一簇簇有明有暗的。三个尺度的细胞噪声（1.3 米、3.6 米、12 米），
+    // 贴图有多级，离得再远也不闪，只是慢慢平下来。这一层让草地到一两公里外都还是“毛的”，和镜头周围的真草接得上
+    const meadow = float(1).sub(rockW).mul(float(1).sub(snowW)).mul(float(1).sub(sandW)).mul(float(1).sub(dirtW)).mul(float(1).sub(surf.a)).mul(U.grassy).toVar();
+    const tuftAt = (o: N<'vec2'>) => {
+      const a = texture(noise, P.xz.add(o).div(58.0)).b;
+      const b2 = texture(noise, P.xz.add(o).div(21.0).add(0.29)).b;
+      const c = texture(noise, P.xz.add(o).div(190.0).add(0.61)).b;
+      return float(1).sub(a.mul(a).mul(1.25)).mul(0.44).add(float(1).sub(b2.mul(b2).mul(1.25)).mul(0.3)).add(float(1).sub(c.mul(c).mul(1.25)).mul(0.26));
+    };
+    const tuft = tuftAt(vec2(0, 0)).toVar();
+    col.mulAssign(mix(float(1), mix(float(0.62), float(1.24), tuft), meadow));
+    // 风吹过草地：草一倒就翻出浅色的一面，明暗一片片地往下风走
+    const windK = gustAt(P.xz).mul(min(WIND.k as unknown as N<'float'>, 0.7)).toVar();
+    col.mulAssign(float(1).add(windK.mul(meadow).mul(0.24)));
+    // 草簇的起伏也接光：太阳低的时候草地是一片细碎的明暗
+    nb.assign(normalize(nb.add(vec3(tuft.sub(tuftAt(vec2(1.1, 0))), 0.0, tuft.sub(tuftAt(vec2(0, 1.1)))).mul(meadow.mul(1.6)))));
     // 宏观地貌：岩壁加上三平面投影的脊状浮雕（两个尺度），平缓的地面只加一点起伏；明暗再跟着真实的沟谷与山脊走
     const cavS = mac.r.mul(2.0).sub(1.0);
     const cavL = mac.g.mul(2.0).sub(1.0);
@@ -468,7 +487,8 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       // 有真树的范围里，这一层只从树和树的缝里露出来：那是树冠底下的阴影，不能比树冠还亮
       const gap = mix(float(1), mix(float(0.42), float(1), smoothstep(TREE_RANGE.mul(0.72), TREE_RANGE, camDist)), smoothstep(0.25, 0.8, forestMap.b).mul(float(1).sub(outK)));
       const canopy = mix(vec3(0.016, 0.062, 0.013), vec3(0.032, 0.096, 0.015), hue).mul(dome.mul(0.75).add(0.35)).mul(fine.mul(0.3).add(0.85)).mul(mix(float(0.9), float(1), graze)).mul(gap);
-      col.assign(mix(col, canopy, canopyK));
+      // （风吹过林冠也有一片片的明暗，幅度比草地小）
+      col.assign(mix(col, canopy.mul(windK.mul(0.16).add(1.0)), canopyK));
       // 树冠起伏的法线（用 Worley 距离在 x / z 方向的差分）
       const fx = cell(vec2(1.6, 0), 224, 0);
       const fz = cell(vec2(0, 1.6), 224, 0);

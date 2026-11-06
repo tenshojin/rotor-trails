@@ -183,7 +183,7 @@ export const TRAINING: MapDef = {
     // 谷底：一丛丛的阔叶树和白桦，田边、溪边多一些
     { type: 'broadleaf', density: 520, scale: [0.8, 1.35], maxH: 80, maxSlope: 0.3, mask: (x, z) => smoothstep(0.56, 0.66, n2.fbm(x / 150, z / 150, 3) * 0.5 + 0.5) * airfield(x, z) },
     { type: 'birch', density: 380, scale: [0.8, 1.25], maxH: 70, maxSlope: 0.3, mask: (x, z) => smoothstep(0.54, 0.64, n.fbm(x / 120 - 4, z / 120, 3) * 0.5 + 0.5) * airfield(x, z) },
-    { type: 'shrub', density: 420, scale: [0.7, 1.4], mask: (x, z) => smoothstep(0.5, 0.62, n2.fbm(x / 90, z / 90 + 3, 2) * 0.5 + 0.5) * airfield(x, z) },
+    { type: 'shrub', density: 5200, scale: [0.6, 1.5], maxSlope: 0.5, mask: (x, z) => (0.16 + 0.84 * smoothstep(0.46, 0.62, n2.fbm(x / 90, z / 90 + 3, 2) * 0.5 + 0.5)) * airfield(x, z) },
     { type: 'boulder', density: 40, scale: [0.6, 1.6], maxSlope: 0.5, mask: (x, z) => airfield(x, z) },
   ],
   clearings: [[0, -120, 80]],

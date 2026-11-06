@@ -173,6 +173,8 @@ export interface BiomeDef {
   snowLine: number;
   /** 空气里的气溶胶（1 = 很干净，雨林的湿热空气 2 以上，高原不到 1），决定天色和太阳周围发白的程度 */
   air?: number;
+  /** 地面上一簇簇的草有多明显（缺省 1，荒漠 0.3 左右） */
+  grassy?: number;
   /** 岩石出现的坡度阈值（1-n.y） */
   rockSlope: number;
   waterDeep: number;

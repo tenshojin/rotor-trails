@@ -6,10 +6,32 @@
 // 参数是共享的 uniform 节点，由 WorldView 每帧更新。
 
 import * as THREE from 'three/webgpu';
-import { acos, cameraPosition, clamp, dot, exp, float, fog, Fn, length, max, mix, positionWorld, select, sqrt, uniform, vec2, vec3, vec4 } from 'three/tsl';
+import { acos, cameraPosition, clamp, dot, exp, float, fog, Fn, length, max, mix, positionWorld, select, smoothstep, sqrt, texture, uniform, vec2, vec3, vec4 } from 'three/tsl';
+import { getNoiseTexture } from './textures';
 
 /** 旋翼下洗：x、z（桨毂的位置）、贴地的强度、树梢的强度（0..1）。草和树的顶点着色器用它（见 render/downwash.ts） */
 export const WASH = uniform(new THREE.Vector4(0, 0, 0, 0));
+
+/**
+ * 风场：树、灌木、草、远处的草地和林冠都看这一份。shift 是风吹过的距离（米），一团团的阵风跟着它走，
+ * 所以看得见风从草地这头扫到那头、树一片一片地弯下去。
+ */
+export const WIND = {
+  shift: uniform(new THREE.Vector2()),
+  /** 风向（单位向量 x、z） */
+  dir: uniform(new THREE.Vector2(1, 0)),
+  /** 摆动的幅度：没风的时候也有一点，植物不会是死的 */
+  k: uniform(0.16),
+};
+
+/** 这一点现在的阵风强度（0..1） */
+export function gustAt(p: THREE.Node<'vec2'>): THREE.Node<'float'> {
+  const noise = getNoiseTexture();
+  const q = p.sub(WIND.shift as unknown as THREE.Node<'vec2'>);
+  const a = texture(noise, q.div(1400.0)).level(float(0)).r;
+  const b = texture(noise, q.div(430.0).add(0.37)).level(float(0)).r;
+  return smoothstep(0.34, 0.66, a.mul(0.55).add(b.mul(0.45)));
+}
 
 /** 地平线一圈取几个颜色：第 i 个离太阳方位 180° × (i / (RING_N - 1))²（太阳附近变化快，取得密） */
 export const RING_N = 7;

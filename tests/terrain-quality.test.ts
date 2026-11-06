@@ -27,7 +27,7 @@ function uniforms(): TerrainUniforms {
     noise: tex, surface: tex, forest: tex, wash: null, macro: tex, relief: tex, layers: null, mapSize: 64,
     sand: color, grass: color, grass2: color, dirt: color, rock: color, rock2: color, snow: color, forestFloor: color,
     forestFar: 0, strataA: color, strataB: color, strataC: color, strataD: color, strata: 0, paved: false,
-    beachTop: 2, snowLine: 4000, rockSlope: 0.4, waterLevel: 0, uWet: uniform(0), rockForm: null, strataLUT: null,
+    beachTop: 2, snowLine: 4000, rockSlope: 0.4, waterLevel: 0, grassy: 1, uWet: uniform(0), rockForm: null, strataLUT: null,
   };
 }
 

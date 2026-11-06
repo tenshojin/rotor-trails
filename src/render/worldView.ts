@@ -15,7 +15,7 @@ import { loadDetailTextures } from './detailTextures';
 import { NavView } from './navView';
 import { PropsView } from './propsView';
 import { SkyDome } from './sky';
-import { FOG, sceneFog } from './atmosphere';
+import { FOG, sceneFog, WIND } from './atmosphere';
 import { buildPost, protectTransparent, CONTACT, SCOTOPIC, type Post } from './post';
 import { markNearShadow, SunShadows } from './sunShadows';
 import type { MapDef } from '../maps/types';
@@ -27,7 +27,7 @@ import { DownwashView } from './downwash';
 import { NightLights } from './nightLights';
 import { PadDetails } from './padDetails';
 import { makeReflectField } from './reflectMap';
-import { GroundCover } from './groundCover';
+import { GRASS_MID, GroundCover } from './groundCover';
 import { RiverView } from './riverView';
 import { EYE_DEFAULT, EyeAdapt } from './eyeAdapt';
 import { clearSunMap, setSunMap, type FarGrid } from './sunMap';
@@ -50,6 +50,7 @@ export interface FrameInfo {
 
 const _cabinGlow = new THREE.Color(0.018, 0.0132, 0.0102);
 const _white = new THREE.Color(1, 1, 1);
+const _wd = new THREE.Vector2();
 const _cloudGrey = new THREE.Color(0.86, 0.88, 0.9);
 const _ground = new THREE.Color();
 const _groundLit = new THREE.Color();
@@ -220,6 +221,7 @@ export class WorldView {
       }
       if (this.trees) this.trees.quality = { near: q.treeNear, far: q.treeFar, shadows: q.shadows, aa: q.msaa > 0 };
       TREE_RANGE.value = q.treeFar;
+      this.grass?.setMidRange(GRASS_MID[s.quality] ?? 0);
       if (this.props) this.props.lodScale = q.terrainLod;
       // 高画质起用光线步进的体积积云（低、中用二维云层）
       this.sky?.setVolumetric(s.quality === 'ultra' ? 56 : s.quality === 'high' ? 40 : 0);
@@ -480,7 +482,7 @@ export class WorldView {
       this.scene.add(this.lamps.group);
       this.padDetails = new PadDetails(map);
       this.scene.add(this.padDetails.group);
-      this.grass = new GroundCover(world, forestTex);
+      this.grass = new GroundCover(world, forestTex, field.color, GRASS_MID[this.settings.quality] ?? 0);
       this.scene.add(this.grass.group);
       if (map.rivers) {
         this.rivers = new RiverView([...map.rivers, ...(map.farRivers ?? [])], (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true, field, this.sky);
@@ -766,6 +768,12 @@ export class WorldView {
       else _w.set(2, 0, 0);
       this.flash = this.lightning.update(f.t, f.dt, w.lightning, (d) => this.onThunder?.(d / 340, Math.max(0.2, 1 - d / 4500)));
       this.sky.update(w, _w.x, _w.z, f.dt, this.flash);
+      // 风场：阵风比平均风跑得快一点；风向慢慢转，不会一下子掉头
+      const windSpeed = Math.hypot(_w.x, _w.z);
+      (WIND.shift.value as THREE.Vector2).x += (_w.x + 0.6) * 1.5 * f.dt;
+      (WIND.shift.value as THREE.Vector2).y += (_w.z + 0.35) * 1.5 * f.dt;
+      if (windSpeed > 0.3) (WIND.dir.value as THREE.Vector2).lerp(_wd.set(_w.x / windSpeed, _w.z / windSpeed), 1 - Math.exp(-f.dt * 0.8)).normalize();
+      WIND.k.value = Math.min(1.5, 0.16 + windSpeed * 0.085);
       this.sky.follow(cp);
       const C = this.sky.colors;
       this.sun.setLight(C.sun, C.sunIntensity);

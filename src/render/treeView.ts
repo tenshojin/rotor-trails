@@ -37,7 +37,7 @@ import {
   vec4,
 } from 'three/tsl';
 import { HELI } from '../config/flight';
-import { FOG, WASH } from './atmosphere';
+import { FOG, gustAt, WASH, WIND } from './atmosphere';
 import { terrainSun } from './sunMap';
 import { getNoiseTexture } from './textures';
 import { VFOG } from './volumetricFog';
@@ -305,19 +305,28 @@ type WindUniforms = ReturnType<typeof makeWindUniforms>;
  */
 function windPosition(U: WindUniforms, leaf: boolean): THREE.Node<'vec3'> {
   const hgt = max(0.0, positionGeometry.y);
-  const bend = hgt.mul(hgt).mul(0.0011);
+  // 摆幅不按高度的平方算：那样几米高的灌木几乎不动。这里矮的植物也看得出在摇，高树也不会甩得太夸张
+  const bend = pow(hgt, 0.8).mul(0.12).toVar();
   const ph = positionLocal.x.mul(0.071).add(positionLocal.z.mul(0.053));
-  const osc = sin(U.uTime.mul(1.6).add(ph)).mul(0.6).add(sin(U.uTime.mul(3.7).add(ph.mul(2.3))).mul(0.25));
-  const wv = U.uWind.mul(osc.mul(0.45).add(0.55)).mul(U.uGust.add(1.0));
+  const osc = sin(U.uTime.mul(1.6).add(ph)).mul(0.6).add(sin(U.uTime.mul(3.7).add(ph.mul(2.3))).mul(0.25)).toVar();
+  // 阵风扫到这里时一下弯下去、再弹回来；平时只是轻轻地晃
+  const gust = gustAt(positionLocal.xz).toVar();
+  const amp = (WIND.k as unknown as THREE.Node<'float'>).mul(gust.mul(1.25).add(0.3)).mul(U.uGust.mul(0.6).add(1.0)).toVar();
+  const down = WIND.dir as unknown as THREE.Node<'vec2'>;
+  const lean = down.mul(amp.mul(osc.mul(0.42).add(0.72)));
+  // 顺风摆的同时横着也晃一点，树梢走的是一个小椭圆
+  const side = vec2(down.y.negate(), down.x).mul(amp.mul(0.34).mul(sin(U.uTime.mul(1.13).add(ph.mul(1.7)))));
+  const wv = lean.add(side);
   let p: THREE.Node<'vec3'> = positionLocal.add(vec3(wv.x, 0.0, wv.y).mul(bend));
   // 旋翼下洗：低飞掠过树梢时，桨盘下面的树冠被压得向外弯，一下一下地回弹
   const dv = positionLocal.xz.sub(WASH.xy);
   const dr = length(dv).max(0.01);
   const washK = float(1).sub(smoothstep(0.7, 3.6, dr.div(HELI.rotorRadius))).mul(WASH.w).toVar();
   const pulse = sin(U.uTime.mul(4.6).add(dr.mul(0.5)).add(ph)).mul(0.38).add(0.62);
-  p = p.add(vec3(dv.x.div(dr), -0.4, dv.y.div(dr)).mul(washK.mul(pulse).mul(bend).mul(2.6)));
+  p = p.add(vec3(dv.x.div(dr), -0.4, dv.y.div(dr)).mul(washK.mul(pulse).mul(hgt.mul(hgt).mul(0.0011)).mul(2.6)));
   if (leaf) {
-    const flutter = sin(U.uTime.mul(5.3).add(dot(positionGeometry, vec3(2.1, 1.7, 2.9))).add(ph)).mul(0.035).mul(length(U.uWind).mul(2.0).add(0.3).add(washK.mul(3.5)));
+    // 叶子的抖动：阵风来的时候抖得厉害
+    const flutter = sin(U.uTime.mul(5.3).add(dot(positionGeometry, vec3(2.1, 1.7, 2.9))).add(ph)).mul(0.05).mul(amp.mul(3.0).add(0.25).add(washK.mul(3.5)));
     p = p.add(normalLocal.mul(flutter));
   }
   return p;
@@ -406,6 +415,7 @@ export class TreeView {
   /** 地层（有的话，石块的颜色按它所在的那一层来：崖顶是白岩，崖下是红岩） */
   private readonly form: RockFormDef | null;
   private readonly layers: ReturnType<typeof layerTable> | null;
+  private bigTrees = 0;
   /** 每棵树换细节级的距离都错开一点（距离平方的系数）：不错开的话，换级的地方是一道整齐的圆弧 */
   private spread: Float32Array;
   private uniforms: WindUniforms = makeWindUniforms();
@@ -437,6 +447,10 @@ export class TreeView {
     const grey = (rockTint.r + rockTint.g + rockTint.b) / 3;
     rockTint.lerp(new THREE.Color(grey, grey, grey), 0.55).multiplyScalar(0.85 / Math.max(grey, 0.03));
     this.modeled = lib !== null;
+    for (let i = 0; i < trees.count; i++) {
+      const name = TREE_TYPES[trees.type[i]];
+      if (name !== 'shrub' && name !== 'boulder') this.bigTrees++;
+    }
     this.spread = new Float32Array(trees.count);
     for (let i = 0; i < trees.count; i++) this.spread[i] = 0.5 + 1.25 * hash(trees.x[i], trees.z[i], 3.7);
     for (let t = 0; t < TREE_TYPES.length; t++) this.byType.push([]);
@@ -455,7 +469,7 @@ export class TreeView {
         ? lods.map((parts, l) => parts.map((p) => ({ g: p.geometry, mat: this.materialFor(p.source, l === 2), tint: p.source.name.includes('leaves') })))
         : buildTree(type).map((g) => {
             this.ownGeometry.push(g);
-            return [{ g, mat: this.materialFor(null), tint: true }];
+            return [{ g, mat: this.materialFor(null, false, type === 'boulder'), tint: true }];
           });
       this.sets.push(
         geoSets.map((parts, lodIdx) => {
@@ -484,13 +498,13 @@ export class TreeView {
   }
 
   /** GLB 材质 → 带风摆的渲染材质（同名共用）；null = 程序几何体用的顶点色材质。mass：最远一级的体块树冠。 */
-  private materialFor(src: THREE.MeshStandardMaterial | null, mass = false): THREE.MeshStandardNodeMaterial {
+  private materialFor(src: THREE.MeshStandardMaterial | null, mass = false, rock = false): THREE.MeshStandardNodeMaterial {
     const leaf = !!src && src.name.includes('leaves');
-    const key = src ? src.name + (leaf && mass ? '#mass' : '') : '__procedural';
+    const key = src ? src.name + (leaf && mass ? '#mass' : '') : rock ? '__rock' : '__procedural';
     const hit = this.materials.get(key);
     if (hit) return hit;
     const U = this.uniforms;
-    const still = !!src && src.name.includes('cactus');
+    const still = rock || (!!src && src.name.includes('cactus'));
     let m: THREE.MeshStandardNodeMaterial;
     if (!src) {
       m = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
@@ -528,11 +542,11 @@ export class TreeView {
           const c2 = texture(noise, wp.mul(0.034).add(0.37)).b;
           const lump = float(1).sub(c1.mul(c1).mul(1.25)).mul(0.62).add(float(1).sub(c2.mul(c2).mul(1.25)).mul(0.38)).toVar();
           // （近处两级的树叶互相遮挡、接收阴影，比这一级暗得多：密林里要压下来，不然一圈暗树围着一片亮树）
-          const gain = this.trees.count > 50000 ? 0.7 : 1;
+          const gain = this.bigTrees > 50000 ? 0.7 : 1;
           albedo = albedo.mul(mix(float(0.42 * gain), float(1.32 * gain), lump)).mul(vec3(0.62, 0.95, 0.58));
           const rim = float(1).sub(abs(dot(normalViewGeometry, normalize(positionView.negate()))));
           cover = step(rim.mul(rim).mul(0.86), lump);
-        } else if (this.trees.count > 50000) {
+        } else if (this.bigTrees > 50000) {
           albedo = albedo.mul(smoothstep(170.0, 520.0, length(positionWorld.sub(cameraPosition))).mul(0.3).add(1.0));
         }
         // 透明度再看粗一级的贴图：一两个像素大的叶子不再切成一颗颗碎点，树冠边缘是成团的
@@ -582,7 +596,8 @@ export class TreeView {
     // 细节分级距离：模型树三级（近景全细节 / 中景简化 / 远景体块），程序树两级
     // 密林（亚马孙）：树的数量是别的地图的好几倍，近景细节收得更早；远处隔一棵画一棵、放大一点，
     // 那里地形本身已经画了树冠层，看不出少了树
-    const dense = T.count > 50000;
+    // （灌木和石块不算：密林是说大树多）
+    const dense = this.bigTrees > 50000;
     const lim2 = (this.modeled ? [Math.min(Q.near * 0.42, dense ? 170 : 260), Q.near * (dense ? 1.1 : 1.25)] : [Q.near]).map((d) => d * d);
     const thin2 = dense ? Q.far * Q.far * 0.16 : Infinity;
     const far2 = Q.far * Q.far;

@@ -330,7 +330,7 @@ export const FJORD_MAP: MapDef = {
     { type: 'birch', density: 620, scale: [0.8, 1.25], minH: 2, maxH: 200, maxSlope: 0.55 },
     // 岩壁脚下的崩积石块和水边的礁石
     { type: 'boulder', density: 2200, scale: [0.35, 2.4], maxH: 90, maxSlope: 0.62, mask: (_x, _z, h, s) => smoothstep(0.06, 0.2, s) * (1 - smoothstep(30, 90, h)) },
-    { type: 'shrub', density: 200, scale: [0.6, 1.1], minH: 300, maxH: 700, maxSlope: 0.5 },
+    { type: 'shrub', density: 2400, scale: [0.6, 1.3], minH: 20, maxH: 700, maxSlope: 0.5, wash: 0.5, mask: (x, z) => 0.2 + 0.8 * smoothstep(0.46, 0.6, n.fbm(x / 110 + 3, z / 110, 2) * 0.5 + 0.5) },
   ],
   clearings: [
     [VILLAGE[0], VILLAGE[2], 100],

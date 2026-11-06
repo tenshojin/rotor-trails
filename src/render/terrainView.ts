@@ -69,6 +69,7 @@ export function makeTerrainUniforms(map: MapDef, hf: Heightfield, surfaceTex: TH
     snowLine: B.snowLine,
     rockSlope: B.rockSlope,
     waterLevel: map.waterLevel ?? -9999,
+    grassy: B.grassy ?? 1,
     uWet: makeWetUniform(),
     rockForm: map.rockForm ?? null,
     strataLUT: map.rockForm ? makeStrataTexture(map.rockForm) : null,

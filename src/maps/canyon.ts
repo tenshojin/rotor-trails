@@ -514,6 +514,7 @@ export const CANYON: MapDef = {
     beachTop: -100,
     snowLine: 9999,
     air: 1.0,
+    grassy: 0.35,
     rockSlope: 0.3,
     waterDeep: 0x2a4a5a,
     waterShallow: 0x5a8a8a,

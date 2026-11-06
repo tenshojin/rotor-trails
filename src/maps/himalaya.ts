@@ -389,6 +389,7 @@ export const HIMALAYA: MapDef = {
     beachTop: -100,
     snowLine: 1150,
     air: 0.7,
+    grassy: 0.8,
     rockSlope: 0.4,
     waterDeep: 0x2a4a6a,
     waterShallow: 0x5a8aa0,
