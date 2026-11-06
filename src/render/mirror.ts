@@ -25,6 +25,7 @@ import {
   normalize,
   perspectiveDepthToViewZ,
   positionWorld,
+  pow,
   reflect,
   screenCoordinate,
   screenUV,
@@ -55,7 +56,7 @@ const T0 = 4;
 const GROW = 1.5;
 const REFINE = 3;
 /** 倒影场：高度图里走的步数和最后的二分次数 */
-const FIELD_STEPS = 20;
+const FIELD_STEPS = 24;
 const FIELD_REFINE = 3;
 
 const depthShared = new Map<boolean, THREE.TextureNode>();
@@ -75,19 +76,23 @@ export function sceneDepthNode(reversedDepth: boolean): THREE.TextureNode {
 function fieldMarch(P0: N<'vec3'>, Rd: N<'vec3'>, f: ReflectField): N<'vec4'> {
   const hTex = texture(f.height);
   const cTex = texture(f.color);
+  const fTex = texture(f.far);
   const S = f.size;
+  const FS = f.farSize;
+  const inMap = (q: N<'vec2'>): N<'float'> => step(max(q.x.abs(), q.y.abs()), float(S / 2));
   const hAt = (q: N<'vec2'>): N<'float'> => {
-    const uvq = q.div(S).add(0.5);
-    const inside = step(uvq.x.sub(0.5).abs(), float(0.5)).mul(step(uvq.y.sub(0.5).abs(), float(0.5)));
-    return mix(float(-1e4), hTex.sample(uvq).level(float(0)).r, inside);
+    const outer = mix(float(-1e4), fTex.sample(q.div(FS).add(0.5)).level(float(0)).a, step(max(q.x.abs(), q.y.abs()), float(FS / 2)));
+    return mix(outer, hTex.sample(q.div(S).add(0.5)).level(float(0)).r, inMap(q));
   };
   return Fn(() => {
     const out = vec4(0).toVar();
     // 光线升到最高的山顶之前才可能碰到东西：高仰角的光线走得短、步子小，贴水面的光线步子大
-    const tMax = min(float(f.top).sub(P0.y).div(Rd.y), float(S * 1.4));
-    const dt = tMax.div(FIELD_STEPS).toVar();
+    const tMax = min(float(Math.max(f.top, f.farTop)).sub(P0.y).div(Rd.y), float(S * 2.4)).toVar();
+    // 步子越走越大：近处的山脊不能跨过去，远处的山够大
+    const inc = float(1 / FIELD_STEPS);
+    const u = inc.mul(interleavedGradientNoise(screenCoordinate.xy).mul(0.7).add(0.3)).toVar();
     const t0 = float(0).toVar();
-    const t1 = dt.mul(interleavedGradientNoise(screenCoordinate.xy).mul(0.7).add(0.3)).toVar();
+    const t1 = tMax.mul(pow(u, 1.6)).toVar();
     const hit = float(0).toVar();
     Loop(FIELD_STEPS, () => {
       const p = P0.add(Rd.mul(t1)).toVar();
@@ -96,7 +101,8 @@ function fieldMarch(P0: N<'vec3'>, Rd: N<'vec3'>, f: ReflectField): N<'vec4'> {
         Break();
       });
       t0.assign(t1);
-      t1.addAssign(dt);
+      u.addAssign(inc);
+      t1.assign(tMax.mul(pow(u, 1.6)));
     });
     If(hit.greaterThan(0.5), () => {
       Loop(FIELD_REFINE, () => {
@@ -107,11 +113,12 @@ function fieldMarch(P0: N<'vec3'>, Rd: N<'vec3'>, f: ReflectField): N<'vec4'> {
         t0.assign(select(under, t0, mid));
       });
       const p = P0.add(Rd.mul(t1)).toVar();
-      const e = 8.0;
+      const inside = inMap(p.xz).toVar();
+      const e = mix(float(64), float(8), inside).toVar();
       const hx = hAt(p.xz.add(vec2(e, 0))).sub(hAt(p.xz.sub(vec2(e, 0))));
       const hz = hAt(p.xz.add(vec2(0, e))).sub(hAt(p.xz.sub(vec2(0, e))));
-      const nrm = normalize(vec3(hx.negate(), 2 * e, hz.negate()));
-      const alb = cTex.sample(p.xz.div(S).add(0.5)).level(float(0));
+      const nrm = normalize(vec3(hx.negate(), e.mul(2), hz.negate()));
+      const alb = mix(vec4(fTex.sample(p.xz.div(FS).add(0.5)).level(float(0)).rgb, 0.6), cTex.sample(p.xz.div(S).add(0.5)).level(float(0)), inside);
       // 打光：太阳（山影里没有）+ 天光（山谷深处看得见的天少）
       const sun = VFOG.sun.mul(max(dot(nrm, FOG.sunDir), 0.0).mul(terrainSun(p)).mul(1 / Math.PI));
       const sky = FOG.color.mul(alb.a.mul(0.75).add(0.1));
@@ -142,15 +149,20 @@ export function screenMirror(nW: N<'vec3'>, foam: N<'float'>, depthNode: THREE.T
     const t1 = float(T0).toVar();
     const hit = float(0).toVar();
     const huv = vec2(0.5).toVar();
+    const szPrev = float(-1).toVar();
     Loop(STEPS, () => {
       const c = proj(t1).toVar();
       const uvq = toUV(c).toVar();
       const uvc = vec2(clamp(uvq.x, 0.0, 1.0), clamp(uvq.y, 0.0, 1.0)).toVar();
-      const sz = viewZ(uvc);
+      const sz = viewZ(uvc).toVar();
       const onScreen = step(0.0, uvq.x).mul(step(uvq.x, 1.0)).mul(step(uvq.y, 1.0)).mul(step(0.0, uvq.y));
       // 光线走到了画面里那个东西的后面（而且没有穿过去太多）= 碰到了。离镜头 3 m 以内是座舱，不算。
-      // 容差要大：树冠很薄，容差小了光线一步就跨过去，倒影里会漏出一块块天空
-      const behind = step(sz, c.w).mul(step(c.w.sub(sz), t1.add(24.0))).mul(step(3.0, sz)).mul(onScreen);
+      // 容差取这一步的长度，再小光线一步就跨过去了。
+      // 这一步落点的画面一下子比上一步近了很多 = 跨过了前景的轮廓，光线其实是从悬崖“后面”飞进山谷的，不是撞上它：
+      // 不排除的话，水面上会多出一条从悬崖脚下画出来的直线（薄的树冠漏过去也不要紧，下面的倒影场接得住）
+      const solid = step(szPrev.sub(sz), t1.mul(0.7).add(30.0));
+      const behind = step(sz, c.w).mul(step(c.w.sub(sz), t1.mul(0.34).add(24.0))).mul(step(3.0, sz)).mul(onScreen).mul(solid);
+      szPrev.assign(sz);
       const fresh = behind.mul(float(1).sub(hit));
       huv.assign(mix(huv, uvc, fresh));
       hit.assign(max(hit, behind));

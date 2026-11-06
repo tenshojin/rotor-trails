@@ -5,7 +5,7 @@ import { clamp, smoothstep } from '../core/math';
 import { makeWeather } from '../sim/weather';
 import type { Vec2 } from '../sim/terrain';
 import { randomBands, type RockFormDef } from '../world/rockForm';
-import { PathSampler } from './routeUtil';
+import { PathSampler, polylineDist, smoothPath } from './routeUtil';
 import type { MapDef, RouteNodeDef, V3 } from './types';
 
 /** 片麻岩：灰色的岩体里斜着的片理，一层硬一层软，岩壁上是一道道斜着的岩架 */
@@ -77,14 +77,44 @@ function land(x: number, z: number): number {
   return -3 + (plateau(x, z) + 3) * smoothstep(0, 140, dc);
 }
 
+/** 峡湾尽头的冲积平原出了地图还往内陆走：一条慢慢抬高的河谷（不然平原撞在地图边上，是一道笔直的斜坡） */
+const VALLEY: Vec2[] = smoothPath(
+  [
+    [1960, -790],
+    [2320, -720],
+    [2760, -860],
+    [3260, -740],
+    [3880, -930],
+    [4700, -780],
+    [5600, -960],
+  ],
+  60,
+  46,
+);
+
 /** 远景：海岸以外是海，内陆的高原往东抬升成积雪的山脉 */
 function far(x: number, z: number): number {
-  const h = land(x, z);
-  const k = smoothstep(2100, 5600, x) * smoothstep(-300, 300, h);
-  if (k <= 0) return h;
-  const wx = x + 500 * n2.noise(x / 2400, z / 2400);
-  const crag = Math.pow(n.ridged(wx / 3600, z / 3600 + 5, 7, 2.05, 0.5, 2.0), 1.25);
-  return h + k * (500 + 1900 * crag);
+  let h = land(x, z);
+  // 山脚沿南北方向进进出出，雪线才不是一条直线
+  const foot = x + 1000 * n2.noise(z / 2300, 3.3) + 460 * n.noise(z / 830, x / 1100);
+  const k = smoothstep(2100, 5600, foot) * smoothstep(-300, 300, h);
+  if (k > 0) {
+    const wx = x + 500 * n2.noise(x / 2400, z / 2400);
+    const crag = Math.pow(n.ridged(wx / 3600, z / 3600 + 5, 7, 2.05, 0.5, 2.0), 1.25);
+    h += k * (500 + 1900 * crag);
+  }
+  const d = polylineDist(VALLEY, x, z, 760);
+  if (d !== Infinity) {
+    const t = smoothstep(2000, 5400, x);
+    const floor = 12 + 470 * t + 6 * n.noise(x / 90, z / 90);
+    const fw = 165 - 95 * t + 26 * n2.noise(x / 310, z / 310);
+    const wobble = d + 34 * n.noise(x / 130, z / 130) + 14 * n2.noise(x / 47, z / 47);
+    if (wobble < fw) h = Math.min(h, floor);
+    else h = Math.min(h, floor + (h - floor) * smoothstep(fw, fw + 560, wobble) ** 0.8);
+  }
+  // 远景网格到 16 km 为止，飞高了能看到陆地像被刀切开一样。让陆地在那之前慢慢沉进海里，天边是海
+  const end = Math.max(Math.abs(z), x) + 1500 * n.noise(x / 5200, z / 5200) + 520 * n2.noise(x / 1700, z / 1700);
+  return h + (-60 - h) * smoothstep(10500, 14000, end);
 }
 
 // ---------- 关键位置 ----------

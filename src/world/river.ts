@@ -4,6 +4,48 @@ import { smoothstep } from '../core/math';
 import type { RiverDef, V3 } from '../maps/types';
 import type { HeightBuilder, Vec2 } from '../sim/terrain';
 
+/**
+ * 河线的水面高度是按谷底估的。实际地形经过侵蚀，河线绕开建筑时还会偏到谷坡上，两岸可能比水面还低，
+ * 水就架在半空。这里按两岸真实的地面把水面往下调，并保证一路往下流（pts 从上游排到下游）。
+ */
+export function settleRiver(hb: HeightBuilder, r: RiverDef): void {
+  const n = hb.res;
+  const ground = (x: number, z: number): number => {
+    const fx = Math.min(n - 1.001, Math.max(0, (x + hb.half) / hb.cell));
+    const fz = Math.min(n - 1.001, Math.max(0, (z + hb.half) / hb.cell));
+    const ix = fx | 0;
+    const iz = fz | 0;
+    const u = fx - ix;
+    const v = fz - iz;
+    const d = hb.data;
+    const o = iz * n + ix;
+    return (d[o] * (1 - u) + d[o + 1] * u) * (1 - v) + (d[o + n] * (1 - u) + d[o + n + 1] * u) * v;
+  };
+  const pts = r.pts;
+  const level = pts.map((p, i) => {
+    const a = pts[Math.max(0, i - 1)];
+    const b = pts[Math.min(pts.length - 1, i + 1)];
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const nx = -(b[1] - a[1]) / l;
+    const nz = (b[0] - a[0]) / l;
+    let low = p[2];
+    for (const w of [p[3] + 3, p[3] + 9]) {
+      low = Math.min(low, ground(p[0] + nx * w, p[1] + nz * w) - 0.4, ground(p[0] - nx * w, p[1] - nz * w) - 0.4);
+    }
+    return low;
+  });
+  for (let i = 1; i < level.length; i++) level[i] = Math.min(level[i], level[i - 1]);
+  // 抹平台阶，再保证一次不往回流
+  for (let pass = 0; pass < 3; pass++) {
+    const prev = [...level];
+    for (let i = 1; i + 1 < level.length; i++) level[i] = Math.min(prev[i], (prev[i - 1] + prev[i] * 2 + prev[i + 1]) / 4);
+  }
+  for (let i = 1; i < level.length; i++) level[i] = Math.min(level[i], level[i - 1]);
+  pts.forEach((p, i) => {
+    p[2] = level[i];
+  });
+}
+
 export function carveRiver(hb: HeightBuilder, r: RiverDef, mask?: Float32Array): void {
   const pts = r.pts;
   const line: Vec2[] = pts.map((p) => [p[0], p[1]]);
@@ -30,7 +72,10 @@ export function carveRiver(hb: HeightBuilder, r: RiverDef, mask?: Float32Array):
   hb.applySpline(line, reach, (h, d, s, x, z, len) => {
     const [lv, hw] = at((s / len) * total);
     if (d >= hw + r.bank) return h;
-    const k = mask ? mask[Math.round((z + size / 2) / cell) * res + Math.round((x + size / 2) / cell)] : 1;
+    // 保护区（停机坪、建筑一带）不动地形，但河床除外：河线已经绕开了建筑，这里再不挖，河就钻到地下去了。
+    // 水边挖到底，往外才慢慢回到保护区的高度
+    const k0 = mask ? mask[Math.round((z + size / 2) / cell) * res + Math.round((x + size / 2) / cell)] : 1;
+    const k = Math.max(k0, 1 - smoothstep(hw, hw + r.bank, d));
     if (k <= 0) return h;
     let v: number;
     if (d < hw) {

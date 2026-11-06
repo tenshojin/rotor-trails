@@ -102,6 +102,43 @@ export function polylineDist(path: Vec2[], x: number, z: number, reach: number):
 }
 
 /**
+ * 穿过这些点的圆滑曲线（Catmull-Rom）。手写的控制点直接连成折线，从高处看是一段段的直线。
+ * wander：再叠上一些大小不等的弯（米）。
+ */
+export function smoothPath(path: Vec2[], step = 70, wander = 0): Vec2[] {
+  const out: Vec2[] = [];
+  let s = 0;
+  const push = (x: number, z: number, dx: number, dz: number): void => {
+    const l = Math.hypot(dx, dz) || 1;
+    // 大小两种弯叠起来，起点（和地图里的河接上的地方）不偏
+    const w = wander * Math.min(1, s / 300) * (Math.sin(s / 190 + 0.6) + 0.55 * Math.sin(s / 83 + 2.1));
+    out.push([x - (dz / l) * w, z + (dx / l) * w]);
+  };
+  for (let i = 0; i + 1 < path.length; i++) {
+    const p0 = path[Math.max(0, i - 1)];
+    const p1 = path[i];
+    const p2 = path[i + 1];
+    const p3 = path[Math.min(path.length - 1, i + 2)];
+    const len = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+    const n = Math.max(1, Math.round(len / step));
+    const at = (a: number, b: number, c: number, d: number, t: number): number =>
+      0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (3 * b - a - 3 * c + d) * t * t * t);
+    for (let k = 0; k < n; k++) {
+      const t = k / n;
+      const x = at(p0[0], p1[0], p2[0], p3[0], t);
+      const z = at(p0[1], p1[1], p2[1], p3[1], t);
+      const e = 0.02;
+      push(x, z, at(p0[0], p1[0], p2[0], p3[0], t + e) - x, at(p0[1], p1[1], p2[1], p3[1], t + e) - z);
+      s += len / n;
+    }
+  }
+  const a = path[path.length - 2];
+  const b = path[path.length - 1];
+  push(b[0], b[1], b[0] - a[0], b[1] - a[1]);
+  return out;
+}
+
+/**
  * 地图外面的河（只有画面）：沿折线等距取点，水面跟着远景地形一起下沉（见 TerrainView.buildFar），
  * 否则河是浮在半空的。half：河面半宽。
  */

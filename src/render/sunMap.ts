@@ -24,8 +24,36 @@ const ragged = new Perlin2(907);
 
 let current: THREE.DataTexture | null = null;
 
-/** 算出“沿太阳方向传过来的阴影面高度”（只看上游，不含这一格自己的地形） */
-export function bakeShadowHeights(t: Heightfield, sunDir: THREE.Vector3): Float32Array {
+/** 地图外面地形的粗网格（见 reflectMap.ts）：太阳低的时候，光是从地图外的山背后照过来的 */
+export interface FarGrid {
+  h: Float32Array;
+  res: number;
+  /** 边长（米） */
+  size: number;
+}
+
+/** 从 (x, z) 朝太阳走，地图外的山在这一点头顶挡到多高 */
+function farShade(g: FarGrid, x: number, z: number, sx: number, sz: number, tanEl: number): number {
+  const R = g.res;
+  const cell = g.size / R;
+  let top = -1e4;
+  for (let s = cell; ; s += cell) {
+    const fx = (x + sx * s) / cell + R / 2 - 0.5;
+    const fz = (z + sz * s) / cell + R / 2 - 0.5;
+    if (fx < 0 || fz < 0 || fx >= R - 1 || fz >= R - 1) return top;
+    const ix = fx | 0;
+    const iz = fz | 0;
+    const u = fx - ix;
+    const v = fz - iz;
+    const o = iz * R + ix;
+    const h = (g.h[o] * (1 - u) + g.h[o + 1] * u) * (1 - v) + (g.h[o + R] * (1 - u) + g.h[o + R + 1] * u) * v;
+    const y = h - s * tanEl;
+    if (y > top) top = y;
+  }
+}
+
+/** 算出“沿太阳方向传过来的阴影面高度”（只看上游，不含这一格自己的地形）。far：地图外的山也算 */
+export function bakeShadowHeights(t: Heightfield, sunDir: THREE.Vector3, far: FarGrid | null = null): Float32Array {
   const n = t.res;
   const h = t.data;
   const hl = Math.hypot(sunDir.x, sunDir.z);
@@ -44,18 +72,27 @@ export function bakeShadowHeights(t: Heightfield, sunDir: THREE.Vector3): Float3
   const drop = tanEl * t.cell * Math.hypot(1, off);
   const start = a > 0 ? n - 1 : 0;
   const idx = alongX ? (u: number, v: number) => v * n + u : (u: number, v: number) => u * n + v;
+  /** 这一格上游已经出了地图：地图外的山挡到多高 */
+  const outside = (u: number, v: number): number => {
+    if (!far) return -1e4;
+    const a0 = u * t.cell - t.half;
+    const b0 = v * t.cell - t.half;
+    return alongX ? farShade(far, a0, b0, sx, sz, tanEl) : farShade(far, b0, a0, sx, sz, tanEl);
+  };
   for (let k = 0; k < n; k++) {
     const u = start - dir * k;
     for (let v = 0; v < n; v++) {
       const i = idx(u, v);
       if (k === 0) {
-        S[i] = h[i];
+        U[i] = outside(u, v);
+        S[i] = U[i] > h[i] ? U[i] : h[i];
         continue;
       }
       const f = Math.min(n - 1.001, Math.max(0, v + off));
       const v0 = f | 0;
       const w = f - v0;
-      const up = S[idx(u + dir, v0)] * (1 - w) + S[idx(u + dir, v0 + 1)] * w - drop;
+      let up = S[idx(u + dir, v0)] * (1 - w) + S[idx(u + dir, v0 + 1)] * w - drop;
+      if (v + off < 0 || v + off > n - 1) up = Math.max(up, outside(u, v));
       U[i] = up;
       S[i] = up > h[i] ? up : h[i];
     }
@@ -64,9 +101,9 @@ export function bakeShadowHeights(t: Heightfield, sunDir: THREE.Vector3): Float3
 }
 
 /** 换地图或换时段时调用 */
-export function setSunMap(t: Heightfield, sunDir: THREE.Vector3): void {
+export function setSunMap(t: Heightfield, sunDir: THREE.Vector3, far: FarGrid | null = null): void {
   const n = t.res;
-  const U = bakeShadowHeights(t, sunDir);
+  const U = bakeShadowHeights(t, sunDir, far);
   const half = new Uint16Array(n * n);
   // 影子的边缘不是一条尺子画的直线：投影的山脊本身是碎的，高度图一格 4 米又把它抹平了，这里把碎的感觉补回来
   for (let z = 0; z < n; z++)
@@ -102,4 +139,16 @@ export const terrainSun = Fn(([pIn]: [THREE.Node<'vec3'>]) => {
   const inside = step(uv.x.sub(0.5).abs(), float(0.5)).mul(step(uv.y.sub(0.5).abs(), float(0.5)));
   const s = heightTex.sample(vec2(uv)).level(float(0)).r;
   return mix(float(1), smoothstep(s.sub(SOFT * 2), s, p.y), inside.mul(active));
+});
+
+/**
+ * 同上，给雾里的光束用。地面上的山影边缘清楚，雾里的光经过多次散射，边缘是一大片渐变；
+ * 按硬边算的话光束的边界是一个平面，从镜头看就是一条穿过山和水面的直线。
+ */
+export const terrainSunHaze = Fn(([pIn]: [THREE.Node<'vec3'>]) => {
+  const p = vec3(pIn);
+  const uv = p.xz.div(mapSize).add(0.5);
+  const inside = step(uv.x.sub(0.5).abs(), float(0.5)).mul(step(uv.y.sub(0.5).abs(), float(0.5)));
+  const s = heightTex.sample(vec2(uv)).level(float(0)).r;
+  return mix(float(1), smoothstep(s.sub(190), s.add(70), p.y), inside.mul(active));
 });

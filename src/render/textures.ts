@@ -103,14 +103,15 @@ export function makeSurfaceTexture(surface: Uint8Array, res: number): THREE.Data
 export function makeForestTexture(trees: TreeSet, size: number, flow: FlowMap | null = null): THREE.DataTexture {
   const N = 512;
   const acc = new Float32Array(N * N);
+  // 蓝通道：真的种了树的地方（红通道还算上地图边稀下去的那些）
+  const live = new Float32Array(N * N);
   const k = N / size;
-  for (let i = 0; i < trees.count; i++) {
-    const t = trees.type[i];
-    if (t === 8 || t === 10) continue; // 灌木、石块
-    const cx = (trees.x[i] + size / 2) * k;
-    const cz = (trees.z[i] + size / 2) * k;
+  const splat = (tx: number, tz: number, ts: number, t: number, real = 1): void => {
+    if (t === 8 || t === 10) return; // 灌木、石块
+    const cx = (tx + size / 2) * k;
+    const cz = (tz + size / 2) * k;
     // 雨林林冠树（模型树冠半径约 12.5 m）的林下地面范围更大，树冠之间看下去是阴暗的林地而不是草坪
-    const r = Math.max(1.5, (t === 2 || t === 3 ? 24 : 8.5) * trees.s[i] * k);
+    const r = Math.max(1.5, (t === 2 || t === 3 ? 24 : 8.5) * ts * k);
     const x0 = Math.max(0, Math.floor(cx - r));
     const x1 = Math.min(N - 1, Math.ceil(cx + r));
     const z0 = Math.max(0, Math.floor(cz - r));
@@ -118,13 +119,20 @@ export function makeForestTexture(trees: TreeSet, size: number, flow: FlowMap | 
     for (let z = z0; z <= z1; z++)
       for (let x = x0; x <= x1; x++) {
         const d = Math.hypot(x - cx, z - cz) / r;
-        if (d < 1) acc[z * N + x] += (1 - d) * 0.7;
+        if (d < 1) {
+          acc[z * N + x] += (1 - d) * 0.7;
+          live[z * N + x] += (1 - d) * 0.7 * real;
+        }
       }
-  }
+  };
+  for (let i = 0; i < trees.count; i++) splat(trees.x[i], trees.z[i], trees.s[i], trees.type[i]);
+  const g = trees.ghosts;
+  if (g) for (let i = 0; i + 3 < g.length; i += 4) splat(g[i], g[i + 1], g[i + 2], g[i + 3], 0);
   const data = new Uint8Array(N * N * 4);
   for (let i = 0; i < N * N; i++) {
     const v = Math.min(1, acc[i]);
     data[i * 4] = Math.round(v * 255);
+    data[i * 4 + 2] = Math.round(Math.min(1, live[i]) * 255);
     data[i * 4 + 3] = 255;
   }
   if (flow) {

@@ -3,10 +3,43 @@
 // 低画质只缩短远景距离，碰撞相关的近处树木始终可见。
 
 import * as THREE from 'three/webgpu';
-import { cameraPosition, dFdx, dFdy, dot, float, length, log2, max, min, normalize, normalLocal, normalViewGeometry, positionGeometry, positionLocal, positionWorld, pow, sin, smoothstep, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
+import {
+  abs,
+  cameraPosition,
+  cameraViewMatrix,
+  dFdx,
+  dFdy,
+  dot,
+  float,
+  interleavedGradientNoise,
+  length,
+  log2,
+  max,
+  min,
+  mix,
+  normalize,
+  normalLocal,
+  normalViewGeometry,
+  positionGeometry,
+  positionLocal,
+  positionView,
+  positionWorld,
+  pow,
+  screenCoordinate,
+  sin,
+  smoothstep,
+  step,
+  texture,
+  uniform,
+  uv,
+  vec2,
+  vec3,
+  vec4,
+} from 'three/tsl';
 import { HELI } from '../config/flight';
 import { FOG, WASH } from './atmosphere';
 import { terrainSun } from './sunMap';
+import { getNoiseTexture } from './textures';
 import { VFOG } from './volumetricFog';
 import { loadGltf } from './gltf';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -261,7 +294,7 @@ export function loadTreeLib(): Promise<TreeLib | null> {
 }
 
 function makeWindUniforms() {
-  return { uTime: uniform(0), uWind: uniform(new THREE.Vector2()), uGust: uniform(0) };
+  return { uTime: uniform(0), uWind: uniform(new THREE.Vector2()), uGust: uniform(0), uFar: uniform(2200) };
 }
 type WindUniforms = ReturnType<typeof makeWindUniforms>;
 
@@ -369,6 +402,8 @@ export class TreeView {
   private lastPos = new THREE.Vector3(1e9, 0, 0);
   private lastDir = new THREE.Vector3();
   private lastT = -10;
+  /** 每棵树换细节级的距离都错开一点（距离平方的系数）：不错开的话，换级的地方是一道整齐的圆弧 */
+  private spread: Float32Array;
   private uniforms: WindUniforms = makeWindUniforms();
   private materials = new Map<string, THREE.MeshStandardNodeMaterial>();
   private leafMats: THREE.MeshStandardNodeMaterial[] = [];
@@ -384,6 +419,7 @@ export class TreeView {
   set quality(q: TreeQuality) {
     // 叶片边缘的锯齿交给后期的时间抗锯齿（TRAA）处理，不再用 alpha-to-coverage
     this.q = q;
+    this.uniforms.uFar.value = q.far;
     this.lastT = -10;
     this.rebuild = true;
   }
@@ -395,6 +431,8 @@ export class TreeView {
     const grey = (rockTint.r + rockTint.g + rockTint.b) / 3;
     rockTint.lerp(new THREE.Color(grey, grey, grey), 0.55).multiplyScalar(0.85 / Math.max(grey, 0.03));
     this.modeled = lib !== null;
+    this.spread = new Float32Array(trees.count);
+    for (let i = 0; i < trees.count; i++) this.spread[i] = 0.5 + 1.25 * hash(trees.x[i], trees.z[i], 3.7);
     for (let t = 0; t < TREE_TYPES.length; t++) this.byType.push([]);
     for (let i = 0; i < trees.count; i++) this.byType[trees.type[i]].push(i);
     const white = new THREE.Color(1, 1, 1);
@@ -408,7 +446,7 @@ export class TreeView {
       }
       const lods = lib?.get(type);
       const geoSets = lods
-        ? lods.map((parts) => parts.map((p) => ({ g: p.geometry, mat: this.materialFor(p.source), tint: p.source.name.includes('leaves') })))
+        ? lods.map((parts, l) => parts.map((p) => ({ g: p.geometry, mat: this.materialFor(p.source, l === 2), tint: p.source.name.includes('leaves') })))
         : buildTree(type).map((g) => {
             this.ownGeometry.push(g);
             return [{ g, mat: this.materialFor(null), tint: true }];
@@ -439,13 +477,13 @@ export class TreeView {
     });
   }
 
-  /** GLB 材质 → 带风摆的渲染材质（同名共用）；null = 程序几何体用的顶点色材质。 */
-  private materialFor(src: THREE.MeshStandardMaterial | null): THREE.MeshStandardNodeMaterial {
-    const key = src ? src.name : '__procedural';
+  /** GLB 材质 → 带风摆的渲染材质（同名共用）；null = 程序几何体用的顶点色材质。mass：最远一级的体块树冠。 */
+  private materialFor(src: THREE.MeshStandardMaterial | null, mass = false): THREE.MeshStandardNodeMaterial {
+    const leaf = !!src && src.name.includes('leaves');
+    const key = src ? src.name + (leaf && mass ? '#mass' : '') : '__procedural';
     const hit = this.materials.get(key);
     if (hit) return hit;
     const U = this.uniforms;
-    const leaf = !!src && src.name.includes('leaves');
     const still = !!src && src.name.includes('cactus');
     let m: THREE.MeshStandardNodeMaterial;
     if (!src) {
@@ -473,17 +511,37 @@ export class TreeView {
         const ddy = dFdy(tuv);
         const boost = max(0.0, log2(max(dot(ddx, ddx), dot(ddy, ddy))).mul(0.5)).mul(0.25).add(1.0);
         const c = texture(map, uv());
-        const albedo = c.rgb.mul(vec3(src.color.r, src.color.g, src.color.b));
+        let albedo: THREE.Node<'vec3'> = c.rgb.mul(vec3(src.color.r, src.color.g, src.color.b));
+        let cover: THREE.Node<'float'> = float(1);
+        if (mass) {
+          // 最远一级是一个光滑的椭球，从上面看就是一地绿球。用世界坐标的细胞噪声画出一团团的枝叶：
+          // 团块亮、缝隙暗，轮廓上啃出缺口；太阳照出的球面明暗也压平一半（真的树冠是毛的，没有这么圆）
+          const noise = getNoiseTexture();
+          const wp = positionWorld.xz.add(positionWorld.y.mul(0.7));
+          const c1 = texture(noise, wp.mul(0.0125)).b;
+          const c2 = texture(noise, wp.mul(0.034).add(0.37)).b;
+          const lump = float(1).sub(c1.mul(c1).mul(1.25)).mul(0.62).add(float(1).sub(c2.mul(c2).mul(1.25)).mul(0.38)).toVar();
+          // （近处两级的树叶互相遮挡、接收阴影，比这一级暗得多：密林里要压下来，不然一圈暗树围着一片亮树）
+          const gain = this.trees.count > 50000 ? 0.7 : 1;
+          albedo = albedo.mul(mix(float(0.42 * gain), float(1.32 * gain), lump)).mul(vec3(0.62, 0.95, 0.58));
+          const rim = float(1).sub(abs(dot(normalViewGeometry, normalize(positionView.negate()))));
+          cover = step(rim.mul(rim).mul(0.86), lump);
+        } else if (this.trees.count > 50000) {
+          albedo = albedo.mul(smoothstep(170.0, 520.0, length(positionWorld.sub(cameraPosition))).mul(0.3).add(1.0));
+        }
         // 透明度再看粗一级的贴图：一两个像素大的叶子不再切成一颗颗碎点，树冠边缘是成团的
         // （取两者较小的：只用粗的，透明的地方也会露出来，卡片边上是一圈黑边和邻格的白线）
-        m.colorNode = vec4(albedo, min(c.a, texture(map, uv()).bias(float(0.8)).a).mul(boost));
+        // 画得到的最远处，树一棵棵化进地形的树冠层，不是一条线上突然没了
+        const fade = float(1).sub(smoothstep(U.uFar.mul(0.78), U.uFar, length(positionWorld.sub(cameraPosition))));
+        const keep = step(interleavedGradientNoise(screenCoordinate.xy), fade);
+        m.colorNode = vec4(albedo, min(c.a, texture(map, uv()).bias(float(0.8)).a).mul(boost).mul(keep).mul(cover));
         // 叶片是半透明的：迎着太阳看时被照透（发亮的黄绿色）；树冠里的暗处也有叶片之间反射的绿光，不是黑洞
         const back = pow(max(dot(normalize(positionWorld.sub(cameraPosition)), FOG.sunDir), 0.0), 3.0);
         // （阳光那部分要乘山影：在山的影子里叶片没有被照透，否则一棵棵树在暗处发光）
         // （太阳很低时迎光的一面也亮：叶子是一层层竖着的，不是平铺的）
         m.emissiveNode = albedo.mul(vec3(1.08, 1.16, 0.72)).mul(FOG.color.mul(0.13).add(VFOG.sun.mul(back.mul(0.15).add(0.018).add(VFOG.low.mul(0.16))).mul(terrainSun(positionWorld))));
         // 双面渲染时背面不翻转法线（叶片法线朝树冠外侧，翻转会让背面发黑）
-        m.normalNode = normalViewGeometry;
+        m.normalNode = mass ? normalize(mix(normalViewGeometry, cameraViewMatrix.mul(vec4(0, 1, 0, 0)).xyz, 0.5)) : normalViewGeometry;
       }
       if (leaf) this.leafMats.push(m);
     }
@@ -499,10 +557,10 @@ export class TreeView {
     this.uniforms.uWind.value.set(windX * 0.09, windZ * 0.09);
     this.uniforms.uGust.value = gust;
     const pos = cam.position;
+    // 视线方向和距离都按三维算：飞得高、往下看时，脚下的树也在视野里，而且离得很远（按水平距离算，
+    // 正下方一圈是全细节，前方一块楔形是远景，别的地方没有树，从高空看是一个圆加一块三角）
     const dir = new THREE.Vector3();
     cam.getWorldDirection(dir);
-    dir.y = 0;
-    dir.normalize();
     const away = pos.distanceTo(this.lastPos);
     const moved = this.backlog || away > 25 || dir.dot(this.lastDir) < 0.96 || t - this.lastT > 1.5;
     if (!moved && !force) return;
@@ -519,7 +577,7 @@ export class TreeView {
     // 密林（亚马孙）：树的数量是别的地图的好几倍，近景细节收得更早；远处隔一棵画一棵、放大一点，
     // 那里地形本身已经画了树冠层，看不出少了树
     const dense = T.count > 50000;
-    const lim2 = (this.modeled ? [Math.min(Q.near * 0.42, dense ? 170 : 260), Q.near * (dense ? 0.8 : 1.25)] : [Q.near]).map((d) => d * d);
+    const lim2 = (this.modeled ? [Math.min(Q.near * 0.42, dense ? 170 : 260), Q.near * (dense ? 1.1 : 1.25)] : [Q.near]).map((d) => d * d);
     const thin2 = dense ? Q.far * Q.far * 0.16 : Infinity;
     const far2 = Q.far * Q.far;
     const always2 = 300 * 300;
@@ -546,6 +604,7 @@ export class TreeView {
       set.dirty.push(n);
     };
     const pend = this.pending;
+    const spread = this.spread;
     TREE_TYPES.forEach((_type, ti) => {
       const sets = this.sets[ti];
       if (!sets) return;
@@ -556,15 +615,17 @@ export class TreeView {
         const i = list[k];
         const was = P.lod[k];
         const dx = T.x[i] - pos.x;
+        const dy = T.y[i] - pos.y;
         const dz = T.z[i] - pos.z;
-        const d2 = dx * dx + dz * dz;
+        const d2 = dx * dx + dy * dy + dz * dz;
         let l = -1;
         let big = 0;
-        if (d2 <= far2 && (d2 <= always2 || (dx * dir.x + dz * dir.z) / Math.sqrt(d2) >= (was >= 0 ? cosKeep : cosHalf))) {
-          big = d2 > thin2 ? 1 : 0;
+        if (d2 <= far2 && (d2 <= always2 || (dx * dir.x + dy * dir.y + dz * dir.z) / Math.sqrt(d2) >= (was >= 0 ? cosKeep : cosHalf))) {
+          const dj = d2 * spread[i];
+          big = dj > thin2 ? 1 : 0;
           if (!big || (i & 1) === 0) {
             l = 0;
-            while (l < lim2.length && d2 >= lim2[l]) l++;
+            while (l < lim2.length && dj >= lim2[l]) l++;
             l = Math.min(l, sets.length - 1);
           }
         }

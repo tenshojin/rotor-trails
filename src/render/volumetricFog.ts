@@ -18,7 +18,7 @@ import { abs, clamp, context, dot, exp, float, floor, fract, Fn, If, interleaved
 import { FOG } from './atmosphere';
 import { getCloudNoise3D } from './cloudNoise';
 import { cloudShadow } from './cloudShadowMap';
-import { terrainSun } from './sunMap';
+import { terrainSunHaze } from './sunMap';
 import { SHADOW_SPLITS, type SunShadows } from './sunShadows';
 
 /** 体积雾参数（WorldView 每帧按天气更新） */
@@ -245,7 +245,7 @@ export class VolumetricFogNode extends THREE.Node {
         const t = tA.mul(s.mul(s));
         const dt = tA.mul(s.mul(2.0).add(1.0 / N)).div(N);
         const p = cam.add(wd.mul(t));
-        const vis = sunVis(p, t.mul(fwd)).mul(cloudShadow(p)).mul(terrainSun(p));
+        const vis = sunVis(p, t.mul(fwd)).mul(cloudShadow(p)).mul(terrainSunHaze(p));
         const fade = float(1).sub(smoothstep(range * 0.55, range, t));
         const m = mistAt(p);
         const a = exp(m.x.mul(fade).mul(dt).negate());
@@ -267,7 +267,7 @@ export class VolumetricFogNode extends THREE.Node {
         Loop(NF, ({ i }: { i: THREE.Node<'int'> }) => {
           const t = tA.add(float(i).add(jit).mul(seg));
           const p = cam.add(wd.mul(t));
-          const vis = sunVis(p, t.mul(fwd)).mul(cloudShadow(p)).mul(terrainSun(p));
+          const vis = sunVis(p, t.mul(fwd)).mul(cloudShadow(p)).mul(terrainSunHaze(p));
           const ah = exp(hazeAt(p).mul(seg).negate());
           Lh.addAssign(sunH.mul(vis).mul(Th.mul(Tm).mul(float(1).sub(ah))));
           Th.mulAssign(ah);

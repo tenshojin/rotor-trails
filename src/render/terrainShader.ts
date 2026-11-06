@@ -39,7 +39,6 @@ import {
   vec3,
   vec4,
   mx_noise_float,
-  mx_worley_noise_float,
 } from 'three/tsl';
 import type { RockFormDef } from '../world/rockForm';
 import { FOG } from './atmosphere';
@@ -52,6 +51,9 @@ type N<T extends string> = THREE.Node<T>;
 
 /** 地面湿度 uniform（0..1） */
 export const makeWetUniform = () => uniform(0);
+
+/** 真树画到多远（米，随画质变）：这个距离以内，树冠层只从树和树的缝里露出来 */
+export const TREE_RANGE = uniform(2200);
 
 export interface TerrainUniforms {
   noise: THREE.Texture;
@@ -117,13 +119,16 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const slope = float(1).sub(n.y);
     const h = P.y;
     const muv = P.xz.div(U.mapSize).add(0.5);
-    const surf = texture(U.surface, muv);
+    const edgeD = max(abs(muv.x.sub(0.5)), abs(muv.y.sub(0.5))).sub(0.5);
+    const outK = smoothstep(-0.012, 0.03, edgeD);
+    // 地图外面没有地表图：贴图会把边上那一格一直拉出去，路和积雪在地图外成了一条条笔直的线
+    const surf = texture(U.surface, muv).mul(float(1).sub(outK));
     const forestMap = texture(U.forest, muv);
     // 地图外面没有树冠图（贴图会把边上那一格一直拉出去，成了一道道放射的条纹）：
     // 按边缘的平均覆盖度铺一层，大块地疏密起伏，和地图里的林子看不出分界
-    const outK = smoothstep(-0.012, 0.03, max(abs(muv.x.sub(0.5)), abs(muv.y.sub(0.5))).sub(0.5));
-    const farForest = clamp(texture(noise, P.xz.mul(0.00031)).r.sub(0.5).mul(1.6 * (1 - 0.8 * U.forestFar)).add(U.forestFar), 0.0, 1.0);
-    const forest = mix(forestMap.r, farForest, outK).toVar();
+    const farForest = clamp(texture(noise, P.xz.mul(0.00031)).r.sub(0.5).mul(1.6 * (1 - 0.8 * U.forestFar)).add(U.forestFar), 0.0, 1.0).mul(smoothstep(U.waterLevel + 2.0, U.waterLevel + 8.0, h));
+    // 靠近地图边，树一片片稀下去（见 vegetation.ts），这一层先铺上接住，林子不会沿着一条直线断掉
+    const forest = max(mix(forestMap.r, farForest, outK), farForest.mul(smoothstep(-0.11, -0.01, edgeD))).toVar();
     // 地图外面的远景地形没有宏观图：凹凸取中性值，坡度用几何法线
     const inMap = step(abs(muv.x.sub(0.5)), 0.5).mul(step(abs(muv.y.sub(0.5)), 0.5));
     const mac0 = texture(U.macro, muv);
@@ -149,7 +154,8 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const rk = triR(0.006, 0.0).mul(0.65).add(triG(0.028, 0.0).mul(0.35));
     const r2 = smoothstep(0.32, 0.68, rk).toVar();
     const rockW = smoothstep(U.rockSlope - 0.07, U.rockSlope + 0.06, mix(mac.a, slope, 0.25).add(n1.sub(0.5).mul(0.14)).add(n3.sub(0.5).mul(0.1))).toVar();
-    const snowAlt = smoothstep(U.snowLine - 50.0, U.snowLine + 30.0, h.add(n1.sub(0.5).mul(90.0)));
+    // 地图外面没有积雪图，全靠这条雪线：再掺大小两种起伏，山沟里的雪伸得低，向阳的坡露出来，不是沿着等高线一刀切
+    const snowAlt = smoothstep(U.snowLine - 50.0, U.snowLine + 30.0, h.add(n1.sub(0.5).mul(90.0)).add(texture(noise, P.xz.mul(0.0013).add(0.37)).g.sub(0.5).mul(380.0).add(n3.sub(0.5).mul(150.0)).mul(outK)));
     const strataColor = (y: N<'float'>) => {
       const t = fract(y.div(46.0));
       const b = fract(y.div(11.0));
@@ -443,18 +449,24 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const canopyK = smoothstep(0.25, 0.75, forest).mul(smoothstep(90.0, 300.0, camDist)).mul(float(1).sub(snowW)).toVar();
     const crown = float(0).toVar();
     If(canopyK.greaterThan(0.01), () => {
-      const cp = P.xz.div(5.2);
-      const f1 = mx_worley_noise_float(cp);
-      const dome = clamp(float(1).sub(f1.mul(f1).mul(1.7)), 0.0, 1.0);
+      // （一团的大小和真树的树冠差不多，再套一层小枝叶团，和最远一级的树是同一个做法。
+      // 用噪声贴图的细胞通道：有多级贴图，离得远了自动变平，程序噪声那样会闪成一片噪点）
+      const cell = (off: N<'vec2'>, s: number, o: number) => texture(noise, P.xz.add(off).div(s).add(o)).grad(dPx.xz.div(s), dPy.xz.div(s)).b;
+      const f1 = cell(vec2(0, 0), 224, 0);
+      const f2 = cell(vec2(0, 0), 80, 0.37);
+      const dome = float(1).sub(f1.mul(f1).mul(1.25)).mul(0.62).add(float(1).sub(f2.mul(f2).mul(1.25)).mul(0.38));
       const hue = mx_noise_float(P.xz.mul(0.012)).mul(0.5).add(0.5);
-      const fine = mx_noise_float(P.xz.mul(0.35)).mul(0.5).add(0.5);
-      // （地图外面没有真树，只有这一层：要和树冠之间的阴影一起算，比地图里压得更暗，边上才接得上）
-      const canopy = mix(vec3(0.052, 0.104, 0.046), vec3(0.1, 0.16, 0.052), hue).mul(dome.mul(0.75).add(0.35)).mul(fine.mul(0.3).add(0.85)).mul(mix(float(1), float(0.72), outK));
+      const fine = texture(noise, P.xz.div(96.0)).grad(dPx.xz.div(96.0), dPy.xz.div(96.0)).g;
+      // 贴着地平线看，一棵棵树冠互相挡着，看到的多半是背阴面和树冠之间的阴影；从上往下看，都是向阳的树冠顶。
+      // 地图里外用同一条规则（只压地图外面的话，飞高了地图是一块亮方块）
+      const graze = smoothstep(0.05, 0.38, abs(P.y.sub(cameraPosition.y)).div(max(camDist, 1.0)));
+      // 有真树的范围里，这一层只从树和树的缝里露出来：那是树冠底下的阴影，不能比树冠还亮
+      const gap = mix(float(1), mix(float(0.42), float(1), smoothstep(TREE_RANGE.mul(0.72), TREE_RANGE, camDist)), smoothstep(0.25, 0.8, forestMap.b).mul(float(1).sub(outK)));
+      const canopy = mix(vec3(0.016, 0.062, 0.013), vec3(0.032, 0.096, 0.015), hue).mul(dome.mul(0.75).add(0.35)).mul(fine.mul(0.3).add(0.85)).mul(mix(float(0.9), float(1), graze)).mul(gap);
       col.assign(mix(col, canopy, canopyK));
       // 树冠起伏的法线（用 Worley 距离在 x / z 方向的差分）
-      const e = 0.6;
-      const fx = mx_worley_noise_float(cp.add(vec2(e / 5.2, 0)));
-      const fz = mx_worley_noise_float(cp.add(vec2(0, e / 5.2)));
+      const fx = cell(vec2(1.6, 0), 224, 0);
+      const fz = cell(vec2(0, 1.6), 224, 0);
       const bump = vec3(fx.sub(f1).mul(-2.2), 1.0, fz.sub(f1).mul(-2.2));
       nb.assign(normalize(mix(nb, normalize(bump.mul(vec3(1, 1, 1))), canopyK.mul(0.6))));
       rough.assign(mix(rough, 0.85, canopyK));

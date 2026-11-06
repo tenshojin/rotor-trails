@@ -81,6 +81,18 @@ function mainland(x: number, z: number): number {
   return h;
 }
 
+/**
+ * 远景：地图外面的陆地。地图里的丘陵大小都差不多，照搬到外面从高处看是一望无际的小鼓包，
+ * 这里按大块地分出平原和山地，山地里再起几道大山脊。
+ */
+function farLand(x: number, z: number): number {
+  const h = mainland(x, z);
+  if (h <= 6) return h;
+  const region = smoothstep(-0.28, 0.32, n.fbm(x / 3000 + 5.3, z / 3000 - 3.1, 3));
+  const range = 560 * Math.pow(n.ridged(x / 2500 + 11, z / 2500 + 4, 5), 1.7) * region * smoothstep(350, 1900, coastX(z) - x);
+  return 6 + (h - 6) * (0.28 + 0.82 * region) + range;
+}
+
 function terrain(x: number, z: number): number {
   let h = mainland(x, z);
   h = Math.max(h, island(x, z, -600, -1475, 330, 135, 0.12, 62)); // 灯塔海角
@@ -143,7 +155,7 @@ export const JAPAN: MapDef = {
       [-1450, 560],
     ], 4, 3, 0.7);
   },
-  farTerrain: mainland,
+  farTerrain: farLand,
   spawn: { padId: 'J-port', heading: 20 },
   pads: [
     { id: 'J-port', name: '港口直升机坪', pos: [-1060, 2.95, 870], size: 22, kind: 'start', style: 'ground' },

@@ -7,7 +7,7 @@ import { obstacleTop } from '../sim/routeCheck';
 import { HeightBuilder, type Heightfield } from '../sim/terrain';
 import { erode } from './erosion';
 import { PropBuilder, type ColliderSpec } from './propBuilder';
-import { carveRiver } from './river';
+import { carveRiver, settleRiver } from './river';
 import { applyRockForm } from './rockForm';
 import { buildPad, type PropCtx } from './props/common';
 import { PROP_FNS } from './props/index';
@@ -65,6 +65,7 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
     ...map,
     nodes: map.nodes.map((node) => ({ ...node, pos: [...node.pos] })),
     pickups: map.pickups.map((pickup) => ({ ...pickup, pos: [...pickup.pos] })),
+    rivers: map.rivers?.map((river) => ({ ...river, pts: river.pts.map((p): [number, number, number, number] => [p[0], p[1], p[2], p[3]]) })),
   };
   progress?.(0.05, '生成地形');
   await tick();
@@ -86,7 +87,10 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
   }
   if (map.rockForm) applyRockForm(hb.data, map.res, map.size, map.rockForm, protection!);
   if (map.rivers) {
-    for (const r of map.rivers) carveRiver(hb, r, protection!);
+    for (const r of map.rivers) {
+      settleRiver(hb, r);
+      carveRiver(hb, r, protection!);
+    }
   }
   const terrain = hb.build();
   progress?.(0.45, '布置建筑与停机坪');

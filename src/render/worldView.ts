@@ -30,12 +30,13 @@ import { makeReflectField } from './reflectMap';
 import { GroundCover } from './groundCover';
 import { RiverView } from './riverView';
 import { EYE_DEFAULT, EyeAdapt } from './eyeAdapt';
-import { clearSunMap, setSunMap } from './sunMap';
+import { clearSunMap, setSunMap, type FarGrid } from './sunMap';
 import { bakeGi, clearGiMap, disposeGi, GI, giGroundLight, setGiMap } from './giField';
 import { sunFor, type TimeOfDay } from './timeOfDay';
 import { WET, WINDOW_LIGHT } from './wetness';
 import { updateCloudShadowMap } from './cloudShadowMap';
 import { loadRockRelief, makeTerrainMacroTexture } from './terrainMacro';
+import { TREE_RANGE } from './terrainShader';
 import { TreeView, loadTreeLib } from './treeView';
 import { WaterView } from './water';
 import { CloudLayer, Lightning, RainFx } from './weatherFx';
@@ -91,6 +92,8 @@ export class WorldView {
   readonly frameStats = { calls: 0, tris: 0 };
   private settings: Settings;
   /** Snapshot values, since the caller may mutate its Settings object in place. */
+  /** 地图外面地形的粗网格（换时段重算山影时要用） */
+  private farGrid: FarGrid | null = null;
   private appliedSettings: Pick<Settings, 'quality' | 'renderScale' | 'rayTracing' | 'motionBlur' | 'volumetric' | 'navGuides' | 'lightning'> | null = null;
   private renderWidth = 0;
   private renderHeight = 0;
@@ -215,6 +218,7 @@ export class WorldView {
         this.terrain.shadowRange = q.shadowRange;
       }
       if (this.trees) this.trees.quality = { near: q.treeNear, far: q.treeFar, shadows: q.shadows, aa: q.msaa > 0 };
+      TREE_RANGE.value = q.treeFar;
       if (this.props) this.props.lodScale = q.terrainLod;
       // 高画质起用光线步进的体积积云（低、中用二维云层）
       this.sky?.setVolumetric(s.quality === 'ultra' ? 56 : s.quality === 'high' ? 40 : 0);
@@ -305,7 +309,7 @@ export class WorldView {
       this.eye.setMax(tod === 'night' ? 3.6 : EYE_DEFAULT.max);
       this.updateLandingLight();
       if (changed) {
-        setSunMap(this.world.terrain, this.sky.sunDir);
+        setSunMap(this.world.terrain, this.sky.sunDir, this.farGrid);
         this.sky.clouds.reset();
         this.giDirty = true;
       }
@@ -413,8 +417,9 @@ export class WorldView {
       await loadRockRelief();
       // 水面倒影飞出画面后接着走的地形图
       const field = makeReflectField(map, world.terrain, world.trees, world.surface, macroTex.image.data as Uint8Array, forestTex.image.data as Uint8Array);
-      this.mapTextures.push(field.height, field.color);
+      this.mapTextures.push(field.height, field.color, field.far);
       setGiMap(field, map.waterLevel);
+      this.farGrid = field.farGrid;
       this.giDirty = true;
       fogMaps.height = groundTex;
       fogMaps.forest = forestTex;
@@ -424,7 +429,7 @@ export class WorldView {
       if (layers) this.mapTextures.push(layers.color, layers.normal);
       layersTaken = true;
       this.terrainTexSize = layers ? texSize : 0;
-      this.terrainUniforms = makeTerrainUniforms(map, surfaceTex, forestTex, macroTex, layers);
+      this.terrainUniforms = makeTerrainUniforms(map, world.terrain, surfaceTex, forestTex, macroTex, layers);
       if (this.terrainUniforms.strataLUT) this.mapTextures.push(this.terrainUniforms.strataLUT);
       this.terrain = new TerrainView(map, world.terrain, this.terrainUniforms);
       this.scene.add(this.terrain.group);
@@ -433,7 +438,7 @@ export class WorldView {
       this.eye.setMax(this.tod === 'night' ? 3.6 : EYE_DEFAULT.max);
       this.updateLandingLight();
       this.sun.csm.lightMargin = 400 + 1800 * (1 - this.sky.dayK);
-      setSunMap(world.terrain, this.sky.sunDir);
+      setSunMap(world.terrain, this.sky.sunDir, field.farGrid);
       this.eye.snap();
       this.scene.add(this.sky.mesh);
       // 雾的基准高度：地图最低处（有水面时取水面）

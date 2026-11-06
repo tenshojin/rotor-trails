@@ -187,6 +187,7 @@ export const HIMALAYA: MapDef = {
           [BASE[0] + 70, BASE[2] - 40, 40],
           [BASE[0] - 60, BASE[2] + 70, 100],
           [BASE[0] + 40, BASE[2] + 50, 26],
+          [BASE[0] - 10, BASE[2] - 60, 36],
           [MID[0], MID[2], 60],
           [MID[0] + 60, MID[2] + 60, 80],
           [MID[0] - 30, MID[2] - 30, 36],

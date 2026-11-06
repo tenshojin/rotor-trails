@@ -4,6 +4,7 @@
 import * as THREE from 'three/webgpu';
 import type { BiomeDef, MapDef } from '../maps/types';
 import type { Heightfield } from '../sim/terrain';
+import { farHeightAt } from '../world/farHeight';
 import type { TerrainLayers } from './terrainLayers';
 import { makeTerrainMaterial, makeWetUniform, type TerrainUniforms } from './terrainShader';
 import { TERRAIN_SHADOW_LAYER } from './sunShadows';
@@ -19,8 +20,8 @@ function col(hex: number): THREE.Color {
   return new THREE.Color().setHex(hex);
 }
 
-/** 树冠图边缘一圈的平均值 */
-function edgeForest(t: THREE.Texture): number {
+/** 树冠图边缘一圈的平均值（只算陆地：一半是海的地图边，外面的陆地不会因此少一半林子） */
+function edgeForest(t: THREE.Texture, land: (u: number, v: number) => boolean): number {
   const img = t.image as { data: Uint8Array; width: number; height: number };
   const n = img.width;
   const m = img.height;
@@ -30,13 +31,14 @@ function edgeForest(t: THREE.Texture): number {
   for (let y = 0; y < m; y++)
     for (let x = 0; x < n; x++) {
       if (x >= w && x < n - w && y >= w && y < m - w) continue;
+      if (!land((x + 0.5) / n, (y + 0.5) / m)) continue;
       sum += img.data[(y * n + x) * 4];
       cnt++;
     }
-  return sum / cnt / 255;
+  return cnt ? sum / cnt / 255 : 0;
 }
 
-export function makeTerrainUniforms(map: MapDef, surfaceTex: THREE.Texture, forestTex: THREE.Texture, macroTex: THREE.Texture, layers: TerrainLayers | null = null): TerrainUniforms {
+export function makeTerrainUniforms(map: MapDef, hf: Heightfield, surfaceTex: THREE.Texture, forestTex: THREE.Texture, macroTex: THREE.Texture, layers: TerrainLayers | null = null): TerrainUniforms {
   const B: BiomeDef = map.biome;
   const strata = B.strataColors ?? [B.rock, B.rock2, B.dirt, B.sand];
   return {
@@ -56,7 +58,7 @@ export function makeTerrainUniforms(map: MapDef, surfaceTex: THREE.Texture, fore
     rock2: col(B.rock2),
     snow: col(B.snow),
     forestFloor: col(B.forestFloor),
-    forestFar: edgeForest(forestTex),
+    forestFar: edgeForest(forestTex, (u, v) => map.waterLevel === null || hf.heightAt((u - 0.5) * map.size, (v - 0.5) * map.size) > map.waterLevel + 1),
     strataA: col(strata[0]),
     strataB: col(strata[1]),
     strataC: col(strata[2]),
@@ -278,15 +280,7 @@ export class TerrainView {
   private buildFar(map: MapDef): THREE.Mesh | null {
     const hf = this.hf;
     const extent = hf.size * (map.farExtent ?? 6);
-    const heightAt = (x: number, z: number) => {
-      const cx = Math.max(-hf.half, Math.min(hf.half, x));
-      const cz = Math.max(-hf.half, Math.min(hf.half, z));
-      const edge = hf.heightAt(cx, cz);
-      const out = Math.max(Math.abs(x) - hf.half, Math.abs(z) - hf.half, 0);
-      const t = Math.min(1, out / (map.farBlend ?? 900));
-      const farH = map.farTerrain ? map.farTerrain(x, z) : edge;
-      return edge + (farH - edge) * t * t * (3 - 2 * t) - 2 - Math.min(6, out * 0.02);
-    };
+    const heightAt = (x: number, z: number) => farHeightAt(map, hf, x, z);
     const rich = !!map.farTerrain;
     const inner: number[] = [];
     const innerStep = rich ? 32 : 64;
@@ -302,8 +296,14 @@ export class TerrainView {
     }
     const xs = [...outer.map((v) => -v).reverse(), ...inner, ...outer];
     const n = xs.length;
+    // 网格的外缘收成圆的：方的话飞高了能看到地平线上有四个角
+    const edgeR = xs[n - 1];
+    const fold = (v: number, w: number): number => {
+      const r = Math.hypot(v, w);
+      return r > edgeR ? (v * edgeR) / r : v;
+    };
     const H = new Float32Array(n * n);
-    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) H[j * n + i] = heightAt(xs[i], xs[j]);
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) H[j * n + i] = heightAt(fold(xs[i], xs[j]), fold(xs[j], xs[i]));
     const pos = new Float32Array(n * n * 3);
     const nor = new Float32Array(n * n * 3);
     for (let j = 0; j < n; j++) {
@@ -313,9 +313,9 @@ export class TerrainView {
         const i0 = Math.max(0, i - 1);
         const i1 = Math.min(n - 1, i + 1);
         const k = (j * n + i) * 3;
-        pos[k] = xs[i];
+        pos[k] = fold(xs[i], xs[j]);
         pos[k + 1] = H[j * n + i];
-        pos[k + 2] = xs[j];
+        pos[k + 2] = fold(xs[j], xs[i]);
         const gx = (H[j * n + i1] - H[j * n + i0]) / (xs[i1] - xs[i0]);
         const gz = (H[j1 * n + i] - H[j0 * n + i]) / (xs[j1] - xs[j0]);
         const l = 1 / Math.hypot(gx, 1, gz);

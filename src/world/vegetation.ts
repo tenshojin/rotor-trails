@@ -1,6 +1,6 @@
 // 植被：按地图规则确定性散布（同一份实例数据同时用于实例化渲染与碰撞代理）。
 
-import { Rng } from '../core/noise';
+import { Perlin2, Rng } from '../core/noise';
 import { flowAt, type FlowMap } from './flow';
 import type { MapDef, TreeType } from '../maps/types';
 import type { Heightfield } from '../sim/terrain';
@@ -50,6 +50,8 @@ export interface TreeSet {
   cellStart: Int32Array;
   cellCount: Int32Array;
   order: Int32Array;
+  /** 地图边上稀下去、没有种的树（x, z, 大小, 种类 连着排）：树冠图还算它们，地面的树冠层才接得上 */
+  ghosts?: Float32Array;
 }
 
 class ExclusionGrid {
@@ -101,12 +103,25 @@ export function scatterTrees(map: MapDef, terrain: Heightfield, surface: Uint8Ar
   for (const p of map.pads) ex.add({ x: p.pos[0], z: p.pos[2], r: p.size * 0.75 + 8 });
   const rng = new Rng(map.seed * 7 + 11);
   const half = terrain.half - 30;
+  // 地图边上：树到边线齐刷刷地断掉，从空中看地图就是一块方的。这里让林子一片片稀下去，
+  // 融进地形画的树冠层（判定不消耗随机数，地图里面的树一棵也不会变）
+  const edgeN = new Perlin2(map.seed + 41);
+  const edgeK = terrain.size / 4096;
+  const thinned = (x: number, z: number): boolean => {
+    const e = terrain.half - Math.max(Math.abs(x), Math.abs(z));
+    if (e > 620 * edgeK) return false;
+    const reach = edgeK * Math.max(40, 300 + 420 * edgeN.noise(x / 340, z / 340) + 170 * edgeN.noise(x / 105, z / 105));
+    if (e >= reach) return false;
+    const r = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+    return r - Math.floor(r) > (e / reach) ** 1.5;
+  };
   const xs: number[] = [];
   const ys: number[] = [];
   const zs: number[] = [];
   const ss: number[] = [];
   const ts: number[] = [];
   const rs: number[] = [];
+  const ghosts: number[] = [];
   const res = terrain.res;
   for (const rule of map.vegetation) {
     const spacing = Math.sqrt(1e6 / rule.density);
@@ -138,6 +153,10 @@ export function scatterTrees(map: MapDef, terrain: Heightfield, surface: Uint8Ar
         // 新增的跨格/越界剔除仍消费旧版本的旋转随机数，后续实例位置不变。
         const rotation = rng.float() * Math.PI * 2;
         if (exclusion || x > half || z > half) continue;
+        if (thinned(x, z)) {
+          ghosts.push(x, z, s, ti);
+          continue;
+        }
         xs.push(x);
         ys.push(h - 0.2);
         zs.push(z);
@@ -182,6 +201,7 @@ export function scatterTrees(map: MapDef, terrain: Heightfield, surface: Uint8Ar
     cell,
     dim,
     half: terrain.half,
+    ghosts: Float32Array.from(ghosts),
     cellStart,
     cellCount,
     order,

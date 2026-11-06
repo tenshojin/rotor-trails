@@ -7,7 +7,9 @@
 import * as THREE from 'three/webgpu';
 import type { MapDef } from '../maps/types';
 import type { Heightfield } from '../sim/terrain';
+import { farHeightAt } from '../world/farHeight';
 import { layerTable } from '../world/rockForm';
+import type { FarGrid } from './sunMap';
 import { TREE_SPECS, TREE_TYPES, type TreeSet } from '../world/vegetation';
 
 export interface ReflectField {
@@ -17,9 +19,17 @@ export interface ReflectField {
   size: number;
   /** 最高点（米，含树冠） */
   top: number;
+  /** 地图外面的远景（RGB = 地表颜色，A = 高度）：倒影飞出地图，山还在 */
+  far: THREE.Texture;
+  /** 这张图的边长（米） */
+  farSize: number;
+  farTop: number;
+  /** 同一份高度的数组（算山影用） */
+  farGrid: FarGrid;
 }
 
 const COLOR_RES = 512;
+const FAR_RES = 256;
 
 const smooth = (a: number, b: number, x: number): number => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -144,5 +154,45 @@ export function makeReflectField(map: MapDef, t: Heightfield, trees: TreeSet, su
   color.generateMipmaps = false;
   color.wrapS = color.wrapT = THREE.ClampToEdgeWrapping;
   color.needsUpdate = true;
-  return { height, color, size: t.size, top: topH + 2 };
+
+  // 地图外面：水里倒映的远山。没有这张图的话光线一出地图就是天空，倒影沿着地图边被切成一条直线
+  const farSize = t.size * 4;
+  const R = FAR_RES;
+  const fh = new Float32Array(R * R);
+  let farTop = -Infinity;
+  for (let y = 0; y < R; y++)
+    for (let x = 0; x < R; x++) {
+      const v = farHeightAt(map, t, ((x + 0.5) / R - 0.5) * farSize, ((y + 0.5) / R - 0.5) * farSize);
+      fh[y * R + x] = v;
+      if (v > farTop) farTop = v;
+    }
+  const cell = farSize / R;
+  const farData = new Uint16Array(R * R * 4);
+  const edgeWood = 0.5 * (smooth(0.2, 0.7, forest[0] / 255) + smooth(0.2, 0.7, forest[(fN * fN - 1) * 4] / 255));
+  for (let y = 0; y < R; y++)
+    for (let x = 0; x < R; x++) {
+      const h = fh[y * R + x];
+      const gx = (fh[y * R + Math.min(R - 1, x + 1)] - fh[y * R + Math.max(0, x - 1)]) / (2 * cell);
+      const gz = (fh[Math.min(R - 1, y + 1) * R + x] - fh[Math.max(0, y - 1) * R + x]) / (2 * cell);
+      const m = 1 - 1 / Math.hypot(gx, 1, gz);
+      c[0] = grass[0];
+      c[1] = grass[1];
+      c[2] = grass[2];
+      lerp(CANOPY, edgeWood);
+      lerp(rock, smooth(B.rockSlope - 0.07, B.rockSlope + 0.06, m));
+      lerp(SNOW, Math.min(1, smooth(B.snowLine - 50, B.snowLine + 30, h) * (1 - smooth(0.2, 0.4, m)) + smooth(B.snowLine + 500, B.snowLine + 1100, h) * 0.85));
+      const o = (y * R + x) * 4;
+      farData[o] = THREE.DataUtils.toHalfFloat(c[0]);
+      farData[o + 1] = THREE.DataUtils.toHalfFloat(c[1]);
+      farData[o + 2] = THREE.DataUtils.toHalfFloat(c[2]);
+      farData[o + 3] = THREE.DataUtils.toHalfFloat(h);
+    }
+  const far = new THREE.DataTexture(farData, R, R, THREE.RGBAFormat, THREE.HalfFloatType);
+  far.name = 'ReflectFar';
+  far.magFilter = THREE.LinearFilter;
+  far.minFilter = THREE.LinearFilter;
+  far.generateMipmaps = false;
+  far.wrapS = far.wrapT = THREE.ClampToEdgeWrapping;
+  far.needsUpdate = true;
+  return { height, color, size: t.size, top: topH + 2, far, farSize, farTop: farTop + 2, farGrid: { h: fh, res: R, size: farSize } };
 }

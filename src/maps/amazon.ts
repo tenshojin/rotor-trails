@@ -4,7 +4,7 @@ import { Perlin2 } from '../core/noise';
 import { headingOf, smoothstep } from '../core/math';
 import { makeWeather } from '../sim/weather';
 import type { Vec2 } from '../sim/terrain';
-import { polylineDist, PathSampler } from './routeUtil';
+import { polylineDist, PathSampler, smoothPath } from './routeUtil';
 import type { MapDef, RouteNodeDef, V3 } from './types';
 
 const SEED = 4401;
@@ -61,36 +61,36 @@ function base(x: number, z: number): number {
 /** 河出了地图还在流（不然河在地图边上收成一个死水湖） */
 const FAR_WATER: Array<{ path: Vec2[]; half: number; depth: number }> = [
   {
-    path: [
+    path: smoothPath([
       [-2200, 380],
       [-2640, 300],
       [-3050, 520],
       [-3600, 410],
       [-4300, 640],
       [-5600, 480],
-    ],
+    ], 70, 44),
     half: 100,
     depth: 9,
   },
   {
-    path: [
+    path: smoothPath([
       [2200, -220],
       [2620, -60],
       [3100, -280],
       [3700, -140],
       [4400, -380],
       [5600, -260],
-    ],
+    ], 70, 44),
     half: 100,
     depth: 9,
   },
   {
-    path: [
+    path: smoothPath([
       [-900, 2200],
       [-1020, 2700],
       [-860, 3250],
       [-1100, 4100],
-    ],
+    ], 70, 44),
     half: 18,
     depth: 3,
   },
@@ -100,6 +100,9 @@ const FAR_WATER: Array<{ path: Vec2[]; half: number; depth: number }> = [
 function farForest(x: number, z: number): number {
   let h = base(x, z);
   let toWater = Infinity;
+  const beyond = Math.max(Math.abs(x), Math.abs(z)) - 2048;
+  // 远景地形整体比这里给的高度低一点（见 TerrainView.buildFar）；岸是贴着水面的，不补上的话水会漫到岸上，河比地图里宽一倍
+  const sink = 2 + Math.min(6, Math.max(0, beyond) * 0.02);
   for (const r of FAR_WATER) {
     const d = polylineDist(r.path, x, z, r.half + 340);
     if (d === Infinity) continue;
@@ -108,11 +111,10 @@ function farForest(x: number, z: number): number {
     if (dn < r.half) h = Math.min(h, -r.depth * (1 - (dn / r.half) ** 2) - 0.5);
     else {
       const e = dn - r.half;
-      const shore = -0.5 + 5 * smoothstep(0, 1, e / 10);
+      const shore = sink - 0.5 + 5 * smoothstep(0, 1, e / 34);
       if (e < 230) h = Math.min(h, shore + (h - shore) * smoothstep(92, 230, e));
     }
   }
-  const beyond = Math.max(Math.abs(x), Math.abs(z)) - 2048;
   return h + 26 * smoothstep(0, 170, beyond) * smoothstep(60, 240, toWater);
 }
 

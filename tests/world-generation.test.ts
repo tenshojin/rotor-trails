@@ -39,6 +39,42 @@ describe('世界生成边界与数据隔离', () => {
     expect(overlaps).toEqual([]);
   });
 
+  it('林子到地图边上一片片稀下去，稀掉的树还记在树冠图里', () => {
+    const map = smallMap();
+    map.size = 2048;
+    map.vegetation = [{ type: 'emergent', density: 120, scale: [1, 1] }];
+    const hb = new HeightBuilder(map.size, map.res);
+    const terrain = hb.build();
+    const trees = scatterTrees(map, terrain, hb.surface, []);
+    const edge = (x: number, z: number) => terrain.half - Math.max(Math.abs(x), Math.abs(z));
+    let outer = 0;
+    let inner = 0;
+    for (let i = 0; i < trees.count; i++) {
+      const e = edge(trees.x[i], trees.z[i]);
+      if (e < 70) outer++;
+      else if (e > 400 && e < 470) inner++;
+    }
+    // 同样 70 m 宽的一圈：越靠外周长越长，树却少得多
+    expect(outer).toBeLessThan(inner * 0.5);
+    expect(trees.ghosts!.length / 4).toBeGreaterThan(50);
+    expect(trees.ghosts!.length % 4).toBe(0);
+  });
+
+  it('稀掉的只有边上的树：地图中间的树一棵不变', () => {
+    const map = smallMap();
+    map.size = 4096;
+    map.vegetation = [{ type: 'emergent', density: 60, scale: [1, 1] }];
+    const hb = new HeightBuilder(map.size, map.res);
+    const terrain = hb.build();
+    const a = scatterTrees(map, terrain, hb.surface, []);
+    const b = scatterTrees({ ...map, seed: map.seed }, terrain, hb.surface, []);
+    expect(a.count).toBe(b.count);
+    expect(Array.from(a.x)).toEqual(Array.from(b.x));
+    for (let i = 0; i < a.ghosts!.length; i += 4) {
+      expect(terrain.half - Math.max(Math.abs(a.ghosts![i]), Math.abs(a.ghosts![i + 1]))).toBeLessThanOrEqual(620);
+    }
+  });
+
   it('散布网格的末格不会把树种到地图边界外', () => {
     const map = smallMap();
     map.size = 256;

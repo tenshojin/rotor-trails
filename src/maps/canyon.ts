@@ -6,7 +6,7 @@ import { smoothstep } from '../core/math';
 import { makeWeather } from '../sim/weather';
 import type { Vec2 } from '../sim/terrain';
 import type { RockFormDef } from '../world/rockForm';
-import { farRiverLine, PathSampler, polylineDist, riverLine } from './routeUtil';
+import { farRiverLine, PathSampler, polylineDist, riverLine, smoothPath } from './routeUtil';
 import type { MapDef, RouteNodeDef, V3 } from './types';
 
 /**
@@ -146,22 +146,30 @@ const BUTTES: Array<[number, number, number, number]> = [
 ];
 
 /** 峡谷出了地图还在往前走：两头接着挖（否则在地图边上被一道长坡堵死） */
-const FAR_W: Vec2[] = [
-  [-2111, 1240],
-  [-2600, 1340],
-  [-3100, 1190],
-  [-3650, 1300],
-  [-4300, 1090],
-  [-5400, 1210],
-];
-const FAR_E: Vec2[] = [
-  [2111, -1296],
-  [2620, -1230],
-  [3120, -1430],
-  [3720, -1340],
-  [4420, -1610],
-  [5400, -1500],
-];
+const FAR_W: Vec2[] = smoothPath(
+  [
+    [-2111, 1240],
+    [-2600, 1340],
+    [-3100, 1190],
+    [-3650, 1300],
+    [-4300, 1090],
+    [-5400, 1210],
+  ],
+  60,
+  52,
+);
+const FAR_E: Vec2[] = smoothPath(
+  [
+    [2111, -1296],
+    [2620, -1230],
+    [3120, -1430],
+    [3720, -1340],
+    [4420, -1610],
+    [5400, -1500],
+  ],
+  60,
+  52,
+);
 
 function farLand(x: number, z: number): number {
   let h = plateau(x, z);

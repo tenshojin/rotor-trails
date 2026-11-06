@@ -642,7 +642,8 @@ export class App {
       return;
     }
     this.ui.pause(
-      { tutorial: !!this.tutorial, checkpoints: this.session.restoreOptions() },
+      // （教学里的安全点是自动的，玩家不用选）
+      { tutorial: !!this.tutorial, checkpoints: this.tutorial ? [] : this.session.restoreOptions() },
       {
         resume: () => this.resume(),
         checkpoint: (i, mode) => this.restoreCheckpoint(i, mode),
@@ -1140,6 +1141,10 @@ export class App {
         next: () => {
           this.quitToMenu();
           this.briefing(getMap('japan'));
+        },
+        free: () => {
+          this.quitToMenu();
+          this.freeSelect();
         },
         again: () => {
           this.quitToMenu();

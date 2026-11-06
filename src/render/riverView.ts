@@ -5,6 +5,8 @@ import * as THREE from 'three/webgpu';
 import {
   abs,
   attribute,
+  cameraFar,
+  cameraNear,
   cameraViewMatrix,
   clamp,
   dot,
@@ -14,6 +16,7 @@ import {
   max,
   mix,
   normalize,
+  perspectiveDepthToViewZ,
   positionView,
   pow,
   smoothstep,
@@ -111,7 +114,7 @@ export class RiverView {
     const noise = getNoiseTexture();
     const deep = new THREE.Color().setHex(r.deep);
     const shallow = new THREE.Color().setHex(r.shallow);
-    const mat = new THREE.MeshPhysicalNodeMaterial({ roughness: 0.14, metalness: 0, ior: 1.333, envMapIntensity: 1.0 });
+    const mat = new THREE.MeshPhysicalNodeMaterial({ roughness: 0.14, metalness: 0, ior: 1.333, envMapIntensity: 1.0, transparent: true });
     const t = this.time;
     const q = uv();
     const hw = attribute<'float'>('hw', 'float');
@@ -161,6 +164,9 @@ export class RiverView {
     // 水体内部散射的颜色主要来自天光，不怎么跟着阳光走（和海面一样）
     const skyLight = FOG.color.mul(0.42);
     mat.emissiveNode = body.mul(skyLight).mul(max(float(1).sub(fres), 0.0)).add(reflRgb.mul(fres.mul(reflK)));
+    // 水边：水面和河岸的交线是地形网格的一个个三角形，硬切的话是一圈折线。水浅的地方慢慢透出岸来
+    const bed = perspectiveDepthToViewZ(depthNode.r, cameraNear, cameraFar).negate();
+    mat.opacityNode = smoothstep(0.0, 0.8, bed.sub(positionView.z.negate()));
     return mat;
   }
 

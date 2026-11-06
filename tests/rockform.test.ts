@@ -80,6 +80,39 @@ describe('山影', () => {
   });
 });
 
+describe('地图外的山影', () => {
+  it('太阳低的时候，地图外的山也挡光（否则阳光穿过雪山照进峡湾）', () => {
+    const res = 129;
+    const b = new HeightBuilder(512, res);
+    b.fill(() => 0);
+    const t = b.build();
+    // 太阳在 +x 方向，高度角约 11°；地图外 x = 600 m 起是一道 300 m 高的山
+    const sun = new THREE.Vector3(1, 0.2, 0).normalize();
+    const R = 64;
+    const size = 2048;
+    const h = new Float32Array(R * R);
+    for (let z = 0; z < R; z++) for (let x = 0; x < R; x++) h[z * R + x] = ((x + 0.5) / R - 0.5) * size > 600 ? 300 : 0;
+    const mid = 64 * res + 64;
+    expect(bakeShadowHeights(t, sun)[mid]).toBeLessThan(0);
+    expect(bakeShadowHeights(t, sun, { h, res: R, size })[mid]).toBeGreaterThan(0);
+  });
+
+  it('斜着照进来的光从侧边进地图时，一样算上外面的山', () => {
+    const res = 129;
+    const b = new HeightBuilder(512, res);
+    b.fill(() => 0);
+    const t = b.build();
+    const sun = new THREE.Vector3(1, 0.3, 0.8).normalize();
+    const R = 64;
+    const size = 2048;
+    const h = new Float32Array(R * R);
+    for (let z = 0; z < R; z++) for (let x = 0; x < R; x++) h[z * R + x] = ((z + 0.5) / R - 0.5) * size > 500 ? 500 : 0;
+    const U = bakeShadowHeights(t, sun, { h, res: R, size });
+    // 地图的 +z 边上，外面的山就在头顶
+    expect(U[(res - 2) * res + 20]).toBeGreaterThan(0);
+  });
+});
+
 describe('河流', () => {
   it('河线绕开圆形禁区，并按下游方向排列', () => {
     const P = new PathSampler([

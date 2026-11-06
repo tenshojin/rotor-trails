@@ -195,17 +195,18 @@ export class UI {
   }
 
   /** 训练结束 */
-  trainingDone(landing: LandingMetrics | null, on: { next: () => void; again: () => void; menu: () => void }): void {
+  trainingDone(landing: LandingMetrics | null, on: { next: () => void; free: () => void; again: () => void; menu: () => void }): void {
     const el = this.show(
       h(`<div class="screen center dim"><div class="card narrow"><div class="hud-label">训练完成</div><h2>你会飞直升机了</h2>
       ${landing ? `<p>最后这次降落：<b>${GRADE_LABEL[landing.grade]}</b>（下降速度 ${landing.descent.toFixed(1)} m/s）</p>` : ''}
       <p>起飞、悬停、前进刹车、转向、跟着导航飞、在风里定住、安全降落，你都做到了。</p>
       <p class="muted">忘了怎么操作？暂停菜单里有“操作说明”，也可以回来重学任何一课。</p>
       <button class="btn primary" data-a="next">开始第一个任务</button>
+      <button class="btn" data-a="free">先随便飞飞（休闲飞行）</button>
       <button class="btn" data-a="again">回到课程表</button>
       <button class="btn ghost" data-a="menu">回主菜单</button></div></div>`),
     );
-    this.bind(el, { next: on.next, again: on.again, menu: on.menu });
+    this.bind(el, { next: on.next, free: on.free, again: on.again, menu: on.menu });
   }
 
   mapSelect(maps: MapDef[], records: Partial<Record<string, MapRecord>>, on: { pick: (m: MapDef) => void; back: () => void }, free = false): void {
@@ -404,7 +405,7 @@ export class UI {
       ${opts.tutorial ? '<button class="btn" data-a="skip">跳过当前教学步骤</button>' : ''}
       ${last && opts.checkpoints.length > 1 ? `<button class="btn" data-a="cp">从最近检查点继续（${last.label}）</button>` : ''}
       ${opts.checkpoints.length > 1 ? '<button class="btn" data-a="cplist">选择检查点…</button>' : ''}
-      <button class="btn" data-a="restart">从关卡起点重新开始</button>
+      <button class="btn" data-a="restart">${opts.tutorial ? '重新开始这一课' : '从关卡起点重新开始'}</button>
       <button class="btn" data-a="settings">设置</button>
       <button class="btn" data-a="help">操作说明</button>
       <button class="btn ghost" data-a="quit">${opts.tutorial ? '退出教学' : '退出到主菜单'}</button></div></div>`),
