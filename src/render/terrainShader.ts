@@ -382,9 +382,10 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
         const jz = abs(fract(slab.y).sub(0.5));
         const joint = smoothstep(0.4945, 0.4985, max(jx, jz));
         // 车辙：车总走那几条线，轮胎把地面磨黑；还有一滴滴的油污
-        const rut = smoothstep(0.52, 0.8, texture(noise, vec2(P.x.mul(0.058), P.z.mul(0.0034)).add(0.21)).r);
+        // （只在几块地方：满场都是的话，一整片水泥地上是一道道整整齐齐的黑杠）
+        const rut = smoothstep(0.56, 0.82, texture(noise, vec2(P.x.mul(0.058), P.z.mul(0.0034)).add(0.21)).r).mul(smoothstep(0.44, 0.68, texture(noise, P.xz.mul(0.0047).add(0.63)).g));
         const oil = smoothstep(0.66, 0.84, texture(noise, P.xz.mul(0.031).add(0.41)).g);
-        const wear = float(1).sub(rut.mul(0.3)).sub(oil.mul(0.24));
+        const wear = float(1).sub(rut.mul(0.2)).sub(oil.mul(0.2));
         col.assign(mix(col, conc.mul(wear).mul(float(1).sub(joint.mul(0.5))), pk));
         rough.assign(mix(rough, mix(float(0.84), float(0.5), oil), pk));
         nb.assign(normalize(mix(nb, n, pk)));

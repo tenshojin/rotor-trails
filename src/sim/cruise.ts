@@ -9,6 +9,8 @@ import type { GameSession } from './session';
 /** 巡航速度（m/s）、离地高度（m） */
 const SPEED = 36;
 const CLEAR = 85;
+/** 估计的爬升率（m/s），算飞多快能爬得及 */
+const CLIMB = 3.5;
 /** 离景点多近就算到了（m） */
 const ARRIVE = 260;
 /** 看前方多远的地形（m） */
@@ -74,11 +76,13 @@ export class ScenicCruise {
         const z = b.pos.z + (-cosH + sinH * side) * d;
         const g = obstacleTop(s.world, x, z, 12, Infinity, undefined, false) + CLEAR;
         if (g > need) need = g;
+        // 前面有山：慢下来，飞到跟前时刚好爬够。离得还远就不用停在原地干爬，一边飞一边爬，风景才是动的
+        // （爬升一秒只有几米，高原上更少）
+        const lack = g - b.pos.y;
+        if (lack > 10) want = Math.min(want, (CLIMB * Math.max(d - 40, 0)) / lack);
       }
     }
-    // 前面有山：慢下来，先爬上去再过，不要硬往山上撞（爬升一秒只有几米，高原上更少）
     const short = need - b.pos.y;
-    if (short > 10) want *= Math.max(0, 1 - (short - 10) / 45);
     inp.pitch = clamp((want - vF) / 8, -1, 1);
     inp.lateral = 0;
     inp.vertical = clamp(short / 14 - b.vel.y * 0.08, -1, 1);

@@ -630,7 +630,8 @@ export class TreeView {
     // 那里地形本身已经画了树冠层，看不出少了树
     // （灌木和石块不算：密林是说大树多）
     const dense = this.bigTrees > 50000;
-    const lim2 = (this.modeled ? [Math.min(Q.near * 0.42, dense ? 170 : 260), Q.near * (dense ? 1.1 : 1.25)] : [Q.near]).map((d) => d * d);
+    // （最近一级的叶卡最费：大峡谷南缘的树小，180 米外全细节也看不出来）
+    const lim2 = (this.modeled ? [Math.min(Q.near * 0.42, dense ? 170 : this.dry ? 180 : 260), Q.near * (dense ? 1.1 : 1.25)] : [Q.near]).map((d) => d * d);
     const thin2 = dense ? Q.far * Q.far * 0.16 : Infinity;
     const far2 = Q.far * Q.far;
     const always2 = 300 * 300;
