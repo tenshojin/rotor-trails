@@ -31,6 +31,8 @@ const _v = new Vector3();
 const _r = new Vector3();
 const _n = new Vector3();
 const _vt = new Vector3();
+const _off = new Vector3();
+const _fr = new Vector3();
 const _q = new Quaternion();
 
 export class Gear {
@@ -44,6 +46,8 @@ export class Gear {
   surface: ColliderTag | null = null;
   private airTime = 10;
   private readonly forces: Array<{ f: Vector3; p: Vector3 }> = [];
+  /** 静摩擦：这个支点粘在地面的哪一点上（null = 没粘住，在滑） */
+  private readonly anchors: Array<Vector3 | null> = [null, null, null, null];
 
   constructor() {
     const S = HELI.skid;
@@ -61,6 +65,7 @@ export class Gear {
   reset(grounded = false): void {
     this.airTime = grounded ? 0 : 10;
     this.touchdown = null;
+    this.anchors.fill(null);
     for (const c of this.contacts) {
       c.active = false;
       c.compression = 0;
@@ -87,9 +92,15 @@ export class Gear {
       c.active = false;
       c.force = 0;
       c.compression = 0;
-      if (!hit) continue;
+      if (!hit) {
+        this.anchors[i] = null;
+        continue;
+      }
       const x = S.restLength - hit.distance;
-      if (x <= 0) continue;
+      if (x <= 0) {
+        this.anchors[i] = null;
+        continue;
+      }
       const xc = Math.min(x, S.travel);
       _r.subVectors(_p, b.pos);
       _v.copy(b.angVel).cross(_r).add(b.vel);
@@ -102,10 +113,24 @@ export class Gear {
       // 摩擦：切向速度阻尼，受库仑摩擦上限约束
       _vt.copy(_v).addScaledVector(_n, -_v.dot(_n));
       const vtLen = _vt.length();
-      if (vtLen > 1e-4) {
-        const fMax = S.friction * N;
-        const fMag = Math.min(fMax, S.stickiness * vtLen);
-        pf.f.addScaledVector(_vt, -fMag / vtLen);
+      const fMax = S.friction * N;
+      if (vtLen < S.stickSpeed) {
+        // 静摩擦：几乎不动时滑橇粘在地面的一个点上，力由偏离这一点多远来算。
+        // 只按速度算的话，任何持续的力都能推着飞机慢慢走：旋翼一转，机头就在地上一点点往右蹭
+        const a = this.anchors[i] ?? (this.anchors[i] = pf.p.clone());
+        _off.subVectors(pf.p, a);
+        _off.addScaledVector(_n, -_off.dot(_n));
+        _fr.copy(_off).multiplyScalar(-S.stickSpring).addScaledVector(_vt, -S.stickiness);
+        const m = _fr.length();
+        if (m > fMax) {
+          // 拉不住了：松开，改成滑动摩擦
+          _fr.multiplyScalar(fMax / m);
+          this.anchors[i] = null;
+        }
+        pf.f.add(_fr);
+      } else {
+        this.anchors[i] = null;
+        pf.f.addScaledVector(_vt, -Math.min(fMax, S.stickiness * vtLen) / vtLen);
       }
       out.push(pf);
       c.active = true;

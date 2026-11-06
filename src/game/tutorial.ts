@@ -24,6 +24,8 @@ export interface TutorialCtx {
   held(a: Action): boolean;
   /** 鼠标锁定不可用（只能按住拖动观察） */
   dragLook: boolean;
+  /** 超仿真：鼠标指着哪个控件 */
+  hover?: string | null;
 }
 
 const NO_CTX: TutorialCtx = { yaw: 0, pitch: 0, held: () => false, dragLook: false };
@@ -31,7 +33,7 @@ const NO_CTX: TutorialCtx = { yaw: 0, pitch: 0, held: () => false, dragLook: fal
 /** 这一步可以用哪些飞行操作 */
 type Allow = 'none' | 'lift' | 'forward' | 'all';
 
-interface StepState {
+export interface StepState {
   t: number;
   a: number;
   b: number;
@@ -40,7 +42,7 @@ interface StepState {
   lastHeading: number;
 }
 
-type K = (a: Action) => string;
+export type K = (a: Action) => string;
 
 export interface TutorialStep {
   id: string;
@@ -61,6 +63,12 @@ export interface TutorialStep {
   stuck?: (k: K, s: GameSession) => string;
   /** 进入这一步之前的状态是安全的（悬停或停在地面）：撞了回到这里 */
   anchor?: boolean;
+  /** 超仿真：这一步要动座舱里的哪个控件（外面亮一圈） */
+  control?: string | ((s: GameSession) => string | null);
+  /** 超仿真：HUD 是收起来的，这一步要看的数字写在这里 */
+  live?: (s: GameSession) => string;
+  /** 分秒必争的步骤：完成了马上进下一步，不停下来打勾 */
+  quick?: boolean;
 }
 
 export interface Lesson {
@@ -69,15 +77,19 @@ export interface Lesson {
   parts: readonly HudPart[];
   allow: Allow;
   /** 直接从这一课开始时，把飞机放到哪里（x、z、离地高度、航向；node：导航走到第几个航点） */
-  place?: { x: number; z: number; agl: number; heading: number; node?: number; hover?: boolean };
+  place?: { x: number; z: number; agl: number; heading: number; node?: number; hover?: boolean; speed?: number };
+  /** 超仿真：直接从这一课开始时停在哪块坪上（发动机已经在转） */
+  park?: string;
+  /** 上一课学完接着学这一课时，也把飞机放回这一课的起点 */
+  jump?: boolean;
   steps: TutorialStep[];
 }
 
 const hdg = (s: GameSession) => wrap360(s.flight.telemetry.heading * RAD);
-const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+export const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
 /** 累计转过的角度：向右为正 */
-function turned(s: GameSession, st: StepState): number {
+export function turned(s: GameSession, st: StepState): number {
   const h = hdg(s);
   const d = headingDelta(st.lastHeading, h);
   st.lastHeading = h;
@@ -92,7 +104,7 @@ function nextNode(s: GameSession, st: StepState): number {
 }
 
 const padPos = (s: GameSession) => s.pad('T-final')?.pos ?? [0, 0, 0];
-const padDist = (s: GameSession) => {
+export const padDist = (s: GameSession) => {
   const p = padPos(s);
   return Math.hypot(s.body.pos.x - p[0], s.body.pos.z - p[2]);
 };
@@ -453,21 +465,6 @@ export const LESSONS: Lesson[] = [
 /** 全部步骤摊平（序号与 Tutorial.index 对应） */
 export const TUTORIAL_STEPS: TutorialStep[] = LESSONS.flatMap((l) => l.steps);
 
-/** 每一课第一步的序号 */
-const LESSON_START: number[] = [];
-{
-  let n = 0;
-  for (const l of LESSONS) {
-    LESSON_START.push(n);
-    n += l.steps.length;
-  }
-}
-const lessonOf = (index: number): number => {
-  let l = 0;
-  while (l + 1 < LESSONS.length && LESSON_START[l + 1] <= index) l++;
-  return l;
-};
-
 const PRAISE = ['好！', '很好！', '漂亮！', '就是这样！', '没问题！'];
 /** 达标后要保持多久才算过（秒）；过了之后 ✔ 留在屏幕上多久 */
 const HOLD = 0.25;
@@ -479,6 +476,12 @@ export class Tutorial {
   index = 0;
   progress = 0;
   done = false;
+  /** 全部步骤摊平（序号与 index 对应） */
+  readonly steps: TutorialStep[];
+  /** 这一步的控件不在视野里时，往哪边看 */
+  lookHint = '';
+  /** 每一课第一步的序号 */
+  private readonly starts: number[] = [];
   private st: StepState = { t: 0, a: 0, b: 0, x: 0, z: 0, lastHeading: 0 };
   private settings: Settings;
   private cachedHtml = '';
@@ -493,8 +496,20 @@ export class Tutorial {
   /** 一课结束 */
   onLesson: ((lesson: number) => void) | null = null;
 
-  constructor(settings: Settings) {
+  constructor(settings: Settings, readonly lessons: Lesson[] = LESSONS) {
     this.settings = settings;
+    this.steps = lessons.flatMap((l) => l.steps);
+    let n = 0;
+    for (const l of lessons) {
+      this.starts.push(n);
+      n += l.steps.length;
+    }
+  }
+
+  private lessonOf(index: number): number {
+    let l = 0;
+    while (l + 1 < this.lessons.length && this.starts[l + 1] <= index) l++;
+    return l;
   }
 
   setSettings(settings: Settings): void {
@@ -503,11 +518,17 @@ export class Tutorial {
   }
 
   get step(): TutorialStep | null {
-    return TUTORIAL_STEPS[this.index] ?? null;
+    return this.steps[this.index] ?? null;
   }
 
   get lesson(): number {
-    return lessonOf(Math.min(this.index, TUTORIAL_STEPS.length - 1));
+    return this.lessonOf(Math.min(this.index, this.steps.length - 1));
+  }
+
+  /** 这一步要点的控件 */
+  control(s: GameSession): string | null {
+    const c = this.step?.control;
+    return (typeof c === 'function' ? c(s) : c) ?? null;
   }
 
   /** 最后一步之前，降落不算数 */
@@ -516,7 +537,7 @@ export class Tutorial {
   }
 
   hud(): TutorialHud {
-    return { parts: LESSONS[this.lesson].parts, spot: this.step?.spot ?? null };
+    return { parts: this.lessons[this.lesson].parts, spot: this.step?.spot ?? null };
   }
 
   private reset(s: GameSession): void {
@@ -537,8 +558,8 @@ export class Tutorial {
   }
 
   start(s: GameSession, lesson = 0): void {
-    const l = Math.min(LESSONS.length - 1, Math.max(0, lesson));
-    this.index = LESSON_START[l];
+    const l = Math.min(this.lessons.length - 1, Math.max(0, lesson));
+    this.index = this.starts[l];
     this.anchorIndex = this.index;
     this.done = false;
     this.place(s, l);
@@ -548,10 +569,11 @@ export class Tutorial {
 
   /** 直接从后面某一课开始：把飞机放到这一课开始的地方 */
   private place(s: GameSession, lesson: number): void {
-    const p = LESSONS[lesson].place;
+    const { place: p, park } = this.lessons[lesson];
+    if (park) s.parkRunning(park);
     if (!p || lesson === 0) return;
     const ground = s.world.ctx.ground(p.x, p.z);
-    s.teleport(p.x, ground + p.agl, p.z, p.heading, 0);
+    s.teleport(p.x, ground + p.agl, p.z, p.heading, p.speed ?? 0);
     if (p.hover) s.flight.setHover(true);
     if (p.node !== undefined) {
       s.nav.path = 0;
@@ -561,7 +583,7 @@ export class Tutorial {
 
   /** 恢复之后接着这一步（瞬移不算转向进度） */
   resumeStep(s: GameSession): void {
-    if (this.done) this.index = TUTORIAL_STEPS.length - 1;
+    if (this.done) this.index = this.steps.length - 1;
     this.done = false;
     this.reset(s);
   }
@@ -587,19 +609,22 @@ export class Tutorial {
   private next(s: GameSession): void {
     const before = this.lesson;
     this.index++;
-    if (this.index >= TUTORIAL_STEPS.length) {
+    if (this.index >= this.steps.length) {
       this.done = true;
       this.onLesson?.(before);
       return;
     }
-    if (this.lesson !== before) this.onLesson?.(before);
+    if (this.lesson !== before) {
+      this.onLesson?.(before);
+      if (this.lessons[this.lesson].jump) this.place(s, this.lesson);
+    }
     this.reset(s);
     this.onStep?.(this.index);
   }
 
   /** 没学到的操作先不起作用（这一步只做这一件事） */
   filter(input: { pitch: number; turn: number; lateral: number; vertical: number }): void {
-    const allow = LESSONS[this.lesson].allow;
+    const allow = this.lessons[this.lesson].allow;
     if (allow === 'all') return;
     input.turn = input.lateral = 0;
     if (allow !== 'forward') input.pitch = 0;
@@ -614,6 +639,7 @@ export class Tutorial {
   update(s: GameSession, dt: number, ctx: TutorialCtx = NO_CTX): void {
     const step = this.step;
     if (!step || this.done || !Number.isFinite(dt) || dt <= 0) return;
+    this.liveText = step.live ? step.live(s) : '';
     if (this.flash > 0) {
       this.flash -= dt;
       if (this.flash <= 0) this.next(s);
@@ -624,6 +650,10 @@ export class Tutorial {
     this.progress = step.check(s, this.st, dt, ctx);
     this.note = this.stepT > STUCK_AFTER && step.stuck ? step.stuck(this.keyFn, s) : '';
     if (this.progress >= 1) {
+      if (step.quick) {
+        this.next(s);
+        return;
+      }
       this.holdT += dt;
       if (this.holdT >= HOLD) {
         this.holdT = 0;
@@ -633,6 +663,7 @@ export class Tutorial {
   }
 
   private keyFn: K = (a) => keyName(this.settings.bindings[a][0]);
+  private liveText = '';
 
   html(ctx: TutorialCtx = NO_CTX): string {
     const step = this.step;
@@ -640,13 +671,13 @@ export class Tutorial {
     const percent = Math.round(this.progress * 100);
     const heldBits = (step.keys ?? []).map((a) => (ctx.held(a) ? 1 : 0)).join('');
     const flashing = this.flash > 0;
-    const key = `${this.index}:${percent}:${heldBits}:${flashing}:${ctx.dragLook}:${this.note}`;
+    const key = `${this.index}:${percent}:${heldBits}:${flashing}:${ctx.dragLook}:${this.note}:${this.liveText}:${this.lookHint}`;
     if (this.htmlKey === key) return this.cachedHtml;
     this.htmlKey = key;
     const k = this.keyFn;
     const l = this.lesson;
-    const first = LESSON_START[l];
-    const count = LESSONS[l].steps.length;
+    const first = this.starts[l];
+    const count = this.lessons[l].steps.length;
     const dots = Array.from({ length: count }, (_, i) => `<i class="${first + i < this.index ? 'on' : first + i === this.index ? 'now' : ''}"></i>`).join('');
     const enterBound = Object.values(this.settings.bindings).some((codes) => codes.includes('Enter'));
     const pause = `<kbd>${k('pause')}</kbd> 暂停`;
@@ -655,11 +686,13 @@ export class Tutorial {
       : `${enterBound ? '可在暂停菜单跳过这一步' : '<kbd>回车</kbd> 跳过这一步'} · ${pause}`;
     const big = (step.keys ?? []).map((a) => `<kbd class="big ${ctx.held(a) ? 'on' : ''}">${k(a)}</kbd>`).join('');
     this.cachedHtml =
-      `<div class="tut-head"><span class="tut-lesson">第 ${l + 1} 课 · ${LESSONS[l].title}</span><span class="tut-dots">${dots}</span></div>` +
+      `<div class="tut-head"><span class="tut-lesson">第 ${l + 1} 课 · ${this.lessons[l].title}</span><span class="tut-dots">${dots}</span></div>` +
       `<div class="tut-main"><div class="tut-body"><div class="tut-title">${step.title}</div>` +
       `<div class="tut-text">${step.text(k, ctx)}</div>` +
       (step.why ? `<div class="tut-why">${step.why(k)}</div>` : '') +
+      (this.lookHint ? `<div class="tut-note">${this.lookHint}</div>` : '') +
       (this.note ? `<div class="tut-note">${this.note}</div>` : '') +
+      (this.liveText ? `<div class="tut-live">${this.liveText}</div>` : '') +
       `</div>${big ? `<div class="tut-keys">${big}</div>` : ''}</div>` +
       (step.manual ? '' : `<div class="tut-bar"><i style="width:${percent}%"></i></div>`) +
       `<div class="tut-skip">${foot}</div>` +

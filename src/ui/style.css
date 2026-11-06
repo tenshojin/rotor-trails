@@ -1218,6 +1218,10 @@ table.score .total td {
   pointer-events: none;
   box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
 }
+.tutorial.top {
+  top: 14px;
+  bottom: auto;
+}
 .tutorial.side {
   left: 14px;
   transform: none;
@@ -1281,6 +1285,17 @@ table.score .total td {
   line-height: 1.5;
   color: #ffd27a;
   margin-top: 6px;
+}
+.tut-live {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #9fd8ff;
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.tut-live b {
+  color: #e8f6ff;
+  font-weight: 600;
 }
 .tut-keys {
   display: flex;
@@ -1444,6 +1459,26 @@ kbd.big.on {
   grid-column: 1 / -1;
 }
 /* 课程表 */
+.course-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+.course-tabs button {
+  padding: 8px 18px;
+  font: inherit;
+  font-size: 15px;
+  color: #b8c7d2;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.course-tabs button.on {
+  color: #fff;
+  background: rgba(120, 190, 255, 0.22);
+  border-color: rgba(150, 210, 255, 0.5);
+}
 .train {
   display: grid;
   grid-template-columns: minmax(280px, 380px) 1fr;

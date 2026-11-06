@@ -25,10 +25,12 @@ export interface SaveData {
   tutorialDone: boolean;
   /** 学完的课（序号） */
   lessonsDone: number[];
+  /** 超仿真教学学完的课 */
+  simLessonsDone: number[];
 }
 
 function defaults(): SaveData {
-  return { version: SAVE_VERSION, settings: defaultSettings(), maps: {}, tutorialDone: false, lessonsDone: [] };
+  return { version: SAVE_VERSION, settings: defaultSettings(), maps: {}, tutorialDone: false, lessonsDone: [], simLessonsDone: [] };
 }
 
 const MAP_IDS: readonly MapId[] = ['training', 'japan', 'canyon', 'amazon', 'fjord', 'himalaya'];
@@ -60,7 +62,9 @@ export function migrate(raw: unknown): SaveData {
   const legacy = version < 2 ? upgradeLegacyBindings(o.settings) : o.settings;
   d.settings = sanitizeSettings(version < 4 ? upgradeDescendBindings(legacy) : legacy);
   d.tutorialDone = o.tutorialDone === true;
-  if (Array.isArray(o.lessonsDone)) d.lessonsDone = [...new Set(o.lessonsDone.filter((x): x is number => Number.isInteger(x) && x >= 0 && x < 32))];
+  const lessons = (v: unknown): number[] => (Array.isArray(v) ? [...new Set(v.filter((x): x is number => Number.isInteger(x) && x >= 0 && x < 32))] : []);
+  d.lessonsDone = lessons(o.lessonsDone);
+  d.simLessonsDone = lessons(o.simLessonsDone);
   if (o.maps && typeof o.maps === 'object') {
     for (const k of MAP_IDS) {
       if (!Object.hasOwn(o.maps, k)) continue;

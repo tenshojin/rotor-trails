@@ -173,12 +173,73 @@ describe('超仿真：启动程序', () => {
   });
 });
 
+describe('超仿真：反扭矩', () => {
+  const diff = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
+  /** 空中悬停，高度用总距守着，水平位置不管；返回这段时间的平均偏航角速度（度/秒，向右为正） */
+  function hover(s: GameSession, seconds: number, y: number): number {
+    const f = s.flight;
+    const n = Math.round(seconds * 60);
+    let total = 0;
+    let last = f.telemetry.heading;
+    for (let i = 0; i < n; i++) {
+      f.collective = Math.min(1, Math.max(0, f.collective - s.body.vel.y * 0.02 + (y - s.body.pos.y) * 0.002));
+      s.step();
+      s.body.vel.x = s.body.vel.z = 0;
+      if (i >= n / 2) total += diff(last, f.telemetry.heading);
+      last = f.telemetry.heading;
+    }
+    return ((total / (seconds / 2)) * 180) / Math.PI;
+  }
+
+  it('滑橇停在地上：旋翼全速、总距放到底，机头一动不动（静摩擦，不是慢慢蹭）', async () => {
+    const s = await sessionFor(TRAINING, 'sim');
+    startUp(s);
+    const h = s.flight.telemetry.heading;
+    run(s, 30);
+    expect(Math.abs(diff(h, s.flight.telemetry.heading))).toBeLessThan(0.002);
+    s.dispose();
+  });
+
+  it('关掉增稳悬停：机头一直往右转，左脚蹬能顶住；开着增稳不转', async () => {
+    const s = await sessionFor(TRAINING, 'sim');
+    startUp(s, true);
+    s.teleport(s.body.pos.x, 150, s.body.pos.z, 0, 0);
+    expect(Math.abs(hover(s, 12, 150))).toBeLessThan(1);
+    s.sys!.c.sas = 0;
+    const free = hover(s, 12, 150);
+    expect(free).toBeGreaterThan(20);
+    // 悬停要大约 10% 的左脚蹬。增稳关着时脚蹬踩到哪里留在哪里
+    const f = s.flight as unknown as { ped: number };
+    let best = Infinity;
+    for (const p of [-0.06, -0.08, -0.1, -0.12]) {
+      s.flight.trimPedal = f.ped = p;
+      best = Math.min(best, Math.abs(hover(s, 14, 150)));
+      expect(f.ped).toBeCloseTo(p, 3);
+    }
+    expect(best).toBeLessThan(free * 0.25);
+    s.dispose();
+  });
+
+  it('脚蹬键：点一下只走一小段，按久了才蹬到底', async () => {
+    const s = await sessionFor(TRAINING, 'sim');
+    startUp(s, true);
+    const f = s.flight as unknown as { ped: number };
+    run(s, 0.25, { turn: -1 });
+    expect(f.ped).toBeGreaterThan(-0.14);
+    expect(f.ped).toBeLessThan(-0.05);
+    run(s, 0.9, { turn: -1 });
+    expect(f.ped).toBeLessThan(-0.5);
+    setInput(s, {});
+    s.dispose();
+  });
+});
+
 describe('超仿真：飞行', () => {
   it('总距上提离地，放下就落回来；没有高度保持', async () => {
     const s = await sessionFor(TRAINING, 'sim');
     startUp(s);
     const y0 = s.body.pos.y;
-    run(s, 2.2, { vertical: 1 });
+    run(s, 1.6, { vertical: 1 });
     run(s, 3, {});
     expect(s.body.pos.y).toBeGreaterThan(y0 + 2);
     const col = s.flight.collective;

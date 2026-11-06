@@ -73,8 +73,12 @@ export const HELI = {
     stiffness: 52000,
     damping: 7600,
     friction: 0.85,
-    /** 静摩擦近似：切向速度阻尼（N/(m/s)） */
+    /** 切向速度阻尼（N/(m/s)） */
     stickiness: 9000,
+    /** 比这个速度慢（m/s）就算粘住了，走静摩擦 */
+    stickSpeed: 0.15,
+    /** 静摩擦的刚度（N/m）：偏离粘住的那一点 1 厘米，拉回来的力是 600 牛 */
+    stickSpring: 60000,
   },
   /** 机身碰撞体 */
   colliders: {

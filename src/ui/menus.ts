@@ -177,29 +177,31 @@ export class UI {
   }
 
   /** 飞行训练的课程表 */
-  training(lessons: Lesson[], done: number[], on: { start: (lesson: number) => void; back: () => void }): void {
+  training(lessons: Lesson[], done: number[], course: 'flight' | 'sim', on: { start: (lesson: number) => void; course: (c: 'flight' | 'sim') => void; back: () => void }): void {
+    const sim = course === 'sim';
     const finished = lessons.every((_, i) => done.includes(i));
     const next = finished ? 0 : Math.max(0, lessons.findIndex((_, i) => !done.includes(i)));
     const rows = lessons
       .map((l, i) => `<button type="button" class="lesson ${done.includes(i) ? 'done' : ''}" data-a="lesson" data-i="${i}"><span class="ls-no">${done.includes(i) ? '✓' : i + 1}</span><span class="ls-body"><b>${l.title}</b><span>${l.sub}</span></span></button>`)
       .join('');
     const el = this.show(
-      h(`<div class="screen"><div class="screen-head"><button class="btn ghost" data-a="back">← 返回</button><h2>飞行训练</h2><span class="muted">不需要任何基础。全部学完大约 10 分钟，撞了也不要紧</span></div>
+      h(`<div class="screen"><div class="screen-head"><button class="btn ghost" data-a="back">← 返回</button><h2>飞行训练</h2><span class="muted">${sim ? '学过基础飞行再来。全部学完大约 20 分钟' : '不需要任何基础。全部学完大约 10 分钟，撞了也不要紧'}</span></div>
+      <div class="course-tabs" role="tablist"><button type="button" role="tab" aria-selected="${!sim}" class="${sim ? '' : 'on'}" data-a="flight">基础飞行</button><button type="button" role="tab" aria-selected="${sim}" class="${sim ? 'on' : ''}" data-a="sim">超仿真</button></div>
       <div class="train"><div class="train-side card"><div class="brief-hero" style="background-image:url(ui/map_training.webp)" aria-hidden="true"></div>
-        <p class="lead">坐进驾驶舱，一步一步学会飞直升机：从转头看四周开始，到能自己飞到另一块停机坪安全降落。</p>
+        <p class="lead">${sim ? '没有任何飞行辅助：亲手启动发动机，靠自己悬停，搞懂飞机为什么总想往右转，最后学会发动机停车时怎么活下来。' : '坐进驾驶舱，一步一步学会飞直升机：从转头看四周开始，到能自己飞到另一块停机坪安全降落。'}</p>
         <button class="btn primary big" data-a="go">${done.length === 0 ? '从第 1 课开始' : finished ? '从头再学一遍' : `继续学第 ${next + 1} 课`}</button>
         <p class="muted">飞过的人可以直接点右边任何一课。</p></div>
       <div class="lessons">${rows}</div></div></div>`),
     );
-    this.bind(el, { go: () => on.start(next), lesson: (b) => on.start(Number(b.dataset.i)), back: on.back });
+    this.bind(el, { go: () => on.start(next), lesson: (b) => on.start(Number(b.dataset.i)), flight: () => on.course('flight'), sim: () => on.course('sim'), back: on.back });
   }
 
   /** 训练结束 */
-  trainingDone(landing: LandingMetrics | null, on: { next: () => void; free: () => void; again: () => void; menu: () => void }): void {
+  trainingDone(landing: LandingMetrics | null, sim: boolean, on: { next: () => void; free: () => void; again: () => void; menu: () => void }): void {
     const el = this.show(
-      h(`<div class="screen center dim"><div class="card narrow"><div class="hud-label">训练完成</div><h2>你会飞直升机了</h2>
+      h(`<div class="screen center dim"><div class="card narrow"><div class="hud-label">训练完成</div><h2>${sim ? '你能亲手飞这架飞机了' : '你会飞直升机了'}</h2>
       ${landing ? `<p>最后这次降落：<b>${GRADE_LABEL[landing.grade]}</b>（下降速度 ${landing.descent.toFixed(1)} m/s）</p>` : ''}
-      <p>起飞、悬停、前进刹车、转向、跟着导航飞、在风里定住、安全降落，你都做到了。</p>
+      <p>${sim ? '冷舱启动、无辅助悬停、配平反扭矩、前飞转弯、进近降落、关车、发动机停车后自转落地，你都做到了。' : '起飞、悬停、前进刹车、转向、跟着导航飞、在风里定住、安全降落，你都做到了。'}</p>
       <p class="muted">忘了怎么操作？暂停菜单里有“操作说明”，也可以回来重学任何一课。</p>
       <button class="btn primary" data-a="next">开始第一个任务</button>
       <button class="btn" data-a="free">先随便飞飞（休闲飞行）</button>

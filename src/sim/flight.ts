@@ -169,6 +169,9 @@ export class FlightModel {
   private stickP = 0;
   private stickR = 0;
   private pedal = 0;
+  /** 脚蹬键、总距键按住了多久（秒） */
+  private pedHold = 0;
+  private colHold = 0;
   // ---------- 超仿真 ----------
   /** 旋翼转速比（1 = 100%）。其他模式调速器是完美的，恒为 1 */
   nr = 1;
@@ -259,7 +262,7 @@ export class FlightModel {
     this.enginePower = grounded ? HELI.profilePower : powerRequired(W, 1.225 * sigma, 0, 0, 1);
     this.lastThrust = grounded ? 0 : W;
     this.groundTimer = 0;
-    this.cycP = this.cycR = this.ped = this.trimStickP = this.trimStickR = this.trimPedal = 0;
+    this.cycP = this.cycR = this.ped = this.trimStickP = this.trimStickR = this.trimPedal = this.pedHold = this.colHold = 0;
     this.sasP = this.sasR = this.sasH = null;
     this.govInt = 0;
     if (this.assist.id === 'sim') {
@@ -669,8 +672,17 @@ export class FlightModel {
     const rollKey = clamp(input.lateral + input.turn * 0.75 * fast, -1, 1);
     this.cycP = stickAxis(this.cycP, input.pitch, this.trimStickP, 1.05 * force, 2.6, dt);
     this.cycR = stickAxis(this.cycR, rollKey, this.trimStickR, 1.25 * force, 3.0, dt);
-    this.ped = stickAxis(this.ped, pedalKey, this.trimPedal, 1.3 * force, 3.0, dt);
-    this.collective = clamp(this.collective + input.vertical * this.assist.collectiveRate * (0.45 + 0.55 * hyd) * dt, 0, 1);
+    // 悬停时只要十个百分点左右的脚蹬。键盘只有按和不按，所以刚按下时走得很慢，按久了才快：
+    // 点一下是微调，一直按着才是蹬到底
+    this.pedHold = pedalKey !== 0 ? this.pedHold + dt : 0;
+    this.ped = stickAxis(this.ped, pedalKey, this.trimPedal, (0.4 + 0.9 * smoothstep(0.3, 0.8, this.pedHold)) * force, 3.0, dt);
+    // 真机的脚蹬没有回中的弹簧，踩到哪里就留在哪里。增稳开着时松手回中，是因为那时脚蹬在要的是转弯速度；
+    // 增稳关了，就是这只脚一直踩着，点几下左脚蹬顶住反扭矩，松手还顶着
+    if (!sys.sasActive) this.trimPedal = this.ped;
+    // 总距也一样：点一下是微调，按住不放才是用力提（自转落地最后那一下，一秒之内要提上去）
+    this.colHold = input.vertical !== 0 ? this.colHold + dt : 0;
+    const colRate = this.assist.collectiveRate * (1 + smoothstep(0.5, 1, this.colHold));
+    this.collective = clamp(this.collective + input.vertical * colRate * (0.45 + 0.55 * hyd) * dt, 0, 1);
 
     // ---------- 地面效应、平移升力 ----------
     let ge = 1;

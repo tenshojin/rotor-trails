@@ -386,7 +386,7 @@ export class GameSession {
       const metrics = gradeLanding(td.descent, td.horizontal, attDeg, offset, pad ? pad.size / 2 : 999);
       touchdown = { padId, metrics };
       this.lastTouchdown = { metrics, t: this.t, padId };
-      this.damage.processTouchdown(td.descent, td.horizontal, attDeg, shield, dmg);
+      this.damage.processTouchdown(td.descent, this.sideLoad(td.horizontal), attDeg, shield, dmg);
       this.events.push({ type: 'touchdown', metrics, padId, surface: td.tag.kind });
     }
     // 落水 / 侧翻：致命事件
@@ -514,6 +514,18 @@ export class GameSession {
     this.stats.maxSpeed = Math.max(this.stats.maxSpeed, speed);
     if (airborne) this.stats.flightTime += dt;
     if (this.steps % 6 === 0) this.windInfo = this.wind.info(b.pos.x, b.pos.y, b.pos.z, this.t);
+  }
+
+  /**
+   * 接地时算损伤用的水平速度。超仿真里顺着滑橇方向滑着落地是允许的（自转落地就是这么落的），
+   * 伤起落架的是横着的速度。别的模式不变：那里没有滑跑落地这回事
+   */
+  private sideLoad(horizontal: number): number {
+    if (!this.sys) return horizontal;
+    _tmp.set(0, 0, -1).applyQuaternion(this.body.quat);
+    const along = Math.abs(this.body.vel.x * _tmp.x + this.body.vel.z * _tmp.z) / Math.max(0.01, Math.hypot(_tmp.x, _tmp.z));
+    const across = Math.sqrt(Math.max(0, horizontal * horizontal - along * along));
+    return Math.hypot(across, along * 0.4);
   }
 
   /** 地形逼近警告（按当前速度预测 6 秒） */
@@ -710,6 +722,23 @@ export class GameSession {
     for (const [, cols] of this.treeProxies) for (const c of cols) this.phys.removeCollider(c);
     this.treeProxies.clear();
     this.updateTreeProxies();
+  }
+
+  /** 教学：停在某块坪上，发动机和旋翼已经全速（超仿真从中间某一课开始时用） */
+  parkRunning(padId: string): void {
+    const pad = this.pad(padId);
+    if (this.disposed || !pad) return;
+    const b = this.body;
+    b.pos.set(pad.pos[0], pad.pos[1] + 1.32, pad.pos[2]);
+    b.quat.setFromAxisAngle(new Vector3(0, 1, 0), -this.world.map.spawn.heading * DEG);
+    b.vel.set(0, 0, 0);
+    b.angVel.set(0, 0, 0);
+    this.phys.writeBody(b);
+    copyBody(this.prev, b);
+    this.gear.reset(true);
+    this.systemsRunning();
+    this.flight.resetTo(b, this.totalMass(), this.altitudeMSL(), true);
+    this.state = 'running';
   }
 
   /** 休闲模式：飞到某处悬停（x、z、离障碍物顶的高度、航向） */

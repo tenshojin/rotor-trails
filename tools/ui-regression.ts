@@ -93,7 +93,7 @@ await test('地图卡片使用原生按钮，选择对应地图', (ui) => {
 
 await test('课程表从第一节没学的课开始，也能直接选任何一课', (ui) => {
   const picked: number[] = [];
-  ui.training(LESSONS, [0, 1], { start: (lesson) => picked.push(lesson), back: () => {} });
+  ui.training(LESSONS, [0, 1], 'flight', { start: (lesson) => picked.push(lesson), course: () => {}, back: () => {} });
   assert(fixture.querySelectorAll('.lesson').length === LESSONS.length, '课程没有列全');
   assert(fixture.querySelectorAll('.lesson.done').length === 2, '学完的课没有打勾');
   click('[data-a="go"]');
