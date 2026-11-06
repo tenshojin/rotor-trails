@@ -10,7 +10,7 @@ import { HELI } from '../config/flight';
 import { smoothstep } from '../core/math';
 import type { MapDef } from '../maps/types';
 import type { GameSession } from '../sim/session';
-import { FOG, WASH } from './atmosphere';
+import { FOG, WASH, WASH_Y } from './atmosphere';
 import { getSmokeTexture } from './navView';
 import { VFOG } from './volumetricFog';
 
@@ -20,12 +20,12 @@ const RATE = 40;
 /** 桨毂离地多高以内开始起雾 / 完全起雾（米） */
 const H_START = 26;
 const H_FULL = 6;
-/** 桨毂离地多高以内树梢开始被吹动 / 吹得最厉害（树有十几米高，比草更早起效） */
-const H_TREE_START = 46;
-const H_TREE_FULL = 16;
+/** 桨毂离地多高以内气流贴着地面散开 / 散得最猛（气柱大约能冲下来五个旋翼直径） */
+const H_SHEET_START = 56;
+const H_SHEET_FULL = 14;
 
 /** 各地图的地表有多容易被吹起来（裸露的沙土 1，草地、苔原小一些） */
-const LOOSE: Record<string, number> = { japan: 0.42, fjord: 0.3, canyon: 1, himalaya: 0.75, amazon: 0.3 };
+const LOOSE: Record<string, number> = { japan: 0.42, fjord: 0.3, canyon: 1, grandcanyon: 1, himalaya: 0.75, amazon: 0.3 };
 
 interface Puff {
   pos: THREE.Vector3;
@@ -52,6 +52,20 @@ export interface WashState {
   water: number;
   x: number;
   z: number;
+}
+
+/** 把旋翼气流叠到这一点的风上（m/s）：风向袋和旗子也要被吹起来 */
+export function addWashWind(p: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+  const w = WASH.value;
+  const dx = p.x - w.x;
+  const dz = p.z - w.y;
+  const r = Math.hypot(dx, dz) || 1;
+  const k = (1 - smoothstep(HELI.rotorRadius * 2, HELI.rotorRadius * 7.5, r)) * w.z * w.w;
+  if (k > 0) {
+    out.x += (dx / r) * 16 * k;
+    out.z += (dz / r) * 16 * k;
+  }
+  return out;
 }
 
 export class DownwashView {
@@ -138,7 +152,13 @@ export class DownwashView {
     this.state.water = onWater ? k : 0;
     this.state.x = _hub.x;
     this.state.z = _hub.z;
-    WASH.value.set(_hub.x, _hub.z, onWater ? 0 : (1 - smoothstep(H_FULL + 3, H_START + 8, h)) * smoothstep(0.5, 0.9, rpm), onWater ? 0 : (1 - smoothstep(H_TREE_FULL, H_TREE_START, h)) * smoothstep(0.5, 0.9, rpm));
+    // 气流的强度：转速够不够、桨盘在不在使劲。前飞时气流被甩在身后，飞得越快吹到下面的越少
+    const speed = Math.hypot(b.vel.x, b.vel.z);
+    const power = (smoothstep(0.5, 0.9, rpm) * (0.6 + 0.4 * Math.min(1, s.flight.telemetry.torque || 0))) / Math.sqrt(1 + (speed / 22) ** 2);
+    // 气柱冲到地面要一点时间，落点落在飞机后面
+    const lag = Math.min(1.5, h / 16);
+    WASH.value.set(_hub.x - b.vel.x * lag, _hub.z - b.vel.z * lag, onWater ? 0 : 1 - smoothstep(H_SHEET_FULL, H_SHEET_START, h), power);
+    WASH_Y.value = _hub.y;
 
     // 地面种类：水面 → 水雾；积雪线以上 → 雪沫；停机坪上 → 几乎没有；其他 → 尘土
     let loose = onWater ? 1 : this.loose;

@@ -9,8 +9,10 @@ import * as THREE from 'three/webgpu';
 import { acos, cameraPosition, clamp, dot, exp, float, fog, Fn, length, max, mix, positionWorld, select, smoothstep, sqrt, texture, uniform, vec2, vec3, vec4 } from 'three/tsl';
 import { getNoiseTexture } from './textures';
 
-/** 旋翼下洗：x、z（桨毂的位置）、贴地的强度、树梢的强度（0..1）。草和树的顶点着色器用它（见 render/downwash.ts） */
+/** 旋翼下洗：x、z（气柱落到地面的位置）、离地够不够近（0..1）、气流的强度（0..1）。草和树的顶点着色器用它（见 render/downwash.ts） */
 export const WASH = uniform(new THREE.Vector4(0, 0, 0, 0));
+/** 桨盘的高度：气柱从这里往下冲 */
+export const WASH_Y = uniform(0);
 
 /**
  * 风场：树、灌木、草、远处的草地和林冠都看这一份。shift 是风吹过的距离（米），一团团的阵风跟着它走，

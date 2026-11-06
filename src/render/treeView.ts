@@ -37,7 +37,7 @@ import {
   vec4,
 } from 'three/tsl';
 import { HELI } from '../config/flight';
-import { FOG, gustAt, WASH, WIND } from './atmosphere';
+import { FOG, gustAt, WASH, WASH_Y, WIND } from './atmosphere';
 import { terrainSun } from './sunMap';
 import { getNoiseTexture } from './textures';
 import { VFOG } from './volumetricFog';
@@ -318,16 +318,25 @@ function windPosition(U: WindUniforms, leaf: boolean): THREE.Node<'vec3'> {
   const side = vec2(down.y.negate(), down.x).mul(amp.mul(0.34).mul(sin(U.uTime.mul(1.13).add(ph.mul(1.7)))));
   const wv = lean.add(side);
   let p: THREE.Node<'vec3'> = positionLocal.add(vec3(wv.x, 0.0, wv.y).mul(bend));
-  // 旋翼下洗：低飞掠过树梢时，桨盘下面的树冠被压得向外弯，一下一下地回弹
+  // 旋翼下洗：桨盘下面是一根往下冲的气柱，打到地面后贴着地向四周散开，能吹到两三个旋翼直径以外。
+  // 靠近的树被压得向外弯，一阵一阵地回弹；矮的灌木也一样东倒西歪
+  const R = HELI.rotorRadius;
   const dv = positionLocal.xz.sub(WASH.xy);
-  const dr = length(dv).max(0.01);
-  const washK = float(1).sub(smoothstep(0.7, 3.6, dr.div(HELI.rotorRadius))).mul(WASH.w).toVar();
-  const pulse = sin(U.uTime.mul(4.6).add(dr.mul(0.5)).add(ph)).mul(0.38).add(0.62);
-  p = p.add(vec3(dv.x.div(dr), -0.4, dv.y.div(dr)).mul(washK.mul(pulse).mul(hgt.mul(hgt).mul(0.0011)).mul(2.6)));
+  const dr = length(dv).max(0.01).toVar();
+  const below = WASH_Y.sub(positionLocal.y);
+  const column = float(1).sub(smoothstep(R * 1.1, R * 2.6, dr)).mul(float(1).sub(smoothstep(R * 2.5, R * 9.0, below))).mul(smoothstep(-R, 0.0, below)).toVar();
+  const sheet = float(1).sub(smoothstep(R * 2.0, R * 7.5, dr)).mul(WASH.z);
+  const washK = max(column, sheet).mul(WASH.w).toVar();
+  // 气流是一阵一阵往外跑的，里面还夹着急促的抖动
+  const press = sin(U.uTime.mul(8.6).sub(dr.mul(0.4)).add(ph)).mul(0.34).add(sin(U.uTime.mul(21.0).add(ph.mul(3.3)).add(hgt.mul(0.6))).mul(0.16)).add(0.78);
+  const tall = min(pow(hgt, 0.9).mul(0.44), 4.6);
+  const radial = smoothstep(0.0, R * 0.5, dr);
+  p = p.add(vec3(dv.x.div(dr).mul(radial), column.mul(-0.7).sub(0.12), dv.y.div(dr).mul(radial)).mul(washK.mul(press).mul(tall)));
   if (leaf) {
-    // 叶子的抖动：阵风来的时候抖得厉害
+    // 叶子的抖动：阵风来的时候抖得厉害，旋翼底下更是抖成一片
     const flutter = sin(U.uTime.mul(5.3).add(dot(positionGeometry, vec3(2.1, 1.7, 2.9))).add(ph)).mul(0.05).mul(amp.mul(3.0).add(0.25).add(washK.mul(3.5)));
-    p = p.add(normalLocal.mul(flutter));
+    const whip = sin(U.uTime.mul(27.0).add(dot(positionGeometry, vec3(3.1, 2.3, 2.7))).add(ph)).mul(washK).mul(0.2);
+    p = p.add(normalLocal.mul(flutter.add(whip)));
   }
   return p;
 }
@@ -335,6 +344,8 @@ function windPosition(U: WindUniforms, leaf: boolean): THREE.Node<'vec3'> {
 /** 石块的颜色：几何体是中性灰，乘上地图的岩石色 */
 const BOULDER = TREE_TYPES.indexOf('boulder');
 const rockTint = new THREE.Color();
+/** 这张地图树叶的整体偏色 */
+const leafTint = new THREE.Color(1, 1, 1);
 
 export interface TreeQuality {
   near: number;
@@ -438,11 +449,12 @@ export class TreeView {
     this.rebuild = true;
   }
 
-  constructor(trees: TreeSet, lib: TreeLib | null = null, rock = 0x8a8278, form: RockFormDef | null = null) {
+  constructor(trees: TreeSet, lib: TreeLib | null = null, rock = 0x8a8278, form: RockFormDef | null = null, tint: readonly [number, number, number] = [1, 1, 1]) {
     this.trees = trees;
     this.form = form;
     this.layers = form ? layerTable(form) : null;
     // 风化的石头颜色比新鲜岩面灰一些、暗一些
+    leafTint.setRGB(tint[0], tint[1], tint[2]);
     rockTint.setHex(rock);
     const grey = (rockTint.r + rockTint.g + rockTint.b) / 3;
     rockTint.lerp(new THREE.Color(grey, grey, grey), 0.55).multiplyScalar(0.85 / Math.max(grey, 0.03));
@@ -725,5 +737,5 @@ const _c = new THREE.Color();
 function treeColor(x: number, z: number, ti: number): THREE.Color {
   const v = 0.8 + hash(x, z, ti) * 0.4;
   if (ti === BOULDER) return _c.copy(rockTint).multiplyScalar(0.75 + hash(x, z, ti) * 0.5);
-  return _c.setRGB(v * (0.94 + hash(z, x, 2) * 0.12), v, v * (0.88 + hash(x, ti, z) * 0.1));
+  return _c.setRGB(v * (0.94 + hash(z, x, 2) * 0.12) * leafTint.r, v * leafTint.g, v * (0.88 + hash(x, ti, z) * 0.1) * leafTint.b);
 }

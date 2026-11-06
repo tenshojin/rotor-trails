@@ -263,11 +263,11 @@ export class GroundCover {
       const wd = length(wv).max(0.01);
       const wdir = wv.div(wd);
       const rn = wd.div(HELI.rotorRadius);
-      const wk = smoothstep(0.15, 0.7, rn).mul(float(1).sub(smoothstep(1.7, 4.2, rn))).mul(WASH.z);
-      const puff = max(sin(wd.mul(0.85).sub(this.time.mul(7.5)).add(wx.mul(0.7))).mul(0.42).add(0.62), 0.0);
+      const wk = smoothstep(0.1, 0.6, rn).mul(float(1).sub(smoothstep(2.4, 7.0, rn))).mul(WASH.z).mul(WASH.w);
+      const puff = max(sin(wd.mul(0.6).sub(this.time.mul(8.0)).add(wx.mul(0.7))).mul(0.42).add(0.66), 0.0);
       const shake = sin(this.time.mul(24.0).add(wx.mul(3.1))).mul(0.16);
       const lay = wk.mul(puff.add(shake)).mul(hgt).toVar();
-      m.positionNode = positionLocal.add(vec3(down.x.mul(sway), sway.mul(-0.22), down.y.mul(sway)).mul(hgt)).add(vec3(wdir.x.mul(2.1), float(-0.8), wdir.y.mul(2.1)).mul(lay));
+      m.positionNode = positionLocal.add(vec3(down.x.mul(sway), sway.mul(-0.22), down.y.mul(sway)).mul(hgt)).add(vec3(wdir.x.mul(2.4), float(-0.9), wdir.y.mul(2.4)).mul(lay));
       this.mats.push(m);
       return m;
     };

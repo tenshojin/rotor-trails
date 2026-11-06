@@ -25,7 +25,7 @@ import { loadTerrainLayers, type TerrainLayers } from './terrainLayers';
 import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrainView';
 import { makeForestTexture, makeGroundHeightTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
 import { fogMaps, VFOG } from './volumetricFog';
-import { DownwashView } from './downwash';
+import { addWashWind, DownwashView } from './downwash';
 import { NightLights } from './nightLights';
 import { PadDetails } from './padDetails';
 import { makeReflectField } from './reflectMap';
@@ -902,7 +902,7 @@ export class WorldView {
       if (this.terrainUniforms) this.terrainUniforms.uWet.value = w.wetness;
       WET.value = w.wetness;
       this.water?.update(f.t, _w.x, _w.z, Math.hypot(_w.x, _w.z), w.rain);
-      const windAt = s ? (p: THREE.Vector3, out: THREE.Vector3) => s.wind.sample(p.x, p.y, p.z, s.t, out) : (_p: THREE.Vector3, out: THREE.Vector3) => out.set(3, 0, 1);
+      const windAt = s ? (p: THREE.Vector3, out: THREE.Vector3) => addWashWind(p, s.wind.sample(p.x, p.y, p.z, s.t, out)) : (_p: THREE.Vector3, out: THREE.Vector3) => out.set(3, 0, 1);
       this.props?.update(f.t, cp, windAt);
       const gust = s ? Math.min(1, s.windInfo.gust / 8) : 0.2;
       this.trees?.update(f.t, cam, _w.x, _w.z, gust);
