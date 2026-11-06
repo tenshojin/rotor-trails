@@ -58,11 +58,11 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   right: ['KeyD'],
   // 爬升/下降各用一个普通键：不用 Ctrl（按住 W 时再按 Ctrl 就是 Ctrl+W，浏览器会直接关闭页面）
   up: ['Space'],
-  down: ['KeyC'],
+  down: ['ShiftLeft', 'ShiftRight'],
   strafeLeft: ['KeyQ'],
   strafeRight: ['KeyE'],
   hover: ['KeyH'],
-  boost: ['ShiftLeft', 'ShiftRight'],
+  boost: ['KeyC'],
   center: ['KeyZ'],
   pause: ['Escape', 'KeyP'],
   view: ['KeyV'],
@@ -184,6 +184,25 @@ export const isBindingCode = (value: unknown): value is string => typeof value =
  * v1 存档 → v2：旧默认键位“下降 = 左 Ctrl / X、视角回正 = C”改为“下降 = C、视角回正 = Z”。
  * 只改动仍是旧默认值的条目；玩家自己改过的键位保持不变，新键已被其他操作占用时也不改。
  */
+/**
+ * v3 存档 → v4：旧默认键位“下降 = C、动力增强 = Shift”互换。
+ * 两项都还是旧默认值才换；玩家自己改过的不动，这两个键被别的操作占着时也不动。
+ */
+export function upgradeDescendBindings(rawSettings: unknown): unknown {
+  if (!rawSettings || typeof rawSettings !== 'object') return rawSettings;
+  const b = (rawSettings as Record<string, unknown>).bindings;
+  if (!b || typeof b !== 'object') return rawSettings;
+  const bind = { ...(b as Record<string, unknown>) };
+  const same = (v: unknown, codes: string[]) => Array.isArray(v) && v.length === codes.length && codes.every((c, i) => v[i] === c);
+  const shift = ['ShiftLeft', 'ShiftRight'];
+  const taken = Object.entries(bind).some(([k, v]) => k !== 'down' && k !== 'boost' && Array.isArray(v) && v.some((c) => c === 'KeyC' || shift.includes(c as string)));
+  if (same(bind.down, ['KeyC']) && same(bind.boost, shift) && !taken) {
+    bind.down = shift;
+    bind.boost = ['KeyC'];
+  }
+  return { ...(rawSettings as Record<string, unknown>), bindings: bind };
+}
+
 export function upgradeLegacyBindings(rawSettings: unknown): unknown {
   if (!rawSettings || typeof rawSettings !== 'object') return rawSettings;
   const b = (rawSettings as Record<string, unknown>).bindings;

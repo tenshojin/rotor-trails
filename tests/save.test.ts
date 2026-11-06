@@ -112,11 +112,34 @@ describe('本地存档', () => {
     expect(sanitizeSettings({ volumetric: 0 }).volumetric).toBe(true);
   });
 
-  it('v1 存档的旧默认键位升级为新键位（下降 C、视角回正 Z），自定义键位保持不变', () => {
-    const oldDefaults = { ...structuredClone(defaultSettings().bindings), down: ['ControlLeft', 'KeyX'], center: ['KeyC'] };
+  it('v3 存档的旧默认键位（下降 C、动力增强 Shift）互换，自定义键位保持不变', () => {
+    const shift = ['ShiftLeft', 'ShiftRight'];
+    const old = { ...structuredClone(defaultSettings().bindings), down: ['KeyC'], boost: shift };
+    const a = migrate({ version: 3, settings: { bindings: old } }).settings.bindings;
+    expect(a.down).toEqual(shift);
+    expect(a.boost).toEqual(['KeyC']);
+    // 只改过其中一个：都不动
+    const b = migrate({ version: 3, settings: { bindings: { ...old, boost: ['KeyB'] } } }).settings.bindings;
+    expect(b.down).toEqual(['KeyC']);
+    expect(b.boost).toEqual(['KeyB']);
+    // C 或 Shift 被别的操作占着：不抢
+    const c = migrate({ version: 3, settings: { bindings: { ...old, center: ['ShiftLeft'] } } }).settings.bindings;
+    expect(c.down).toEqual(['KeyC']);
+    expect(c.center).toEqual(['ShiftLeft']);
+    // 已经是 v4 的存档不再迁移：玩家换回 C 下降是他自己的选择
+    const d = migrate({ version: 4, settings: { bindings: old } }).settings.bindings;
+    expect(d.down).toEqual(['KeyC']);
+    // 没有存档时的默认值
+    expect(defaultSettings().bindings.down).toEqual(shift);
+    expect(defaultSettings().bindings.boost).toEqual(['KeyC']);
+  });
+
+  it('v1 存档的旧默认键位一路升级到现在的键位，自定义键位保持不变', () => {
+    const oldDefaults = { ...structuredClone(defaultSettings().bindings), down: ['ControlLeft', 'KeyX'], center: ['KeyC'], boost: ['ShiftLeft', 'ShiftRight'] };
     const a = migrate({ version: 1, settings: { bindings: oldDefaults } });
     expect(a.settings.bindings.up).toEqual(['Space']);
-    expect(a.settings.bindings.down).toEqual(['KeyC']);
+    expect(a.settings.bindings.down).toEqual(['ShiftLeft', 'ShiftRight']);
+    expect(a.settings.bindings.boost).toEqual(['KeyC']);
     expect(a.settings.bindings.center).toEqual(['KeyZ']);
     // 玩家自己改过下降键：不动
     const b = migrate({ version: 1, settings: { bindings: { ...oldDefaults, down: ['KeyF'] } } });
@@ -165,7 +188,7 @@ describe('本地存档', () => {
   });
 
   it('旧键位迁移不抢占自定义 Z 键，首次零分通关仍记录评价', () => {
-    const bindings = { ...defaultSettings().bindings, forward: ['KeyZ'], down: ['ControlLeft', 'KeyX'], center: ['KeyC'] };
+    const bindings = { ...defaultSettings().bindings, forward: ['KeyZ'], down: ['ControlLeft', 'KeyX'], center: ['KeyC'], boost: ['ShiftLeft', 'ShiftRight'] };
     const migrated = migrate({ version: 1, settings: { bindings } }).settings.bindings;
     expect(migrated.forward).toEqual(['KeyZ']);
     expect(migrated.center).toEqual(['KeyC']);

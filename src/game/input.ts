@@ -6,9 +6,6 @@ import { isBindingCode, type Action, type Settings } from './settings';
 type EdgeAction = 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim';
 const EDGE: EdgeAction[] = ['hover', 'boost', 'center', 'pause', 'view', 'nav', 'mapRange', 'hud', 'cruise', 'trim'];
 
-/** 超仿真的按键：空格上升不变，Shift 改成下降，C 改成动力增强 */
-const SIM_KEYS: Partial<Record<Action, string[]>> = { down: ['ShiftLeft', 'ShiftRight'], boost: ['KeyC'] };
-
 /** 鼠标移到屏幕边上转头：从离边 EDGE_ZONE 处开始转，越靠边越快 */
 const EDGE_ZONE = 0.2;
 const EDGE_YAW = 1.5;
@@ -80,7 +77,7 @@ export class Input {
     return this.simMode;
   }
 
-  /** 进入或离开超仿真：鼠标放开、按键换一套 */
+  /** 进入或离开超仿真：鼠标放开 */
   setSim(on: boolean): void {
     if (on === this.simMode) return;
     this.simMode = on;
@@ -88,18 +85,12 @@ export class Input {
     this.clicks.length = 0;
     this.wheelSteps = 0;
     if (on) this.exitLock();
-    this.rebuild();
-  }
-
-  /** 超仿真里按键和平时不同的几项：其余沿用玩家自己的设置 */
-  private bound(a: Action): string[] {
-    return (this.simMode ? SIM_KEYS[a] : undefined) ?? this.settings.bindings[a];
   }
 
   private rebuild(): void {
     this.codeToActions.clear();
     for (const action of Object.keys(this.settings.bindings) as Action[]) {
-      const codes = this.bound(action);
+      const codes = this.settings.bindings[action];
       for (const c of codes) {
         const arr = this.codeToActions.get(c) ?? [];
         arr.push(action);
@@ -122,7 +113,7 @@ export class Input {
   }
 
   is(a: Action): boolean {
-    for (const c of this.bound(a)) if (this.down.has(c)) return true;
+    for (const c of this.settings.bindings[a]) if (this.down.has(c)) return true;
     return false;
   }
 

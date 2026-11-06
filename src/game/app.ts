@@ -456,7 +456,7 @@ export class App {
     const k = (a: keyof Settings['bindings']) => keyName(this.settings.bindings[a][0]);
     const html = this.settings.hints && !this.tutorial && this.state === 'playing'
       ? this.input.sim
-        ? `<kbd>Shift</kbd> 下降 · <kbd>C</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平 · <kbd>${k('hover')}</kbd> 增稳 · <kbd>${k('hud')}</kbd> 显示 HUD · <kbd>${k('pause')}</kbd> 暂停`
+        ? `<kbd>${k('down')}</kbd> 下降 · <kbd>${k('boost')}</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平 · <kbd>${k('hover')}</kbd> 增稳 · <kbd>${k('hud')}</kbd> 显示 HUD · <kbd>${k('pause')}</kbd> 暂停`
         : this.run?.free
         ? `<kbd>${k('cruise')}</kbd> 自动巡航 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('hud')}</kbd> 显示仪表 · <kbd>${k('pause')}</kbd> 换时段、天气、景点`
         : `<kbd>${k('hover')}</kbd> 悬停 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('nav')}</kbd> 导航 · <kbd>${k('pause')}</kbd> 暂停`
@@ -552,7 +552,7 @@ export class App {
     this.hud.show(true);
     this.applySim(cfg.assist === 'sim' && !cfg.tutorial);
     const k = (a: keyof Settings['bindings']) => keyName(this.settings.bindings[a][0]);
-    const controls = !this.settings.hints ? '' : cfg.assist === 'sim' ? `<br>冷舱启动：照左上角的检查单操作，鼠标点按钮 · 鼠标移到屏幕边转头 · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 杆 · <kbd>${k('up')}</kbd>/<kbd>Shift</kbd> 总距 · <kbd>C</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平` : `<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>${k('pause')}</kbd> 暂停`;
+    const controls = !this.settings.hints ? '' : cfg.assist === 'sim' ? `<br>冷舱启动：照左上角的检查单操作，鼠标点按钮 · 鼠标移到屏幕边转头 · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 杆 · <kbd>${k('up')}</kbd>/<kbd>${k('down')}</kbd> 总距 · <kbd>C</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平` : `<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>${k('pause')}</kbd> 暂停`;
     this.ui.clickToStart(
       cfg.tutorial ? `第 ${(cfg.lesson ?? 0) + 1} 课 · ${LESSONS[cfg.lesson ?? 0].title}` : cfg.free ? `休闲飞行 · ${cfg.map.name}` : cfg.map.name,
       cfg.tutorial ? '跟着屏幕下方的提示做，每次只学一个动作。' : cfg.free ? `没有任务，没有计时。想去哪儿就去哪儿，懒得飞就按 <kbd>${k('cruise')}</kbd> 让它自己飞。` : `${this.session.mission.current()?.def.title ?? ''}${controls}`,
