@@ -11,8 +11,10 @@ import * as THREE from 'three/webgpu';
 import {
   cameraPosition,
   clamp,
+  dot,
   float,
-  interleavedGradientNoise,
+  fract,
+  instanceIndex,
   length,
   max,
   mix,
@@ -20,15 +22,16 @@ import {
   positionGeometry,
   positionLocal,
   positionWorld,
-  screenCoordinate,
   sin,
   smoothstep,
   step,
   texture,
   uniform,
   uv,
+  vec2,
   vec3,
   vec4,
+  vertexStage,
 } from 'three/tsl';
 import { HELI } from '../config/flight';
 import type { WorldData } from '../world/worldgen';
@@ -273,9 +276,9 @@ export class GroundCover {
     };
     const dist = length(positionWorld.sub(cameraPosition));
     const nearFade = float(1).sub(smoothstep(62.0, 86.0, dist));
-    // 中圈：进出都是一棵棵抖着换的，不是一条线上突然出现
-    const ign = interleavedGradientNoise(screenCoordinate.xy);
-    const midFade = step(ign, smoothstep(52.0, 84.0, dist).mul(float(1).sub(smoothstep(this.midFar.mul(0.62), this.midFar, dist))));
+    // 中圈：进出都是一丛一丛换的，不是一条线上突然出现（按屏幕抖的话，半透明的那一段是一片网点）
+    const roll = vertexStage(fract(sin(dot(vec2(float(instanceIndex), 0.37), vec2(12.9898, 78.233))).mul(43758.5453)));
+    const midFade = step(roll, smoothstep(52.0, 84.0, dist).mul(float(1).sub(smoothstep(this.midFar.mul(0.62), this.midFar, dist))));
     this.near = new Ring(NEAR, this.geo, material(this.tex, nearFade, false));
     this.mid = new Ring(MID, this.geo, material(this.clump, midFade, true));
     this.group.add(this.near.mesh, this.mid.mesh);
@@ -284,7 +287,9 @@ export class GroundCover {
   }
 
   /** 中圈画几块（画质变化时调用） */
-  setMidRange(range: number): void {
+  setMidRange(wanted: number): void {
+    // 荒漠里没有成片的草：几米宽的草团从直升机上往下看，是地上一个个扁的星星
+    const range = this.density < 0.3 ? 0 : wanted;
     this.mid.range = Math.min(MID.range, range);
     this.mid.mesh.visible = range > 0;
     this.midFar.value = Math.max(1, (this.mid.range - 0.5) * MID.tile);

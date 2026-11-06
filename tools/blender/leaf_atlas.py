@@ -292,27 +292,46 @@ def juniper_sprays(greens):
 
 
 def scrub_twigs(greens):
-    """峡谷里的黑灌木：一蓬细硬的枝，发灰发黑，叶子小得几乎看不见"""
+    """干旱区的灌丛：一小团一小团的枝叶挤在一起，团和团之间是暗的缝，边上碎成细枝。
+    一张卡上要有好几团：只有一团的话，整丛灌木是一个光滑的球；留大洞的话是一块海绵"""
     im = Image.new('RGBA', (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     c = S / 2
-
-    def twig(x, y, a, L, w, depth):
-        for _ in range(3):
-            a += rnd.uniform(-0.45, 0.45)
-            nx, ny = x + math.cos(a) * L, y + math.sin(a) * L
-            d.line([(x, y), (nx, ny)], fill=jitter((46, 40, 34), 0.15) + (255,), width=int(w))
-            x, y = nx, ny
-            if depth > 0:
-                twig(x, y, a + rnd.choice((-1, 1)) * rnd.uniform(0.4, 1.1), L * 0.68, max(2, w * 0.7), depth - 1)
-            else:
-                for _ in range(5):
-                    b = rnd.uniform(0, 2 * math.pi)
-                    q = rnd.uniform(4, 10)
-                    d.ellipse([x + math.cos(b) * q - 5, y + math.sin(b) * q - 4, x + math.cos(b) * q + 5, y + math.sin(b) * q + 4], fill=jitter(rnd.choice(greens), 0.14) + (255,))
-
-    for _ in range(16):
-        twig(c, c, rnd.uniform(0, 2 * math.pi), S * 0.07, 9, 3)
+    lobes = [(c, c, S * 0.17)]
+    for i in range(10):
+        a = (i + rnd.uniform(-0.3, 0.3)) * 2 * math.pi / 10
+        r = rnd.uniform(0.14, 0.3) * S
+        lobes.append((c + math.cos(a) * r, c + math.sin(a) * r, rnd.uniform(0.08, 0.15) * S))
+    # 边上的细枝
+    for _ in range(70):
+        a = rnd.uniform(0, 2 * math.pi)
+        r0 = S * rnd.uniform(0.22, 0.34)
+        r1 = S * rnd.uniform(0.38, 0.47)
+        x0, y0 = c + math.cos(a) * r0, c + math.sin(a) * r0
+        b = a + rnd.uniform(-0.35, 0.35)
+        x1, y1 = c + math.cos(b) * r1, c + math.sin(b) * r1
+        d.line([(x0, y0), (x1, y1)], fill=jitter((58, 50, 42), 0.15) + (255,), width=rnd.choice((3, 4, 5)))
+        for _ in range(8):
+            t = rnd.random()
+            x, y = x0 + (x1 - x0) * t, y0 + (y1 - y0) * t
+            q = rnd.uniform(5, 10)
+            d.polygon(leaf_poly(x, y, q * 2.2, q, rnd.uniform(0, 2 * math.pi)), fill=jitter(shade(rnd.choice(greens), rnd.uniform(0.7, 1.0)), 0.1) + (255,))
+    # 外面的团先画，中间的盖在上面。每一团：暗的底，亮的叶子堆在中间
+    lobes.sort(key=lambda v: -math.hypot(v[0] - c, v[1] - c))
+    for x0, y0, R in lobes:
+        for _ in range(46):
+            a = rnd.uniform(0, 2 * math.pi)
+            r = rnd.random() ** 0.5 * R * 0.85
+            q = rnd.uniform(R * 0.14, R * 0.3)
+            x, y = x0 + math.cos(a) * r, y0 + math.sin(a) * r
+            d.ellipse([x - q, y - q, x + q, y + q], fill=jitter(shade(greens[-1], 0.46), 0.08) + (255,))
+        leaves = [(rnd.random() ** 0.62, rnd.uniform(0, 2 * math.pi)) for _ in range(760)]
+        leaves.sort(key=lambda v: -v[0])
+        for r, a in leaves:
+            x, y = x0 + math.cos(a) * r * R, y0 + math.sin(a) * r * R
+            k = 1.14 - 0.5 * r + rnd.uniform(-0.2, 0.2)
+            q = rnd.uniform(6, 12)
+            d.polygon(leaf_poly(x, y, q * 2.3, q, rnd.uniform(0, 2 * math.pi)), fill=jitter(shade(rnd.choice(greens), k), 0.08) + (255,))
     return im
 
 

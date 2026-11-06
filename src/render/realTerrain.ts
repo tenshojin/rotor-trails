@@ -6,7 +6,7 @@
 // 法线不用顶点法线：高度差在 CPU 上算成一张带 mipmap 的法线图，远处的粗网格上也有细节，太阳一动整个峡谷的明暗都跟着变。
 
 import * as THREE from 'three/webgpu';
-import { abs, attribute, Break, cameraPosition, cameraViewMatrix, clamp, dot, float, Fn, If, int, ivec2, length, log2, Loop, max, min, mix, mod, normalize, normalWorld, positionGeometry, positionWorld, pow, smoothstep, sqrt, step, texture, textureLoad, time, vec2, vec3, vec4 } from 'three/tsl';
+import { abs, attribute, Break, cameraPosition, cameraViewMatrix, clamp, dot, float, Fn, fract, If, int, interleavedGradientNoise, ivec2, length, log2, Loop, max, min, mix, mod, normalize, normalWorld, positionGeometry, positionWorld, pow, screenCoordinate, smoothstep, sqrt, step, texture, textureLoad, time, vec2, vec3, vec4 } from 'three/tsl';
 import type { RealData, RealGrid } from '../world/realData';
 import { FOG } from './atmosphere';
 import { disposeTextures } from './disposeTextures';
@@ -464,7 +464,8 @@ export class RealTerrain {
       const hit = Fn(() => {
         const out = vec3(0.5, 0.5, 0).toVar();
         If(wet.greaterThan(0.02), () => {
-          const t = float(9.0).toVar();
+          // 步长是一段比一段长的，撞到崖壁的地方一格一格的。起点每帧每个像素错开一点，时间抗锯齿把台阶抹成软边
+          const t = float(9.0).mul(interleavedGradientNoise(screenCoordinate.xy.add(fract(time.mul(7.13)).mul(64.0))).mul(0.65).add(0.7)).toVar();
           Loop(15, () => {
             const q = P.add(Rd.mul(t)).toVar();
             const hx = int(clamp(q.x.add(g.half).div(g.cell), 0.0, last));

@@ -36,6 +36,7 @@ import {
   vec3,
   vec4,
   varyingProperty,
+  vertexColor,
 } from 'three/tsl';
 import { HELI } from '../config/flight';
 import { FOG, gustAt, WASH, WASH_Y, WIND } from './atmosphere';
@@ -528,6 +529,8 @@ export class TreeView {
     let m: THREE.MeshStandardNodeMaterial;
     if (!src) {
       m = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
+      // 石块在影子里只有环境光，比旁边的地面暗一大截，逆光时是地上一个个黑洞。地面反上来的光补一点
+      if (rock) m.emissiveNode = vertexColor().rgb.mul(varyingProperty('vec3', 'vInstanceColor')).mul(FOG.color.mul(0.08).add(VFOG.sun.mul(0.03)));
     } else {
       m = new THREE.MeshStandardNodeMaterial({
         map: src.map,

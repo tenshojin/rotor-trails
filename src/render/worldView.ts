@@ -968,6 +968,7 @@ export class WorldView {
       this.rivers?.update(f.t);
       this.grass?.update(f.t, cp);
       this.scatter?.update(cp);
+      if (s) this.scatter?.probe(this.renderer, s.body.pos as unknown as THREE.Vector3, f.t, (list) => s.setRingTrees(list));
       if (this.buildings && this.sky) this.buildings.night.value = this.sky.night;
       if (s && this.wash) {
         this.wash.update(f.dt, s, cam);

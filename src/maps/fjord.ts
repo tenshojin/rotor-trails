@@ -10,6 +10,7 @@ import type { MapDef, RouteNodeDef, V3 } from './types';
 
 /** 片麻岩：灰色的岩体里斜着的片理，一层硬一层软，岩壁上是一道道斜着的岩架 */
 const ROCK: RockFormDef = {
+  massive: true,
   y0: -120,
   y1: 3500,
   dip: [0.42, -0.55],

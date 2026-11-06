@@ -201,6 +201,39 @@ export function buildRealData(def: RealTerrainDef, levels: RealGrid[]): RealData
   };
 }
 
+/** 第一次进这张图要下几十兆，加载器一个个读文件时进度条是不动的，玩家以为卡死了。
+ * 这里先把文件都拉一遍，进度按字节走；后面的加载直接读浏览器缓存。中途出错不要紧，真正加载时会再报 */
+export async function downloadRealFiles(def: RealTerrainDef, onProgress: (done: number, total: number) => void): Promise<void> {
+  const names = [...def.levels.flatMap((l) => [l.heights, l.image]), def.trees, def.strata?.image, def.aux, def.auxMid, def.scatter].filter((n): n is string => !!n);
+  const known = new Map<string, number>();
+  let done = 0;
+  const report = (): void => {
+    let total = 0;
+    for (const v of known.values()) total += v;
+    // 响应头还没全到的时候，总量按地图写的估
+    onProgress(done, Math.max(total, def.bytes ?? 0, done));
+  };
+  await Promise.all(
+    names.map(async (name) => {
+      try {
+        const res = await fetch(new URL(def.base + name, document.baseURI).href);
+        const size = Number(res.headers.get('content-length'));
+        if (size > 0) known.set(name, size);
+        const reader = res.body?.getReader();
+        if (!reader) return;
+        for (;;) {
+          const { done: end, value } = await reader.read();
+          if (end) break;
+          done += value.byteLength;
+          report();
+        }
+      } catch {
+        // 真正加载的时候会报错
+      }
+    }),
+  );
+}
+
 const cache = new Map<string, Promise<RealData>>();
 
 export function loadRealData(def: RealTerrainDef): Promise<RealData> {

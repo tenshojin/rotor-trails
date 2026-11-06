@@ -531,7 +531,7 @@ def ponderosa():
     """西黄松：南缘高处最大的树。笔直的橙褐色树干，下半截没有枝，枝一层层平伸、梢头上翘，针叶一大簇一大簇长在枝头。
     树冠又高又疏，看得见天，和一人多高的矮松、刺柏混在一起，林子才有高有低"""
     H = 19.0
-    for lod, (cards, sz) in enumerate([(9, 1.35), (3, 2.3)]):
+    for lod, (cards, sz) in enumerate([(15, 1.0), (3, 2.3)]):
         rng = random.Random(61)
         mb = MB()
         tp = curve(rng, (0, 0, 0), (rng.uniform(-0.3, 0.3), rng.uniform(-0.3, 0.3), H), 0.25, n=8 if lod == 0 else 3)
@@ -557,7 +557,7 @@ def ponderosa():
 
 def scrub():
     """干旱区的矮灌丛：贴地的一蓬细枝，没有主干"""
-    for lod, (nc, cs) in enumerate([(22, 1.2), (7, 1.8)]):
+    for lod, (nc, cs) in enumerate([(32, 1.05), (7, 1.8)]):
         rng = random.Random(29)
         mb = MB()
         cc = Vector((0, 0, 0.55))

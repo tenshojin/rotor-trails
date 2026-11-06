@@ -14,6 +14,7 @@ import { WorldView } from '../render/worldView';
 import { DEFAULT_PITCH } from '../render/cameraRig';
 import type { InstrumentData } from '../render/instruments';
 import { Hud } from '../ui/hud';
+import { downloadRealFiles } from '../world/realData';
 import { UI } from '../ui/menus';
 import { generateWorld, type WorldData } from '../world/worldgen';
 import type { AssistId } from '../config/flight';
@@ -519,9 +520,16 @@ export class App {
     if (!this.world || this.world.map.id !== cfg.map.id) {
       this.ui.loading('生成地形', 0.02, cfg.map);
       this.view.prefetch(cfg.map);
-      const w = await generateWorld(cfg.map, true, (p, l) => this.ui.loading(l, p, cfg.map));
+      // 真实地形的数据大：下载占进度条的前一半
+      const dl = cfg.map.real ? 0.5 : 0;
+      if (cfg.map.real) {
+        await downloadRealFiles(cfg.map.real, (done, total) => this.ui.loading(`下载地形数据 ${Math.round(done / 1e6)} / ${Math.round(total / 1e6)} MB`, (done / total) * dl, cfg.map));
+        this.assertActive();
+      }
+      const stage = (p: number, l: string): void => this.ui.loading(l, dl + p * (1 - dl), cfg.map);
+      const w = await generateWorld(cfg.map, true, stage);
       this.assertActive();
-      await this.view.load(w, (p, l) => this.ui.loading(l, p, cfg.map));
+      await this.view.load(w, stage);
       this.assertActive();
       this.world = w;
     }

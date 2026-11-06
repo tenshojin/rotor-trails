@@ -428,25 +428,33 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const rockK = rockW.mul(float(1).sub(snowW));
     // 竖直的两个投影：v 是地层坐标（高度加上地层面的偏移），岩层、断面沿地层面走
     const Py = P.y.add(swV).toVar();
-    const relief = (s: number, o: number) => {
-      const fx = texture(U.relief, vec2(P.z, Py).div(s).add(o));
+    // 浮雕图是一面有层理的悬崖。花岗岩、片麻岩这种块状的岩石没有一层层的水平线，全摆正了就是一面毛茸茸的横纹：
+    // 三个尺度各转一个角度，横纹成了几组方向不同的节理
+    const massive = U.rockForm?.massive ?? false;
+    const spin = (a: number) => (massive ? a : 0);
+    const turn = (u: N<'vec2'>, a: number) => (a ? vec2(u.x.mul(Math.cos(a)).sub(u.y.mul(Math.sin(a))), u.x.mul(Math.sin(a)).add(u.y.mul(Math.cos(a)))) : u);
+    const relief = (s: number, o: number, a = 0) => {
+      const fx = texture(U.relief, turn(vec2(P.z, Py), a).div(s).add(o));
       const fy = texture(U.relief, P.xz.div(s).add(o));
-      const fz = texture(U.relief, vec2(P.x, Py).div(s).add(o));
+      const fz = texture(U.relief, turn(vec2(P.x, Py), a).div(s).add(o));
       const hgt = fx.b.mul(tw.x).add(fy.b.mul(tw.y)).add(fz.b.mul(tw.z));
-      const ux = fx.rg.mul(2.0).sub(1.0);
+      const ux = turn(fx.rg.mul(2.0).sub(1.0), -a);
       const uy = fy.rg.mul(2.0).sub(1.0);
-      const uz = fz.rg.mul(2.0).sub(1.0);
+      const uz = turn(fz.rg.mul(2.0).sub(1.0), -a);
       const wn = vec3(0.0, ux.y, ux.x).mul(tw.x).add(vec3(uy.x, 0.0, uy.y).mul(tw.y)).add(vec3(uz.x, uz.y, 0.0).mul(tw.z));
       return vec4(wn, hgt);
     };
-    const cavOf = (s: number, o: number) => texture(U.relief, vec2(P.z, Py).div(s).add(o)).a.mul(tw.x).add(texture(U.relief, P.xz.div(s).add(o)).a.mul(tw.y)).add(texture(U.relief, vec2(P.x, Py).div(s).add(o)).a.mul(tw.z));
-    const rA0 = relief(230.0, 0.0);
+    const cavOf = (s: number, o: number, a = 0) => texture(U.relief, turn(vec2(P.z, Py), a).div(s).add(o)).a.mul(tw.x).add(texture(U.relief, P.xz.div(s).add(o)).a.mul(tw.y)).add(texture(U.relief, turn(vec2(P.x, Py), a).div(s).add(o)).a.mul(tw.z));
+    const angA = spin(0.35);
+    const angB = spin(1.15);
+    const angC = spin(-0.75);
+    const rA0 = relief(230.0, 0.0, angA);
     // 几公里外 230 米一格的浮雕只有几十个像素，里面的细层线排成一道道扫描线：换成五倍大的一层
     const farRelief = smoothstep(1100.0, 3000.0, length(P.sub(cameraPosition))).toVar();
-    const rA = mix(rA0, relief(1180.0, 0.19), farRelief);
-    const rB = relief(71.0, 0.41);
+    const rA = mix(rA0, relief(1180.0, 0.19, angA), farRelief);
+    const rB = relief(71.0, 0.41, angB);
     // 最细的一层（19 米平铺）：岩面上的裂隙和小棱角，只在中近距离看得出
-    const rC = relief(19.0, 0.73);
+    const rC = relief(19.0, 0.73, angC);
     const footK = float(1).sub(smoothstep(0.6, 3.6, length(dPx).add(length(dPy))));
     const footC = float(1).sub(smoothstep(0.16, 1.05, length(dPx).add(length(dPy))));
     const reliefN = rA.xyz.mul(1.0).add(rB.xyz.mul(footK.mul(0.9))).add(rC.xyz.mul(footC.mul(0.8)));
@@ -456,7 +464,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const shade = float(1).sub(cavS.mul(0.26)).sub(cavL.mul(0.2)).add(rH.sub(0.46).mul(mix(float(0.1), float(0.7), rockK)));
     col.mulAssign(clamp(shade, 0.66, 1.4).mul(float(1).sub(snowW.mul(0.5))).add(snowW.mul(0.5)));
     // 裂缝和岩层下面的凹处：太阳照不进去，是岩壁上最黑的地方
-    const cav = cavOf(71.0, 0.41).mul(footK.mul(0.75)).add(cavOf(19.0, 0.73).mul(footC.mul(0.65))).add(mix(cavOf(230.0, 0.0), cavOf(1180.0, 0.19), farRelief).mul(0.42));
+    const cav = cavOf(71.0, 0.41, angB).mul(footK.mul(0.75)).add(cavOf(19.0, 0.73, angC).mul(footC.mul(0.65))).add(mix(cavOf(230.0, 0.0, angA), cavOf(1180.0, 0.19, angA), farRelief).mul(0.42));
     col.mulAssign(float(1).sub(clamp(cav, 0.0, 1.0).mul(rockK).mul(0.34)));
     // 水痕：雨水顺着岩壁往下淌，留下一道道深色的竖纹（矿物、地衣），这是崖壁远看最抢眼的纹理
     const seep = texture(noise, vec2(P.x.add(P.z).mul(0.0047), P.y.mul(0.00035))).r.mul(0.62).add(texture(noise, vec2(P.x.sub(P.z).mul(0.019), P.y.mul(0.0011).add(0.3))).g.mul(0.38));

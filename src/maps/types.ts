@@ -230,6 +230,8 @@ export interface RealTerrainDef {
   credit: string;
   /** 从影像里认出来的树 */
   trees?: string;
+  /** 数据一共多少字节（下载进度条用） */
+  bytes?: number;
   /** 岩层色表：按高度排的一条颜色（崖壁上的贴图被拉长了，靠它补回层次） */
   /** dip：地层不是完全水平的，高度 + x·dip[0] + z·dip[1] 才是这层岩石的位置 */
   /** basement：这个高度以下是基底的变质岩（发黑，没有水平的层） */

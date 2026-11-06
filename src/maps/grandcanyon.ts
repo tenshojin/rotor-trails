@@ -29,6 +29,7 @@ export const GRAND_CANYON: MapDef = {
   waterLevel: null,
   real: {
     base: 'real/grandcanyon/',
+    bytes: 89e6,
     credit: '高程：USGS 3DEP；影像：USDA NAIP 2023（经 USGS The National Map）。美国政府公有领域数据。',
     levels: [
       { size: 10240, res: 4097, heights: 'core.dem', image: 'core.webp', base: 724, step: 0.05 },

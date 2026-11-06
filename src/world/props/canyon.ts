@@ -38,8 +38,8 @@ export const canyonProps: Record<string, PropFn> = {
     B.anchor('blink', 0, 5.9, 0, 0, { color: 'red', period: 1.2 });
     B.footprint(3);
   },
-  arch(B, d) {
-    // 天然岩拱：矩形截面沿半椭圆弧扫掠，带噪声起伏；碰撞体由沿弧的倾斜长方体组成
+  arch(B, d, rng) {
+    // 天然岩拱：圆角截面沿半椭圆弧扫掠，拱脚粗、拱顶细，带噪声起伏；碰撞体由沿弧的倾斜长方体组成
     const span = Number(d.p?.span ?? 80);
     const rise = Number(d.p?.rise ?? 55);
     const thick = Number(d.p?.thick ?? 14);
@@ -51,35 +51,63 @@ export const canyonProps: Record<string, PropFn> = {
       pts.push([(-Math.cos(a) * span) / 2, Math.sin(a) * rise]);
     }
     const tris: number[] = [];
+    // 网格比碰撞体细：四棱的截面飞近了就是一根方管子
+    const M = 48;
+    const K = 12;
+    // 两头往地下多走一段：拱脚埋在地里，不是一截空心的管子立在地上
+    const OVER = 6;
     const ring = (i: number, k: number): [number, number, number] => {
-      const [x, y] = pts[i];
-      const a = Math.PI * (i / n);
+      const u = i / M;
+      const a = Math.PI * u;
+      const x = (-Math.cos(a) * span) / 2;
+      const y = Math.sin(a) * rise;
       const nx = -Math.cos(a) * (span / 2 / Math.max(span / 2, rise));
       const ny = Math.sin(a);
       const l = Math.hypot(nx, ny);
       const ox = nx / l;
       const oy = ny / l;
-      const wob = 1 + 0.18 * Math.sin(i * 1.7 + k * 2.3);
-      const t = (thick * wob) / 2;
-      const dd = (depth * (0.85 + 0.15 * Math.cos(i * 0.9))) / 2;
-      const corners: Array<[number, number, number]> = [
-        [x + ox * t, y + oy * t, -dd],
-        [x + ox * t, y + oy * t, dd],
-        [x - ox * t, y - oy * t, dd],
-        [x - ox * t, y - oy * t, -dd],
-      ];
-      return corners[k];
+      // 拱脚粗、拱顶细：风化的岩拱中间最薄
+      const legs = Math.abs(Math.cos(a)) ** 1.6;
+      const t = (thick / 2) * (0.74 + 0.6 * legs) * (1 + 0.15 * Math.sin(u * 9.3) + 0.07 * Math.sin(u * 23.1 + 1.3));
+      const dd = (depth / 2) * (0.76 + 0.48 * legs) * (1 + 0.12 * Math.cos(u * 7.1 + 0.5));
+      const th = (Math.PI * 3) / 4 - (2 * Math.PI * k) / K;
+      const c = Math.cos(th);
+      const s = Math.sin(th);
+      // 截面是一块圆角的石头，不是圆管
+      // 一层层的岩层风化得不一样快：硬层突出来，软层缩进去，沿着高度一圈一圈的
+      const bed = 0.06 * Math.sin(y * 0.31) + 0.05 * Math.sin(y * 0.83 + 1.1) + 0.03 * Math.sin(y * 1.9);
+      const wob = 1 + 0.11 * Math.sin(th * 3 + u * 11) + 0.08 * Math.sin(th * 5 - u * 17) + 0.05 * Math.sin(th * 7 + u * 41) + bed;
+      const cz = Math.sign(c) * Math.abs(c) ** 0.6 * wob;
+      const co = Math.sign(s) * Math.abs(s) ** 0.6 * wob;
+      return [x + ox * t * co, y + oy * t * co, dd * cz];
     };
-    for (let i = 0; i < n; i++) {
-      for (let k = 0; k < 4; k++) {
+    for (let i = -OVER; i < M + OVER; i++) {
+      for (let k = 0; k < K; k++) {
         const a = ring(i, k);
         const b = ring(i + 1, k);
-        const c = ring(i + 1, (k + 1) % 4);
-        const e = ring(i, (k + 1) % 4);
+        const c = ring(i + 1, (k + 1) % K);
+        const e = ring(i, (k + 1) % K);
         tris.push(...a, ...b, ...c, ...a, ...c, ...e);
       }
     }
     B.mesh(tris, RED, 'rock', 0.12);
+    // 光是一根扫掠出来的管子太顺滑了：贴上一块块突出的岩体，轮廓才是崩塌过的石头。下面多、拱顶少
+    for (let i = 0; i < 44; i++) {
+      const u = rng.range(0.02, 0.98);
+      const a = Math.PI * u;
+      const legs = Math.abs(Math.cos(a));
+      if (rng.range(0, 1) > 0.35 + legs * 0.65) continue;
+      const x = (-Math.cos(a) * span) / 2;
+      const y = Math.sin(a) * rise;
+      const nx = -Math.cos(a) * (span / 2 / Math.max(span / 2, rise));
+      const ny = Math.sin(a);
+      const l = Math.hypot(nx, ny);
+      const th = rng.range(0, Math.PI * 2);
+      const rr = thick * (0.72 + 0.5 * legs) * 0.5;
+      const dz = depth * (0.72 + 0.4 * legs) * 0.5;
+      const r = rng.range(2.6, 6.2) * (0.7 + 0.5 * legs);
+      B.sphere(x + (nx / l) * Math.sin(th) * rr, y + (ny / l) * Math.sin(th) * rr, Math.cos(th) * dz, r, RED, { mat: 'rock', sy: rng.range(0.42, 0.72), noise: 0.34, seg: 8, solid: false });
+    }
     // 拱脚岩基
     B.sphere(-span / 2, 4, 0, thick * 1.1, 0x9a4a32, { mat: 'rock', sy: 1.4, noise: 0.3, seg: 9 });
     B.sphere(span / 2, 4, 0, thick * 1.1, 0x9a4a32, { mat: 'rock', sy: 1.4, noise: 0.3, seg: 9 });
@@ -105,16 +133,34 @@ export const canyonProps: Record<string, PropFn> = {
   hoodoo(B, d, rng) {
     const h = Number(d.p?.h ?? rng.range(14, 30));
     const r = Number(d.p?.r ?? rng.range(2.5, 4.5));
-    let y = 0;
-    let i = 0;
-    const cols = [0xb4583a, 0xc87a50, 0x9a4630, 0xd4a070];
-    while (y < h) {
-      const seg = r * rng.range(1.4, 2.2);
-      const rr = r * (1 - (y / h) * 0.35) * rng.range(0.85, 1.1);
-      B.sphere(rng.range(-0.4, 0.4), y + seg / 2, rng.range(-0.4, 0.4), rr, cols[i++ % cols.length], { mat: 'rock', sy: seg / (rr * 2) + 0.1, noise: 0.25, seg: 9, solid: false });
-      y += seg * 0.8;
+    // 一根连着的石柱：软的地方缩进去、硬的地方鼓出来，顶上压着一块硬的盖石，盖石下面的脖子最细（不是一串珠子）
+    const n = Math.max(7, Math.round(h / 2));
+    const K = 10;
+    const p1 = rng.range(0, 6.28);
+    const p2 = rng.range(0, 6.28);
+    const lean = rng.range(-0.5, 0.5);
+    const lean2 = rng.range(-0.5, 0.5);
+    const at = (i: number, k: number): [number, number, number] => {
+      const t = i / n;
+      const y = t * h - 1.5;
+      const neck = 1 - 0.42 * Math.max(0, Math.min(1, (t - 0.72) / 0.24)) ** 2;
+      const rr = r * (1.28 - 0.5 * t) * neck * (1 + 0.15 * Math.sin(y * 0.74 + p1) + 0.08 * Math.sin(y * 1.9 + p2));
+      const a = (2 * Math.PI * k) / K;
+      const wob = 1 + 0.13 * Math.sin(a * 3 + y * 0.45 + p1) + 0.06 * Math.sin(a * 5 - y * 0.8 + p2);
+      return [Math.cos(a) * rr * wob + lean * t, y, Math.sin(a) * rr * wob + lean2 * t];
+    };
+    const tris: number[] = [];
+    for (let i = 0; i < n; i++) {
+      for (let k = 0; k < K; k++) {
+        const a = at(i, k);
+        const b = at(i + 1, k);
+        const c = at(i + 1, (k + 1) % K);
+        const e = at(i, (k + 1) % K);
+        tris.push(...a, ...b, ...c, ...a, ...c, ...e);
+      }
     }
-    B.sphere(0, h + r * 0.4, 0, r * 1.3, 0x7a3a28, { mat: 'rock', sy: 0.45, noise: 0.3, seg: 9, solid: false });
+    B.mesh(tris, 0xb4583a, 'rock', 0.1);
+    B.sphere(lean, h + r * 0.3, lean2, r * 1.35, 0x7a3a28, { mat: 'rock', sy: 0.42, noise: 0.34, seg: 9, solid: false });
     B.addColliderCyl(0, h / 2, 0, h / 2 + r * 0.4, r * 0.95, { kind: 'rock' });
     B.footprint(r * 1.5 + 1);
   },

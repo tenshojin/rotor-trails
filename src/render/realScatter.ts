@@ -26,6 +26,7 @@ import {
   normalGeometry,
   normalize,
   positionGeometry,
+  positionWorld,
   sin,
   smoothstep,
   step,
@@ -40,6 +41,8 @@ import {
   vertexStage,
 } from 'three/tsl';
 import { HELI } from '../config/flight';
+import type { TreeType } from '../maps/types';
+import type { RingTree } from '../sim/session';
 import type { RealData, RealGrid } from '../world/realData';
 import { FOG, gustAt, WASH, WIND } from './atmosphere';
 import { getNoiseTexture } from './textures';
@@ -70,13 +73,19 @@ interface RingDef {
   seed: number;
   /** 高处才长的大树（西黄松） */
   tall?: boolean;
+  /** 同一批树的两级细节：近的一级只画这个距离以内，远的一级只画这个距离以外 */
+  nearTo?: number;
+  farFrom?: number;
 }
+
+/** 外圈的树在多远换成全细节的模型 */
+const TREE_SWAP = 72;
 
 /** 由近到远。外圈的格子大、东西大、几何体简单 */
 const RINGS: RingDef[] = [
   { kind: 'shrub', cell: 1.7, half: 66, inner: 0, p: 0.5, size: [0.3, 0.95], detail: 0, agl: 240, shadow: true, seed: 1.7 },
   { kind: 'shrub', cell: 3.4, half: 112, inner: 96, p: 0.9, size: [0.42, 1.1], detail: 2, agl: 700, shadow: false, seed: 3.1 },
-  { kind: 'rock', cell: 0.9, half: 60, inner: 0, p: 0.3, size: [0.05, 0.55], detail: 0, agl: 200, shadow: true, seed: 5.3 },
+  { kind: 'rock', cell: 0.9, half: 60, inner: 0, p: 0.3, size: [0.05, 0.55], detail: 1, agl: 200, shadow: true, seed: 5.3 },
   { kind: 'rock', cell: 3.6, half: 80, inner: 50, p: 0.3, size: [0.3, 1.3], detail: 0, agl: 520, shadow: false, seed: 7.9 },
   { kind: 'grass', cell: 1.15, half: 56, inner: 0, p: 0.5, size: [0.3, 0.62], detail: 0, agl: 110, shadow: false, seed: 9.2 },
 ];
@@ -102,10 +111,12 @@ function rng(seed: number): () => number {
 
 /** 碎石：二十个面的多面体，顶点推开一点，有棱有角。面法线由着色器算（flatShading），所以顶点可以共用：
  * 12 个顶点，不是 60 个。这几圈碎石一共几万块，顶点着色器里要查地形，少算五倍 */
-function rockGeometry(): THREE.BufferGeometry {
-  const src = new THREE.IcosahedronGeometry(1, 0);
+function rockGeometry(detail: number): THREE.BufferGeometry {
+  const src = new THREE.IcosahedronGeometry(1, detail);
   const pos = src.getAttribute('position');
   const r = rng(131);
+  // （面多的那个推得轻一点，不然全是刺）
+  const spread = detail ? 0.36 : 0.6;
   const index = new Map<string, number>();
   const verts: number[] = [];
   const faces: number[] = [];
@@ -114,7 +125,7 @@ function rockGeometry(): THREE.BufferGeometry {
     let n = index.get(key);
     if (n === undefined) {
       n = verts.length / 3;
-      const k = 0.7 + r() * 0.6;
+      const k = 1 - spread / 2 + r() * spread;
       verts.push(pos.getX(i) * k * (0.8 + r() * 0.5), pos.getY(i) * k * 0.72 + 0.12, pos.getZ(i) * k * (0.8 + r() * 0.5));
       index.set(key, n);
     }
@@ -183,6 +194,17 @@ function tuftTexture(): THREE.CanvasTexture {
   return t;
 }
 
+/** 读回去做碰撞的范围：每边多少格 */
+const PROBE = 32;
+
+interface Probe {
+  def: RingDef;
+  rt: THREE.RenderTarget;
+  quad: THREE.QuadMesh;
+  origin: THREE.UniformNode<'vec2', THREE.Vector2>;
+  type: TreeType;
+}
+
 interface Ring {
   def: RingDef;
   mesh: THREE.Mesh;
@@ -199,6 +221,10 @@ export class RealScatter {
   private readonly geos: THREE.BufferGeometry[] = [];
   private readonly tuft = tuftTexture();
   private range = 1;
+  private probes: Probe[] = [];
+  private nextProbe = 0;
+  private reading = false;
+  private probed = false;
 
   /** models：灌木、外圈的树（来自 trees.glb）和叶片图集；模型没加载上就不画 */
   constructor(
@@ -212,19 +238,24 @@ export class RealScatter {
     private readonly keepOut: Array<[number, number, number]>,
     quality: string,
   ) {
-    const rock = rockGeometry();
+    // 近处的碎石面多一些：飞低了看得见棱，二十个面的石头是一块多面体
+    const rocks = [rockGeometry(0), rockGeometry(1)];
     const tuft = tuftGeometry();
-    this.geos.push(rock, tuft);
+    this.geos.push(...rocks, tuft);
     for (const def of RINGS) {
       if (def.kind === 'shrub' && !models) continue;
-      const src = def.kind === 'shrub' ? models!.shrub[def.detail] : def.kind === 'rock' ? rock : tuft;
+      const src = def.kind === 'shrub' ? models!.shrub[def.detail] : def.kind === 'rock' ? rocks[def.detail] : tuft;
       this.rings.push(this.ring(def, src));
     }
     models?.trees.forEach((t, i) => {
       const seed = 11.3 + i * 4.1;
       const ring = t.tall ? TALL_RING : TREE_RING;
-      this.rings.push(this.ring({ ...ring, kind: 'leaf', seed }, t.leaf));
-      if (t.bark) this.rings.push(this.ring({ ...ring, kind: 'bark', seed }, t.bark));
+      this.rings.push(this.ring({ ...ring, kind: 'leaf', seed, farFrom: TREE_SWAP }, t.leaf));
+      if (t.bark) this.rings.push(this.ring({ ...ring, kind: 'bark', seed, farFrom: TREE_SWAP }, t.bark));
+      // 飞低了跟前的几棵：全细节的模型
+      const near = { ...ring, half: Math.ceil((TREE_SWAP + 24) / ring.cell), seed, nearTo: TREE_SWAP };
+      this.rings.push(this.ring({ ...near, kind: 'leaf' }, t.nearLeaf));
+      if (t.nearBark) this.rings.push(this.ring({ ...near, kind: 'bark' }, t.nearBark));
     });
     this.setQuality(quality);
   }
@@ -269,64 +300,14 @@ export class RealScatter {
     const tree = leaf || bark;
     const solid = rock || bark;
     const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.95, metalness: 0, side: solid ? THREE.FrontSide : THREE.DoubleSide, alphaTest: solid ? 0 : 0.5, flatShading: rock });
-    const g = this.data.levels[0];
-    const g1 = this.data.levels[1];
     const noise = getNoiseTexture();
-    const ci = origin.add(attribute<'vec2'>('cell', 'vec2'));
-    // 四个互不相干的随机数（Dave Hoskins 的无三角函数哈希：换显卡结果也一样）
-    const q = ci.add(def.seed * 17.0);
-    let p4: N<'vec4'> = fract(vec4(q.x, q.y, q.x, q.y).mul(vec4(0.1031, 0.103, 0.0973, 0.1099)));
-    p4 = p4.add(dot(p4, p4.wzxy.add(33.33)));
-    const h = fract(p4.xxyz.add(p4.yzzw).mul(p4.zywx)).toVar();
-    const wx = ci.x.add(h.x).mul(def.cell).toVar();
-    const wz = ci.y.add(h.y).mul(def.cell).toVar();
-    const muv = vec2(wx, wz).div(g.size).add(0.5).toVar();
-    const muv1 = vec2(wx, wz).div(g1.size).add(0.5).toVar();
-    const inCore = step(max(abs2(wx), abs2(wz)), g.half - 3).toVar();
-    // 脚下的地：和地形同一种三角剖分（斜边从 (1,0) 到 (0,1)），外圈 10 米一格，差一点就悬空了
-    const groundAt = (tex: THREE.Texture, l: RealGrid): N<'float'> => {
-      const last = l.res - 1;
-      const fx = wx.add(l.half).div(l.cell).toVar();
-      const fz = wz.add(l.half).div(l.cell).toVar();
-      const ix = floor(fx).toVar();
-      const iz = floor(fz).toVar();
-      const tx = fx.sub(ix).toVar();
-      const tz = fz.sub(iz).toVar();
-      const load = (a: N<'float'>, b: N<'float'>): N<'float'> => textureLoad(tex, ivec2(int(max(min(a, last), 0.0)), int(max(min(b, last), 0.0)))).r;
-      const a = load(ix, iz);
-      const b = load(ix.add(1.0), iz).toVar();
-      const c = load(ix, iz.add(1.0)).toVar();
-      const e = load(ix.add(1.0), iz.add(1.0));
-      const first = a.add(b.sub(a).mul(tx)).add(c.sub(a).mul(tz));
-      const second = e.add(c.sub(e).mul(float(1).sub(tx))).add(b.sub(e).mul(float(1).sub(tz)));
-      return mix(first, second, step(1.0, tx.add(tz)));
-    };
-    const y0 = mix(groundAt(this.mid.height, g1), groundAt(this.core.height, g), inCore).toVar();
-    // 颜色和疏密：核心区查图，外圈按影像和坡度估
-    // （外圈的疏密按十几米的尺度估：一个像素 5 米，单看一个像素全是噪点）
-    const img1 = texture(this.mid.image, muv1).level(float(1)).rgb.toVar();
-    const nm = texture(this.mid.normal, muv1).level(float(1));
-    const steep = smoothstep(0.1, 0.55, length(nm.rg.mul(2.0).sub(1.0)));
-    const l1 = dot(img1, vec3(0.2126, 0.7152, 0.0722));
-    const dark = float(1).sub(smoothstep(0.1, 0.3, l1));
-    // （河里不长东西：核心区的疏密图里已经扣掉了）
-    const dry = this.mid.aux ? float(1).sub(smoothstep(0.08, 0.2, texture(this.mid.aux, muv1).level(float(0)).g)) : float(1);
-    const est = vec3(mix(float(0.42), float(0.8), dark).mul(float(1).sub(steep.mul(0.6))), steep.mul(0.75).add(0.08), float(0.32).mul(float(1).sub(steep))).mul(dry);
-    const dens = mix(est, texture(this.core.density, muv).level(float(0)).rgb, inCore).toVar();
-    // 碎石一片多一片少，不是均匀撒的
-    // 外圈的树：高处、不陡、够深的地方。影子里的崖壁也暗，所以要看高度
-    const forest = float(1).sub(smoothstep(0.075, 0.17, l1)).mul(float(1).sub(steep)).mul(smoothstep(1750.0, 1900.0, y0)).mul(float(1).sub(inCore)).mul(dry);
-    const d = tree ? (def.tall ? forest.mul(smoothstep(2060.0, 2230.0, y0)) : forest) : shrub ? dens.x : rock ? dens.y.mul(smoothstep(0.34, 0.66, texture(noise, vec2(wx, wz).div(490.0)).level(float(0)).r).mul(0.9).add(0.25)) : dens.z;
+    const { h, wx, wz, y0, muv, inCore, img1, keep, full } = this.cellAt(def, origin.add(attribute<'vec2'>('cell', 'vec2')));
     const dist = length(vec3(wx, y0, wz).sub(cameraPosition)).toVar();
     // 进出都是一棵棵慢慢长出来的：每棵的距离错开一点，看不出一条线
-    const out = float(1).sub(smoothstep(reach.mul(0.72), reach.mul(0.98), dist.add(h.z.mul(reach).mul(0.1))));
-    const inn = def.inner > 0 ? smoothstep(inner.mul(0.72), inner, dist.add(h.w.mul(inner).mul(0.25))) : float(1);
-    let inside: N<'float'> = step(max(abs2(wx), abs2(wz)), g1.half - 8);
-    for (const [cx, cz, r] of this.keepOut.slice(0, 16)) inside = inside.mul(step(r, length(vec2(wx, wz).sub(vec2(cx, cz)))));
-    const keep = step(h.z, d.mul(def.p)).mul(inside);
-    // 小的多、大的少
-    const big = rock ? h.w.mul(h.w).mul(h.w) : h.w.mul(h.w);
-    const size = mix(float(def.size[0]), float(def.size[1]), big).mul(keep).mul(out).mul(inn).toVar();
+    const swapAt = dist.add(h.w.mul(14.0));
+    const out = def.nearTo ? step(swapAt, def.nearTo) : float(1).sub(smoothstep(reach.mul(0.72), reach.mul(0.98), dist.add(h.z.mul(reach).mul(0.1))));
+    const inn = def.farFrom ? step(def.farFrom, swapAt) : def.inner > 0 ? smoothstep(inner.mul(0.72), inner, dist.add(h.w.mul(inner).mul(0.25))) : float(1);
+    const size = full.mul(keep).mul(out).mul(inn).toVar();
     const ang = h.x.mul(6.2832).add(h.y.mul(11.0));
     const ca = cos(ang).toVar();
     const sa = sin(ang).toVar();
@@ -371,15 +352,15 @@ export class RealScatter {
     let tint: N<'vec3'>;
     if (leaf) {
       // （松针贴图是翠绿色的，南缘的西黄松发黄发灰，和 treeView.ts 的一样）
-      tint = def.tall ? mix(vec3(0.68, 0.56, 0.39), vec3(0.92, 0.76, 0.53), h.y) : mix(vec3(1.3, 1.34, 1.2), vec3(1.8, 1.78, 1.5), h.y);
+      tint = def.tall ? mix(vec3(0.68, 0.56, 0.39), vec3(0.92, 0.76, 0.53), h.y) : mix(vec3(0.95, 0.98, 0.9), vec3(1.3, 1.3, 1.14), h.y);
     } else if (bark) {
       tint = def.tall ? vec3(0.2, 0.125, 0.08) : vec3(0.1, 0.085, 0.07);
     } else if (shrub) {
       // 图集里的颜色乘这个：峡谷里发黑，南缘的灰绿一些，隔几丛有一丛枯黄的
       const rim = smoothstep(1900.0, 2100.0, y0);
       // （真的黑灌木反照率也有一成多：太暗的话影子里就是一地黑胡椒）
-      const dark = mix(vec3(1.9, 1.8, 1.6), vec3(2.7, 2.5, 2.1), h.y);
-      const pale = mix(vec3(1.5, 1.5, 1.25), vec3(2.1, 2.05, 1.6), h.y);
+      const dark = mix(vec3(1.3, 1.25, 1.12), vec3(1.8, 1.7, 1.45), h.y);
+      const pale = mix(vec3(1.2, 1.22, 1.04), vec3(1.62, 1.6, 1.3), h.y);
       tint = mix(mix(dark, pale, rim), vec3(2.3, 1.8, 1.1), step(0.9, h.x).mul(0.8));
     } else if (rock) {
       // 和脚下的地是同一种石头，新鲜的断面亮一些
@@ -389,7 +370,8 @@ export class RealScatter {
     }
     const col = vertexStage(tint);
     if (bark) {
-      m.colorNode = vec4(col, 1);
+      const skin = def.nearTo && this.models?.barkMap ? texture(this.models.barkMap, uv()).rgb.mul(3.2) : vec3(1.0);
+      m.colorNode = vec4(col.mul(skin), 1);
       m.normalNode = normalize(cameraViewMatrix.mul(vec4(vertexStage(normalWorldOf(ca, sa)), 0.0)).xyz);
     } else if (shrub || leaf) {
       const t = texture(this.models!.map, uv());
@@ -400,6 +382,8 @@ export class RealScatter {
       // 影子里的灌木也不是黑的：地面反上来的光和天光
       m.emissiveNode = albedo.mul(VFOG.sun.mul(0.07).add(FOG.color.mul(0.16)).add(vertexStage(ground).mul(VFOG.sun).mul(0.3)));
       m.normalNode = normalize(cameraViewMatrix.mul(vec4(vertexStage(normalWorldOf(ca, sa)).mul(0.8).add(vec3(0, 0.3, 0)), 0.0)).xyz);
+      // 查阴影的点往太阳方向挪一点：一丛灌木不挡自己，身上不是一片网纹；树的影子还是落得上来
+      if (shrub) m.receivedShadowPositionNode = positionWorld.add(FOG.sunDir.mul(1.3));
     } else if (rock) {
       const pu = positionGeometry.xz.mul(0.31).add(positionGeometry.y.mul(0.23)).add(vertexStage(vec2(h.y, h.z)));
       const albedo = col.mul(texture(noise, pu).g.mul(0.7).add(0.65));
@@ -411,6 +395,123 @@ export class RealScatter {
       m.normalNode = normalize(cameraViewMatrix.mul(vec4(0, 1, 0, 0)).xyz);
     }
     return m;
+  }
+
+  /** 一格里的东西：放在哪儿、脚下多高、有没有、多大。画面和读回去做碰撞用的是同一份，算出来一定一样 */
+  private cellAt(def: RingDef, ci: N<'vec2'>) {
+    const shrub = def.kind === 'shrub';
+    const rock = def.kind === 'rock';
+    const tree = def.kind === 'leaf' || def.kind === 'bark';
+    const g = this.data.levels[0];
+    const g1 = this.data.levels[1];
+    const noise = getNoiseTexture();
+    // 四个互不相干的随机数（Dave Hoskins 的无三角函数哈希：换显卡结果也一样）
+    const q = ci.add(def.seed * 17.0);
+    let p4: N<'vec4'> = fract(vec4(q.x, q.y, q.x, q.y).mul(vec4(0.1031, 0.103, 0.0973, 0.1099)));
+    p4 = p4.add(dot(p4, p4.wzxy.add(33.33)));
+    const h = fract(p4.xxyz.add(p4.yzzw).mul(p4.zywx)).toVar();
+    const wx = ci.x.add(h.x).mul(def.cell).toVar();
+    const wz = ci.y.add(h.y).mul(def.cell).toVar();
+    const muv = vec2(wx, wz).div(g.size).add(0.5).toVar();
+    const muv1 = vec2(wx, wz).div(g1.size).add(0.5).toVar();
+    const inCore = step(max(abs2(wx), abs2(wz)), g.half - 3).toVar();
+    // 脚下的地：和地形同一种三角剖分（斜边从 (1,0) 到 (0,1)），外圈 10 米一格，差一点就悬空了
+    const groundAt = (tex: THREE.Texture, l: RealGrid): N<'float'> => {
+      const last = l.res - 1;
+      const fx = wx.add(l.half).div(l.cell).toVar();
+      const fz = wz.add(l.half).div(l.cell).toVar();
+      const ix = floor(fx).toVar();
+      const iz = floor(fz).toVar();
+      const tx = fx.sub(ix).toVar();
+      const tz = fz.sub(iz).toVar();
+      const load = (a: N<'float'>, b: N<'float'>): N<'float'> => textureLoad(tex, ivec2(int(max(min(a, last), 0.0)), int(max(min(b, last), 0.0)))).r;
+      const a = load(ix, iz);
+      const b = load(ix.add(1.0), iz).toVar();
+      const c = load(ix, iz.add(1.0)).toVar();
+      const e = load(ix.add(1.0), iz.add(1.0));
+      const first = a.add(b.sub(a).mul(tx)).add(c.sub(a).mul(tz));
+      const second = e.add(c.sub(e).mul(float(1).sub(tx))).add(b.sub(e).mul(float(1).sub(tz)));
+      return mix(first, second, step(1.0, tx.add(tz)));
+    };
+    const y0 = mix(groundAt(this.mid.height, g1), groundAt(this.core.height, g), inCore).toVar();
+    // 颜色和疏密：核心区查图，外圈按影像和坡度估
+    // （外圈的疏密按十几米的尺度估：一个像素 5 米，单看一个像素全是噪点）
+    const img1 = texture(this.mid.image, muv1).level(float(1)).rgb.toVar();
+    const nm = texture(this.mid.normal, muv1).level(float(1));
+    const steep = smoothstep(0.1, 0.55, length(nm.rg.mul(2.0).sub(1.0)));
+    const l1 = dot(img1, vec3(0.2126, 0.7152, 0.0722));
+    const dark = float(1).sub(smoothstep(0.1, 0.3, l1));
+    // （河里不长东西：核心区的疏密图里已经扣掉了）
+    const dry = this.mid.aux ? float(1).sub(smoothstep(0.08, 0.2, texture(this.mid.aux, muv1).level(float(0)).g)) : float(1);
+    const est = vec3(mix(float(0.42), float(0.8), dark).mul(float(1).sub(steep.mul(0.6))), steep.mul(0.75).add(0.08), float(0.32).mul(float(1).sub(steep))).mul(dry);
+    const dens = mix(est, texture(this.core.density, muv).level(float(0)).rgb, inCore).toVar();
+    // 碎石一片多一片少，不是均匀撒的
+    // 外圈的树：高处、不陡、够深的地方。影子里的崖壁也暗，所以要看高度
+    const forest = float(1).sub(smoothstep(0.075, 0.17, l1)).mul(float(1).sub(steep)).mul(smoothstep(1750.0, 1900.0, y0)).mul(float(1).sub(inCore)).mul(dry);
+    const d = tree ? (def.tall ? forest.mul(smoothstep(2060.0, 2230.0, y0)) : forest) : shrub ? dens.x : rock ? dens.y.mul(smoothstep(0.34, 0.66, texture(noise, vec2(wx, wz).div(490.0)).level(float(0)).r).mul(0.9).add(0.25)) : dens.z;
+    let inside: N<'float'> = step(max(abs2(wx), abs2(wz)), g1.half - 8);
+    for (const [cx, cz, r] of this.keepOut.slice(0, 16)) inside = inside.mul(step(r, length(vec2(wx, wz).sub(vec2(cx, cz)))));
+    const keep = step(h.z, d.mul(def.p)).mul(inside);
+    // 小的多、大的少
+    const big = rock ? h.w.mul(h.w).mul(h.w) : h.w.mul(h.w);
+    const full = mix(float(def.size[0]), float(def.size[1]), big);
+    return { h, wx, wz, y0, muv, inCore, img1, keep, full };
+  }
+
+  /** 机身周围的外圈树：它们只存在于显卡上，物理看不见。隔一会儿在显卡上把周围的格子算一遍读回来，碰撞用（见 session.ts） */
+  probe(renderer: THREE.WebGPURenderer, pos: THREE.Vector3, t: number, done: (trees: RingTree[]) => void): void {
+    if (this.reading || t < this.nextProbe) return;
+    this.nextProbe = t + 0.4;
+    const core = this.data.levels[0].half;
+    const low = pos.y - this.data.heightAt(pos.x, pos.z) < 140;
+    if (!low || Math.max(Math.abs(pos.x), Math.abs(pos.z)) < core - 100) {
+      if (this.probed) done([]);
+      this.probed = false;
+      return;
+    }
+    if (this.probes.length === 0) this.makeProbes();
+    if (this.probes.length === 0) return;
+    this.reading = true;
+    const prev = renderer.getRenderTarget();
+    const reads = this.probes.map((p) => {
+      p.origin.value.set(Math.floor(pos.x / p.def.cell) - PROBE / 2, Math.floor(pos.z / p.def.cell) - PROBE / 2);
+      renderer.setRenderTarget(p.rt);
+      p.quad.render(renderer);
+      return renderer.readRenderTargetPixelsAsync(p.rt, 0, 0, PROBE, PROBE) as Promise<Float32Array>;
+    });
+    renderer.setRenderTarget(prev);
+    void Promise.all(reads)
+      .then((all) => {
+        const out: RingTree[] = [];
+        all.forEach((px, k) => {
+          for (let i = 0; i < PROBE * PROBE; i++) {
+            const s = px[i * 4 + 3];
+            if (s > 0) out.push({ x: px[i * 4], y: px[i * 4 + 1], z: px[i * 4 + 2], s, type: this.probes[k].type });
+          }
+        });
+        this.probed = true;
+        done(out);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        this.reading = false;
+      });
+  }
+
+  private makeProbes(): void {
+    this.models?.trees.forEach((t, i) => {
+      const def: RingDef = { ...(t.tall ? TALL_RING : TREE_RING), kind: 'leaf', seed: 11.3 + i * 4.1 };
+      const rt = new THREE.RenderTarget(PROBE, PROBE, { depthBuffer: false, type: THREE.FloatType });
+      rt.texture.minFilter = THREE.NearestFilter;
+      rt.texture.magFilter = THREE.NearestFilter;
+      rt.texture.generateMipmaps = false;
+      const origin = uniform(new THREE.Vector2());
+      const c = this.cellAt(def, origin.add(floor(uv().mul(PROBE))));
+      const m = new THREE.NodeMaterial();
+      m.fragmentNode = vec4(c.wx, c.y0, c.wz, c.full.mul(c.keep));
+      this.mats.push(m);
+      this.probes.push({ def, rt, quad: new THREE.QuadMesh(m), origin, type: t.type });
+    });
   }
 
   setQuality(q: string): void {
@@ -443,6 +544,7 @@ export class RealScatter {
 
   dispose(): void {
     for (const r of this.rings) r.geo.dispose();
+    for (const p of this.probes) p.rt.dispose();
     for (const g of this.geos) g.dispose();
     for (const m of this.mats) m.dispose();
     this.tuft.dispose();
@@ -453,8 +555,10 @@ export class RealScatter {
 export interface ScatterModels {
   /** 灌木的三级细节 */
   shrub: THREE.BufferGeometry[];
-  /** 外圈的树：简化过的一级 */
-  trees: Array<{ leaf: THREE.BufferGeometry; bark: THREE.BufferGeometry | null; tall: boolean }>;
+  /** 外圈的树：简化过的一级，和跟前用的全细节一级 */
+  trees: Array<{ leaf: THREE.BufferGeometry; bark: THREE.BufferGeometry | null; nearLeaf: THREE.BufferGeometry; nearBark: THREE.BufferGeometry | null; tall: boolean; type: TreeType }>;
+  /** 树皮贴图（全细节的那一级用） */
+  barkMap: THREE.Texture | null;
   /** 叶片图集 */
   map: THREE.Texture;
 }
@@ -465,14 +569,19 @@ export function scatterModels(lib: TreeLib | null): ScatterModels | null {
   const map = lods?.[0]?.[0]?.source.map;
   if (!lods || !map) return null;
   const trees: ScatterModels['trees'] = [];
+  let barkMap: THREE.Texture | null = null;
   for (const type of ['pinyon', 'ujuniper', 'ponderosa'] as const) {
     const parts = lib?.get(type)?.[1];
     const leaf = parts?.find((p) => p.source.name.includes('leaves'));
     // （树干用最简单的一级：只露出来一小截，一棵顶一棵的顶点数）
     const trunk = lib?.get(type)?.[2]?.find((p) => !p.source.name.includes('leaves')) ?? parts?.find((p) => p !== leaf);
-    if (leaf) trees.push({ leaf: leaf.geometry, bark: trunk?.geometry ?? null, tall: type === 'ponderosa' });
+    const full = lib?.get(type)?.[0];
+    const fullLeaf = full?.find((p) => p.source.name.includes('leaves'));
+    const fullBark = full?.find((p) => p !== fullLeaf);
+    barkMap ??= fullBark?.source.map ?? null;
+    if (leaf && fullLeaf) trees.push({ leaf: leaf.geometry, bark: trunk?.geometry ?? null, nearLeaf: fullLeaf.geometry, nearBark: fullBark?.geometry ?? null, tall: type === 'ponderosa', type });
   }
-  return { shrub: [lods[0][0].geometry, lods[1][0].geometry, lods[2][0].geometry], trees, map };
+  return { shrub: [lods[0][0].geometry, lods[1][0].geometry, lods[2][0].geometry], trees, barkMap, map };
 }
 
 function abs2(a: N<'float'>): N<'float'> {

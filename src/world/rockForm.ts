@@ -18,6 +18,8 @@ export interface RockBand {
 }
 
 export interface RockFormDef {
+  /** 块状的岩石（花岗岩、片麻岩）：没有一层层的层理，岩面的浮雕要打乱方向（见 terrainShader.ts） */
+  massive?: boolean;
   /** 地层表，从下往上（到头之后循环） */
   bands: RockBand[];
   /** 最底层底面的高度 */

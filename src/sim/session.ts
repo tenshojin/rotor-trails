@@ -4,7 +4,7 @@
 import { Quaternion, Vector3 } from 'three';
 import { HELI, type AssistId } from '../config/flight';
 import { DEG, G, clamp } from '../core/math';
-import type { PadDef, V3 } from '../maps/types';
+import type { PadDef, TreeType, V3 } from '../maps/types';
 import type { WorldData } from '../world/worldgen';
 import { TREE_SPECS, TREE_TYPES, forTreesNear } from '../world/vegetation';
 import { BuffSystem, BUFFS, type BuffKind, type BuffSnapshot, type PickupResult } from './buffs';
@@ -22,6 +22,15 @@ import { Heightfield } from './terrain';
 import type RAPIER from '@dimforge/rapier3d-compat';
 
 export const STEP = 1 / 60;
+
+/** 外圈的一棵树（只存在于显卡上，读回来做碰撞） */
+export interface RingTree {
+  x: number;
+  y: number;
+  z: number;
+  s: number;
+  type: TreeType;
+}
 
 export type GameEvent =
   | { type: 'damage'; ev: DamageEvent }
@@ -145,6 +154,8 @@ export class GameSession {
   private invertT = 0;
   private bodyContactT = -10;
   private treeProxies = new Map<number, RAPIER.Collider[]>();
+  private ringTrees: RingTree[] = [];
+  private ringProxies = new Map<string, RAPIER.Collider[]>();
   private massApplied = 0;
   private lastStatus: DamageStatus = 'normal';
   private msgT: Record<string, number> = {};
@@ -218,6 +229,7 @@ export class GameSession {
       this.phys.dispose();
     } finally {
       this.treeProxies.clear();
+      this.ringProxies.clear();
       this.contacts.length = 0;
       this.events.length = 0;
     }
@@ -560,8 +572,47 @@ export class GameSession {
     }
   }
 
+  /** 外圈的树只存在于显卡上，画面隔一会儿把机身周围的读回来（见 realScatter.ts） */
+  setRingTrees(list: RingTree[]): void {
+    this.ringTrees = list;
+  }
+
+  /** 外圈的树：和核心区的树一样，靠近了才有碰撞体 */
+  private updateRingProxies(): void {
+    const p = this.body.pos;
+    const want = new Set<string>();
+    for (const t of this.ringTrees) {
+      const spec = TREE_SPECS[t.type];
+      if (Math.hypot(t.x - p.x, t.z - p.z) > 85 || p.y - (t.y + (spec.crownY + spec.crownRy) * t.s) > 70) continue;
+      const key = `${t.type}:${Math.round(t.x * 4)}:${Math.round(t.z * 4)}`;
+      want.add(key);
+      if (!this.ringProxies.has(key)) this.ringProxies.set(key, this.treeColliders(spec, t.s, t.x, t.y, t.z));
+    }
+    for (const [key, cols] of this.ringProxies) {
+      if (want.has(key)) continue;
+      for (const c of cols) this.phys.removeCollider(c);
+      this.ringProxies.delete(key);
+    }
+  }
+
+  private treeColliders(spec: (typeof TREE_SPECS)[TreeType], s: number, x: number, y: number, z: number): RAPIER.Collider[] {
+    const tag = { kind: 'tree' as const };
+    const cols: RAPIER.Collider[] = [];
+    const cy = y + spec.crownY * s;
+    const cr = spec.crownR * s * 0.85;
+    const cry = spec.crownRy * s * 0.85;
+    if (cr > cry * 1.3) cols.push(this.phys.addCylinder(x, cy, z, cry * 0.75, cr, tag));
+    else if (cry > cr * 1.3) cols.push(this.phys.addCapsule(x, cy, z, Math.max(0.1, cry - cr * 0.8), cr * 0.85, tag));
+    else cols.push(this.phys.addBall(x, cy, z, (cr + cry) / 2, tag));
+    const trunkTop = cy - cry * 0.5;
+    const th = Math.max(0.5, trunkTop - y);
+    cols.push(this.phys.addCylinder(x, y + th / 2, z, th / 2, Math.max(0.15, spec.trunkR * s), tag));
+    return cols;
+  }
+
   /** 只为附近的树创建碰撞体（代理激活），保证大面积森林的物理开销可控。 */
   private updateTreeProxies(): void {
+    this.updateRingProxies();
     const T = this.world.trees;
     if (T.count === 0) return;
     const p = this.body.pos;
@@ -581,23 +632,7 @@ export class GameSession {
     }
     for (const i of want) {
       if (this.treeProxies.has(i)) continue;
-      const spec = TREE_SPECS[TREE_TYPES[T.type[i]]];
-      const s = T.s[i];
-      const x = T.x[i];
-      const y = T.y[i];
-      const z = T.z[i];
-      const tag = { kind: 'tree' as const };
-      const cols: RAPIER.Collider[] = [];
-      const cy = y + spec.crownY * s;
-      const cr = spec.crownR * s * 0.85;
-      const cry = spec.crownRy * s * 0.85;
-      if (cr > cry * 1.3) cols.push(this.phys.addCylinder(x, cy, z, cry * 0.75, cr, tag));
-      else if (cry > cr * 1.3) cols.push(this.phys.addCapsule(x, cy, z, Math.max(0.1, cry - cr * 0.8), cr * 0.85, tag));
-      else cols.push(this.phys.addBall(x, cy, z, (cr + cry) / 2, tag));
-      const trunkTop = cy - cry * 0.5;
-      const th = Math.max(0.5, trunkTop - y);
-      cols.push(this.phys.addCylinder(x, y + th / 2, z, th / 2, Math.max(0.15, spec.trunkR * s), tag));
-      this.treeProxies.set(i, cols);
+      this.treeProxies.set(i, this.treeColliders(TREE_SPECS[TREE_TYPES[T.type[i]]], T.s[i], T.x[i], T.y[i], T.z[i]));
     }
   }
 

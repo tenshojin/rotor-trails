@@ -11,6 +11,7 @@ import type { MapDef, RouteNodeDef, V3 } from './types';
 
 /** 被挤压抬升过的变质岩：倾角很大，深灰、褐黄、铁锈色的岩层斜穿山体 */
 const ROCK: RockFormDef = {
+  massive: true,
   y0: -200,
   y1: 5200,
   dip: [0.48, 0.3],
