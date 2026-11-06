@@ -404,10 +404,10 @@ export class App {
     this.ui.mapSelect([...REAL_MAPS, ...list], {}, { pick: (m) => this.freeBrief(m), back: () => this.mainMenu() }, true);
   }
 
-  freeBrief(m: MapDef, back: () => void = () => this.freeSelect()): void {
+  freeBrief(m: MapDef): void {
     this.ui.freeBrief(m, this.settings, vistasOf(m).map((v) => v.name), {
       start: (weather, time, sim) => void this.startRun({ map: m, weather, assist: sim ? 'sim' : 'novice', tutorial: false, free: true, time }),
-      back,
+      back: () => this.freeSelect(),
     });
   }
 
@@ -415,7 +415,7 @@ export class App {
     this.state = 'menu';
     const list = [...CAMPAIGN.filter((id) => MAPS.find((m) => m.id === id)).map((id) => getMap(id)), getMap('training')];
     // 训练场的正门是课程表
-    this.ui.mapSelect([...list, ...REAL_MAPS], this.save.data.maps, { pick: (m) => (m.id === 'training' ? this.trainingMenu() : m.real ? this.freeBrief(m, () => this.mapSelect()) : this.briefing(m)), back: () => this.mainMenu() });
+    this.ui.mapSelect(list, this.save.data.maps, { pick: (m) => (m.id === 'training' ? this.trainingMenu() : this.briefing(m)), back: () => this.mainMenu() });
   }
 
   briefing(m: MapDef): void {

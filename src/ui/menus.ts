@@ -217,10 +217,10 @@ export class UI {
         const r = records[m.id];
         return `<button type="button" class="map-card map-${m.id}" data-a="pick" data-i="${i}" aria-labelledby="map-name-${m.id}">
           <span class="mc-img" style="background-image:url(ui/map_${m.id}.webp)" aria-hidden="true"></span>
-          <span class="mc-body">${free ? `<span class="mc-head"><span class="mc-no">${m.region}</span></span>` : `<span class="mc-head"><span class="mc-no">${m.id === 'training' ? '训练' : m.real ? '超大地图' : `第 ${maps.filter((x) => x.id !== 'training' && !x.real).indexOf(m) + 1} 关`}</span><span class="mc-stars" aria-label="推荐难度 ${m.difficulty} / 5">${stars(m.difficulty)}</span></span>`}
+          <span class="mc-body">${free ? `<span class="mc-head"><span class="mc-no">${m.region}</span></span>` : `<span class="mc-head"><span class="mc-no">${m.id === 'training' ? '训练' : `第 ${maps.filter((x) => x.id !== 'training').indexOf(m) + 1} 关`}</span><span class="mc-stars" aria-label="推荐难度 ${m.difficulty} / 5">${stars(m.difficulty)}</span></span>`}
           <span class="mc-name" id="map-name-${m.id}">${m.name}</span><span class="mc-sub">${m.subtitle}</span>
           <span class="mc-desc">${m.description}</span>
-          ${free ? '' : m.real ? '<span class="mc-foot"><span>休闲飞行</span></span>' : `<span class="mc-foot"><span>推荐：${ASSISTS[m.recommendedAssist].label}</span>${r?.completed ? `<span class="mc-best">最佳 ${r.bestRating} · ${r.bestScore}</span>` : '<span class="muted">未完成</span>'}</span>`}</span>
+          ${free ? '' : `<span class="mc-foot"><span>推荐：${ASSISTS[m.recommendedAssist].label}</span>${r?.completed ? `<span class="mc-best">最佳 ${r.bestRating} · ${r.bestScore}</span>` : '<span class="muted">未完成</span>'}</span>`}</span>
         </button>`;
       })
       .join('');
