@@ -41,6 +41,7 @@ import {
   vec4,
   mx_noise_float,
 } from 'three/tsl';
+import { COVER } from './wetness';
 import type { RockFormDef } from '../world/rockForm';
 import { gustAt, FOG, WIND } from './atmosphere';
 import { GI } from './giField';
@@ -539,6 +540,14 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const tide = float(1).sub(smoothstep(U.waterLevel + 0.25, U.waterLevel + 1.1, h.add(n3.sub(0.5).mul(0.9))));
     col.mulAssign(mix(float(1), float(0.62), tide.mul(float(1).sub(under))));
     rough.assign(mix(rough, 0.42, tide));
+    // 下雪：平的地方慢慢白了，陡坡挂不住，雪薄的时候是一片片的
+    const hold = float(1).sub(smoothstep(0.4, 0.64, slope.add(n3.sub(0.5).mul(0.14))));
+    const cov = smoothstep(0.0, 0.5, COVER.mul(1.5).sub(n1.mul(0.55)).sub(n3.mul(0.25))).mul(hold).mul(float(1).sub(under)).toVar();
+    // （跑道和路扫过雪，露出一道道深色：整片白茫茫的看不出地方）
+    if (U.paved) cov.mulAssign(float(1).sub(surf.a.mul(0.8)));
+    col.assign(mix(col, c3(U.snow), cov));
+    rough.assign(mix(rough, 0.72, cov));
+    snowW.assign(max(snowW, cov));
     const wet = U.uWet.mul(float(1).sub(snowW));
     col.mulAssign(mix(1.0, 0.68, wet));
     rough.assign(mix(rough, 0.55, wet.mul(0.7)));

@@ -35,6 +35,7 @@ function gather(world: WorldData): Lamp[] {
       out.push({ pos: [m.pos[0], m.pos[1] + 6.4, m.pos[2]], size: 1.6, color: WARM, pool: 8 });
     }
   }
+  for (const l of world.map.lights ?? []) out.push({ ...l, pool: 0 });
   // 停机坪四周一圈边灯
   for (const p of world.map.pads) {
     for (const [x, z] of padLightOffsets(p.size)) out.push({ pos: padWorld(p, x, 0.15, z), size: 0.55, color: PAD, pool: 0 });

@@ -169,4 +169,30 @@ describe('环境音资源生命周期', () => {
     for (const o of horn) expect(o.stop).toHaveBeenCalled();
     a.dispose();
   });
+
+  it('绕场的飞机：近了才响，三个声部只建一次，飞过时音调往下掉，换图时停', () => {
+    vi.stubGlobal('window', { AudioContext: Context });
+    const a = new AudioEngine();
+    a.init();
+    const ctx = a.ctx as unknown as Context;
+    a.setAmbience({});
+    const state = { rpm: 1, load: 1, power: 0.5, airspeed: 0, gust: 0, rain: 0, inCockpit: true, paused: false, bank: 0, descent: 0 };
+    const base = ctx.sources.length;
+    a.update({ ...state, plane: { dist: 9000, closing: 0 } }, 0.016);
+    expect(ctx.sources.length).toBe(base);
+    a.update({ ...state, plane: { dist: 400, closing: 40 } }, 0.016);
+    a.update({ ...state, plane: { dist: 380, closing: 40 } }, 0.016);
+    const voices = ctx.sources.slice(base);
+    expect(voices.length).toBe(3);
+    const pitch = (): number => (voices[0].frequency.setTargetAtTime.mock.calls.at(-1) as number[])[0];
+    const coming = pitch();
+    expect(coming).toBeGreaterThan(80);
+    a.update({ ...state, plane: { dist: 390, closing: -40 } }, 0.016);
+    expect(pitch()).toBeLessThan(80);
+    a.setAmbience({});
+    for (const o of voices) expect(o.stop).toHaveBeenCalled();
+    a.update({ ...state, plane: { dist: 300, closing: 0 } }, 0.016);
+    expect(ctx.sources.length).toBe(base + 6);
+    a.dispose();
+  });
 });

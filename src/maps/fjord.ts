@@ -421,6 +421,13 @@ export const FJORD_MAP: MapDef = {
       params: makeWeather({ windDirFrom: 260, windSpeed: 3, gustAmp: 0.8, cloudCover: 0.9, overcast: 0.75, visibility: 350, wetness: 0.6, zoneScale: 0.6 }),
     },
     {
+      id: 'snow',
+      label: '小雪',
+      kind: 'snow',
+      desc: '细雪落进峡湾，水面是铅灰色的，能见度约 3 公里。',
+      params: makeWeather({ snow: 0.6, windDirFrom: 270, windSpeed: 4, gustAmp: 1.2, cloudCover: 0.95, overcast: 0.65, visibility: 3000 }),
+    },
+    {
       id: 'crosswind',
       label: '侧风',
       kind: 'wind',
@@ -450,7 +457,9 @@ export const FJORD_MAP: MapDef = {
   },
   sun: [200, 26],
   ambience: { sea: 0.6, gulls: 0.4, wind: 0.6, river: 0.3, ships: 0.4 },
+  aurora: 1,
   vessels: [
+    { model: 'ferry_jp', len: 46, speed: 6.5, bow: 1 },
     { model: 'boat_f0', len: 13, speed: 4.5, bow: 1 },
     { model: 'boat_f1', len: 13, speed: 5, bow: 1 },
     { model: 'boat_f2', len: 13, speed: 3.8, bow: 1 },

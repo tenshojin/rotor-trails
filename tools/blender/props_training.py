@@ -172,8 +172,9 @@ def loft(name, secs, m, n=16):
     return ob
 
 
-def plane():
-    """四座上单翼轻型飞机（虚构机型）：机头朝 +Y，机长约 8.2 m、翼展 11 m、高 2.7 m。"""
+def plane(name='plane_a', prop=True):
+    """四座上单翼轻型飞机（虚构机型）：机头朝 +Y，机长约 8.2 m、翼展 11 m、高 2.7 m。
+    天上飞的那架不带桨叶（游戏里转起来的螺旋桨是一层圆盘）。"""
     paint = F('plane_white', 0xe9e7e0, rough=0.32, metal=0.05)
     stripe = F('plane_stripe', 0x1f4a72, rough=0.34)
     tyre = F('tyre', 0x141414, rough=0.85)
@@ -208,10 +209,11 @@ def plane():
     parts.append(ob)
     # 螺旋桨、桨毂、前轮
     parts.append(K.sphere('spinner', 0.16, (0, 4.05, 1.25), paint, 12, 8, scale=(1, 1.4, 1)))
-    parts.append(BK.bx('prop', (1.85, 0.04, 0.12), (0, 4.2, 1.25), IRON, rz=0.0, uv=False))
+    if prop:
+        parts.append(BK.bx('prop', (1.85, 0.04, 0.12), (0, 4.2, 1.25), IRON, rz=0.0, uv=False))
     parts.append(BK.stick('nose_leg', (0, 2.9, 0.75), (0, 2.95, 0.24), 0.04, STEEL, seg=6))
     parts.append(BK.cyl('nose', 0.2, 0.11, (0, 2.95, 0.22), tyre, verts=14, rot=(0, math.pi / 2, 0), uv=False))
-    root, _ = BK.model('plane_a', parts)
+    root, _ = BK.model(name, parts)
     ROOTS.append(root)
 
 
@@ -242,6 +244,7 @@ tower()
 club()
 barn()
 plane()
+plane('plane_fly', False)
 truck()
 
 for r in ROOTS:

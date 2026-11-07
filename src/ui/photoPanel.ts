@@ -11,6 +11,15 @@ const LENS_MAX = 300;
 const lensAt = (v: number): number => LENS_MIN * (LENS_MAX / LENS_MIN) ** v;
 const sliderAt = (mm: number): number => Math.log(mm / LENS_MIN) / Math.log(LENS_MAX / LENS_MIN);
 
+/** 风格：名字、饱和度、冷暖、黑位 */
+export const LOOKS: ReadonlyArray<readonly [string, number, number, number]> = [
+  ['原片', 1, 0, 0],
+  ['胶片', 0.86, 0.55, 0.045],
+  ['暖阳', 1.1, 1, 0],
+  ['冷调', 0.92, -1, 0.01],
+  ['黑白', 0, 0, 0.015],
+];
+
 export interface PhotoPanelHandlers {
   fov(deg: number): void;
   exposure(ev: number): void;
@@ -20,6 +29,7 @@ export interface PhotoPanelHandlers {
   hideHeli(on: boolean): void;
   /** 勾上是慢快门：旋翼虚成一片 */
   blurRotor(on: boolean): void;
+  look(sat: number, warm: number, fade: number): void;
   save(): void;
   back(): void;
 }
@@ -47,6 +57,7 @@ export class PhotoPanel {
         <label class="photo-slider"><span>曝光</span><input type="range" data-k="ev" min="-2" max="2" step="0.1" value="0" aria-label="曝光"><output>0.0</output></label>
         <label class="photo-slider"><span>倾斜</span><input type="range" data-k="roll" min="-30" max="30" step="1" value="0" aria-label="倾斜"><output>0°</output></label>
         ${canBlur ? '<label class="photo-slider"><span>虚化</span><input type="range" data-k="dof" min="0" max="1" step="0.02" value="0" aria-label="背景虚化"><output>关</output></label>' : ''}
+        <label class="photo-slider"><span>风格</span><select data-k="look" aria-label="风格">${LOOKS.map((l, i) => `<option value="${i}">${l[0]}</option>`).join('')}</select></label>
         <label class="photo-check"><input type="checkbox" data-k="heli">隐藏直升机</label>
         <label class="photo-check"><input type="checkbox" data-k="blur">旋翼虚化</label>
         <label class="photo-check"><input type="checkbox" data-k="grid">构图线</label>
@@ -83,6 +94,11 @@ export class PhotoPanel {
       const v = Number(this.tilt.value);
       this.tiltOut.textContent = `${v}°`;
       on.roll((v * Math.PI) / 180);
+    });
+    const look = q<HTMLSelectElement>('[data-k="look"]');
+    look.addEventListener('change', () => {
+      const [, sat, warm, fade] = LOOKS[Number(look.value)];
+      on.look(sat, warm, fade);
     });
     q<HTMLInputElement>('[data-k="heli"]').addEventListener('change', (e) => on.hideHeli((e.target as HTMLInputElement).checked));
     q<HTMLInputElement>('[data-k="blur"]').addEventListener('change', (e) => on.blurRotor((e.target as HTMLInputElement).checked));

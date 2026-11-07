@@ -6,7 +6,7 @@
 // 天空在地平线处的颜色从同一张表里取，作为大气雾的颜色（远山与天空自然衔接），阳光的颜色和强度也是。
 
 import * as THREE from 'three/webgpu';
-import { abs, acos, asin, atan, Break, clamp, dot, exp, float, floor, Fn, fract, hash, If, int, interleavedGradientNoise, length, Loop, max, min, mix, normalize, positionLocal, pow, screenCoordinate, screenUV, select, sign, sin, smoothstep, sqrt, step, texture, texture3D, uniform, vec2, vec3, vec4 } from 'three/tsl';
+import { abs, acos, asin, atan, Break, clamp, cross, dot, exp, float, floor, Fn, fract, hash, If, int, interleavedGradientNoise, length, Loop, max, min, mix, normalize, positionLocal, pow, screenCoordinate, screenUV, select, sign, sin, smoothstep, sqrt, step, texture, texture3D, uniform, vec2, vec3, vec4 } from 'three/tsl';
 import { RING_N, ringColor } from './atmosphere';
 import { getCloudNoise3D } from './cloudNoise';
 import { CloudPass } from './cloudPass';
@@ -119,6 +119,8 @@ function makeSkyUniforms(sunDir: THREE.Vector3, wind: THREE.Vector2, lut: THREE.
     cirrus: uniform(0.5),
     /** 1 = 夜晚：天空压暗、偏蓝，出现星星；太阳圆盘换成月亮 */
     night: uniform(0),
+    /** 这张图的夜里有没有极光（0..1） */
+    aurora: uniform(0),
     time: uniform(0),
     wind: uniform(wind),
     /** 体积云：相机世界坐标、云层底 / 顶高度（米）、步进次数（0 = 用二维云层）、风吹过的距离（米） */
@@ -141,11 +143,33 @@ type SkyU = ReturnType<typeof makeSkyUniforms>;
 /** 夜空的颜色：白天的天空乘上它 */
 const NIGHT_TINT = new THREE.Color(0.021, 0.025, 0.04);
 
-/** 星星：按方向分格抽签，每格最多一颗，亮度和颜色各不相同，暗的多亮的少；银河是一条斜着的光带 */
+/** 流星：多少秒抽一次、一颗亮多久 */
+const METEOR_EVERY = 13;
+const METEOR_LIFE = 0.85;
+
+/**
+ * 星星：按方向分格抽签，每格最多一颗，亮度和颜色各不相同，暗的多亮的少。
+ * 银河是一条斜着的光带：中间亮、两边淡，银心那一段鼓起来，中线有一道弯弯曲曲的尘埃暗缝，带子里的星星也密一些
+ */
 function starField(d: THREE.Node<'vec3'>, noise: THREE.Texture, t: THREE.Node<'float'>): THREE.Node<'vec3'> {
   return Fn(() => {
     const out = vec3(0).toVar();
-    for (const [scale, keep, gain] of [[170, 0.93, 1.0], [400, 0.91, 0.4]] as Array<[number, number, number]>) {
+    const gal = normalize(vec3(0.42, 0.56, -0.71));
+    const b = dot(d, gal);
+    // 沿银河走一圈是贴图的整数倍（接缝对得上），横向比例和纵向一样：直接拿方向当坐标会把噪声拉成一道道细线，像天上的划痕
+    const along = atan(dot(d, vec3(-0.8607, 0.0, -0.5091)), dot(d, vec3(-0.286, 0.8274, 0.4834))).div(2 * Math.PI).add(0.5);
+    // （噪声取模糊过的那一级：这里要的是大片的明暗。原图对比太强，天上是一块块的脏斑）
+    const lump = texture(noise, vec2(along.mul(3.0), b.mul(0.7).add(0.5))).level(float(3)).r;
+    const wisp = texture(noise, vec2(along.mul(11.0), b.mul(2.6).add(0.3))).level(float(2)).g;
+    const toCore = abs(fract(along.add(0.88)).sub(0.5));
+    const core = exp(toCore.mul(toCore).mul(-46.0));
+    const band = exp(b.mul(b).mul(mix(float(-52.0), float(-17.0), core)));
+    const r = b.sub(lump.sub(0.5).mul(0.16)).div(mix(float(0.022), float(0.06), core));
+    const rift = exp(r.mul(r).negate()).mul(wisp.mul(0.8).add(0.3));
+    const body = band.mul(float(1).sub(min(rift, 1.0).mul(0.82))).mul(lump.mul(0.7).add(0.65)).toVar();
+    out.addAssign(mix(vec3(0.4, 0.48, 0.68), vec3(0.74, 0.62, 0.5), core).mul(body.mul(0.03)));
+    // 一颗星的半径（一格的几分之几）：比一个像素小就被时间抗锯齿抹没了
+    for (const [scale, keep, gain, rad] of [[170, 0.93, 1.0, 0.2], [330, 0.9, 0.5, 0.3], [560, 0.955, 0.34, 0.42]] as Array<[number, number, number, number]>) {
       const p = d.mul(scale);
       const c = floor(p);
       const seed = c.x.mul(12.9898).add(c.y.mul(78.233)).add(c.z.mul(37.719));
@@ -154,21 +178,31 @@ function starField(d: THREE.Node<'vec3'>, noise: THREE.Texture, t: THREE.Node<'f
       const h3 = hash(seed.add(3.1));
       const off = vec3(h2, h3, hash(seed.add(5.3))).mul(0.6).add(0.2);
       const dist = length(fract(p).sub(off));
-      const on = step(keep, h1);
-      const mag = pow(h2, 7.0).mul(2.6).add(0.05);
-      const spot = float(1).sub(smoothstep(0.02, 0.13, dist));
+      // 银河里的星星密得多
+      const on = step(float(keep).sub(body.mul(0.3)), h1);
+      const mag = pow(h2, 6.0).mul(2.4).add(0.1);
+      const spot = float(1).sub(smoothstep(0.02, rad, dist));
       const tw = sin(t.mul(h3.mul(5.0).add(1.5)).add(h1.mul(40.0))).mul(0.16).add(0.84);
       const tint = mix(vec3(1.0, 0.82, 0.68), vec3(0.72, 0.84, 1.0), h3);
       out.addAssign(tint.mul(spot.mul(on).mul(mag).mul(tw).mul(gain)));
     }
-    // 银河：绕天球一圈的带子，里面一团团的亮和暗
-    const gal = normalize(vec3(0.42, 0.56, -0.71));
-    const b = dot(d, gal);
-    const band = exp(b.mul(b).mul(-13.0));
-    // 沿银河走一圈是贴图的整数倍（接缝对得上），横向比例和纵向一样：直接拿方向当坐标会把噪声拉成一道道细线，像天上的划痕
-    const along = atan(dot(d, vec3(-0.8607, 0.0000, -0.5091)), dot(d, vec3(-0.2860, 0.8274, 0.4834))).div(2 * Math.PI).add(0.5);
-    const cl = texture(noise, vec2(along.mul(3.0), b.mul(0.5).add(0.5))).level(float(0)).r.mul(0.6).add(texture(noise, vec2(along.mul(9.0), b.mul(1.5).add(0.3))).level(float(0)).g.mul(0.4));
-    out.addAssign(vec3(0.5, 0.56, 0.72).mul(band.mul(smoothstep(0.32, 0.72, cl)).mul(0.038)));
+    // 流星：十几秒抽一次签，天上随便哪里一闪而过，一条越来越长又淡下去的亮线
+    const id = floor(t.div(METEOR_EVERY));
+    const age = t.sub(id.mul(METEOR_EVERY)).div(METEOR_LIFE);
+    const m1 = hash(id.add(0.13));
+    const m2 = hash(id.add(1.71));
+    const m3 = hash(id.add(3.37));
+    const from = normalize(vec3(m1.sub(0.5), m2.mul(0.45).add(0.3), m3.sub(0.5)));
+    const way = normalize(cross(from, vec3(m3.sub(0.5), 0.5, m1.sub(0.5))));
+    // （沿大圆走：离这条线多远就是到大圆所在平面的距离）
+    const run = dot(d, way);
+    const across = abs(dot(d, cross(from, way)));
+    const tip = age.mul(0.42);
+    const tail = smoothstep(tip.sub(0.26), tip, run).mul(step(run, tip)).mul(step(0.0, dot(d, from)));
+    // 头粗尾细（比一个像素细就断成一截一截的）
+    const wide = mix(float(0.001), float(0.0042), tail);
+    const flash = smoothstep(0.0, 0.12, age).mul(float(1).sub(smoothstep(0.6, 1.0, age))).mul(step(age, 1.0)).mul(step(0.3, m2));
+    out.addAssign(vec3(0.9, 0.95, 1.0).mul(float(1).sub(smoothstep(wide.mul(0.25), wide, across)).mul(tail).mul(flash).mul(3.0)));
     return out;
   })();
 }
@@ -239,6 +273,9 @@ function skyColorNode(U: SkyU, noise: THREE.Texture, cloudTex: THREE.TextureNode
     col.mulAssign(mix(vec3(1.0), vec3(NIGHT_TINT.r, NIGHT_TINT.g, NIGHT_TINT.b), U.night));
     const starK = U.night.mul(smoothstep(0.015, 0.2, h)).mul(float(1).sub(U.overcast)).mul(U.disc);
     col.addAssign(starField(d, noise, U.time).mul(starK));
+    If(U.aurora.mul(U.night).greaterThan(0.001), () => {
+      col.addAssign(auroraGlow(d, noise, U.time, 20).mul(U.aurora.mul(U.night).mul(0.085)).mul(float(1).sub(U.overcast)).mul(U.disc));
+    });
     // 太阳圆盘（高亮，后期泛光会让它自然晕开）+ 宽光晕；月亮小而清楚，表面有深浅
     // （真太阳的半径只有 0.27 度。画大了白天就是天上一个白盘子，亮度够高的话泛光自然会晕开）
     const disc = smoothstep(0.99982, 0.99992, sd);
@@ -261,6 +298,33 @@ function skyColorNode(U: SkyU, noise: THREE.Texture, cloudTex: THREE.TextureNode
     col.assign(mix(col, U.fogCol, U.skyFog));
     col.addAssign(vec3(0.55, 0.6, 0.75).mul(U.flash));
     return col;
+  })();
+}
+
+/**
+ * 极光：东西向的光帘，都在北边的天上（-z）。把视线投影到一层层高度上，每一层取同一条弯弯曲曲的带子，
+ * 层层叠起来就是竖着的帘子；底边亮绿，往上变成紫红。光柱只跟着帘子的走向变，不随高度变，所以是竖着的一道道。
+ * layers：天空用得多，水里的倒影被波浪抹开了，几层就够。
+ */
+function auroraGlow(d: THREE.Node<'vec3'>, noise: THREE.Texture, t: THREE.Node<'float'>, layers: number): THREE.Node<'vec3'> {
+  return Fn(() => {
+    const out = vec3(0).toVar();
+    const base = d.xz.div(max(d.y, 0.0).add(0.2)).toVar();
+    Loop(layers, ({ i }: { i: THREE.Node<'int'> }) => {
+      const f = float(i).add(0.5).div(layers);
+      const q = base.mul(float(1).sub(f.mul(0.42)));
+      const bend = texture(noise, q.mul(0.035).add(vec2(t.mul(0.0011), t.mul(-0.0007)))).level(float(0)).r;
+      const bend2 = texture(noise, q.mul(0.11).add(vec2(t.mul(-0.002), 0.31))).level(float(0)).g;
+      const y = q.y.add(bend.sub(0.5).mul(5.2)).add(bend2.sub(0.5).mul(1.1));
+      const r1 = y.add(1.7).div(0.14);
+      const r2 = y.add(3.4).div(0.24);
+      const ribbon = exp(r1.mul(r1).negate()).add(exp(r2.mul(r2).negate()).mul(0.6));
+      const rays = texture(noise, vec2(base.x.mul(0.22).add(bend.mul(0.6)).add(t.mul(0.004)), 0.37)).level(float(0)).g;
+      const fine = pow(smoothstep(0.34, 0.72, rays), 1.6).mul(0.9).add(0.1);
+      const fall = pow(float(1).sub(f), 1.7).mul(smoothstep(0.0, 0.06, f));
+      out.addAssign(mix(vec3(0.1, 0.95, 0.38), vec3(0.62, 0.12, 0.62), smoothstep(0.35, 0.95, f)).mul(ribbon.mul(fine).mul(fall)));
+    });
+    return out.mul(2.4 / layers).mul(smoothstep(0.03, 0.2, d.y));
   })();
 }
 
@@ -294,7 +358,8 @@ function volumetricClouds(U: SkyU) {
       const phase = min(mix(hg(cosT, 0.62), hg(cosT, -0.25), 0.28).mul(1.6), 2.4);
       // 太阳高的时候阳光接近白色（云不该是奶油色），太阳低时才保留暖色
       const sunCol = U.sunColor as unknown as THREE.Node<'vec3'>;
-      const sunC = mix(sunCol, vec3(dot(sunCol, vec3(0.3, 0.55, 0.15))), U.cloudWhite).mul(U.sunVis).mul(1.5);
+      // （月光下的云比天亮不了太多：亮成白棉花就像贴上去的）
+      const sunC = mix(sunCol, vec3(dot(sunCol, vec3(0.3, 0.55, 0.15))), U.cloudWhite).mul(U.sunVis).mul(mix(float(1.5), float(0.8), U.night));
       Loop({ start: int(0), end: int(U.steps), type: 'int', condition: '<' }, ({ i }: { i: THREE.Node<'int'> }) => {
         // 步长按 s^0.7 增长：近处细、远处粗
         const s = float(i).add(jit).div(U.steps);
@@ -530,6 +595,16 @@ export class SkyDome {
       C.sunIntensity = 0.62 * (0.1 + 0.9 * sunVis);
     }
     for (const k of C.ring) k.lerp(C.fog, skyFog);
+    // 闪电把雨雾一起照亮：只亮天的话，夜里地平线上是一道硬边，下面一片黑
+    // （夜里人眼的曝光开得大，加同样多就白成一片）
+    if (flash > 0) {
+      const lit = flash * (this.night ? 0.12 : 0.26);
+      for (const k of [C.fog, C.fogSun, C.horizon, ...C.ring]) {
+        k.r += 0.88 * lit;
+        k.g += 0.96 * lit;
+        k.b += 1.2 * lit;
+      }
+    }
     const u = this.u;
     u.zenith.value.copy(this.clear.zenith);
     u.ovZenith.value.copy(ovZen);
@@ -604,6 +679,9 @@ export class SkyDome {
       const sd = max(dot(d, U.sunDir), 0.0);
       col.mulAssign(mix(vec3(1.0), vec3(NIGHT_TINT.r, NIGHT_TINT.g, NIGHT_TINT.b), U.night));
       col.addAssign(U.sunColor.mul(pow(sd, 24.0).mul(mix(float(0.12), float(0.05), U.night))).mul(U.sunVis));
+      If(U.aurora.mul(U.night).greaterThan(0.001), () => {
+        col.addAssign(auroraGlow(d, getNoiseTexture(), U.time, 6).mul(U.aurora.mul(U.night).mul(0.07)).mul(float(1).sub(U.overcast)));
+      });
       // 几个采样点的平均：波浪把云的倒影上下拉开
       const acc = vec4(0).toVar();
       for (const q of uvs) acc.addAssign(tex.sample(q));
@@ -612,6 +690,11 @@ export class SkyDome {
       col.assign(mix(col, U.fogCol, U.skyFog));
       return col;
     })();
+  }
+
+  /** 这张图夜里的极光有多强 */
+  setAurora(k: number): void {
+    this.u.aurora.value = k;
   }
 
   /** 地面的颜色图（烘焙环境贴图时当下半球） */

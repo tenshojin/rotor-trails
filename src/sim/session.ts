@@ -90,11 +90,11 @@ function sunkenCore(outer: Heightfield, half: number): Heightfield {
   return new Heightfield(outer.size, n, data);
 }
 
-function newBody(): BodyState {
+export function newBody(): BodyState {
   return { pos: new Vector3(), quat: new Quaternion(), vel: new Vector3(), angVel: new Vector3() };
 }
 
-function copyBody(dst: BodyState, src: BodyState): void {
+export function copyBody(dst: BodyState, src: BodyState): void {
   dst.pos.copy(src.pos);
   dst.quat.copy(src.quat);
   dst.vel.copy(src.vel);
@@ -245,7 +245,7 @@ export class GameSession {
 
   /** 外界气温（℃）：标准大气，雨天略低 */
   oat(): number {
-    return 15 - 0.0065 * this.altitudeMSL() - 3 * this.weather.current.rain;
+    return 15 - 0.0065 * this.altitudeMSL() - 3 * this.weather.current.rain - 8 * this.weather.current.snow;
   }
 
   pad(id: string): PadDef | undefined {

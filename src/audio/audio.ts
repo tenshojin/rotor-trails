@@ -44,6 +44,8 @@ export interface AudioState {
   /** 电影镜头：耳朵离飞机多远（米）、飞机正以多快朝耳朵过来（米 / 秒） */
   far?: number;
   closing?: number;
+  /** 绕场飞的飞机：离耳朵多远、朝耳朵过来多快 */
+  plane?: { dist: number; closing: number } | null;
   sim?: SimAudio | null;
   rpm: number;
   load: number; // 推力/重量
@@ -104,6 +106,8 @@ export class AudioEngine {
   private horn: { osc: OscillatorNode[]; gain: GainNode } | null = null;
   private wasLit = false;
   private ambNodes: AudioNode[] = [];
+  /** 绕场飞的小飞机的发动机声（有飞机的图才有） */
+  private drone: { voices: OscillatorNode[]; filter: BiquadFilterNode; gain: GainNode } | null = null;
   private ambSources = new Set<AudioScheduledSourceNode>();
   private transient = new Map<AudioScheduledSourceNode, AudioNode[]>();
   private targets = new WeakMap<AudioParam, number>();
@@ -232,6 +236,7 @@ export class AudioEngine {
     this.ambSources.clear();
     for (const node of this.ambNodes) node.disconnect();
     this.ambNodes = [];
+    this.drone = null;
     if (!this.ctx || this.ctx.state === 'closed') return;
     const ctx = this.ctx;
     const addLoop = (buf: AudioBuffer, rate: number, type: BiquadFilterType, freq: number, q: number, level: number, lfoHz = 0) => {
@@ -341,6 +346,7 @@ export class AudioEngine {
       this.wasLit = y.lit;
       this.setHorn(y.horn);
     } else this.setHorn(false);
+    this.updateDrone(s.plane ?? null);
     // 偶发环境音（海鸥、鸟鸣、蛙鸣）
     this.ambTimer -= dt;
     if (this.ambTimer <= 0) {
@@ -390,6 +396,42 @@ export class AudioEngine {
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.start(t);
     o.stop(t + dur + 0.05);
+  }
+
+  /** 绕场飞的小飞机：四缸发动机一秒八十下，远了只剩闷响，飞过的时候音调往下掉 */
+  private updateDrone(p: { dist: number; closing: number } | null): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!p || p.dist > 2600) {
+      if (this.drone) this.smooth(this.drone.gain.gain, 0, 0.6);
+      return;
+    }
+    if (!this.drone) {
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      f.connect(gain).connect(this.ambBus);
+      const voices = [80, 160, 240].map((hz, i) => {
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.value = hz;
+        const g = ctx.createGain();
+        g.gain.value = 1 / (1 + i * 1.6);
+        o.connect(g).connect(f);
+        o.start();
+        this.ambSources.add(o);
+        this.ambNodes.push(g);
+        return o;
+      });
+      this.ambNodes.push(f, gain);
+      this.drone = { voices, filter: f, gain };
+    }
+    const near = Math.min(1, 160 / Math.max(1, p.dist));
+    const shift = 343 / (343 - Math.max(-90, Math.min(90, p.closing)));
+    this.smooth(this.drone.gain.gain, 0.1 * near, 0.25);
+    this.smooth(this.drone.filter.frequency, 320 + 1100 * near, 0.25);
+    this.drone.voices.forEach((o, i) => this.smooth(o.frequency, 80 * (i + 1) * shift, 0.2));
   }
 
   /** 远处的船笛：两个低音叠在一起，起落都慢，高频被距离吃掉了 */

@@ -1,9 +1,14 @@
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 interface TextureSlot { path: string; channel: number }
-interface Primitive { attributes: Record<string, number>; material?: number }
+interface Primitive {
+  attributes: Record<string, number>;
+  material?: number;
+  extensions?: { KHR_draco_mesh_compression?: { bufferView: number; attributes: Record<string, number> } };
+}
 interface Asset {
   meshes: Array<{ name?: string; primitives: Primitive[] }>;
   materials?: Record<string, unknown>[];
@@ -17,6 +22,28 @@ function readAsset(file: string): { asset: Asset; binary: Buffer } {
   const asset: Asset = JSON.parse(bytes.subarray(20, 20 + jsonLength).toString('utf8'));
   const binary = bytes.subarray(20 + jsonLength + 8);
   return { asset, binary };
+}
+
+/** 解压 Draco 里的 UV（完整导出的模型 UV 都压在里面，单独修过的才是明文） */
+async function dracoUv(asset: Asset, binary: Buffer, primitive: Primitive): Promise<Float32Array> {
+  const wrapper = path.join(process.cwd(), 'public/draco/draco_wasm_wrapper.js');
+  const factory = new Function('module', 'exports', 'require', '__dirname', `${fs.readFileSync(wrapper, 'utf8')}\nreturn DracoDecoderModule;`);
+  const module = { exports: {} };
+  const draco = await factory(module, module.exports, createRequire(import.meta.url), path.dirname(wrapper))({ wasmBinary: fs.readFileSync(path.join(process.cwd(), 'public/draco/draco_decoder.wasm')) });
+  const c = primitive.extensions!.KHR_draco_mesh_compression!;
+  const view = asset.bufferViews[c.bufferView];
+  const bytes = binary.subarray(view.byteOffset ?? 0, (view.byteOffset ?? 0) + view.byteLength);
+  const decoder = new draco.Decoder();
+  const buffer = new draco.DecoderBuffer();
+  const mesh = new draco.Mesh();
+  buffer.Init(new Int8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength), bytes.byteLength);
+  const status = decoder.DecodeBufferToMesh(buffer, mesh);
+  if (!status.ok()) throw new Error(status.error_msg());
+  const values = new draco.DracoFloat32Array();
+  decoder.GetAttributeFloatForAllPoints(mesh, decoder.GetAttributeByUniqueId(mesh, c.attributes.TEXCOORD_0), values);
+  const uv = Float32Array.from({ length: mesh.num_points() * 2 }, (_, i) => values.GetValue(i));
+  for (const o of [values, mesh, buffer, decoder]) draco.destroy(o);
+  return uv;
 }
 
 function textureSlots(value: Record<string, unknown>, prefix = ''): TextureSlot[] {
@@ -49,19 +76,20 @@ describe('shipped model texture coordinates', () => {
     }
   });
 
-  it('all three pagoda plaster detail levels have finite, nonconstant surface UVs', () => {
+  it('all three pagoda plaster detail levels have finite, nonconstant surface UVs', async () => {
     const { asset, binary } = readAsset('props_japan.glb');
     const meshes = asset.meshes.filter((mesh) => /^pagoda(?:@[12])?__b_plaster$/.test(mesh.name ?? ''));
     expect(meshes).toHaveLength(3);
     for (const mesh of meshes) for (const primitive of mesh.primitives) {
       const accessor = asset.accessors[primitive.attributes.TEXCOORD_0];
-      const view = asset.bufferViews[accessor.bufferView!];
+      const packed = accessor.bufferView === undefined ? await dracoUv(asset, binary, primitive) : null;
+      const view = packed ? null : asset.bufferViews[accessor.bufferView!];
       expect(accessor.componentType).toBe(5126);
-      const offset = (view.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
+      const offset = (view?.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
       let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
       for (let i = 0; i < accessor.count; i++) {
-        const u = binary.readFloatLE(offset + i * 8);
-        const v = binary.readFloatLE(offset + i * 8 + 4);
+        const u = packed ? packed[i * 2] : binary.readFloatLE(offset + i * 8);
+        const v = packed ? packed[i * 2 + 1] : binary.readFloatLE(offset + i * 8 + 4);
         expect(Number.isFinite(u) && Number.isFinite(v)).toBe(true);
         minU = Math.min(minU, u); maxU = Math.max(maxU, u);
         minV = Math.min(minV, v); maxV = Math.max(maxV, v);

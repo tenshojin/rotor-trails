@@ -212,6 +212,14 @@ export interface VesselDef {
   route?: Array<[number, number]>;
 }
 
+/** 天上绕场飞的飞机（src/render/traffic.ts）：闭合航线 [x, 世界高度, z]，模型在这张图的模型库里 */
+export interface TrafficDef {
+  model: string;
+  /** 米 / 秒 */
+  speed: number;
+  route: Array<[number, number, number]>;
+}
+
 /** 天上飞的（src/render/birds.ts） */
 export type BirdKind = 'condor' | 'raven' | 'gull' | 'kite' | 'egret' | 'macaw';
 
@@ -337,8 +345,13 @@ export interface MapDef {
   fringe?: number;
   /** 远景地形比真实地面抬高了多少（抬到树冠的高度）：那一圈树要种在真实的地面上，树冠才是从林冠层里鼓出来的 */
   farCanopy?: (x: number, z: number) => number;
+  /** 夜里的极光（0..1）：高纬度的地方才有 */
+  aurora?: number;
   /** 水上有什么船在走 */
   vessels?: VesselDef[];
+  traffic?: TrafficDef;
+  /** 夜里亮的灯（跑道边灯之类）：光点，地上没有光斑 */
+  lights?: Array<{ pos: V3; size: number; color: [number, number, number] }>;
   /** 这张图有什么鸟、各几只 */
   birds?: Partial<Record<BirdKind, number>>;
   landmarks: Array<{ name: string; pos: V3 }>;

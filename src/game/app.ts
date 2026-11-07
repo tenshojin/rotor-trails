@@ -7,7 +7,8 @@ import type { MapDef } from '../maps/types';
 import { CAUSE_LABEL } from '../sim/damage';
 import { GRADE_LABEL } from '../sim/mission';
 import { computeScore } from '../sim/scoring';
-import { GameSession, STEP, type GameEvent } from '../sim/session';
+import { copyBody, GameSession, newBody, STEP, type GameEvent } from '../sim/session';
+import type { BodyState } from '../sim/flight';
 import { ScenicCruise, vistasOf } from '../sim/cruise';
 import { FixedStepper } from '../core/stepper';
 import { WorldView } from '../render/worldView';
@@ -24,7 +25,11 @@ import { keyName, QUALITY, type Settings } from './settings';
 import { clamp, damp } from '../core/math';
 import { PHOTO_FOV } from '../render/cameraRig';
 import { wallDistances } from '../sim/echo';
+import { directionTo, PlaceWatcher, placesOf } from './places';
+import { FlightTape, REPLAY_MIN } from './replay';
+import { LOOK } from '../render/post';
 import { PhotoPanel } from '../ui/photoPanel';
+import { ReplayPanel } from '../ui/replayPanel';
 import { padNavigate } from '../ui/padNav';
 import { blocked, GPS_RANGES, operate, PressQueue, readout, type ActEnv, type ReadEnv } from '../sim/controls';
 import { SimPanel } from '../ui/simPanel';
@@ -36,6 +41,23 @@ import { waitForOperation } from './pending';
 import { InstrumentLists } from './instrumentLists';
 
 type State = 'boot' | 'menu' | 'loading' | 'ready' | 'playing' | 'paused' | 'failed' | 'result' | 'disposed';
+
+/** 正在放回放：放完把这些写回去，物理接着从原来的地方走 */
+interface ReplayRun {
+  t: number;
+  seg: number;
+  hold: boolean;
+  speed: number;
+  panel: ReplayPanel;
+  body: BodyState;
+  rpm: number;
+  thrust: number;
+  airspeed: number;
+  view: 'cockpit' | 'chase' | 'cinema';
+  done: () => void;
+}
+
+const _tapeFrame = { rpm: 0, thrust: 0, airspeed: 0 };
 
 interface RunConfig {
   map: MapDef;
@@ -144,6 +166,12 @@ export class App {
   private photoPanel: PhotoPanel | null = null;
   /** 超仿真的人眼景深 */
   private eyeDof = false;
+  /** 一路录着，回头用电影镜头放 */
+  private readonly tape = new FlightTape();
+  private replay: ReplayRun | null = null;
+  /** 休闲飞行：飞到了哪里（只有休闲模式有） */
+  private placeWatch: PlaceWatcher | null = null;
+  private placeT = 0;
   private tutorialHtml = '';
   private readonly tutorialCtx: TutorialCtx = { yaw: 0, pitch: 0, held: (a) => this.input.is(a), dragLook: false };
   private controlHintHtml = '';
@@ -286,6 +314,8 @@ export class App {
     if (this.frameId !== null) cancelAnimationFrame(this.frameId);
     this.frameId = null;
     this.input.onEdge = this.input.onLockChange = this.input.onPadNav = null;
+    this.replay?.panel.dispose();
+    this.replay = null;
     this.view.onThunder = null;
     this.input.dispose();
     this.audio.dispose();
@@ -401,8 +431,17 @@ export class App {
         settings: () => this.openSettings(),
         help: () => this.ui.help(this.settings.bindings),
         about: () => this.ui.about(),
+        log: () => this.openLog(),
       },
     );
+  }
+
+  private openLog(): void {
+    const all = [...MAPS, ...REAL_MAPS];
+    this.ui.logbook({
+      ...this.save.data.log,
+      maps: all.map((m) => ({ name: m.name, been: this.save.data.visited[m.id]?.length ?? 0, total: placesOf(m).length, rating: this.save.data.maps[m.id]?.bestRating ?? '' })),
+    });
   }
 
   /** 飞行训练的课程表：从头学，或者直接选一课 */
@@ -420,11 +459,17 @@ export class App {
   freeSelect(): void {
     this.state = 'menu';
     const list = [...CAMPAIGN.filter((id) => MAPS.find((m) => m.id === id)).map((id) => getMap(id)), getMap('training')];
-    this.ui.mapSelect([...REAL_MAPS, ...list], {}, { pick: (m) => this.freeBrief(m), back: () => this.mainMenu() }, true);
+    const seen = (m: MapDef) => {
+      const total = placesOf(m).length;
+      const n = this.save.data.visited[m.id]?.length ?? 0;
+      return n === 0 ? `${total} 个地方等你去` : n >= total ? `${total} 个地方都到过了` : `到过 ${n} / ${total} 个地方`;
+    };
+    this.ui.mapSelect([...REAL_MAPS, ...list], {}, { pick: (m) => this.freeBrief(m), back: () => this.mainMenu() }, true, seen);
   }
 
   freeBrief(m: MapDef): void {
-    this.ui.freeBrief(m, this.settings, vistasOf(m).map((v) => v.name), {
+    const been = this.save.data.visited[m.id] ?? [];
+    this.ui.freeBrief(m, this.settings, vistasOf(m).map((v) => `${been.includes(v.name) ? '✓ ' : ''}${v.name}`), {
       start: (weather, time, sim) => void this.startRun({ map: m, weather, assist: sim ? 'sim' : 'novice', tutorial: false, free: true, time }),
       back: () => this.freeSelect(),
     });
@@ -571,6 +616,9 @@ export class App {
     this.hud.setFree?.(cfg.free === true);
     this.hud.setCinema?.(false);
     this.cruise = null;
+    this.tape.clear();
+    this.placeWatch = cfg.free ? new PlaceWatcher(placesOf(cfg.map)) : null;
+    this.placeT = 4;
     // 超仿真是冷舱启动，要停在坪上；休闲飞行直接从第一个景点开始
     if (cfg.free && cfg.assist !== 'sim') this.goToVista(session, 0);
     this.audio.setAmbience(cfg.map.ambience);
@@ -708,6 +756,7 @@ export class App {
     this.input.exitLock();
     this.simPanel?.hideTooltip();
     this.audio.update(this.audioState(true), 0);
+    this.save.save();
     this.pauseMenu();
   }
 
@@ -719,8 +768,9 @@ export class App {
     }
     this.ui.pause(
       // （教学里的安全点是自动的，玩家不用选）
-      { tutorial: !!this.tutorial, checkpoints: this.tutorial ? [] : this.session.restoreOptions() },
+      { tutorial: !!this.tutorial, checkpoints: this.tutorial ? [] : this.session.restoreOptions(), replay: this.tape.seconds >= REPLAY_MIN },
       {
+        replay: () => this.replayFromPause(),
         resume: () => this.resume(),
         checkpoint: (i, mode) => this.restoreCheckpoint(i, mode),
         restart: () => void this.restart(),
@@ -742,9 +792,21 @@ export class App {
     const run = this.run;
     if (!s || !run) return;
     const vistas = vistasOf(run.map);
+    const places = placesOf(run.map);
+    const been = this.save.data.visited[run.map.id] ?? [];
+    const here = s.body?.pos;
+    const todo = places.filter((p) => !been.includes(p.name));
+    const unseen = todo.map((p) => (here ? `${p.name} · ${directionTo(here.x, here.z, p)}` : p.name));
     this.ui.freePause(
-      { map: run.map, time: run.time ?? 'day', weather: s.weather.preset.id, vistas: vistas.map((v) => v.name), cruise: !!this.cruise },
+      { map: run.map, time: run.time ?? 'day', weather: s.weather.preset.id, vistas: vistas.map((v) => v.name), been, total: places.length, unseen, canGo: !s.sys, cruise: !!this.cruise, replay: this.tape.seconds >= REPLAY_MIN },
       {
+        go: (i) => {
+          const p = todo[i];
+          this.cruise = new ScenicCruise(s, vistas, [p.x, p.z]);
+          this.hud.toast(`自动巡航：去${p.name}。动任何一个飞行键就交回给你`, 'info', 3500);
+          this.resume();
+        },
+        replay: () => this.replayFromPause(),
         resume: () => this.resume(),
         time: (t) => this.freeTime(t),
         weather: (id) => {
@@ -788,6 +850,20 @@ export class App {
     this.closing = damp(this.closing, (was - d) / dt, 5, dt);
   }
 
+  /** 飞到一个地方：字幕之间至少隔半分钟，景点挨得近的时候不会一个接一个地跳 */
+  private watchPlaces(s: GameSession, dt: number): void {
+    this.placeT -= dt;
+    const w = this.placeWatch;
+    if (!w || this.placeT > 0 || !s.body || !this.run) return;
+    this.placeT = 0.5;
+    const p = w.arrive(s.body.pos.x, s.body.pos.z);
+    if (!p) return;
+    this.placeT = 30;
+    const id = this.run.map.id;
+    const first = this.save.visit(id, p.name);
+    this.hud.place?.(p.name, p.note, first ? `到过 ${this.save.data.visited[id]?.length ?? 1} / ${w.places.length}` : '');
+  }
+
   /** 左右的山壁有多远：一秒四次就够了 */
   private listenForWalls(s: GameSession, dt: number): void {
     this.echoT -= dt;
@@ -812,6 +888,7 @@ export class App {
     const k = (a: keyof Settings['bindings']): string => keyName(b[a][0]);
     this.ui.clear();
     this.hud.show(false);
+    this.replay?.panel.show(false);
     this.root.classList.add('photo-on');
     rig.enterPhoto(this.view.heli.root.position, this.view.heli.root.quaternion, this.photoFloor);
     this.view.heli.frozen = true;
@@ -837,6 +914,7 @@ export class App {
       hideHeli: (on) => {
         this.view.hideHeli = on;
       },
+      look: (sat, warm, fade) => this.setLook(sat, warm, fade),
       blurRotor: (on) => {
         this.view.heli.frozen = !on;
       },
@@ -847,22 +925,155 @@ export class App {
     });
   }
 
+  private setLook(sat: number, warm: number, fade: number): void {
+    LOOK.sat.value = sat;
+    LOOK.warm.value = warm;
+    LOOK.fade.value = fade;
+  }
+
   private closePhoto(): void {
     if (!this.photoPanel) return;
     this.photoPanel.dispose();
     this.photoPanel = null;
+    this.setLook(1, 0, 0);
     this.view.exposureBias = 0;
     this.view.hideHeli = false;
     this.view.photoBlur = 0;
-    this.view.setDof(this.eyeDof);
+    this.view.setDof(this.eyeDof && !this.replay);
     this.view.heli.frozen = false;
     this.view.rig.leavePhoto();
     this.root.classList.remove('photo-on');
     this.input.setFreeMouse(false);
     this.input.active = false;
     this.input.clear();
+    if (this.replay) {
+      // 从回放里拍的：回到回放
+      this.replay.panel.show(true);
+      this.input.setFreeMouse(true);
+      this.input.active = true;
+      return;
+    }
     this.hud.show(true);
     this.pauseMenu();
+  }
+
+  /** 飞行时一路录着。地上干等的时间不录，教学不录 */
+  private recordTape(s: GameSession, dt: number): void {
+    const tel = s.flight.telemetry;
+    _tapeFrame.rpm = tel.rotorRpm;
+    _tapeFrame.thrust = tel.thrust;
+    _tapeFrame.airspeed = tel.airspeed;
+    const v = s.body.vel;
+    this.tape.record(dt, s.body, _tapeFrame, (s.gear?.weightOnSkids ?? 0) > 0.5 && Math.hypot(v.x, v.y, v.z) < 0.4);
+  }
+
+  private replayDt(dt: number): number {
+    const r = this.replay;
+    return r && !r.hold && !this.photoPanel ? dt * r.speed : 0;
+  }
+
+  private replayFromPause(): void {
+    this.openReplay(() => {
+      this.hud.show(true);
+      this.pauseMenu();
+    });
+  }
+
+  /** 回放：电影镜头把刚才飞的再放一遍。done 是放完回到哪里，lead 是从结尾往前多少秒开始（想看更早的拖进度条） */
+  private openReplay(done: () => void, lead = 60): void {
+    const s = this.session;
+    if (!s || this.replay || this.tape.seconds < REPLAY_MIN) return;
+    const tel = s.flight.telemetry;
+    const rig = this.view.rig;
+    const body = newBody();
+    copyBody(body, s.body);
+    this.ui.clear();
+    this.hud.show(false);
+    this.state = 'paused';
+    this.root.classList.add('replay-on');
+    this.view.setDof(false);
+    const view = rig.mode === 'photo' ? 'cockpit' : rig.mode;
+    rig.setMode('cinema');
+    this.input.setFreeMouse(true);
+    this.input.active = true;
+    this.input.clear();
+    const k = (a: keyof Settings['bindings']): string => keyName(this.settings.bindings[a][0]);
+    const keys = `${k('pause')} 结束 · ${k('view')} 换镜头 · ${k('hud')} 收起面板 · ${k('photo')} 截图`;
+    const r: ReplayRun = {
+      t: Math.max(0, this.tape.seconds - lead),
+      seg: 0,
+      hold: false,
+      speed: 1,
+      body,
+      rpm: tel.rotorRpm,
+      thrust: tel.thrust,
+      airspeed: tel.airspeed,
+      view,
+      done,
+      panel: new ReplayPanel(this.root, this.tape.seconds, keys, {
+        seek: (t) => {
+          r.t = t;
+          rig.setMode('cinema');
+        },
+        hold: (on) => {
+          r.hold = on;
+        },
+        slow: (on) => {
+          r.speed = on ? 0.35 : 1;
+        },
+        shot: () => rig.nextShot(),
+        photo: () => this.openPhoto(),
+        back: () => this.closeReplay(),
+      }),
+    };
+    this.replay = r;
+  }
+
+  /** 把这一刻的姿态写给画面和声音看（物理这时候没在走） */
+  private stepReplay(s: GameSession, dt: number): void {
+    const r = this.replay;
+    if (!r) return;
+    r.t += dt;
+    if (r.t >= this.tape.seconds) {
+      r.t = 0;
+      this.view.rig.setMode('cinema');
+    }
+    const f = this.tape.pose(r.t, s.body);
+    // 传送过的地方是一个剪辑点：镜头跟着切
+    if (f.seg !== r.seg) {
+      r.seg = f.seg ?? 0;
+      this.view.rig.setMode('cinema');
+    }
+    copyBody(s.prev, s.body);
+    const tel = s.flight.telemetry;
+    tel.rotorRpm = f.rpm;
+    tel.thrust = f.thrust;
+    tel.airspeed = f.airspeed;
+    r.panel.update(r.t);
+  }
+
+  private closeReplay(): void {
+    const r = this.replay;
+    if (!r) return;
+    this.closePhoto();
+    this.replay = null;
+    r.panel.dispose();
+    const s = this.session;
+    if (s) {
+      copyBody(s.body, r.body);
+      copyBody(s.prev, r.body);
+      const tel = s.flight.telemetry;
+      tel.rotorRpm = r.rpm;
+      tel.thrust = r.thrust;
+      tel.airspeed = r.airspeed;
+    }
+    this.root.classList.remove('replay-on');
+    this.view.setDof(this.eyeDof);
+    this.view.rig.setMode(r.view);
+    this.input.setFreeMouse(false);
+    this.input.active = false;
+    this.input.clear();
+    r.done();
   }
 
   /** 拍照模式每一帧：世界不走，只走机位 */
@@ -953,6 +1164,7 @@ export class App {
   }
 
   quitToMenu(): void {
+    this.save.save();
     this.session?.dispose();
     this.session = null;
     this.tutorial = null;
@@ -1116,6 +1328,13 @@ export class App {
       }
       return;
     }
+    if (this.replay) {
+      if (a === 'pause') this.closeReplay();
+      else if (a === 'photo') this.photoPending = true;
+      else if (a === 'hud') this.replay.panel.toggle();
+      else if (a === 'view') this.view.rig.nextShot();
+      return;
+    }
     if (a === 'pause') {
       if (this.state === 'playing') this.pause();
       else if (this.state === 'paused' && !this.ui.hasModal) this.resume();
@@ -1179,10 +1398,13 @@ export class App {
       a.href = URL.createObjectURL(blob);
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      this.save.data.log.photos++;
+      this.save.save();
       if (this.photoPanel) {
         this.photoPanel.saved('已存到下载文件夹');
         this.audio.click();
       }
+      else if (this.replay) this.audio.click();
       else this.hud.toast('截图已存到下载文件夹', 'good', 1800);
     }, 'image/png');
   }
@@ -1220,7 +1442,7 @@ export class App {
     const s = this.session;
     let alpha = 1;
     const running = this.state === 'playing' && s && s.state === 'running';
-    const renderDt = this.state === 'paused' ? 0 : dt;
+    const renderDt = this.state === 'paused' ? this.replayDt(dt) : dt;
     this.t += renderDt;
     if (s && running) {
       this.readInput(s, dt);
@@ -1231,6 +1453,8 @@ export class App {
         if (s.state !== 'running') break;
       }
       alpha = this.stepper.alpha;
+      if (!this.tutorial) this.recordTape(s, dt);
+      if ((s.gear?.weightOnSkids ?? 1) < 0.5) this.save.data.log.seconds += dt;
       if (this.tutorial) {
         const c = this.tutorialCtx;
         c.yaw = this.view.rig.yaw;
@@ -1275,7 +1499,8 @@ export class App {
     }
     if (s && (this.state === 'playing' || this.state === 'paused' || this.state === 'ready' || this.state === 'failed')) {
       this.stepPhoto(dt);
-      this.view.render(s, { dt: renderDt, t: this.t, alpha });
+      this.stepReplay(s, renderDt);
+      this.view.render(s, { dt: renderDt, t: this.t, alpha, replay: !!this.replay });
       if (this.photoPending) {
         this.photoPending = false;
         this.savePhoto();
@@ -1284,7 +1509,8 @@ export class App {
       this.view.drawInstruments(this.t, this.instrumentData(s));
       this.listenForWalls(s, dt);
       this.listenFromCamera(s, dt);
-      this.audio.update(this.audioState(this.state !== 'playing'), dt);
+      if (this.state === 'playing') this.watchPlaces(s, dt);
+      this.audio.update(this.audioState(this.state !== 'playing' && (!this.replay || !!this.photoPanel)), dt);
     } else {
       // 菜单背景：长焦、贴着地面绕直升机慢慢转，直升机在画面右边（左边是标题和菜单），背后是谷地和雪山
       this.idleAngle += dt * 0.022;
@@ -1373,9 +1599,10 @@ export class App {
       sim,
       agl: s.agl,
       echo: this.echo,
+      plane: this.view.traffic?.sound ?? null,
       far: this.far,
       closing: this.closing,
-      rpm: s.state === 'crashed' ? 0.2 : tel.rotorRpm,
+      rpm: s.state === 'crashed' && !this.replay ? 0.2 : tel.rotorRpm,
       load: tel.thrust / (s.totalMass() * 9.81),
       power: tel.powerFrac,
       airspeed: tel.airspeed,
@@ -1482,6 +1709,13 @@ export class App {
           break;
         case 'touchdown':
           A.touchdown(e.metrics.descent);
+          if (e.metrics.safe) {
+            const log = this.save.data.log;
+            log.landings++;
+            const soft = Math.max(0.01, e.metrics.descent);
+            if (log.softest !== null && soft < log.softest && !this.tutorial) hud.toast(`最轻的一次接地：${soft.toFixed(2)} m/s`, 'good', 3000);
+            log.softest = Math.min(log.softest ?? Infinity, soft);
+          }
           if (e.padId && e.metrics.safe) hud.toast(`接地：${GRADE_LABEL[e.metrics.grade]}（下降 ${e.metrics.descent.toFixed(1)} m/s）`, 'info', 2200);
           break;
         case 'status':
@@ -1566,7 +1800,17 @@ export class App {
     };
     this.ui.failed(
       { cause: `失败原因：${CAUSE_LABEL[cause]}`, detail: detail[cause] ?? '', checkpoints: s.restoreOptions() },
-      { checkpoint: (i, mode) => this.restoreCheckpoint(i, mode), restart: () => void this.restart(), quit: () => this.quitToMenu() },
+      {
+        checkpoint: (i, mode) => this.restoreCheckpoint(i, mode),
+        restart: () => void this.restart(),
+        quit: () => this.quitToMenu(),
+        replay: this.tape.seconds >= REPLAY_MIN
+          ? () => this.openReplay(() => {
+              this.hud.show(true);
+              this.showFailure();
+            }, 15)
+          : undefined,
+      },
     );
   }
 
@@ -1614,7 +1858,7 @@ export class App {
     const idx = CAMPAIGN.indexOf(run.map.id);
     const nextId = run.tutorial ? 'japan' : idx >= 0 && idx < CAMPAIGN.length - 1 ? CAMPAIGN[idx + 1] : null;
     const next = nextId && MAPS.find((m) => m.id === nextId) ? getMap(nextId) : null;
-    this.ui.result(
+    const show = (): void => this.ui.result(
       {
         map: run.map,
         score,
@@ -1626,6 +1870,13 @@ export class App {
         tutorial: run.tutorial,
       },
       {
+        replay: this.tape.seconds >= REPLAY_MIN
+          ? () => this.openReplay(() => {
+              this.state = 'result';
+              this.hud.show(true);
+              show();
+            })
+          : undefined,
         again: () => void this.restart(),
         maps: () => {
           this.quitToMenu();
@@ -1635,5 +1886,6 @@ export class App {
         menu: () => this.quitToMenu(),
       },
     );
+    show();
   }
 }

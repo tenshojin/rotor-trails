@@ -40,7 +40,7 @@ npm run dev
 | `npm run build` | 类型检查 + 生产构建，输出到 `dist/` |
 | `npm run preview` | 在 http://localhost:4173 预览生产构建 |
 | `npm run mapviz` | 生成地图俯视图并检查所有航线净空（输出到 `tmp/maps/`） |
-| `npm run regress` | 跨平台完整航线与天气验收（42 种情形，失败返回非零状态） |
+| `npm run regress` | 跨平台完整航线与天气验收（46 种情形，失败返回非零状态） |
 | `npm run regress:recovery` | 六张地图 × 两种检查点恢复：坠毁后恢复并完成主线（12 种情形） |
 | `npm run shots -- tools/steps/docs_shots.json docs/screenshots` | 用无头 Chrome 自动截图（需先 `npm run preview`） |
 
@@ -52,6 +52,14 @@ npm run regress:recovery
 ```
 
 旧版 `tools/regress.sh` 仍可在 Git Bash 等环境中使用。
+
+显卡被别的程序占满的时候不要跑截图（这台机器蓝屏过）。流程和画面可以先在 CPU 上看：网址加 `backend=webgl`，截图工具用软件渲染，几十秒进图，一秒一两帧，画质固定是低。只看界面（不进 3D）也用它。
+
+```bash
+CHROME_EXTRA_ARGS="--disable-gpu --use-angle=swiftshader" node tools/shot.mjs <步骤文件> <输出目录>
+```
+
+软件 WebGPU（`--enable-unsafe-webgpu --enable-features=Vulkan,WebGPUService --use-webgpu-adapter=swiftshader --disable-gpu-sandbox --disable-gpu-compositing`，不要加 `--use-angle=swiftshader`）能拿到适配器，但主菜单的预编译超过 9 分钟，基本用不了。WGSL 编不编得过还是要真显卡看。
 
 单独跑一张地图（bash 语法；PowerShell 中先执行 `$env:MAP="himalaya"; $env:PATHS="0,1"`）：
 

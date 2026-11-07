@@ -322,6 +322,11 @@ export class CameraRig {
     }
   }
 
+  /** 电影镜头现在就换下一个机位 */
+  nextShot(): void {
+    this.shotT = 1e6;
+  }
+
   setMode(m: 'cockpit' | 'chase' | 'cinema'): void {
     this.shot = -1;
     this.mode = m;

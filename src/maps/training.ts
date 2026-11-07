@@ -16,6 +16,24 @@ const RW_X = -72;
 const RW_Z = -130;
 const RW_L = 860;
 
+/** 机场的灯：跑道边白灯、南头绿灯和进近灯、北头红灯、滑行道蓝灯 */
+function airfieldLights(): NonNullable<MapDef['lights']> {
+  const out: NonNullable<MapDef['lights']> = [];
+  const add = (x: number, z: number, size: number, color: [number, number, number]) => out.push({ pos: [x, 10.5, z], size, color });
+  const south = RW_Z + RW_L / 2;
+  const north = RW_Z - RW_L / 2;
+  // （光点的亮核只有灯的六分之一大：灯小了，飞到一两公里外就一盏都看不见）
+  for (let z = north + 20; z < south; z += 60) for (const s of [-1, 1]) add(RW_X + s * 16.5, z, 1.9, [1, 0.93, 0.78]);
+  for (let x = -14; x <= 14; x += 4) {
+    add(RW_X + x, south + 2, 1.9, [0.3, 1, 0.5]);
+    add(RW_X + x, north - 2, 1.9, [1, 0.2, 0.14]);
+  }
+  for (let i = 1; i <= 7; i++) for (const x of [-4, 0, 4]) add(RW_X + x, south + i * 30, 2.1, [1, 0.9, 0.72]);
+  for (let x = RW_X + 22; x < 44; x += 24) for (const z of [232, 240]) add(x, z, 1.2, [0.3, 0.5, 1]);
+  for (let z = 72; z < 228; z += 24) for (const x of [-34, -26]) add(x, z, 1.2, [0.3, 0.5, 1]);
+  return out;
+}
+
 function base(x: number, z: number): number {
   // 谷地顺着小河南北走向（不是一个圆盆），边上的山脚进进出出
   const r = Math.hypot(x - 90 * n.noise(z / 760, 2.1), (z + 60) * 0.66) + 190 * n.noise(x / 560 + 4, z / 560) + 80 * n2.noise(x / 210, z / 210 + 3);
@@ -232,6 +250,7 @@ export const TRAINING: MapDef = {
   weathers: [
     { id: 'clear', label: '晴朗', kind: 'clear', desc: '微风，能见度极好。', params: makeWeather({ windDirFrom: 250, windSpeed: 2.5, gustAmp: 0.6, cloudCover: 0.25 }) },
     { id: 'breeze', label: '晴·有风', kind: 'wind', desc: '持续西风约 7 m/s，带轻微阵风。', params: makeWeather({ windDirFrom: 270, windSpeed: 7, gustAmp: 2, cloudCover: 0.4 }) },
+    { id: 'snow', label: '小雪', kind: 'snow', desc: '细雪落在谷地里，跑道和屋顶慢慢白了，能见度约 3 公里。', params: makeWeather({ snow: 0.55, windDirFrom: 250, windSpeed: 3, gustAmp: 0.8, cloudCover: 0.95, overcast: 0.6, visibility: 3200 }) },
   ],
   defaultWeather: 'clear',
   biome: {
@@ -256,6 +275,28 @@ export const TRAINING: MapDef = {
   sun: [215, 42],
   ambience: { birds: 0.5, wind: 0.4 },
   birds: { raven: 8, kite: 3 },
+  lights: airfieldLights(),
+  // 一架轻型飞机在练起落：沿 36 号跑道低空通场，向东绕场一圈回来
+  traffic: {
+    model: 'plane_fly',
+    speed: 46,
+    route: [
+      [RW_X, 44, 440],
+      [RW_X, 30, RW_Z + RW_L / 2],
+      [RW_X, 22, 100],
+      [RW_X, 26, -200],
+      [RW_X, 66, RW_Z - RW_L / 2],
+      [-40, 128, -770],
+      [130, 178, -900],
+      [350, 210, -890],
+      [470, 220, -700],
+      [490, 220, -130],
+      [470, 216, 450],
+      [360, 190, 700],
+      [150, 150, 790],
+      [-30, 100, 690],
+    ],
+  },
   landmarks: [{ name: '机库', pos: [70, 10, 170] }],
   vistas: [
     { name: '谷地全景', at: [120, 130, 420], look: [-40, -900] },

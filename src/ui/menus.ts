@@ -39,6 +39,9 @@ const TIPS = [
   '飞行也可以用手柄，按键表在操作说明里。',
   '贴着山壁飞的时候听一听：旋翼声会从山壁上弹回来。',
   '暂停菜单里可以换时段和天气，黄昏的大峡谷值得看一眼。',
+  '暂停菜单和结算页都能看回放：电影镜头把刚才飞的再放一遍，停在哪一帧都能拍。',
+  '休闲飞行飞到一个地方，屏幕上会写这是哪里；暂停菜单里看得到还有哪些地方没去过。',
+  '挪威的峡湾选夜晚，抬头看看天。',
 ];
 
 export class UI {
@@ -168,7 +171,7 @@ export class UI {
     );
   }
 
-  main(opts: { warning: string | null; tutorialDone: boolean }, on: { play: () => void; free: () => void; tutorial: () => void; settings: () => void; help: () => void; about: () => void }): void {
+  main(opts: { warning: string | null; tutorialDone: boolean }, on: { play: () => void; free: () => void; tutorial: () => void; settings: () => void; help: () => void; about: () => void; log?: () => void }): void {
     const el = this.show(
       h(`<div class="screen main-menu">
         <div class="title-block">
@@ -179,6 +182,7 @@ export class UI {
           <button class="btn primary" data-a="play">开始游戏</button>
           <button class="btn" data-a="free">休闲飞行</button>
           <button class="btn" data-a="tutorial">飞行训练${opts.tutorialDone ? '' : ' <span class="tag">推荐先玩</span>'}</button>
+          ${on.log ? '<button class="btn" data-a="log">飞行记录</button>' : ''}
           <button class="btn" data-a="settings">设置</button>
           <button class="btn" data-a="help">操作说明</button>
           <button class="btn ghost" data-a="about">关于与授权</button>
@@ -186,7 +190,7 @@ export class UI {
         <div class="menu-foot">${opts.warning ? `<div class="warnbox">${opts.warning}</div>` : ''}<span>v1.0 · 没有时间限制，按自己的节奏飞行</span></div>
       </div>`),
     );
-    this.bind(el, { play: on.play, free: on.free, tutorial: on.tutorial, settings: on.settings, help: on.help, about: on.about });
+    this.bind(el, { play: on.play, free: on.free, tutorial: on.tutorial, settings: on.settings, help: on.help, about: on.about, log: () => on.log?.() });
   }
 
   /** 飞行训练的课程表 */
@@ -224,7 +228,7 @@ export class UI {
     this.bind(el, { next: on.next, free: on.free, again: on.again, menu: on.menu });
   }
 
-  mapSelect(maps: MapDef[], records: Partial<Record<string, MapRecord>>, on: { pick: (m: MapDef) => void; back: () => void }, free = false): void {
+  mapSelect(maps: MapDef[], records: Partial<Record<string, MapRecord>>, on: { pick: (m: MapDef) => void; back: () => void }, free = false, seen?: (m: MapDef) => string): void {
     const cards = maps
       .map((m, i) => {
         const r = records[m.id];
@@ -233,7 +237,7 @@ export class UI {
           <span class="mc-body">${free ? `<span class="mc-head"><span class="mc-no">${m.region}</span></span>` : `<span class="mc-head"><span class="mc-no">${m.id === 'training' ? '训练' : `第 ${maps.filter((x) => x.id !== 'training').indexOf(m) + 1} 关`}</span><span class="mc-stars" aria-label="推荐难度 ${m.difficulty} / 5">${stars(m.difficulty)}</span></span>`}
           <span class="mc-name" id="map-name-${m.id}">${m.name}</span><span class="mc-sub">${m.subtitle}</span>
           <span class="mc-desc">${m.description}</span>
-          ${free ? '' : `<span class="mc-foot"><span>推荐：${ASSISTS[m.recommendedAssist].label}</span>${r?.completed ? `<span class="mc-best">最佳 ${r.bestRating} · ${r.bestScore}</span>` : '<span class="muted">未完成</span>'}</span>`}</span>
+          ${free ? (seen ? `<span class="mc-foot"><span class="muted">${seen(m)}</span></span>` : '') : `<span class="mc-foot"><span>推荐：${ASSISTS[m.recommendedAssist].label}</span>${r?.completed ? `<span class="mc-best">最佳 ${r.bestRating} · ${r.bestScore}</span>` : '<span class="muted">未完成</span>'}</span>`}</span>
         </button>`;
       })
       .join('');
@@ -360,16 +364,18 @@ export class UI {
   }
 
   /** 休闲飞行的暂停菜单 */
-  freePause(o: { map: MapDef; time: TimeOfDay; weather: string; vistas: string[]; cruise: boolean }, on: { resume: () => void; time: (t: TimeOfDay) => void | Promise<void>; weather: (id: string) => void; vista: (i: number) => void; cruise: () => void; settings: () => void; help: () => void; quit: () => void; photo: () => void }): void {
+  freePause(o: { map: MapDef; time: TimeOfDay; weather: string; vistas: string[]; been: string[]; total: number; unseen: string[]; canGo?: boolean; cruise: boolean; replay?: boolean }, on: { replay?: () => void; go?: (i: number) => void; resume: () => void; time: (t: TimeOfDay) => void | Promise<void>; weather: (id: string) => void; vista: (i: number) => void; cruise: () => void; settings: () => void; help: () => void; quit: () => void; photo: () => void }): void {
     const chip = (a: string, v: string, label: string, sel: boolean) => `<button type="button" class="chip ${sel ? 'sel' : ''}" data-a="${a}" data-v="${v}" aria-pressed="${sel}">${label}</button>`;
     const el = this.show(
       h(`<div class="screen center dim"><div class="card free-pause"><h2>${o.map.name}</h2>
       <h3>时段</h3><div class="chips" data-group="time">${(Object.keys(TIME_OF_DAY) as TimeOfDay[]).map((k) => chip('time', k, TIME_OF_DAY[k].label, k === o.time)).join('')}</div>
       <h3>天气</h3><div class="chips" data-group="weather">${o.map.weathers.map((w) => chip('weather', w.id, w.label, w.id === o.weather)).join('')}</div>
-      <h3>去这些地方</h3><div class="chips">${o.vistas.map((v, i) => chip('vista', String(i), v, false)).join('')}</div>
+      <h3>去这些地方</h3><div class="chips">${o.vistas.map((v, i) => chip('vista', String(i), `${o.been.includes(v) ? '✓ ' : ''}${v}`, false)).join('')}</div>
+      ${o.unseen.length ? `<h3>还没去过（到过 ${o.been.length} / ${o.total}）${o.canGo ? ' · 点一下自动飞过去' : ''}</h3>${o.canGo ? `<div class="chips">${o.unseen.map((v, i) => chip('go', String(i), v, false)).join('')}</div>` : `<p class="vistas">${o.unseen.map((v) => `<span>${v}</span>`).join('')}</p>`}` : `<p class="muted been-all">这张图的 ${o.total} 个地方都到过了。</p>`}
       <div class="free-actions"><button class="btn primary" data-a="resume">继续飞行</button>
       <button class="btn" data-a="cruise">${o.cruise ? '关闭自动巡航' : '自动巡航（看风景）'}</button>
       <button class="btn" data-a="photo">拍照模式</button>
+      ${o.replay ? '<button class="btn" data-a="replay">看回放</button>' : ''}
       <button class="btn" data-a="settings">设置</button>
       <button class="btn" data-a="help">操作说明</button>
       <button class="btn ghost" data-a="quit">回主菜单</button></div></div></div>`),
@@ -390,6 +396,8 @@ export class UI {
         on.weather(b.dataset.v!);
       },
       vista: (b) => on.vista(Number(b.dataset.v)),
+      go: (b) => on.go?.(Number(b.dataset.v)),
+      replay: () => on.replay?.(),
       cruise: on.cruise,
       photo: on.photo,
       settings: on.settings,
@@ -423,7 +431,7 @@ export class UI {
     this.bind(el, { go: on });
   }
 
-  pause(opts: { tutorial: boolean; checkpoints: CheckpointItem[] }, on: { resume: () => void; checkpoint: (i: number, mode: 'exact' | 'safe') => void; restart: () => void; settings: () => void; help: () => void; quit: () => void; photo: () => void; skipStep?: () => void }): void {
+  pause(opts: { tutorial: boolean; checkpoints: CheckpointItem[]; replay?: boolean }, on: { replay?: () => void; resume: () => void; checkpoint: (i: number, mode: 'exact' | 'safe') => void; restart: () => void; settings: () => void; help: () => void; quit: () => void; photo: () => void; skipStep?: () => void }): void {
     const last = opts.checkpoints[opts.checkpoints.length - 1];
     const el = this.show(
       h(`<div class="screen center dim"><div class="card narrow pause"><h2>已暂停</h2>
@@ -433,6 +441,7 @@ export class UI {
       ${opts.checkpoints.length > 1 ? '<button class="btn" data-a="cplist">选择检查点…</button>' : ''}
       <button class="btn" data-a="restart">${opts.tutorial ? '重新开始这一课' : '从关卡起点重新开始'}</button>
       <button class="btn" data-a="photo">拍照模式</button>
+      ${opts.replay ? '<button class="btn" data-a="replay">看回放</button>' : ''}
       <button class="btn" data-a="settings">设置</button>
       <button class="btn" data-a="help">操作说明</button>
       <button class="btn ghost" data-a="quit">${opts.tutorial ? '退出教学' : '退出到主菜单'}</button></div></div>`),
@@ -444,6 +453,7 @@ export class UI {
       cplist: () => this.checkpointList(opts.checkpoints, on.checkpoint),
       restart: on.restart,
       photo: on.photo,
+      replay: () => on.replay?.(),
       settings: on.settings,
       help: on.help,
       quit: on.quit,
@@ -473,7 +483,7 @@ export class UI {
     });
   }
 
-  failed(opts: { cause: string; detail: string; checkpoints: CheckpointItem[] }, on: { checkpoint: (i: number, mode: 'exact' | 'safe') => void; restart: () => void; quit: () => void }): void {
+  failed(opts: { cause: string; detail: string; checkpoints: CheckpointItem[] }, on: { checkpoint: (i: number, mode: 'exact' | 'safe') => void; restart: () => void; quit: () => void; replay?: () => void }): void {
     const last = opts.checkpoints[opts.checkpoints.length - 1];
     const safeOnes = opts.checkpoints.filter((c) => c.safe);
     const earlier = safeOnes.length > 0 ? safeOnes[safeOnes.length - 1] : null;
@@ -484,6 +494,7 @@ export class UI {
       ${last && last.durability < 30 ? `<button class="btn" data-a="safe">安全恢复（悬停状态，耐久至少 40）</button>` : ''}
       ${opts.checkpoints.length > 1 ? '<button class="btn" data-a="cplist">选择检查点…</button>' : ''}
       <button class="btn" data-a="restart">从关卡起点重新开始</button>
+      ${on.replay ? '<button class="btn" data-a="replay">看回放：刚才怎么了</button>' : ''}
       <button class="btn ghost" data-a="quit">退出到主菜单</button></div></div>`),
     );
     this.bind(el, {
@@ -492,11 +503,12 @@ export class UI {
       safe: () => on.checkpoint(last.index, 'safe'),
       cplist: () => this.checkpointList(opts.checkpoints, on.checkpoint),
       restart: on.restart,
+      replay: () => on.replay?.(),
       quit: on.quit,
     });
   }
 
-  result(opts: { map: MapDef; score: ScoreResult; best: boolean; time: number; landing: LandingMetrics | null; optional: Array<{ title: string; done: boolean }>; next: MapDef | null; tutorial: boolean }, on: { again: () => void; maps: () => void; next: () => void; menu: () => void }): void {
+  result(opts: { map: MapDef; score: ScoreResult; best: boolean; time: number; landing: LandingMetrics | null; optional: Array<{ title: string; done: boolean }>; next: MapDef | null; tutorial: boolean }, on: { replay?: () => void; again: () => void; maps: () => void; next: () => void; menu: () => void }): void {
     const s = opts.score;
     const rows = s.breakdown.map((b) => `<tr><td>${b.label}</td><td class="muted">${b.note ?? ''}</td><td class="num">${b.value > 0 ? '+' : ''}${b.value}</td></tr>`).join('');
     const el = this.show(
@@ -510,10 +522,10 @@ export class UI {
           <div><span class="muted">用时（仅记录，不计分）</span><b>${fmtTime(opts.time)}</b></div>
           <div><span class="muted">可选任务</span><b>${opts.optional.map((o) => `${o.done ? '✔' : '○'} ${o.title}`).join('<br>') || '—'}</b></div>
         </div>
-        <div class="btn-row">${opts.next ? `<button class="btn primary" data-a="next">下一张地图：${opts.next.name}</button>` : ''}<button class="btn" data-a="again">再飞一次</button><button class="btn" data-a="maps">地图选择</button><button class="btn ghost" data-a="menu">主菜单</button></div>
+        <div class="btn-row">${opts.next ? `<button class="btn primary" data-a="next">下一张地图：${opts.next.name}</button>` : ''}${on.replay ? '<button class="btn" data-a="replay">看回放</button>' : ''}<button class="btn" data-a="again">再飞一次</button><button class="btn" data-a="maps">地图选择</button><button class="btn ghost" data-a="menu">主菜单</button></div>
       </div></div>`),
     );
-    this.bind(el, { again: on.again, maps: on.maps, next: on.next, menu: on.menu });
+    this.bind(el, { again: on.again, maps: on.maps, next: on.next, menu: on.menu, replay: () => on.replay?.() });
   }
 
   help(bindings: Settings['bindings']): void {
@@ -538,7 +550,7 @@ export class UI {
           <tr><td>${k('hud')}</td><td>HUD 显示：自动（平稳飞行时收起）/ 完整 / 隐藏（想看风景、截图的时候）</td></tr>
           <tr><td>${k('cruise')}</td><td>自动巡航（休闲飞行）：沿着景点自己飞，动任何飞行键就交回给你</td></tr>
           <tr><td>${k('photo')}</td><td>截图：把这一帧存成图片，不带 HUD，暂停的时候也能拍。想挑机位、调焦距和曝光，暂停菜单里有拍照模式</td></tr>
-          <tr><td>${k('pause')}</td><td>暂停</td></tr></table></div>
+          <tr><td>${k('pause')}</td><td>暂停。暂停菜单里还有回放（电影镜头再放一遍刚才飞的）；休闲飞行还能换时段、换天气、跳到景点</td></tr></table></div>
         <div><h3>手柄（Xbox / PS 布局）</h3><table class="keys">
           <tr><td>左摇杆</td><td>前后 = 机头俯仰，左右 = 转向</td></tr>
           <tr><td>右摇杆</td><td>转头看</td></tr>
@@ -562,6 +574,28 @@ export class UI {
           <li>浏览器不允许网页拦截 Ctrl+W 等快捷键，所以默认键位里没有 Ctrl。在设置里改键时也请避开 Ctrl，否则和字母键一起按可能会关闭页面。</li>
         </ul></div>
       </div></div></div>`),
+    );
+    this.bind(el, { close: () => this.closeModal() });
+  }
+
+  /** 飞行记录：飞了多久、落了多少次、到过多少地方 */
+  logbook(o: { seconds: number; landings: number; softest: number | null; photos: number; maps: Array<{ name: string; been: number; total: number; rating: string }> }): void {
+    const m = Math.floor(o.seconds / 60);
+    const time = m >= 60 ? `${Math.floor(m / 60)} 小时 ${m % 60} 分` : `${m} 分钟`;
+    const rows = o.maps.map((r) => `<tr><td>${r.name}</td><td class="muted">${r.rating ? `最佳 ${r.rating}` : ''}</td><td class="num">${r.been} / ${r.total}</td></tr>`).join('');
+    const been = o.maps.reduce((a, r) => a + r.been, 0);
+    const total = o.maps.reduce((a, r) => a + r.total, 0);
+    const el = this.openModal(
+      h(`<div class="modal"><div class="card wide"><div class="screen-head"><h2>飞行记录</h2><button class="btn ghost" data-a="close">关闭</button></div>
+      <div class="res-grid log-grid">
+        <div><span class="muted">飞行时间</span><b>${time}</b></div>
+        <div><span class="muted">平安落地</span><b>${o.landings} 次</b></div>
+        <div><span class="muted">最轻的一次</span><b>${o.softest === null ? '—' : `${o.softest.toFixed(2)} m/s`}</b></div>
+        <div><span class="muted">存下的照片</span><b>${o.photos} 张</b></div>
+      </div>
+      <h3>到过的地方（${been} / ${total}）</h3>
+      <table class="score">${rows}</table>
+      <p class="muted">休闲飞行飞到一个地方就算到过。记录存在这个浏览器里。</p></div></div>`),
     );
     this.bind(el, { close: () => this.closeModal() });
   }

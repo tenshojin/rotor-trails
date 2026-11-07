@@ -76,6 +76,8 @@ export class Hud {
   private targetMarker = new THREE.Vector3();
   private disposed = false;
   private toastTimers = new Map<HTMLElement, [ReturnType<typeof setTimeout>, ReturnType<typeof setTimeout>]>();
+  private placeCard: HTMLElement | null = null;
+  private placeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(parent: HTMLElement) {
     this.root = el('div', 'hud hidden', parent);
@@ -131,6 +133,7 @@ export class Hud {
     this.mode = (this.mode + 1) % 3;
     this.root.classList.toggle('hud-full', this.mode === 1);
     this.root.classList.toggle('hud-off', this.mode === 2);
+    this.root.classList.toggle('hud-clean', this.mode === 2);
     return ['自动', '完整', '隐藏'][this.mode];
   }
 
@@ -178,6 +181,23 @@ export class Hud {
     while (this.toasts.children.length > 5) this.removeToast(this.toasts.firstElementChild as HTMLElement);
   }
 
+  /** 飞到一个地方：地名和一句话淡入淡出，第一次来的多一行进度 */
+  place(name: string, note: string, tail = ''): void {
+    if (this.disposed) return;
+    this.placeCard?.remove();
+    if (this.placeTimer) clearTimeout(this.placeTimer);
+    const card = el('div', 'hud-place', this.root);
+    card.setAttribute('role', 'status');
+    el('b', '', card, name);
+    if (note) el('span', '', card, note);
+    if (tail) el('i', '', card, tail);
+    this.placeCard = card;
+    this.placeTimer = setTimeout(() => {
+      card.remove();
+      this.placeTimer = null;
+    }, 9000);
+  }
+
   private removeToast(toast: HTMLElement): void {
     const timers = this.toastTimers.get(toast);
     if (timers) for (const timer of timers) clearTimeout(timer);
@@ -193,6 +213,7 @@ export class Hud {
     if (this.disposed) return;
     this.disposed = true;
     this.clearToasts();
+    if (this.placeTimer) clearTimeout(this.placeTimer);
     this.overlay.width = this.overlay.height = 0;
     this.headingCv.width = this.headingCv.height = 0;
     this.landCv.width = this.landCv.height = 0;

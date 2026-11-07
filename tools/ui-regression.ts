@@ -5,6 +5,8 @@ import { Hud } from '../src/ui/hud';
 import { defaultSettings, type Settings } from '../src/game/settings';
 import { LESSONS } from '../src/game/tutorial';
 import { padNavigate } from '../src/ui/padNav';
+import { PhotoPanel } from '../src/ui/photoPanel';
+import { ReplayPanel } from '../src/ui/replayPanel';
 import type { MapDef } from '../src/maps/types';
 import type { GameSession } from '../src/sim/session';
 import type { WorldView } from '../src/render/worldView';
@@ -120,32 +122,38 @@ await test('休闲飞行选图不提难度和成绩，简报保留时段和天�
 
 await test('休闲飞行的暂停菜单换时段、天气、景点', (ui) => {
   const log: string[] = [];
-  ui.freePause({ map, time: 'dusk', weather: 'clear', vistas: ['甲', '乙'], cruise: false }, {
+  ui.freePause({ map, time: 'dusk', weather: 'clear', vistas: ['甲', '乙'], been: ['甲'], total: 3, unseen: ['丙 · 东北 1.2 公里'], canGo: true, cruise: false }, {
+    go: (i) => log.push(`go:${i}`),
     resume: () => log.push('resume'), time: (t) => { log.push(`t:${t}`); }, weather: (w) => log.push(`w:${w}`), vista: (i) => log.push(`v:${i}`),
     cruise: () => log.push('cruise'), photo: () => {}, settings: () => {}, help: () => {}, quit: () => {},
   });
   assert(find('.chip[data-v="dusk"]').getAttribute('aria-pressed') === 'true', '当前时段没有选中');
+  assert(find('.chip[data-a="vista"][data-v="0"]').textContent?.includes('✓') === true, '到过的地方没有打勾');
+  assert(find('.free-pause').textContent?.includes('到过 1 / 3') === true, '没有写到过几个地方');
   click('.chip[data-v="night"]');
   assert(find('.chip[data-v="night"]').getAttribute('aria-pressed') === 'true' && find('.chip[data-v="dusk"]').getAttribute('aria-pressed') === 'false', '时段选中状态没有更新');
   click('.chip[data-a="weather"][data-v="rain"]');
   click('.chip[data-a="vista"][data-v="1"]');
+  click('.chip[data-a="go"][data-v="0"]');
   click('[data-a="cruise"]');
   click('[data-a="resume"]');
-  assert(log.join() === 't:night,w:rain,v:1,cruise,resume', `操作不对：${log.join()}`);
+  assert(log.join() === 't:night,w:rain,v:1,go:0,cruise,resume', `操作不对：${log.join()}`);
 });
 
 await test('手柄走菜单：方向找最近的控件，A 确认，B 退出弹窗', (ui) => {
   const log: string[] = [];
-  ui.freePause({ map, time: 'dusk', weather: 'clear', vistas: ['甲', '乙'], cruise: false }, {
+  ui.freePause({ map, time: 'dusk', weather: 'clear', vistas: ['甲', '乙'], been: ['甲'], total: 3, unseen: ['丙 · 东北 1.2 公里'], cruise: false }, {
     resume: () => log.push('resume'), time: (t) => { log.push(`t:${t}`); }, weather: (w) => log.push(`w:${w}`), vista: () => {},
     cruise: () => {}, photo: () => log.push('photo'), settings: () => {}, help: () => ui.help(defaultSettings().bindings), quit: () => {},
   });
   const first = document.activeElement;
   assert(first === find('[data-a="resume"]'), '一进来焦点要在主按钮上');
   padNavigate(fixture, 'up');
-  assert(document.activeElement !== first && (document.activeElement as HTMLElement).classList.contains('chip'), '往上走到选项');
+  const chip = document.activeElement as HTMLElement;
+  assert(chip !== first && chip.classList.contains('chip'), '往上走到选项');
   padNavigate(fixture, 'down');
-  assert(document.activeElement === first, '往下走回主按钮');
+  const box = (e: Element | null) => { const r = e?.getBoundingClientRect(); return r ? `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}x${Math.round(r.height)}` : ''; };
+  assert(document.activeElement === first, `往下走回主按钮：从「${chip.textContent}」${box(chip)} 到了「${document.activeElement?.textContent}」${box(document.activeElement)}，主按钮在 ${box(first)}`);
   padNavigate(fixture, 'ok');
   assert(log.join() === 'resume', `A 没有按到：${log.join()}`);
   (find('[data-a="help"]') as HTMLElement).focus();
@@ -261,6 +269,72 @@ await test('加载进度范围合法；关于页面标明真实素材许可', (u
   ui.about();
   assert(find('[role="dialog"]').textContent?.includes('Poly Haven'), '缺少实际材质来源');
   assert(find<HTMLAnchorElement>('a').getAttribute('href') === './licenses.md', '缺少许可链接');
+});
+
+await test('飞行记录：时间、次数、到过的地方都写对，能关掉', (ui) => {
+  ui.logbook({ seconds: 3725, landings: 12, softest: 0.31, photos: 4, maps: [{ name: '甲', been: 2, total: 5, rating: 'A' }, { name: '乙', been: 0, total: 3, rating: '' }] });
+  const text = find('.modal').textContent ?? '';
+  assert(text.includes('1 小时 2 分') && text.includes('12 次') && text.includes('0.31 m/s') && text.includes('4 张') && text.includes('到过的地方（2 / 8）'), `记录写错了：${text}`);
+  assert(ui.hasModal, '记录没打开');
+  click('.modal [data-a="close"]');
+  assert(!ui.hasModal, '记录关不掉');
+});
+
+await test('拍照面板：换风格给出对应的调色参数，面板不出窗口', () => {
+  const log: string[] = [];
+  const panel = new PhotoPanel(fixture, 40, '按住鼠标转镜头', true, {
+    fov: () => {}, exposure: () => {}, blur: () => {}, roll: () => {}, hideHeli: () => {}, blurRotor: () => {}, save: () => {}, back: () => {},
+    look: (sat, warm, fade) => log.push(`${sat},${warm},${fade}`),
+  });
+  const select = find<HTMLSelectElement>('[data-k="look"]');
+  assert(select.options.length === 5 && select.value === '0', '风格列表不对');
+  select.value = '4';
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  assert(log.join() === '0,0,0.015', `黑白的参数不对：${log.join()}`);
+  const box = find('.photo-panel').getBoundingClientRect();
+  assert(box.left >= 0 && box.right <= innerWidth + 1, '面板超出了窗口');
+  panel.dispose();
+});
+
+await test('回放面板：进度条、暂停、慢放、换镜头、拍这一帧、结束', () => {
+  const log: string[] = [];
+  const panel = new ReplayPanel(fixture, 90, 'Esc 结束', {
+    seek: (t) => log.push(`seek:${t}`), hold: (on) => log.push(`hold:${on}`), slow: (on) => log.push(`slow:${on}`),
+    shot: () => log.push('shot'), photo: () => log.push('photo'), back: () => log.push('back'),
+  });
+  const bar = find<HTMLInputElement>('.replay-bar');
+  bar.value = '30';
+  bar.dispatchEvent(new Event('input', { bubbles: true }));
+  click('[data-a="hold"]');
+  assert(find('[data-a="hold"]').textContent === '继续' && find('[data-a="hold"]').getAttribute('aria-pressed') === 'true', '暂停之后按钮要写继续');
+  click('[data-a="hold"]');
+  click('[data-k="slow"]');
+  click('[data-a="shot"]');
+  click('[data-a="photo"]');
+  click('[data-a="back"]');
+  assert(log.join() === 'seek:30,hold:true,hold:false,slow:true,shot,photo,back', `操作不对：${log.join()}`);
+  panel.update(65);
+  assert(find('.replay-time').textContent === '1:05 / 1:30', `时间不对：${find('.replay-time').textContent}`);
+  assert(bar.value === '65', '进度条要跟着走');
+  const box = find('.replay-panel').getBoundingClientRect();
+  assert(box.left >= 0 && box.right <= innerWidth + 1, '面板超出了窗口');
+  panel.dispose();
+  assert(!fixture.querySelector('.replay-panel'), '面板没有收走');
+});
+
+await test('地名字幕：新的换掉旧的，第一次来才有进度，隐藏 HUD 时不显示', () => {
+  const hud = new Hud(fixture);
+  hud.show(true);
+  hud.place('海角灯塔', '夜里靠它认路。', '到过 1 / 5');
+  hud.place('五重塔', '很少倒。');
+  assert(fixture.querySelectorAll('.hud-place').length === 1, '字幕叠起来了');
+  assert(find('.hud-place b').textContent === '五重塔' && !fixture.querySelector('.hud-place i'), '字幕内容不对');
+  const box = find('.hud-place').getBoundingClientRect();
+  assert(box.left >= 0 && box.right <= innerWidth + 1, '字幕超出了窗口');
+  hud.cycleMode();
+  hud.cycleMode();
+  assert(getComputedStyle(find('.hud-place')).display === 'none', '隐藏 HUD 时字幕还在');
+  hud.dispose();
 });
 
 await test('HUD 保留告警可见度，读取改键，不重复重建相同告警', async () => {

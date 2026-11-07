@@ -119,48 +119,153 @@ def hull_loft(name, L, W, keel, top, m, bow0=0.7, z0=None, z1=None, n=30, prof=8
     return ob
 
 
-def ferry(name):
-    """车客渡轮（濑户内海常见的小型渡轮）：蓝色船底、白色船身、两层客舱、驾驶台、烟囱、救生艇、尾部跳板。"""
+def _round_nose(x0, x1, half, nose, n=12):
+    """舱室的平面：两边笔直，前头（+X）是圆的，逆时针。"""
+    out = []
+    for i in range(n + 1):
+        a = -math.pi / 2 + math.pi * i / n
+        out.append((x1 - nose + nose * math.cos(a), half * math.sin(a)))
+    return out + [(x0, half), (x0, -half)]
+
+
+def _deck(name, x0, x1, half, z0, z1, m, nose=3.0):
+    return K.prism(name, _round_nose(x0, x1, half, nose), z0, z1, m, smooth=40)
+
+
+def _rail(parts, tag, pts, m, h=1.05, step=1.9):
+    """栏杆：沿折线一根根立柱，上面两道横杆。pts：[(x, y, z)]"""
+    for k, (a, b) in enumerate(zip(pts, pts[1:])):
+        n = max(1, round(math.dist(a, b) / step))
+        for i in range(n + 1):
+            t = i / n
+            q = [a[j] + (b[j] - a[j]) * t for j in range(3)]
+            parts.append(BK.bx(f'{tag}p{k}_{i}', (0.05, 0.05, h), (q[0], q[1], q[2] + h / 2), m, uv=False))
+        for f in (1.0, 0.55):
+            parts.append(BK.stick(f'{tag}r{k}_{f}', (a[0], a[1], a[2] + h * f), (b[0], b[1], b[2] + h * f), 0.024, m, seg=4))
+
+
+def ferry(name, hull=0x223c6e, band=0xb2261e):
+    """车客渡轮（小型近海渡轮）：船身下半截上色，白色的车辆甲板舱、两层客舱、圆头驾驶台、椭圆烟囱、
+    吊艇架、栏杆、尾部跳板。船头朝 +X。"""
     parts = []
     L, W = 46.0, 11.0
+    H = W / 2
     white = F('ferry_white', 0xeceeec, rough=0.42)
-    navy = F('ferry_navy', 0x223c6e, rough=0.4)
-    red = F('ferry_red', 0xb2261e, rough=0.45)
+    side = F('ferry_hull', hull, rough=0.4)
+    red = F('ferry_band', band, rough=0.45)
+    anti = F('ferry_antifoul', 0x6e2a22, rough=0.6)
     glass = F('glass_dark', 0x1c252d, rough=0.08, metal=0.5)
     grey = F('ferry_grey', 0x6c7178, rough=0.55, metal=0.2)
-    parts.append(hull_loft('hull_lo', L, W, -1.6, 2.6, navy, z0=-1.6, z1=1.0))
-    parts.append(hull_loft('hull_up', L, W, -1.6, 2.6, white, z0=1.0))
-    parts.append(BK.bx('car_deck', (L * 0.86, W * 0.9, 0.2), (-1.5, 0, 2.5), grey, uv=False))
-    parts.append(BK.bx('stripe_a', (L * 0.72, 0.05, 0.3), (-2, W / 2 - 0.02, 1.9), red, uv=False))
-    parts.append(BK.bx('stripe_b', (L * 0.72, 0.05, 0.3), (-2, -W / 2 + 0.02, 1.9), red, uv=False))
-    # 舷墙开口（车辆甲板的侧窗）
-    for sy in (-1, 1):
-        for i in range(8):
-            parts.append(BK.bx(f'port{sy}{i}', (2.4, 0.05, 1.0), (-15 + i * 4, sy * (W / 2 - 0.25), 3.6), glass, uv=False))
-    parts.append(K.box('deck1', (L * 0.6, W - 1.4, 3.0), (-3, 0, 4.1), white, bevel=0.15))
-    parts.append(BK.bx('win1a', (L * 0.56, W - 1.36, 1.0), (-3, 0, 4.5), glass, uv=False))
-    parts.append(K.box('deck2', (L * 0.34, W - 2.4, 2.6), (2, 0, 6.8), white, bevel=0.12))
-    parts.append(BK.bx('win2', (L * 0.31, W - 2.36, 0.9), (2, 0, 7.1), glass, uv=False))
-    # 驾驶台：向两舷伸出的翼台
-    parts.append(K.box('bridge', (4.2, W - 0.8, 2.3), (9.0, 0, 9.0), white, bevel=0.12))
-    parts.append(BK.bx('bridge_glass', (4.24, W - 0.76, 0.95), (9.0, 0, 9.4), glass, uv=False))
-    parts.append(K.box('bridge_top', (4.8, W - 0.2, 0.2), (9.0, 0, 10.25), white, bevel=0.05))
-    # 烟囱、桅杆、雷达
-    parts.append(K.box('funnel', (3.0, 1.7, 3.4), (-8.0, 0, 9.5), white, bevel=0.3))
-    parts.append(BK.bx('funnel_band', (3.04, 1.74, 0.7), (-8.0, 0, 10.2), red, uv=False))
-    parts.append(BK.cyl('mast', 0.12, 5.0, (6.5, 0, 12.5), white, 8, uv=False))
-    parts.append(BK.bx('radar', (1.8, 0.2, 0.14), (6.5, 0, 13.0), grey, uv=False))
-    # 救生艇（橙色）
+    deckc = F('ferry_deck', 0x7a7f7c, rough=0.75)
+    dark = F('ferry_dark', 0x14181c, rough=0.6)
+    black = F('ferry_black', 0x17181a, rough=0.5)
     orange = F('lifeboat', 0xe8701e, rough=0.45)
+    # 船体：水线下防污漆、船身色、护舷、白色上半截，一条色带顺着船形走到船头
+    parts.append(hull_loft('hull_af', L, W, -1.6, 2.6, anti, z0=-1.6, z1=0.3))
+    parts.append(hull_loft('hull_lo', L, W, -1.6, 2.6, side, z0=0.3, z1=1.15))
+    parts.append(hull_loft('hull_up', L, W, -1.6, 2.6, white, z0=1.15))
+    parts.append(hull_loft('rub', L, W + 0.16, -1.6, 2.6, grey, z0=1.15, z1=1.3))
+    parts.append(hull_loft('band', L, W + 0.04, -1.6, 2.6, red, z0=1.8, z1=2.1))
+    # 船艏柱：放样的两舷在这里合拢，留着缝看得见里面
+    parts.append(BK.stick('stem_lo', (L / 2 + 0.02, 0, -1.4), (L / 2 + 0.02, 0, 1.15), 0.2, side, seg=8))
+    parts.append(BK.stick('stem_hi', (L / 2 + 0.02, 0, 1.15), (L / 2 + 0.02, 0, 4.1), 0.2, white, seg=8))
+    # 车辆甲板舱：圆头，两舷成排的开口
+    parts.append(_deck('casing', -22.0, 14.5, H - 0.3, 2.6, 5.4, white, 4.2))
+    parts.append(BK.bx('car_deck', (35.0, W - 0.9, 0.12), (-4.5, 0, 2.62), deckc, uv=False))
     for sy in (-1, 1):
-        for x in (-12.0, -4.0):
-            parts.append(K.sphere(f'raft{sy}{x}', 0.8, (x, sy * (W / 2 - 1.2), 6.0), orange, 12, 8, (2.6, 1, 0.8)))
+        for i in range(9):
+            parts.append(BK.bx(f'port{sy}{i}', (2.6, 0.06, 1.25), (-19.5 + i * 3.6, sy * (H - 0.29), 4.05), dark, uv=False))
+    # 客舱甲板：比下面宽一圈，走得了人
+    parts.append(_deck('deck_a', -23.0, 15.4, H - 0.08, 5.4, 5.56, white, 4.6))
+    parts.append(_deck('deck_a_top', -22.9, 15.3, H - 0.16, 5.56, 5.58, deckc, 4.5))
+    parts.append(_deck('cabin', -14.0, 10.6, H - 1.3, 5.58, 7.85, white, 3.4))
+    parts.append(_deck('cabin_nose', 6.2, 10.63, H - 1.285, 6.3, 7.3, glass, 3.4))
+    for sy in (-1, 1):
+        for i in range(10):
+            parts.append(BK.bx(f'win{sy}{i}', (1.45, 0.06, 1.0), (-12.8 + i * 1.95, sy * (H - 1.29), 6.8), glass, uv=False))
+        parts.append(BK.bx(f'door{sy}', (1.0, 0.06, 2.0), (-13.3 + 20.2, sy * (H - 1.29), 6.6), grey, uv=False))
+    parts.append(BK.bx('cabin_back', (0.06, W - 3.0, 1.0), (-14.0, 0, 6.8), glass, uv=False))
+    # 上层：休息室和驾驶台
+    parts.append(_deck('deck_b', -15.0, 11.3, H - 1.0, 7.85, 8.0, white, 3.6))
+    parts.append(_deck('upper', -6.0, 7.4, H - 2.2, 8.0, 10.0, white, 2.6))
+    for sy in (-1, 1):
+        for i in range(5):
+            parts.append(BK.bx(f'uwin{sy}{i}', (1.5, 0.06, 0.95), (-4.8 + i * 2.05, sy * (H - 2.19), 9.05), glass, uv=False))
+    parts.append(_deck('bridge', 1.4, 8.2, H - 2.0, 10.0, 12.2, white, 2.3))
+    parts.append(_deck('bridge_glass', 4.5, 8.24, H - 1.97, 10.95, 11.9, glass, 2.3))
+    parts.append(_deck('bridge_roof', 0.9, 8.7, H - 1.7, 12.2, 12.36, white, 2.5))
+    # 驾驶台两边伸出去的翼台
+    parts.append(BK.bx('wing', (2.0, W - 0.3, 0.14), (5.2, 0, 10.05), white, uv=False))
+    for sy in (-1, 1):
+        parts.append(BK.bx(f'wing_side{sy}', (2.0, 0.06, 1.05), (5.2, sy * (H - 0.18), 10.6), white, uv=False))
+        parts.append(BK.bx(f'wing_end{sy}', (0.06, 2.6, 1.05), (6.2, sy * (H - 1.45), 10.6), white, uv=False))
+    # 烟囱：椭圆、往上收，一道色带，顶上是黑的
+    for nm, h, z, r, r2, m in (('funnel', 3.9, 9.95, 1.02, 0.9, white), ('funnel_band', 0.75, 10.75, 0.985, 0.95, red), ('funnel_top', 0.5, 11.68, 0.925, 0.9, black)):
+        ob = BK.cyl(nm, r + (0.02 if nm != 'funnel' else 0), h, (-9.5, 0, z), m, 18, r2=r2 + (0.02 if nm != 'funnel' else 0), uv=False)
+        K.map_verts(ob, lambda v: (-9.5 + (v[0] + 9.5) * 1.6, v[1], v[2]))
+        parts.append(ob)
+    # 桅杆、雷达、喇叭
+    parts.append(BK.cyl('mast', 0.11, 4.0, (3.0, 0, 14.3), white, 8, r2=0.05, uv=False))
+    parts.append(BK.bx('yard', (0.1, 2.6, 0.08), (3.0, 0, 15.2), white, uv=False))
+    parts.append(BK.cyl('radar_post', 0.14, 0.5, (5.8, 0, 12.6), grey, 8, uv=False))
+    parts.append(BK.bx('radar', (0.22, 2.0, 0.14), (5.8, 0, 12.95), grey, uv=False))
+    # 救生艇挂在吊艇架上，气胀救生筏的白罐子放在栏杆边
+    for sy in (-1, 1):
+        for x in (-12.0, -3.0):
+            parts.append(K.sphere(f'raft{sy}{x}', 0.75, (x, sy * (H - 0.75), 8.95), orange, 12, 8, (3.0, 1, 0.8)))
+            parts.append(K.box(f'raft_top{sy}{x}', (2.6, 1.0, 0.3), (x, sy * (H - 0.75), 9.45), white, bevel=0.1))
+            for dx in (-1.7, 1.7):
+                parts.append(K.tube_path(f'davit{sy}{x}{dx}', [(x + dx, sy * (H - 2.0), 8.0), (x + dx, sy * (H - 1.7), 9.7), (x + dx, sy * (H - 0.75), 10.1)], 0.06, grey, seg=5))
+        for x in (-18.0, -16.6):
+            parts.append(BK.cyl(f'can{sy}{x}', 0.34, 1.15, (x, sy * (H - 0.75), 5.95), white, 10, rot=(math.pi / 2, 0, 0), uv=False))
     # 栏杆
     for sy in (-1, 1):
-        parts.append(BK.bx(f'rail{sy}', (L * 0.56, 0.05, 0.06), (-3, sy * (W / 2 - 0.6), 6.45), grey, uv=False))
-    # 尾部跳板
-    ramp = K.box('ramp', (0.25, 6.5, 5.2), (-L / 2 - 0.1, 0, 4.9), grey, bevel=0.05)
-    parts.append(ramp)
+        _rail(parts, f'ra{sy}', [(-22.6, sy * (H - 0.22), 5.58), (11.6, sy * (H - 0.22), 5.58)], grey)
+        _rail(parts, f'rb{sy}', [(-14.6, sy * (H - 1.14), 8.0), (8.0, sy * (H - 1.14), 8.0)], grey)
+    _rail(parts, 'rc', [(-22.6, H - 0.22, 5.58), (-22.6, -H + 0.22, 5.58)], grey)
+    _rail(parts, 'rd', [(-14.6, H - 1.14, 8.0), (-14.6, -H + 1.14, 8.0)], grey)
+    # 前甲板：锚机、系缆桩，栏杆顺着船头收上去
+    # （甲板板子照着船头的宽度和舷弧收：方板子的角会戳到船体外面）
+    fv, ff = [], []
+    xs = [12.0 + i * 0.9 for i in range(13)]
+    for x in xs:
+        bow = max(0.0, ((x + L / 2) / L - 0.7) / 0.3)
+        hw = H * (1 - bow ** 1.9 * 0.97) - 0.04
+        z = 2.5 + 1.5 * bow ** 2
+        fv += [(x, -hw, z), (x, 0.0, z - 0.1), (x, hw, z)]
+    for i in range(len(xs) - 1):
+        for j in range(2):
+            a = i * 3 + j
+            ff.append((a, a + 3, a + 4, a + 1))
+    fore = K.mesh_obj('fore_deck', fv, ff, deckc, smooth=40)
+    K.fix_normals(fore)
+    parts.append(fore)
+    parts.append(BK.bx('windlass', (1.0, 2.4, 0.8), (17.0, 0, 3.4), grey, uv=False, bevel=0.06))
+    for sy in (-1, 1):
+        parts.append(BK.cyl(f'gypsy{sy}', 0.42, 0.4, (17.0, sy * 1.5, 3.45), black, 12, rot=(math.pi / 2, 0, 0), uv=False))
+        for x in (15.6, 19.4):
+            parts.append(BK.cyl(f'bitt{sy}{x}', 0.16, 0.6, (x, sy * 2.2, 3.3), black, 10, uv=False))
+        for x in (-20.0, -8.0):
+            parts.append(BK.cyl(f'abitt{sy}{x}', 0.16, 0.5, (x, sy * (H - 0.8), 5.82), black, 10, uv=False))
+        # 船头的栏杆：照着船体放样的宽度和舷弧走
+        pts = []
+        for x in (14.5, 16.5, 18.5, 20.5, 22.0):
+            t = (x + L / 2) / L
+            bow = max(0.0, (t - 0.7) / 0.3)
+            pts.append((x, sy * (H * (1 - bow ** 1.9 * 0.97) - 0.2), 2.6 + 1.5 * bow ** 2))
+        _rail(parts, f'rbow{sy}', pts, grey, step=1.4)
+        # 锚：贴在船头两舷
+        t = (18.5 + L / 2) / L
+        bow = (t - 0.7) / 0.3
+        hw = H * (1 - bow ** 1.9 * 0.97)
+        parts.append(BK.bx(f'anchor{sy}', (0.5, 0.14, 0.7), (18.5, sy * (hw + 0.02), 2.0), black, uv=False, rz=sy * -0.24))
+    # 尾部跳板：竖着收起来，有防滑筋和两边的吊杆
+    parts.append(K.box('ramp', (0.25, 6.5, 5.2), (-L / 2 - 0.1, 0, 4.9), grey, bevel=0.05))
+    for i in range(7):
+        parts.append(BK.bx(f'rib{i}', (0.08, 6.3, 0.09), (-L / 2 - 0.26, 0, 2.8 + i * 0.7), black, uv=False))
+    for sy in (-1, 1):
+        parts.append(BK.bx(f'ramp_post{sy}', (0.5, 0.5, 6.2), (-L / 2 + 0.5, sy * 3.7, 5.6), white, uv=False))
+        parts.append(BK.stick(f'ramp_arm{sy}', (-L / 2 + 0.6, sy * 3.7, 8.4), (-L / 2 - 0.12, sy * 3.1, 7.2), 0.09, grey, seg=6))
     return BK.model(name, parts)[0]
 
 

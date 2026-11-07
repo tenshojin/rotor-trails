@@ -4,11 +4,13 @@
 import { clamp, lerp, wrap360 } from '../core/math';
 import type { WindProfile } from './wind';
 
-export type WeatherKind = 'clear' | 'lightRain' | 'storm' | 'fog' | 'lowCloud' | 'wind';
+export type WeatherKind = 'clear' | 'lightRain' | 'storm' | 'fog' | 'lowCloud' | 'wind' | 'snow';
 
 export interface WeatherParams {
   /** 降水强度 0..1（0.35 左右为小雨，1 为暴雨） */
   rain: number;
+  /** 下雪（0..1） */
+  snow: number;
   /** 能见度（m） */
   visibility: number;
   /** 天空云量 0..1 */
@@ -43,6 +45,7 @@ export interface WeatherPreset {
 export function makeWeather(base: Partial<WeatherParams>): WeatherParams {
   return {
     rain: 0,
+    snow: 0,
     visibility: 9000,
     cloudCover: 0.25,
     overcast: 0,
@@ -74,6 +77,7 @@ function validateWeather(params: WeatherParams): void {
 
 export function lerpWeather(a: WeatherParams, b: WeatherParams, t: number, out: WeatherParams): WeatherParams {
   out.rain = lerp(a.rain, b.rain, t);
+  out.snow = lerp(a.snow, b.snow, t);
   // 能见度按对数插值，过渡更自然
   out.visibility = Math.exp(lerp(Math.log(a.visibility), Math.log(b.visibility), t));
   out.cloudCover = lerp(a.cloudCover, b.cloudCover, t);

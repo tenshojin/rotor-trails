@@ -25,6 +25,7 @@ import {
   positionView,
   positionWorld,
   pow,
+  normalWorld,
   screenCoordinate,
   sin,
   smoothstep,
@@ -42,6 +43,7 @@ import { HELI } from '../config/flight';
 import { FOG, gustAt, WASH, WASH_Y, WIND } from './atmosphere';
 import { terrainSun } from './sunMap';
 import { getNoiseTexture } from './textures';
+import { COVER, SNOW_RGB } from './wetness';
 import { VFOG } from './volumetricFog';
 import { loadGltf } from './gltf';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -537,7 +539,8 @@ export class TreeView {
         const mid = texture(noise, q.zx.sub(q.y.mul(0.8)).mul(0.57)).g;
         const fine = texture(noise, q.xz.mul(2.1).add(q.y)).b;
         const worn = mix(float(0.34), float(0.92), smoothstep(0.32, 0.7, big.mul(0.55).add(mid.mul(0.45)))).mul(fine.mul(0.35).add(0.82));
-        m.colorNode = vec4(vec3(worn), 1);
+        // （积雪：这个颜色还要乘石头自己的深色，白的地方要给够）
+        m.colorNode = vec4(vec3(mix(worn, float(2.4), COVER.mul(smoothstep(0.3, 0.75, normalWorld.y)))), 1);
         // 石块在影子里只有环境光，比旁边的地面暗一大截，逆光时是地上一个个黑洞。地面反上来的光补一点
         m.emissiveNode = vertexColor().rgb.mul(varyingProperty('vec3', 'vInstanceColor')).mul(worn).mul(FOG.color.mul(0.08).add(VFOG.sun.mul(0.03)));
       }
@@ -586,6 +589,16 @@ export class TreeView {
           cover = step(rim.mul(rim).mul(0.86), lump);
         } else if (this.bigTrees > 50000 && !this.dry) {
           albedo = albedo.mul(smoothstep(170.0, 520.0, length(positionWorld.sub(cameraPosition))).mul(0.3).add(1.0));
+        }
+        // 下雪：树冠朝上的地方挂着雪，底下和里面还是绿的
+        // （斑驳用两个正弦，不多读一次贴图：树叶是最贵的片元，不下雪的时候也要算）
+        {
+          const q = positionWorld;
+          const gap = sin(q.x.mul(1.7).add(q.y)).mul(sin(q.z.mul(1.3).sub(q.y.mul(0.7))));
+          // （最远一级是个光滑的椭球，朝上的面太多：盖得和近处一样白，山坡上是一个个白箭头）
+          // （稍远一点的也压一些：一整面山上的树都白成一样，看着像撒了一把钉子）
+          const near = mass ? float(0.45) : mix(float(0.92), float(0.58), smoothstep(150.0, 650.0, length(positionWorld.sub(cameraPosition))));
+          albedo = mix(albedo, SNOW_RGB, COVER.mul(smoothstep(0.05, 0.62, normalWorld.y.add(gap.mul(0.3)))).mul(near));
         }
         // 透明度再看粗一级的贴图：一两个像素大的叶子不再切成一颗颗碎点，树冠边缘是成团的
         // （取两者较小的：只用粗的，透明的地方也会露出来，卡片边上是一圈黑边和邻格的白线）

@@ -798,7 +798,7 @@ table.score .total td {
   display: none;
 }
 /* 隐藏：只有告警还显示 */
-.hud.hud-off > :not(.hud-warn):not(.hud-toasts) {
+.hud.hud-off > :not(.hud-warn):not(.hud-toasts):not(.hud-place) {
   display: none;
 }
 .hud-label {
@@ -2052,4 +2052,111 @@ canvas.gl.sim-cursor.sim-cursor-hot {
   font-size: 13px;
   line-height: 1.6;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+}
+
+/* 休闲飞行的地名字幕 */
+/* （超仿真默认没有 HUD，字幕照样有；只有自己按 U 收起来才不显示） */
+.hud.hud-clean .hud-place {
+  display: none;
+}
+.hud-place {
+  position: absolute;
+  top: 17%;
+  left: 50%;
+  width: min(640px, calc(100vw - 32px));
+  text-align: center;
+  pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8), 0 0 20px rgba(0, 0, 0, 0.6);
+  animation: place-card 8.8s ease both;
+}
+.hud-place b {
+  display: block;
+  font-size: clamp(24px, 3.1vw, 34px);
+  font-weight: 400;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  color: #fff;
+}
+.hud-place b::after {
+  content: '';
+  display: block;
+  width: 56px;
+  height: 1px;
+  margin: 10px auto 9px;
+  background: rgba(255, 255, 255, 0.6);
+}
+.hud-place span {
+  display: block;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #eef3f6;
+}
+.hud-place i {
+  display: block;
+  margin-top: 6px;
+  font-style: normal;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: #c3d0d9;
+}
+@keyframes place-card {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  14% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  84% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 0);
+  }
+}
+.been-all {
+  margin: 12px 0 0;
+}
+
+/* 回放：画面干净，面板只占最下面一条 */
+.replay-on .tutorial,
+.replay-on .sim-tip,
+.replay-on .sim-list {
+  display: none;
+}
+.replay-bar {
+  flex: 1;
+  min-width: 160px;
+  accent-color: var(--accent);
+}
+.replay-time {
+  min-width: 92px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+}
+
+/* 飞行记录 */
+.log-grid {
+  grid-template-columns: repeat(4, 1fr);
+  margin: 6px 0 4px;
+}
+@media (max-width: 640px) {
+  .log-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.photo-slider select {
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(7, 13, 20, 0.85);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
 }

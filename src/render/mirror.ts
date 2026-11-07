@@ -42,6 +42,7 @@ import {
 } from 'three/tsl';
 import { FOG } from './atmosphere';
 import type { ReflectField } from './reflectMap';
+import { COVER, SNOW_RGB } from './wetness';
 import type { SkyDome } from './sky';
 import { terrainSun } from './sunMap';
 import { VFOG } from './volumetricFog';
@@ -123,7 +124,8 @@ function fieldMarch(P0: N<'vec3'>, Rd: N<'vec3'>, f: ReflectField, frame: N<'flo
       // 打光：太阳（山影里没有）+ 天光（山谷深处看得见的天少）
       const sun = VFOG.sun.mul(max(dot(nrm, FOG.sunDir), 0.0).mul(terrainSun(p)).mul(1 / Math.PI));
       const sky = FOG.color.mul(alb.a.mul(0.75).add(0.1));
-      const lit = alb.rgb.mul(sun.add(sky));
+      // （下了雪倒影里的山也是白的）
+      const lit = mix(alb.rgb, SNOW_RGB, COVER.mul(smoothstep(0.55, 0.85, nrm.y))).mul(sun.add(sky));
       const dist = length(P0.sub(cameraPosition)).add(t1);
       const fogK = float(1).sub(exp(FOG.density.mul(FOG.density).add(FOG.cloud.mul(FOG.cloud)).mul(dist).mul(dist).negate()));
       out.assign(vec4(mix(lit, FOG.color, fogK), 1.0));

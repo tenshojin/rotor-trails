@@ -360,6 +360,9 @@ function sharpen(src: THREE.TextureNode, amount: number): THREE.Node<'vec4'> {
   })();
 }
 
+/** 拍照模式的风格：饱和度、冷暖（-1..1）、黑位抬高。不拍照的时候是 1、0、0 */
+export const LOOK = { sat: uniform(1), warm: uniform(0), fade: uniform(0) };
+
 /**
  * 调色（显示空间）：轻微 S 曲线提对比、按饱和程度加“自然饱和度”（已经很艳的颜色加得少）、
  * 高光略暖 / 暗部略冷的分离色调，以及很轻的暗角——让画面通透而不发灰，又不至于像滤镜。
@@ -381,5 +384,8 @@ function grade(c: THREE.Node<'vec4'>, dbg: PostDebug, outside: THREE.Node<'float
   // 暗角
   const d = screenUV.sub(0.5).mul(vec2(1.0, 0.82));
   rgb = rgb.mul(float(1).sub(dot(d, d).mul(dbg.vignette ?? 0.22)));
+  // 拍照的风格
+  rgb = mix(vec3(luminance(rgb)), rgb, LOOK.sat).mul(vec3(LOOK.warm.mul(0.07).add(1.0), 1.0, LOOK.warm.mul(-0.09).add(1.0)));
+  rgb = rgb.mul(float(1).sub(LOOK.fade)).add(LOOK.fade);
   return vec4(clamp(rgb, 0.0, 1.0), c.a);
 }

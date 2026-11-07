@@ -282,6 +282,22 @@ def sorin(name, z0, mt, lod):
     return p
 
 
+def curl(parts, X, Y, A):
+    """軒反り：屋檐到转角慢慢往上翘。屋面、椽子都顺着抬，檐中间不动。X、Y：檐口到中心的距离，A：转角抬多高。"""
+    for o in parts:
+        if o.type != 'MESH':
+            continue
+        mw = o.matrix_world.copy()
+        inv = mw.inverted()
+        for v in o.data.vertices:
+            w = mw @ v.co
+            u, t = abs(w.x) / X, abs(w.y) / Y
+            out = max(0.0, (max(u, t) - 0.55) / 0.45)
+            w.z += A * out ** 1.6 * min(u, t, 1.0) ** 2.2
+            v.co = inv @ w
+        o.data.update()
+
+
 def pagoda(lod):
     mt = mats()
     name = 'pagoda' if lod == 0 else f'pagoda@{lod}'
@@ -305,6 +321,7 @@ def pagoda(lod):
         if k > 0 and lod < 2:
             p += balcony(f'{nm}_bal', L, mt)
         X1 = L['X1']
+        start = len(p)
         if lod == 0:
             p += rafters(f'{nm}_raf', L, mt)
             if k < 4:
@@ -334,6 +351,7 @@ def pagoda(lod):
                     a = Vector((sx * X1, sy * X1, L['ze'] + 0.25))
                     b = Vector((sx * L['x_in'], sy * L['x_in'], L['z_in'] + 0.25)) if k < 4 else Vector((0, 0, L['z_in'] + 0.25))
                     p.append(BK.ridge_tube(f'{nm}_hip{ci}', a, b, 0.13, mt['ibushi']))
+        curl(p[start:], X1, X1, 0.1 * X1)
     top = lv[4]['z_in']
     p += sorin(f'{name}_sorin', top - 0.05, mt, lod)
     root, _ = BK.model(name, p)
@@ -487,6 +505,7 @@ def shrine(lod):
     # 入母屋屋顶
     z0 = zt + 0.85
     slope, ov = 0.62, 1.6
+    roof_start = len(p)
     if lod == 0:
         parts, (xg, yg, zg, zr, ze, X, Y) = irimoya_roof(f'{name}_roof', w, d, ov, slope, z0, rm)
         p += parts
@@ -521,6 +540,7 @@ def shrine(lod):
         if lod == 1:
             for i, (a, b) in enumerate(lines):
                 p.append(BK.ridge_tube(f'{name}_rt{i}', a + Vector((0, 0, 0.18)), b + Vector((0, 0, 0.18)), 0.15, mt['ibushi']))
+    curl(p[roof_start:], hw + ov, hd + ov, 0.42)
     # 向拜：两根向拜柱、虹梁、单坡小屋顶（上沿收在主屋檐下）
     yo, yi, zi, zo = -hd - 3.0, -hd - 0.1, 4.32, 4.32 - 2.9 * 0.25
     for sx in (-1, 1):

@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import bkit as K  # noqa: E402
 import bldkit as BK  # noqa: E402
 import common_props as CP  # noqa: E402
+import jport as JP  # noqa: E402
 
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 OUT = argv[0] if argv else 'public/models/props_fjord.glb'
@@ -295,5 +296,7 @@ ROOTS += CP.build_all()
 # 峡湾里走的渔船（船体的红、蓝、白都是挪威渔港常见的）
 for i, c in enumerate((0xa8281e, 0x2a4f7a, 0xe2e4e0)):
     ROOTS.append(CP.fishing_boat(f'boat_f{i}', c))
+# 峡湾里的车客渡轮：黑色船身是这一带渡轮常见的涂装
+ROOTS.append(JP.ferry('ferry_jp', hull=0x1d2024, band=0xc8a23c))
 BK.export(OUT, ROOTS)
 print('EXPORTED', OUT, len(ROOTS), 'models')

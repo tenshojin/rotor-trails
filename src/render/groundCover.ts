@@ -37,6 +37,7 @@ import { HELI } from '../config/flight';
 import type { WorldData } from '../world/worldgen';
 import { gustAt, WASH, WIND } from './atmosphere';
 import { getNoiseTexture } from './textures';
+import { COVER, SNOW_RGB } from './wetness';
 
 interface RingDef {
   /** 一块多大（米） */
@@ -249,7 +250,8 @@ export class GroundCover {
       // 同一丛里草叶的深浅、不同丛之间的色差
       const vary = texture(noise, P.xz.mul(0.37)).g.mul(0.5).add(0.78);
       // （地表颜色图是平均的反照率，比照了太阳的地面暗：中圈提亮一点，不然草团是地上一块块深色的斑）
-      m.colorNode = vec4(base.mul(t.r.mul(1.15).add(0.1)).mul(vary).mul(mid ? 1.7 : 1.5), t.a.mul(fade));
+      // （雪积厚了草就埋住了：留着的话雪地上一片片星形的暗纹，是草丛的卡片）
+      m.colorNode = vec4(mix(base.mul(t.r.mul(1.15).add(0.1)).mul(vary).mul(mid ? 1.7 : 1.5), SNOW_RGB, COVER.mul(0.85)), t.a.mul(fade).mul(float(1).sub(COVER.mul(0.95))));
       // 双面渲染时背面不翻转法线，否则一半草叶是黑的
       m.normalNode = normalViewGeometry;
       // 风：草尖晃动

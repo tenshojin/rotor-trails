@@ -65,6 +65,31 @@ def hangar(name, wall='corr_white', W=24.0, L=30.0, H=9.0):
     glass = F('hangar_glass', 0x2a3540, rough=0.15, metal=0.4)
     for i in range(6):
         parts.append(BK.bx(f'win{i}', (2.6, 0.06, 1.1), (-W / 2 + 2.2 + i * (W - 4.4) / 5, L / 2 + 0.03, H + rise * 0.36), glass, uv=False))
+    # 骨架露在外面：一榀榀拱肋压着屋面，下到墙上是壁柱；一段一段的侧窗、屋脊上的通风帽
+    bays = 6
+    for i in range(bays + 1):
+        y = -L / 2 + 0.1 + (L - 0.2) * i / bays
+        arc = [(-math.cos(math.pi * k / n) * (W / 2 + 0.46), y, H - 0.1 + math.sin(math.pi * k / n) * (rise + 0.16)) for k in range(n + 1)]
+        parts.append(K.tube_path(f'arch{i}', arc, 0.1, trim, seg=5))
+        for sx in (-1, 1):
+            parts.append(BK.bx(f'pier{i}{sx}', (0.24, 0.34, H - 1.0), (sx * (W / 2 + 0.26), y, 1.1 + (H - 1.1) / 2), trim, uv=False))
+    for i in range(bays):
+        y = -L / 2 + (L / bays) * (i + 0.5)
+        for sx in (-1, 1):
+            parts.append(BK.bx(f'swin{i}{sx}', (0.08, L / bays - 1.5, 1.05), (sx * (W / 2 + 0.17), y, H - 1.5), glass, uv=False))
+            parts.append(BK.bx(f'sill{i}{sx}', (0.16, L / bays - 1.3, 0.09), (sx * (W / 2 + 0.2), y, H - 2.08), door, uv=False))
+    for y in (-L * 0.3, 0.0, L * 0.3):
+        parts.append(BK.cyl(f'vent{y}', 0.5, 0.7, (0, y, H + rise + 0.4), door, 12, uv=False))
+        parts.append(BK.cyl(f'vent_cap{y}', 0.72, 0.16, (0, y, H + rise + 0.92), trim, 12, r2=0.3, uv=False))
+    # 侧门、雨棚、落水管
+    parts.append(BK.bx('side_door', (0.1, 1.2, 2.25), (W / 2 + 0.2, -L / 4, 2.2), door, uv=False))
+    parts.append(BK.bx('side_canopy', (1.1, 1.9, 0.1), (W / 2 + 0.7, -L / 4, 3.5), trim, uv=False))
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            parts.append(BK.cyl(f'pipe{sx}{sy}', 0.07, H - 0.2, (sx * (W / 2 + 0.42), sy * (L / 2 - 0.5), H / 2), trim, 8, uv=False))
+    # 背面的百叶
+    for k in range(5):
+        parts.append(BK.bx(f'louvre{k}', (3.2, 0.1, 0.1), (0, -L / 2 - 0.02, H + rise * 0.15 + k * 0.3), trim, uv=False))
     return BK.model(name, parts)[0]
 
 
@@ -143,20 +168,59 @@ def fishing_boat(name, hull_hex):
     hull = K.mesh_obj('hull', verts, faces, hull_m, smooth=40)
     K.fix_normals(hull)
     parts.append(hull)
-    parts.append(BK.bx('deck', (L * 0.9, W * 0.92, 0.1), (-0.3, 0, 0.95), F('boat_deck', 0x9a7a55, rough=0.7), uv=False))
-    parts.append(BK.bx('rail_l', (L * 0.8, 0.08, 0.12), (0, W / 2 - 0.05, 1.05), F('boat_trim', 0x2a2d31, rough=0.5), uv=False))
-    parts.append(BK.bx('rail_r', (L * 0.8, 0.08, 0.12), (0, -W / 2 + 0.05, 1.05), F('boat_trim', 0x2a2d31, rough=0.5), uv=False))
+    trim = F('boat_trim', 0x2a2d31, rough=0.5)
+    # 甲板和舷缘照着船形收（方板子的角会戳到船头外面），船头有舷弧
+    dv, df, edge = [], [], []
+    for i in range(n + 1):
+        t = i / n
+        x = -L / 2 + L * t
+        bow = max(0.0, (t - 0.72) / 0.28)
+        half = W / 2 * (1 - bow ** 1.6 * 0.96) - 0.05
+        top = 1.0 + 0.45 * bow ** 2
+        dv += [(x, -half, top - 0.06), (x, 0.0, top - 0.02), (x, half, top - 0.06)]
+        edge.append((x, half + 0.03, top + 0.03))
+    for i in range(n):
+        for j in range(2):
+            a = i * 3 + j
+            df.append((a, a + 3, a + 4, a + 1))
+    deck = K.mesh_obj('deck', dv, df, F('boat_deck', 0x9a7a55, rough=0.7), smooth=40)
+    K.fix_normals(deck)
+    parts.append(deck)
+    parts.append(K.tube_path('rail_l', edge, 0.06, trim, seg=5))
+    parts.append(K.tube_path('rail_r', [(x, -y, z) for x, y, z in edge], 0.06, trim, seg=5))
+    parts.append(BK.bx('transom', (0.06, W - 0.1, 0.14), (-L / 2, 0, 1.03), trim, uv=False))
+    # 船艏柱：两舷在这里合拢
+    parts.append(BK.stick('stem', (L / 2, 0, -0.75), (L / 2, 0, 1.5), 0.09, hull_m, seg=6))
+    # 舷边挂的旧轮胎、船尾的卷网机和吊杆、鱼舱盖
+    tyre = F('tyre', 0x141414, rough=0.85)
+    for sy in (-1, 1):
+        for x in (-3.8, -1.2, 1.4):
+            parts.append(K.torus(f'fender{sy}{x}', 0.3, 0.1, (x, sy * (W / 2 + 0.06), 0.62), tyre, 14, 6, rot=(math.pi / 2, 0, 0)))
+    parts.append(BK.cyl('net_drum', 0.5, 2.0, (-4.9, 0, 1.62), F('net_green', 0x2f5a48, rough=0.9), 14, rot=(math.pi / 2, 0, 0), uv=False))
+    for sy in (-1, 1):
+        parts.append(BK.bx(f'drum_post{sy}', (0.14, 0.14, 0.9), (-4.9, sy * 1.1, 1.4), trim, uv=False))
+        parts.append(BK.stick(f'gallow{sy}', (-5.9, sy * 1.5, 1.0), (-5.2, sy * 0.6, 3.5), 0.06, trim, seg=5))
+    parts.append(BK.stick('gallow_top', (-5.2, -0.6, 3.5), (-5.2, 0.6, 3.5), 0.06, trim, seg=5))
+    parts.append(BK.bx('hatch', (1.6, 1.5, 0.22), (-2.3, 0, 1.1), F('hatch_blue', 0x3a5f7a, rough=0.6), uv=False, bevel=0.03))
     # 驾驶室
     cx = L * 0.12
     parts.append(BK.bx('cabin', (L * 0.28, W * 0.72, 1.8), (cx, 0, 1.9), white, uv=False))
     parts.append(BK.bx('cabin_roof', (L * 0.31, W * 0.78, 0.12), (cx, 0, 2.86), white, uv=False))
     parts.append(BK.bx('cabin_glass', (L * 0.285, W * 0.73, 0.6), (cx, 0, 2.35), glass, uv=False))
+    # 窗框：一根根立柱把玻璃带分成一扇扇窗，门在左舷
+    for i in range(5):
+        parts.append(BK.bx(f'mull{i}', (0.07, W * 0.74, 0.62), (cx + (i - 2) * L * 0.07, 0, 2.35), white, uv=False))
+    for sy in (-1, 1):
+        parts.append(BK.bx(f'mullf{sy}', (L * 0.29, 0.07, 0.62), (cx, sy * W * 0.13, 2.35), white, uv=False))
+    parts.append(BK.bx('cabin_door', (0.7, 0.05, 1.5), (cx - L * 0.07, W * 0.365, 1.8), F('boat_door', 0x5a6670, rough=0.5), uv=False))
     # 桅杆、雷达、集鱼灯、救生圈
     parts.append(BK.cyl('mast', 0.08, 3.4, (cx - 0.6, 0, 4.4), white, 8, uv=False))
     parts.append(BK.bx('radar', (1.2, 0.18, 0.12), (cx - 0.6, 0, 5.0), white, uv=False))
     for i in range(6):
         parts.append(K.sphere(f'lamp{i}', 0.16, (-L * 0.32 + i * 1.0, 0, 2.6), F('lamp_glass', 0xf2f2e6, rough=0.1), 10, 6))
     parts.append(BK.bx('lampline', (6.0, 0.04, 0.04), (-L * 0.32 + 2.5, 0, 2.75), F('boat_trim', 0x2a2d31, rough=0.5), uv=False))
+    parts.append(BK.cyl('stack', 0.11, 1.5, (cx - 0.9, W * 0.3, 3.3), F('stack_black', 0x1b1c1e, rough=0.6), 8, uv=False))
+    parts.append(BK.stick('flagstaff', (L / 2 - 0.2, 0, 1.45), (L / 2 + 0.1, 0, 2.6), 0.025, trim, seg=4))
     parts.append(K.torus('buoy', 0.32, 0.08, (cx + 0.7, W * 0.36 + 0.05, 1.9), F('buoy', 0xff6a1a, rough=0.5), 20, 8, rot=(math.pi / 2, 0, 0)))
     return BK.model(name, parts)[0]
 

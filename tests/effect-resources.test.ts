@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { NavView } from '../src/render/navView';
-import { RainFx, CloudLayer } from '../src/render/weatherFx';
+import { RainFx, CloudLayer, LightningBolt } from '../src/render/weatherFx';
 import { getGlowTexture } from '../src/render/propsView';
 import { getNoiseTexture } from '../src/render/textures';
 import { TRAINING } from '../src/maps/training';
@@ -18,6 +18,44 @@ vi.mock('../src/render/textures', async () => {
   return { getNoiseTexture: () => noise };
 });
 afterEach(() => vi.restoreAllMocks());
+
+describe('闪电的形状', () => {
+  it('从云底打到地面，有分叉，面片都在缓冲里，亮度跟着闪光走', () => {
+    const b = new LightningBolt();
+    b.update(0.5);
+    expect(b.mesh.visible).toBe(false);
+    const cam = new THREE.Vector3(0, 200, 0);
+    b.strike(cam, new THREE.Vector3(0, 0, -1), 2000, 900, 3000, () => 10);
+    b.update(0.5);
+    expect(b.mesh.visible).toBe(true);
+    const pos = b.mesh.geometry.getAttribute('position');
+    const quads = (b.mesh.geometry.drawRange.count ?? 0) / 6;
+    expect(quads).toBeGreaterThan(64);
+    expect(quads).toBeLessThanOrEqual(192);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = 0; i < quads * 4; i++) {
+      lo = Math.min(lo, pos.getY(i));
+      hi = Math.max(hi, pos.getY(i));
+      expect(Number.isFinite(pos.getX(i))).toBe(true);
+    }
+    expect(hi).toBeGreaterThan(850);
+    expect(lo).toBeLessThan(30);
+    b.update(0);
+    expect(b.mesh.visible).toBe(false);
+    b.dispose();
+  });
+
+  it('打在镜头前方，不是身后', () => {
+    const b = new LightningBolt();
+    const cam = new THREE.Vector3();
+    for (let n = 0; n < 40; n++) {
+      b.strike(cam, new THREE.Vector3(0, 0, -1), 2000, 900, 3000, () => 0);
+      expect(b.mesh.geometry.getAttribute('position').getZ(0)).toBeLessThan(0);
+    }
+    b.dispose();
+  });
+});
 
 function watch(resource: { addEventListener(type: 'dispose', listener: () => void): void }) {
   const dispose = vi.fn();

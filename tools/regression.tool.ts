@@ -9,6 +9,8 @@ import { sessionFor } from '../tests/helpers';
 
 const maps: MapId[] = ['japan', 'canyon', 'amazon', 'fjord', 'himalaya'];
 const weather: Array<[MapId, string]> = [
+  ['fjord', 'snow'],
+  ['himalaya', 'snow'],
   ['japan', 'rain'], ['japan', 'breeze'], ['canyon', 'gusty'], ['canyon', 'windy'],
   ['amazon', 'rain'], ['amazon', 'storm'], ['amazon', 'dynamic'], ['fjord', 'fog'],
   ['fjord', 'crosswind'], ['himalaya', 'lowcloud'], ['himalaya', 'windy'],

@@ -35,7 +35,8 @@ function adjust(e: HTMLElement, sign: number): boolean {
   return false;
 }
 
-/** 这个方向上最近的控件：沿方向的距离为主，偏出去的距离罚得重一些 */
+/** 这个方向上最近的控件：沿方向的距离为主，错开的距离罚得重一些。
+ *  错开算的是两个方块之间的空隙，不是中心：窄屏上主按钮占满一行，按中心算就跳过了紧挨着它的那排小按钮 */
 function nearest(list: HTMLElement[], from: HTMLElement, dir: PadNav): HTMLElement | null {
   const a = from.getBoundingClientRect();
   const ax = a.left + a.width / 2;
@@ -48,9 +49,10 @@ function nearest(list: HTMLElement[], from: HTMLElement, dir: PadNav): HTMLEleme
     const dx = b.left + b.width / 2 - ax;
     const dy = b.top + b.height / 2 - ay;
     const along = dir === 'up' ? -dy : dir === 'down' ? dy : dir === 'left' ? -dx : dx;
-    const across = dir === 'up' || dir === 'down' ? Math.abs(dx) : Math.abs(dy);
+    const vertical = dir === 'up' || dir === 'down';
+    const gap = vertical ? Math.max(0, b.left - a.right, a.left - b.right) : Math.max(0, b.top - a.bottom, a.top - b.bottom);
     if (along <= 2) continue;
-    const s = along + across * 2.2;
+    const s = along + gap * 2.2 + Math.abs(vertical ? dx : dy) * 0.15;
     if (s < score) {
       score = s;
       best = e;

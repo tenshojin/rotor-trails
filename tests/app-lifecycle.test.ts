@@ -39,12 +39,18 @@ vi.mock('../src/ui/menus', () => ({ UI: class {
   dispose = vi.fn();
   compatError = vi.fn();
 } }));
+vi.mock('../src/ui/replayPanel', () => ({ ReplayPanel: class {
+  update = vi.fn();
+  show = vi.fn();
+  toggle = vi.fn();
+  dispose = vi.fn();
+} }));
 vi.mock('../src/world/worldgen', () => ({ generateWorld: vi.fn() }));
 
 import { App } from '../src/game/app';
 import { SAVE_KEY } from '../src/game/save';
 import { TRAINING } from '../src/maps/training';
-import { GameSession } from '../src/sim/session';
+import { GameSession, newBody } from '../src/sim/session';
 import { generateWorld } from '../src/world/worldgen';
 
 class Element extends EventTarget {
@@ -128,6 +134,56 @@ describe('运行与加载恢复', () => {
     const description = vi.mocked(app.ui.clickToStart).mock.calls[0][1];
     expect(description).toContain('到达训练坪');
     expect(description.includes('<kbd>')).toBe(hints);
+  });
+
+  it('回放放完飞机回到暂停时的地方，转速、镜头都还原，物理接着走', () => {
+    const body = newBody();
+    body.pos.set(100, 50, 0);
+    body.vel.set(30, 0, 0);
+    const tel = { rotorRpm: 1, thrust: 20000, airspeed: 30 };
+    const s = { body, prev: newBody(), flight: { telemetry: tel }, gear: { weightOnSkids: 0 }, dispose: vi.fn(), restoreOptions: () => [] };
+    const a = app as any;
+    const tape = a.tape;
+    for (let i = 0; i < 1200; i++) {
+      body.pos.x += 0.5;
+      a.recordTape(s, 1 / 60);
+    }
+    tel.rotorRpm = 0.42;
+    const end = body.pos.x;
+    a.session = s;
+    a.state = 'paused';
+    a.view.setDof = vi.fn();
+    a.view.rig.mode = 'chase';
+    a.view.rig.nextShot = vi.fn();
+    const done = vi.fn();
+    expect(tape.seconds).toBeGreaterThan(19);
+    a.openReplay(done);
+    expect(a.view.rig.setMode).toHaveBeenLastCalledWith('cinema');
+    expect(a.replayDt(0.1)).toBeCloseTo(0.1);
+    a.stepReplay(s, 3);
+    expect(s.body.pos.x).toBeLessThan(end - 300);
+    expect(s.prev.pos.x).toBe(s.body.pos.x);
+    expect(tel.rotorRpm).toBe(1);
+    a.onEdge('view');
+    expect(a.view.rig.nextShot).toHaveBeenCalledOnce();
+    a.stepReplay(s, 30);
+    expect(a.replay.t).toBe(0);
+    a.onEdge('pause');
+    expect(a.replay).toBeNull();
+    expect(done).toHaveBeenCalledOnce();
+    expect(s.body.pos.x).toBe(end);
+    expect(s.prev.pos.x).toBe(end);
+    expect(tel.rotorRpm).toBe(0.42);
+    expect(a.view.rig.setMode).toHaveBeenLastCalledWith('chase');
+    a.session = null;
+  });
+
+  it('录得太短不放回放', () => {
+    const a = app as any;
+    a.session = { body: newBody(), prev: newBody(), flight: { telemetry: {} }, dispose: vi.fn() };
+    a.openReplay(vi.fn());
+    expect(a.replay).toBeNull();
+    a.session = null;
   });
 
   it('验收实例可注入独立存储，完全不接触玩家浏览器存档', () => {

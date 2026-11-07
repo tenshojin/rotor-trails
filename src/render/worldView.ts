@@ -7,6 +7,7 @@ import type { GameSession } from '../sim/session';
 import type { WorldData } from '../world/worldgen';
 import type { WeatherParams } from '../sim/weather';
 import { QUALITY, type Settings } from '../game/settings';
+import { damp } from '../core/math';
 import { CameraRig } from './cameraRig';
 import { CABIN_FILL, CABIN_NIGHT, Cockpit, EYE } from './cockpit';
 import type { Spot } from './cockpitControls';
@@ -40,22 +41,25 @@ import { EYE_DEFAULT, EyeAdapt } from './eyeAdapt';
 import { clearSunMap, setSunMap, type FarGrid } from './sunMap';
 import { bakeGi, clearGiMap, disposeGi, GI, giGroundLight, setGiMap } from './giField';
 import { sunFor, type TimeOfDay } from './timeOfDay';
-import { WET, WINDOW_LIGHT } from './wetness';
+import { COVER, WET, WINDOW_LIGHT } from './wetness';
 import { updateCloudShadowMap } from './cloudShadowMap';
 import { loadRockRelief, makeTerrainMacroTexture } from './terrainMacro';
 import { TREE_RANGE } from './terrainShader';
 import { TreeView, loadTreeLib } from './treeView';
 import { Birds } from './birds';
 import { Vessels } from './vessels';
+import { Traffic } from './traffic';
 import { vistasOf } from '../sim/cruise';
 import { WaterView } from './water';
-import { CloudLayer, Lightning, RainFx } from './weatherFx';
+import { CloudLayer, Lightning, LightningBolt, RainFx, SNOW } from './weatherFx';
 import type { InstrumentData } from './instruments';
 
 export interface FrameInfo {
   dt: number;
   t: number;
   alpha: number;
+  /** 正在放回放：摔过的飞机在回放里旋翼还转着 */
+  replay?: boolean;
 }
 
 const _cabinGlow = new THREE.Color(0.018, 0.0132, 0.0102);
@@ -76,6 +80,7 @@ const _groundLit = new THREE.Color();
 const _cabinBounce = new THREE.Color();
 const _cabinWarm = new THREE.Color(1.0, 0.9, 0.76);
 const _pos = new THREE.Vector3();
+const _boltFwd = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
 const _vel = new THREE.Vector3();
 const _hiFwd = new THREE.Vector3();
@@ -141,6 +146,7 @@ export class WorldView {
   rain: RainFx;
   clouds: CloudLayer | null = null;
   readonly lightning = new Lightning();
+  private readonly bolt = new LightningBolt();
   readonly heli: HeliModel;
   readonly cockpit: Cockpit;
   minimap: HTMLCanvasElement | null = null;
@@ -163,7 +169,12 @@ export class WorldView {
   private rivers: RiverView | null = null;
   private grass: GroundCover | null = null;
   private birds: Birds | null = null;
+  private readonly snow: RainFx;
   private vessels: Vessels | null = null;
+  /** 这一局的积雪已经起了头 */
+  private coverSet = false;
+  /** 绕场飞的飞机（声音要读它的距离） */
+  traffic: Traffic | null = null;
   private scatter: RealScatter | null = null;
   private buildings: RealBuildings | null = null;
   /** 光线追踪的全局光照：探针图要不要重算；算的时候太阳多亮（天气变了按比例调）；正在并行编译（那时什么都画不出来） */
@@ -205,6 +216,9 @@ export class WorldView {
     this.scene.add(this.hemi);
     this.rain = new RainFx(9000);
     this.scene.add(this.rain.mesh);
+    this.snow = new RainFx(7000, SNOW);
+    this.scene.add(this.snow.mesh);
+    this.scene.add(this.bolt.mesh);
     this.heli = new HeliModel();
     this.cockpit = new Cockpit();
     this.heli.root.add(this.cockpit.root);
@@ -507,6 +521,7 @@ export class WorldView {
       this.scene.add(this.terrain.group);
       const [sunAz, sunEl] = sunFor(map, this.tod);
       this.sky = new SkyDome(sunAz, sunEl, map.biome.fogTint, map.biome.grass, this.tod === 'night', map.biome.air);
+      this.sky.setAurora(map.aurora ?? 0);
       this.eye.setMax(this.tod === 'night' ? 3.6 : EYE_DEFAULT.max);
       this.updateLandingLight();
       this.sun.csm.lightMargin = 400 + 1800 * (1 - this.sky.dayK);
@@ -553,6 +568,10 @@ export class WorldView {
       if (map.vessels && this.modelLib && map.waterLevel !== null) {
         this.vessels = new Vessels(map.vessels, this.modelLib, (x, z) => world.terrain.heightAt(x, z), map.waterLevel, map.size / 2 - 200, map.seed);
         this.scene.add(this.vessels.group);
+      }
+      if (map.traffic && this.modelLib) {
+        this.traffic = new Traffic(map.traffic, this.modelLib);
+        this.scene.add(this.traffic.group);
       }
       if (real && scatterTex && this.terrain instanceof RealTerrain) {
         const pads = map.pads.map((p): [number, number, number] => [p.pos[0], p.pos[2], p.size * 0.9 + 3]);
@@ -623,6 +642,7 @@ export class WorldView {
     rm(this.trees?.group);
     rm(this.birds?.group);
     rm(this.vessels?.group);
+    rm(this.traffic?.group);
     rm(this.nav?.group);
     rm(this.wash?.group);
     rm(this.lamps?.group);
@@ -660,6 +680,9 @@ export class WorldView {
     this.birds = null;
     this.vessels?.dispose();
     this.vessels = null;
+    this.traffic?.dispose();
+    this.traffic = null;
+    this.coverSet = false;
     this.grass?.dispose();
     this.grass = null;
     this.scatter?.dispose();
@@ -838,7 +861,7 @@ export class WorldView {
       const sys = s.sys;
       this.heli.beaconOn = sys ? sys.beacon : true;
       this.heli.navOn = sys ? sys.navLights : true;
-      this.heli.update(f.t, f.dt, s.state === 'crashed' ? Math.max(0, tel.rotorRpm * 0.3) : tel.rotorRpm);
+      this.heli.update(f.t, f.dt, s.state === 'crashed' && !f.replay ? Math.max(0, tel.rotorRpm * 0.3) : tel.rotorRpm);
       // 超仿真坐在真实的机长位上；从外面看也是（座舱里的镜头才往机身中线挪）
       const eyeX = sys || this.rig.mode !== 'cockpit' ? EYE.x : EYE.x * (1 - set.viewCenter);
       this.cockpit.setPilotOffset(eyeX - EYE.x);
@@ -863,7 +886,7 @@ export class WorldView {
       this.cockpit.wiperMode = sys ? sys.wiperSpeed : -1;
       this.cockpit.glassUniforms.uFog.value = sys ? sys.fog : 0;
       this.cockpit.glassUniforms.uOutside.value = cockpitView ? 0 : 1;
-      this.cockpit.updateGlass(f.t, weather.rain, tel.airspeed, s.buffs.shieldActive ? 0.25 + 0.15 * Math.sin(f.t * 6) : 0, this.renderer.toneMappingExposure);
+      this.cockpit.updateGlass(f.t, weather.rain + weather.snow * 0.3, tel.airspeed, s.buffs.shieldActive ? 0.25 + 0.15 * Math.sin(f.t * 6) : 0, this.renderer.toneMappingExposure);
       if (this.landing) {
         // 机头下面的着陆灯：朝前下方，离地面越近越亮堂
         this.landing.position.set(0, -0.9, -2.2).applyQuaternion(_quat).add(_pos);
@@ -892,7 +915,11 @@ export class WorldView {
       // 风（相机附近）
       if (s) s.wind.sample(cp.x, cp.y, cp.z, s.t, _w);
       else _w.set(2, 0, 0);
-      this.flash = this.lightning.update(f.t, f.dt, w.lightning, (d) => this.onThunder?.(d / 340, Math.max(0.2, 1 - d / 4500)));
+      this.flash = this.lightning.update(f.t, f.dt, w.lightning, (d) => {
+        this.bolt.strike(cam.position, cam.getWorldDirection(_boltFwd), d, w.cloudBase, w.visibility, (x, z) => Math.max(world.ctx.ground(x, z), world.map.waterLevel ?? -1e9));
+        this.onThunder?.(d / 340, Math.max(0.2, 1 - d / 4500));
+      });
+      this.bolt.update(this.flash);
       this.sky.update(w, _w.x, _w.z, f.dt, this.flash);
       // 风场：阵风比平均风跑得快一点；风向慢慢转，不会一下子掉头
       const windSpeed = Math.hypot(_w.x, _w.z);
@@ -938,8 +965,8 @@ export class WorldView {
       FOG.glint.value = this.tod === 'night' ? 0.42 : 1;
       // 清晨：谷地与林间的晨雾（更浓、更厚）；清晨与黄昏的低空霾也更重（逆光时的光束最明显）
       const todMist = this.tod === 'dawn' ? 1.9 : this.tod === 'dusk' ? 1.3 : this.tod === 'night' ? 1.25 : 1;
-      VFOG.mist.value = Math.min(0.012, Math.max(0.0005, 8 / Math.max(300, w.visibility)) * (world.map.biome.mist ?? 1) * (1 + 0.6 * w.rain) * todMist);
-      VFOG.mistH.value = (40 + 30 * w.rain) * (this.tod === 'dawn' ? 1.3 : 1);
+      VFOG.mist.value = Math.min(0.012, Math.max(0.0005, 8 / Math.max(300, w.visibility)) * (world.map.biome.mist ?? 1) * (1 + 0.6 * (w.rain + w.snow)) * todMist);
+      VFOG.mistH.value = (40 + 30 * (w.rain + w.snow)) * (this.tod === 'dawn' ? 1.3 : 1);
       VFOG.haze.value = Math.min(1e-4, 0.25 / Math.max(300, w.visibility)) * (0.6 + 0.4 * (world.map.biome.mist ?? 1)) * (this.tod === 'day' ? 1 : this.tod === 'night' ? 0.6 : 1.7);
       VFOG.shade.value = 1 - Math.min(1, w.overcast * 1.4);
       WINDOW_LIGHT.value = Math.max(this.tod === 'dusk' || this.tod === 'night' ? 1 : this.tod === 'dawn' ? 0.35 : 0, Math.max(0, (w.overcast - 0.6) / 0.4) * 0.45);
@@ -998,6 +1025,10 @@ export class WorldView {
       if (this.hiRing && this.sky && this.world) this.hiRing.update(cp, cam.getWorldDirection(_hiFwd), this.sky.sunDir, cp.y - this.world.terrain.heightAt(cp.x, cp.z), f.dt);
       if (this.terrainUniforms) this.terrainUniforms.uWet.value = w.wetness;
       WET.value = w.wetness;
+      // 积雪慢慢涨、慢慢化；一进图就在下雪的话，地上已经积好了
+      const snowy = Math.min(1, w.snow * 1.6);
+      COVER.value = this.coverSet ? damp(COVER.value, snowy, 0.05, f.dt) : snowy;
+      this.coverSet = s !== null;
       this.water?.update(f.t, _w.x, _w.z, Math.hypot(_w.x, _w.z), w.rain);
       const windAt = s ? (p: THREE.Vector3, out: THREE.Vector3) => addWashWind(p, s.wind.sample(p.x, p.y, p.z, s.t, out)) : (_p: THREE.Vector3, out: THREE.Vector3) => out.set(3, 0, 1);
       this.props?.update(f.t, cp, windAt);
@@ -1008,8 +1039,9 @@ export class WorldView {
       this.grass?.update(f.t, cp);
       if (this.rig.mode === 'photo' && this.dofOn) this.photoFocus();
       // （夜里和大雨的时候鸟都回去了）
-      this.birds?.update(f.dt, f.t, s ? _pos : null, this.tod !== 'night' && w.rain < 0.45);
+      this.birds?.update(f.dt, f.t, s ? _pos : null, this.tod !== 'night' && w.rain + w.snow < 0.45);
       this.vessels?.update(f.dt, f.t, this.sky?.night ?? 0);
+      this.traffic?.update(f.dt, this.sky?.night ?? 0, w.rain + w.snow < 0.3 && w.visibility > 2500, cam.position);
       this.scatter?.update(cp);
       if (s) this.scatter?.probe(this.renderer, s.body.pos as unknown as THREE.Vector3, f.t, (list) => s.setRingTrees(list));
       if (this.buildings && this.sky) this.buildings.night.value = this.sky.night;
@@ -1018,6 +1050,7 @@ export class WorldView {
         this.water?.setWash(this.wash.state.x, this.wash.state.z, this.wash.state.water);
       }
       this.rain.update(f.t, cp, w.rain, _w, s ? _vel : _zero, q.rainDensity);
+      this.snow.update(f.t, cp, w.snow, _w, s ? _vel : _zero, q.rainDensity);
       // 低云层：开着体积雾时由它画（按深度积分，和地形没有硬边），否则退回半透明的面片
       const volLow = !!this.post?.fog;
       VFOG.lowK.value = volLow ? w.lowCloud : 0;
@@ -1177,6 +1210,8 @@ export class WorldView {
     this.pilot = null;
     this.cockpit.dispose();
     this.rain.dispose();
+    this.snow?.dispose();
+    this.bolt?.dispose();
     this.eye.dispose();
     this.post?.dispose();
     disposeGi();

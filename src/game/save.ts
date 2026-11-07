@@ -18,6 +18,16 @@ export interface MapRecord {
   bestTime: number | null;
 }
 
+/** 飞行记录（主菜单里看） */
+export interface FlightLog {
+  /** 离地的总时间（秒） */
+  seconds: number;
+  landings: number;
+  /** 最轻的一次接地：下降速度（m/s） */
+  softest: number | null;
+  photos: number;
+}
+
 export interface SaveData {
   version: number;
   settings: Settings;
@@ -27,10 +37,13 @@ export interface SaveData {
   lessonsDone: number[];
   /** 超仿真教学学完的课 */
   simLessonsDone: number[];
+  /** 休闲飞行到过的地方（地名） */
+  visited: Partial<Record<MapId, string[]>>;
+  log: FlightLog;
 }
 
 function defaults(): SaveData {
-  return { version: SAVE_VERSION, settings: defaultSettings(), maps: {}, tutorialDone: false, lessonsDone: [], simLessonsDone: [] };
+  return { version: SAVE_VERSION, settings: defaultSettings(), maps: {}, tutorialDone: false, lessonsDone: [], simLessonsDone: [], visited: {}, log: { seconds: 0, landings: 0, softest: null, photos: 0 } };
 }
 
 const MAP_IDS: readonly MapId[] = ['training', 'japan', 'canyon', 'amazon', 'fjord', 'himalaya'];
@@ -65,6 +78,19 @@ export function migrate(raw: unknown): SaveData {
   const lessons = (v: unknown): number[] => (Array.isArray(v) ? [...new Set(v.filter((x): x is number => Number.isInteger(x) && x >= 0 && x < 32))] : []);
   d.lessonsDone = lessons(o.lessonsDone);
   d.simLessonsDone = lessons(o.simLessonsDone);
+  if (isSaveObject(o.log)) {
+    const count = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
+    d.log.seconds = count(o.log.seconds);
+    d.log.landings = Math.floor(count(o.log.landings));
+    d.log.photos = Math.floor(count(o.log.photos));
+    d.log.softest = count(o.log.softest) || null;
+  }
+  if (isSaveObject(o.visited)) {
+    for (const k of [...MAP_IDS, 'grandcanyon'] as MapId[]) {
+      const v = Object.hasOwn(o.visited, k) ? o.visited[k] : null;
+      if (Array.isArray(v)) d.visited[k] = [...new Set(v.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length < 40))];
+    }
+  }
   if (o.maps && typeof o.maps === 'object') {
     for (const k of MAP_IDS) {
       if (!Object.hasOwn(o.maps, k)) continue;
@@ -168,6 +194,15 @@ export class SaveStore {
       this.data.maps[map] = r;
     }
     return r;
+  }
+
+  /** 记下到过的地方，返回是不是第一次来 */
+  visit(map: MapId, place: string): boolean {
+    const list = (this.data.visited[map] ??= []);
+    if (list.includes(place)) return false;
+    list.push(place);
+    this.save();
+    return true;
   }
 
   /** 记录一次通关结果，返回是否刷新最佳。 */

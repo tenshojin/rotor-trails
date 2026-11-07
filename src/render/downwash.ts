@@ -6,6 +6,7 @@
 
 import * as THREE from 'three/webgpu';
 import { attribute, cos, positionGeometry, sin, texture, uniform, uv, vec2 } from 'three/tsl';
+import { COVER } from './wetness';
 import { HELI } from '../config/flight';
 import { smoothstep } from '../core/math';
 import type { MapDef } from '../maps/types';
@@ -164,7 +165,7 @@ export class DownwashView {
     let loose = onWater ? 1 : this.loose;
     let col = onWater ? this.spray : this.dust;
     if (!onWater) {
-      if (gy > this.map.biome.snowLine) {
+      if (gy > this.map.biome.snowLine || COVER.value > 0.4) {
         loose = 1;
         col = this.snow;
       }

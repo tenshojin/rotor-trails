@@ -29,7 +29,8 @@ export class ScenicCruise {
   private i = 0;
   private readonly stops: Array<[number, number]>;
 
-  constructor(private readonly s: GameSession, vistas: Vista[]) {
+  /** first：先去这里，再沿着景点走 */
+  constructor(private readonly s: GameSession, vistas: Vista[], first?: [number, number]) {
     const half = (s.world.map.flightSize ?? s.world.map.size) / 2 - 180;
     const lim = (v: number) => clamp(v, -half, half);
     this.stops = vistas.map((v): [number, number] => [lim(v.look[0]), lim(v.look[1])]);
@@ -43,6 +44,10 @@ export class ScenicCruise {
         this.i = i;
       }
     });
+    if (first) {
+      this.stops.unshift([lim(first[0]), lim(first[1])]);
+      this.i = 0;
+    }
     if (s.flight.hoverOn) s.toggleHover();
   }
 

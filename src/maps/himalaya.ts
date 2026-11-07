@@ -370,6 +370,13 @@ export const HIMALAYA: MapDef = {
       params: makeWeather({ windDirFrom: 230, windSpeed: 7, gustAmp: 2, cloudCover: 0.6, overcast: 0.35, lowCloud: 0.9, cloudBase: 1200, cloudTop: 1450, visibility: 8000 }),
     },
     {
+      id: 'snow',
+      label: '小雪',
+      kind: 'snow',
+      desc: '灰白的天，细雪被西风吹着斜斜地飘，能见度约 2.5 公里。',
+      params: makeWeather({ snow: 0.75, windDirFrom: 260, windSpeed: 7, gustAmp: 2, turbulence: 0.4, cloudCover: 0.95, overcast: 0.7, visibility: 2500 }),
+    },
+    {
       id: 'windy',
       label: '强风',
       kind: 'wind',
