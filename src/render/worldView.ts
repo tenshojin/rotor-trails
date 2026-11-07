@@ -203,6 +203,8 @@ export class WorldView {
   photoBlur = 0;
   /** 雷声回调（音频层） */
   onThunder: ((delay: number, strength: number) => void) | null = null;
+  /** 显卡驱动重置了：画面没了，只能重新加载 */
+  onGpuLost: (() => void) | null = null;
   inCloud = 0;
 
   constructor(canvas: HTMLCanvasElement, settings: Settings) {
@@ -215,6 +217,10 @@ export class WorldView {
     this.trackGpu = params.get('gputime') === '1';
     this.renderer = new THREE.WebGPURenderer({ canvas, antialias: false, powerPreference: 'high-performance', reversedDepthBuffer: true, forceWebGL, trackTimestamp: this.trackGpu });
     const r = this.renderer;
+    r.onDeviceLost = (info: { message?: string }) => {
+      console.error('显卡设备丢失：', info.message);
+      this.onGpuLost?.();
+    };
     r.outputColorSpace = THREE.SRGBColorSpace;
     // Khronos PBR Neutral：高光柔和滚降，中间调颜色基本不偏（天空、海水、植被都接近照片），对比度和饱和度在 post.ts 的调色里补
     r.toneMapping = THREE.NeutralToneMapping;

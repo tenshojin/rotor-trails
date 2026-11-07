@@ -6,7 +6,7 @@
 // 法线不用顶点法线：高度差在 CPU 上算成一张带 mipmap 的法线图，远处的粗网格上也有细节，太阳一动整个峡谷的明暗都跟着变。
 
 import * as THREE from 'three/webgpu';
-import { abs, attribute, Break, cameraPosition, cameraViewMatrix, clamp, dot, float, floor, Fn, fract, If, int, interleavedGradientNoise, ivec2, length, Loop, max, min, mix, mod, normalize, normalWorld, positionGeometry, positionWorld, pow, screenCoordinate, smoothstep, sqrt, texture, textureLoad, time, vec2, vec3, vec4 } from 'three/tsl';
+import { abs, attribute, Break, cameraPosition, cameraViewMatrix, clamp, dot, float, floor, Fn, fract, If, int, interleavedGradientNoise, ivec2, length, Loop, max, min, mix, mod, normalize, normalWorld, positionGeometry, positionWorld, pow, screenCoordinate, smoothstep, sqrt, step, texture, textureLoad, time, vec2, vec3, vec4 } from 'three/tsl';
 import type { RealData, RealGrid } from '../world/realData';
 import { FOG } from './atmosphere';
 import { disposeTextures } from './disposeTextures';
@@ -325,6 +325,8 @@ export class RealTerrain {
     let ledge: N<'float'> = float(0);
     /** 岩层坐标：层面微微倾斜、有起伏，崖壁的贴图沿着它走 */
     let ysv: N<'float'> = P.y;
+    /** 1 = 这里是基底的变质岩 */
+    let basement: N<'float'> = float(0);
     /** 陡的基底岩石（内峡谷）：航拍在这些坡上拉得很长，颜色也被谷里的反光染黄了 */
     let schist: N<'float'> = float(0);
     if (strata && st) {
@@ -345,6 +347,7 @@ export class RealTerrain {
       const ax = twn.x;
       // （贴图不跟着小起伏走：这里的岩层平得像书页，层线一弯就成了褶皱的变质岩）
       ysv = yy.add(texture(noise, P.xz.div(1400.0)).g.sub(0.5).mul(16.0)).toVar();
+      if (st.basement) basement = step(ysv, float(st.basement)).toVar();
       // （一道岩层的底面不是从头到尾一条黑线，有的地方塌了，有的地方被盖住了）
       const brk = smoothstep(0.38, 0.62, texture(noise, P.xz.div(260.0).add(ys.div(900.0))).r);
       ledge = texture(strata, layUV.add(vec2(du, 0))).a.sub(texture(strata, layUV.sub(vec2(du, 0))).a).mul(4.0).mul(brk).toVar();
@@ -367,7 +370,8 @@ export class RealTerrain {
     }
     const aux = auxTex ? texture(auxTex, uv0) : null;
     // （G 通道：河边 0→0.5 是水陆交界，再往里 0.5→1 是离岸多远）
-    const wet: N<'float'> = aux ? smoothstep(0.14, 0.34, aux.g).toVar() : float(0);
+    // （掩码一格十几米，贴着河的陡壁也算进去了，墙上挂着一道道水色和白浪：水面是平的，陡的地方不算）
+    const wet: N<'float'> = aux ? smoothstep(0.14, 0.34, aux.g).mul(float(1).sub(smoothstep(0.04, 0.16, float(1).sub(N0.y)))).toVar() : float(0);
     const flatK = float(1).sub(wall).mul(float(1).sub(wet)).toVar();
     // 片岩发黑发灰，和上面暖色的沉积岩分得开
     col = mix(col, mix(vec3(dot(col, LUMW)), col, 0.45).mul(vec3(0.72, 0.71, 0.75)), schist.mul(float(1).sub(wet)));
@@ -421,7 +425,11 @@ export class RealTerrain {
       const wallUv = (tile: number, off: number): [N<'vec2'>, N<'vec2'>] => {
         const row = fract(floor(ysv.div(tile).add(off)).mul(0.6180339).add(off)).mul(tile).toVar();
         const v = ysv.negate();
-        return [vec2(P.z.add(warp.x).add(row), v).div(tile), vec2(P.x.sub(warp.x).add(row), v).div(tile).add(0.41)];
+        const a = vec2(P.z.add(warp.x).add(row), v).div(tile);
+        const b = vec2(P.x.sub(warp.x).add(row), v).div(tile).add(0.41);
+        // （大峡谷最底下的片岩是变质岩，片理几乎是竖着的：同一张贴图转过来，和上面水平的沉积岩隔着一道不整合面）
+        const lean = (u: N<'vec2'>): N<'vec2'> => mix(u, vec2(u.y.mul(0.94).add(u.x.mul(0.34)), u.x.mul(-0.94).add(u.y.mul(0.34))), basement);
+        return [lean(a), lean(b)];
       };
       const [ux, uz] = wallUv(WALL_TILE, 0);
       const [vx, vz] = wallUv(WALL_TILE * 3.1, 0.37);
@@ -452,7 +460,7 @@ export class RealTerrain {
       const rockLum = mix(mixLum(ro, rp), lum(rt).mul(mix(float(1), lum(rt2), 0.7)), topK);
       const rockK = max(wall, steep).toVar();
       // 崖壁的岩层从五十度往上就有；再缓的坡是碎石和土，贴岩层是错的
-      const cliffK = smoothstep(0.34, 0.6, float(1).sub(N0.y).add(wob.mul(0.2))).mul(float(1).sub(wet)).toVar();
+      const cliffK = smoothstep(0.26, 0.52, float(1).sub(N0.y).add(wob.mul(0.2))).mul(float(1).sub(wet)).toVar();
       const kMid = float(1).sub(smoothstep(900.0, 4200.0, dist)).mul(cliffK).toVar();
       const kBig = float(1).sub(smoothstep(2200.0, 7000.0, dist)).mul(cliffK).toVar();
       const kFine = float(1).sub(smoothstep(50.0, 300.0, dist)).mul(cliffK).toVar();

@@ -220,6 +220,14 @@ export class App {
         if (!locked && this.state === 'playing' && !this.input.lockFailed) this.pause();
       };
       this.view.onThunder = (delay, strength) => this.audio.thunder(delay, strength);
+      this.view.onGpuLost = () => {
+        // 画面再也回不来了：存好进度，告诉玩家发生了什么，别让人对着一张定格的图
+        this.save.save();
+        this.audio.suspend();
+        this.input.active = false;
+        this.input.exitLock();
+        this.ui.gpuLost?.(() => location.reload());
+      };
       const listenerOptions = { signal: this.lifetime.signal };
       window.addEventListener('resize', () => {
         this.rect = null;

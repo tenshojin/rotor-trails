@@ -166,6 +166,17 @@ export class UI {
     });
   }
 
+  /** 显卡驱动重置、别的程序把显卡占满时：页面还活着，画面没了 */
+  gpuLost(reload: () => void): void {
+    const el = this.openModal(
+      h(`<div class="modal"><div class="card narrow"><h2>显卡重置了</h2>
+      <p>浏览器和显卡的连接断了。通常是显卡被别的程序占满，或者驱动崩溃后自己恢复了。</p>
+      <p class="muted">存档没事。这一趟飞行要重新开始。如果经常这样，可以在设置里把画质调低，或者先关掉占用显卡的程序。</p>
+      <button class="btn primary" data-a="reload">重新加载</button></div></div>`),
+    );
+    this.bind(el, { reload });
+  }
+
   compatError(msg: string): void {
     this.show(
       h(`<div class="screen center"><div class="card narrow"><h1>无法启动 Rotor Trails</h1><p>${escapeHtml(msg)}</p>
@@ -520,6 +531,7 @@ export class UI {
         <table class="score">${rows}<tr class="total"><td>总分</td><td></td><td class="num">${s.total}</td></tr></table>
         ${opts.best && !opts.tutorial ? '<div class="newbest">新的最佳成绩！</div>' : ''}
         ${opts.medals?.length ? `<div class="newbest">获得勋章：${opts.medals.join('、')}</div>` : ''}
+        ${!opts.next && !opts.tutorial ? '<p class="muted">这是最后一张图了。还想飞的话：换个天气和时段再飞一遍、把每张图都拿到 S，或者去休闲飞行看看大峡谷。</p>' : ''}
         <div class="res-grid">
           <div><span class="muted">最终降落</span><b>${opts.landing ? `${GRADE_LABEL[opts.landing.grade]} · 下降 ${opts.landing.descent.toFixed(1)} m/s · 漂移 ${opts.landing.horizontal.toFixed(1)} m/s · 偏移 ${opts.landing.offset.toFixed(1)} m` : '—'}</b></div>
           <div><span class="muted">用时（仅记录，不计分）</span><b>${fmtTime(opts.time)}</b></div>
