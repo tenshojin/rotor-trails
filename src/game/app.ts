@@ -858,6 +858,7 @@ export class App {
     this.view.rig.kick(strength);
     this.input.pad?.rumble(strength);
     if (this.session) this.view.impactFx?.(this.session, strength);
+    if (!this.replay) this.tape.mark(strength);
   }
 
   /** 电影镜头：耳朵在摄影机那里。声音跟着距离走，飞过的时候有多普勒 */
@@ -1058,7 +1059,15 @@ export class App {
   private stepReplay(s: GameSession, dt: number): void {
     const r = this.replay;
     if (!r) return;
+    const was = r.t;
     r.t += dt;
+    if (dt > 0) {
+      const k = this.tape.hit(was, r.t);
+      if (k > 0) {
+        this.view.impactFx?.(s, k);
+        this.audio.impact(k * 10);
+      }
+    }
     if (r.t >= this.tape.seconds) {
       r.t = 0;
       this.view.rig.setMode('cinema');
@@ -1478,6 +1487,8 @@ export class App {
       const steps = this.stepper.advance(dt);
       for (let i = 0; i < steps; i++) s.step?.();
       alpha = this.stepper.alpha;
+      // （录下来：回放里看得到它掉下去）
+      if ((s.wreckAge ?? 9) < 3) this.recordTape(s, dt);
     }
     if (s && s.state === 'running') this.view.rig.endCrash?.();
     if (s && running) {
@@ -1518,6 +1529,7 @@ export class App {
         this.failTimer = this.tutorial ? 1.4 : 2.8;
         if (!this.tutorial) {
           this.view.impactFx?.(s, 1);
+          this.tape.mark(1);
           this.view.rig.crash(s.body.pos, s.body.vel, s.world.ctx.ground);
         }
       }

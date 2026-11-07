@@ -17,6 +17,23 @@ function fly(tape: FlightTape, seconds: number, speed = 30): BodyState {
   return b;
 }
 
+describe('回放里的撞击', () => {
+  it('记下撞的时刻，放到那里才报一次；清空就没了', () => {
+    const tape = new FlightTape();
+    const b = body();
+    for (let i = 0; i < 300; i++) {
+      b.pos.x += 0.5;
+      tape.record(1 / 30, b, { rpm: 1, thrust: 1, airspeed: 10 }, false);
+      if (i === 150) tape.mark(0.7);
+    }
+    expect(tape.hit(0, 4)).toBe(0);
+    expect(tape.hit(4, 6)).toBeCloseTo(0.7);
+    expect(tape.hit(6, 9)).toBe(0);
+    tape.clear();
+    expect(tape.hit(0, 100)).toBe(0);
+  });
+});
+
 describe('回放的磁带', () => {
   it('放出来的位置和飞的时候一样，帧之间也是顺的', () => {
     const tape = new FlightTape();

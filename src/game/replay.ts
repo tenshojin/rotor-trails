@@ -33,6 +33,8 @@ export class FlightTape {
   private clock = 0;
   private wait = 0;
   private seg = 0;
+  /** 什么时候撞了一下、多重：回放到这里尘土和碎片也要出来 */
+  private readonly marks: Array<{ t: number; k: number }> = [];
   private readonly out: TapeFrame = { rpm: 0, thrust: 0, airspeed: 0, seg: 0 };
 
   private at(i: number): number {
@@ -42,6 +44,22 @@ export class FlightTape {
   clear(): void {
     this.first = this.n = this.seg = 0;
     this.clock = this.wait = 0;
+    this.marks.length = 0;
+  }
+
+  /** 撞了一下：strength 0..1 */
+  mark(strength: number): void {
+    this.marks.push({ t: this.clock + this.wait, k: strength });
+    if (this.marks.length > 64) this.marks.shift();
+  }
+
+  /** 回放的第 from 秒（不含）到第 to 秒之间最重的一下，没撞过是 0 */
+  hit(from: number, to: number): number {
+    if (this.n === 0) return 0;
+    const start = this.d[this.at(0)];
+    let k = 0;
+    for (const m of this.marks) if (m.t > start + from && m.t <= start + to) k = Math.max(k, m.k);
+    return k;
   }
 
   /** 能放多少秒 */
