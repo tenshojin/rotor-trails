@@ -486,6 +486,12 @@ def shrub():
         for p in crown_points(rng, nc, cc, 1.25, 0.85, (0.3, 1.0)):
             out = (p - cc).normalized()
             mb.card(p, out, cs, cs, S_SHRUB, rng.uniform(0, 6.28), cc - Vector((0, 0, 0.4)))
+        # 顶上盖一圈：随机撒的卡片在顶上留了个缺口，从空中看每丛灌木都是中间一个黑洞的圈
+        for i in range(6 if lod == 0 else 3):
+            a = 2 * math.pi * i / (6 if lod == 0 else 3) + 0.4
+            r = 0.1 if i == 0 else 0.5
+            p = cc + Vector((math.cos(a) * r, math.sin(a) * r, 0.72))
+            mb.card(p, (p - cc).normalized(), cs, cs, S_SHRUB, rng.uniform(0, 6.28), cc - Vector((0, 0, 0.4)))
         add(mb.build(f'shrub_{lod}'))
     mb = MB()
     for i in range(3):

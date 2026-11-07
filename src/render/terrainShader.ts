@@ -258,7 +258,8 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       };
       // 三平面投影（陡坡/峭壁）：近处尺度 + 远处 5.7 倍大尺度，按距离混合
       const sampleTri = (l: number, w: N<'float'>, A: N<'vec3'>, O: N<'vec3'>, Rr: N<'float'>) => {
-        const t = L.tiles[l];
+        // 变质岩的岩壁：这几张岩石照片拍的是几米宽的一块，按原来的尺寸贴，几十米外看是一条条的木纹
+        const t = L.tiles[l] * (U.rockForm?.massive && l >= 5 ? 2 : 1);
         const k = far.mul(0.65).add(0.2).toVar();
         const c1 = vec3(0).toVar();
         const N1 = vec3(n).toVar();
@@ -465,14 +466,18 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const rC = relief(19.0, 0.73, angC);
     const footK = float(1).sub(smoothstep(0.6, 3.6, length(dPx).add(length(dPy))));
     const footC = float(1).sub(smoothstep(0.16, 1.05, length(dPx).add(length(dPy))));
-    const reliefN = rA.xyz.mul(1.0).add(rB.xyz.mul(footK.mul(0.9))).add(rC.xyz.mul(footC.mul(0.8)));
+    // （230 米一格的这层离近了一个像素放大成几十厘米，法线一歪就背光，是一片带台阶的黑斑：近处压下来）
+    const coarse = smoothstep(90.0, 380.0, length(P.sub(cameraPosition))).toVar();
+    const relief3 = rA.xyz.mul(coarse.mul(0.75).add(0.25)).add(rB.xyz.mul(footK.mul(0.9))).add(rC.xyz.mul(footC.mul(0.8))).toVar();
+    // 三层加起来能把法线掰过九十度，朝阳的岩壁上一块块全背了光：限制一下最大的歪斜
+    const reliefN = relief3.mul(float(0.72).div(max(length(relief3), 0.72)));
     nb.assign(normalize(nb.add(reliefN.mul(mix(mix(float(0.16), float(0.34), snowW), float(1.0), rockK)))));
     const rH = rA.w.mul(0.6).add(rB.w.mul(0.4)).add(rC.w.sub(0.42).mul(footC.mul(0.5)));
     // 凸处（山脊、岩棱）亮，凹处（沟、裂缝）暗；积雪处减弱
     const shade = float(1).sub(cavS.mul(0.26)).sub(cavL.mul(0.2)).add(rH.sub(0.46).mul(mix(float(0.1), float(0.7), rockK)));
     col.mulAssign(clamp(shade, 0.66, 1.4).mul(float(1).sub(snowW.mul(0.5))).add(snowW.mul(0.5)));
     // 裂缝和岩层下面的凹处：太阳照不进去，是岩壁上最黑的地方
-    const cav = cavOf(71.0, 0.41, angB).mul(footK.mul(0.75)).add(cavOf(19.0, 0.73, angC).mul(footC.mul(0.65))).add(mix(cavOf(230.0, 0.0, angA), cavOf(1180.0, 0.19, angA), farRelief).mul(0.42));
+    const cav = cavOf(71.0, 0.41, angB).mul(footK.mul(0.75)).add(cavOf(19.0, 0.73, angC).mul(footC.mul(0.65))).add(mix(cavOf(230.0, 0.0, angA), cavOf(1180.0, 0.19, angA), farRelief).mul(coarse.mul(0.42)));
     col.mulAssign(float(1).sub(clamp(cav, 0.0, 1.0).mul(rockK).mul(0.34)));
     // 水痕：雨水顺着岩壁往下淌，留下一道道深色的竖纹（矿物、地衣），这是崖壁远看最抢眼的纹理
     const seep = texture(noise, vec2(P.x.add(P.z).mul(0.0047), P.y.mul(0.00035))).r.mul(0.62).add(texture(noise, vec2(P.x.sub(P.z).mul(0.019), P.y.mul(0.0011).add(0.3))).g.mul(0.38));
@@ -551,6 +556,8 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const wet = U.uWet.mul(float(1).sub(snowW));
     col.mulAssign(mix(1.0, 0.68, wet));
     rough.assign(mix(rough, 0.55, wet.mul(0.7)));
+    // 太阳擦着岩壁照的时候，凹凸稍微一歪就背光了，整面墙是一片硬边的黑斑（放大的贴图还带着阶梯）。这种光线下把凹凸压下来
+    nb.assign(normalize(mix(n, nb, smoothstep(0.02, 0.4, abs(dot(n, FOG.sunDir))).mul(0.8).add(0.2))));
     return TerrainOut(col, rough, nb, mix(float(0.42), float(1), mac.b), crown);
   });
   const SKY_VIS = Fn(() => texture(U.macro, positionWorld.xz.div(U.mapSize).add(0.5)).b);

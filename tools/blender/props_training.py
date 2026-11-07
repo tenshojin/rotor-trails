@@ -175,8 +175,8 @@ def loft(name, secs, m, n=16):
 def plane(name='plane_a', prop=True):
     """四座上单翼轻型飞机（虚构机型）：机头朝 +Y，机长约 8.2 m、翼展 11 m、高 2.7 m。
     天上飞的那架不带桨叶（游戏里转起来的螺旋桨是一层圆盘）。"""
-    paint = F('plane_white', 0xe9e7e0, rough=0.32, metal=0.05)
-    stripe = F('plane_stripe', 0x1f4a72, rough=0.34)
+    paint = F('plane_white', 0xe9e7e0, rough=0.62, metal=0.0)
+    stripe = F('plane_stripe', 0x1f4a72, rough=0.6)
     tyre = F('tyre', 0x141414, rough=0.85)
     parts = []
     # 机身

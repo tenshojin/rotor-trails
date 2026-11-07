@@ -22,6 +22,8 @@ export interface RiverDef {
   /** 河心、河边的水色（sRGB 十六进制） */
   deep: number;
   shallow: number;
+  /** 水有多清（0..1）：透出河底的程度 */
+  clear?: number;
   /** 水流速度（米 / 秒） */
   speed: number;
   /** 两岸卵石滩的宽度（米） */

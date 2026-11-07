@@ -362,8 +362,9 @@ export class RealScatter {
       // 图集里的颜色乘这个：峡谷里发黑，南缘的灰绿一些，隔几丛有一丛枯黄的
       const rim = smoothstep(1900.0, 2100.0, y0);
       // （真的黑灌木反照率也有一成多：太暗的话影子里就是一地黑胡椒）
-      const dark = mix(vec3(1.3, 1.25, 1.12), vec3(1.8, 1.7, 1.45), h.y);
-      const pale = mix(vec3(1.2, 1.22, 1.04), vec3(1.62, 1.6, 1.3), h.y);
+      // （从几百米外看，太暗的灌木是撒在地上的一颗颗黑球）
+      const dark = mix(vec3(2.35, 2.3, 2.0), vec3(3.3, 3.15, 2.6), h.y);
+      const pale = mix(vec3(1.7, 1.72, 1.46), vec3(2.3, 2.27, 1.84), h.y);
       tint = mix(mix(dark, pale, rim), vec3(2.3, 1.8, 1.1), step(0.9, h.x).mul(0.8));
     } else if (rock) {
       // 和脚下的地是同一种石头，新鲜的断面亮一些

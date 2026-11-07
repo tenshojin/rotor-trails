@@ -19,6 +19,7 @@ import {
   max,
   mix,
   normalViewGeometry,
+  normalize,
   positionGeometry,
   positionLocal,
   positionWorld,
@@ -280,7 +281,9 @@ export class GroundCover {
     const nearFade = float(1).sub(smoothstep(62.0, 86.0, dist));
     // 中圈：进出都是一丛一丛换的，不是一条线上突然出现（按屏幕抖的话，半透明的那一段是一片网点）
     const roll = vertexStage(fract(sin(dot(vec2(float(instanceIndex), 0.37), vec2(12.9898, 78.233))).mul(43758.5453)));
-    const midFade = step(roll, smoothstep(52.0, 84.0, dist).mul(float(1).sub(smoothstep(this.midFar.mul(0.62), this.midFar, dist))));
+    // 从高处往下看，几米宽的草团是地上一个个扁的星星：视线越陡，留下的越少（贴着地面平视才需要它们）
+    const steep = smoothstep(0.26, 0.52, normalize(cameraPosition.sub(positionWorld)).y);
+    const midFade = step(roll, smoothstep(52.0, 84.0, dist).mul(float(1).sub(smoothstep(this.midFar.mul(0.62), this.midFar, dist))).mul(float(1).sub(steep)));
     this.near = new Ring(NEAR, this.geo, material(this.tex, nearFade, false));
     this.mid = new Ring(MID, this.geo, material(this.clump, midFade, true));
     this.group.add(this.near.mesh, this.mid.mesh);

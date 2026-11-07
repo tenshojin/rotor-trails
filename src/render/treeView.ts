@@ -489,7 +489,7 @@ export class TreeView {
       }
       const lods = lib?.get(type);
       const geoSets = lods
-        ? lods.map((parts, l) => parts.map((p) => ({ g: p.geometry, mat: this.materialFor(p.source, l === 2), tint: p.source.name.includes('leaves') })))
+        ? lods.map((parts, l) => parts.map((p) => ({ g: p.geometry, mat: this.materialFor(p.source, l === 2, false, type === 'shrub' || type === 'scrub'), tint: p.source.name.includes('leaves') })))
         : buildTree(type).map((g) => {
             this.ownGeometry.push(g);
             return [{ g, mat: this.materialFor(null, false, type === 'boulder'), tint: true }];
@@ -521,9 +521,9 @@ export class TreeView {
   }
 
   /** GLB 材质 → 带风摆的渲染材质（同名共用）；null = 程序几何体用的顶点色材质。mass：最远一级的体块树冠。 */
-  private materialFor(src: THREE.MeshStandardMaterial | null, mass = false, rock = false): THREE.MeshStandardNodeMaterial {
+  private materialFor(src: THREE.MeshStandardMaterial | null, mass = false, rock = false, low = false): THREE.MeshStandardNodeMaterial {
     const leaf = !!src && src.name.includes('leaves');
-    const key = src ? src.name + (leaf && mass ? '#mass' : '') : rock ? '__rock' : '__procedural';
+    const key = src ? src.name + (leaf && mass ? '#mass' : '') + (leaf && low ? '#low' : '') : rock ? '__rock' : '__procedural';
     const hit = this.materials.get(key);
     if (hit) return hit;
     const U = this.uniforms;
@@ -619,6 +619,8 @@ export class TreeView {
         m.normalNode = mass ? normalize(mix(normalViewGeometry, cameraViewMatrix.mul(vec4(0, 1, 0, 0)).xyz, 0.5)) : normalViewGeometry;
       }
       if (leaf) this.leafMats.push(m);
+      // 灌木一团卡片挡着自己，阴影查下来顶上是一个黑窝，从空中看是一地黑洞的圈。查阴影的点往太阳方向挪一点，大树的影子还是落得上来
+      if (leaf && low) m.receivedShadowPositionNode = positionWorld.add(FOG.sunDir.mul(1.6));
     }
     if (!still) m.positionNode = windPosition(U, leaf);
     m.name = key;

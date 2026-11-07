@@ -158,7 +158,8 @@ export class RiverView {
     const reflRgb = refl.get('rgb') as N<'vec3'>;
     const nV = normalize(cameraViewMatrix.mul(vec4(normalize(mix(nW, vec3(0.0, 1.0, 0.0), 0.5)), 0.0)).xyz);
     const ndv = clamp(dot(nV, normalize(positionView).negate()), 0.0, 1.0);
-    const fres = float(0.02).add(float(0.98).mul(pow(float(1).sub(ndv), 5.0)));
+    // （河面有波纹，天光从哪个角度都反得上来：只算平静水面的菲涅尔，从空中看下去一点反光都没有，河是一条灰带子）
+    const fres = float(0.1).add(float(0.9).mul(pow(float(1).sub(ndv), 5.0)));
     const reflK = (refl.get('total') as N<'float'>).toVar();
     mat.specularIntensityNode = float(1).sub(reflK);
     // 水体内部散射的颜色主要来自天光，不怎么跟着阳光走（和海面一样）
@@ -166,7 +167,8 @@ export class RiverView {
     mat.emissiveNode = body.mul(skyLight).mul(max(float(1).sub(fres), 0.0)).add(reflRgb.mul(fres.mul(reflK)));
     // 水边：水面和河岸的交线是地形网格的一个个三角形，硬切的话是一圈折线。水浅的地方慢慢透出岸来
     const bed = perspectiveDepthToViewZ(depthNode.r, cameraNear, cameraFar).negate();
-    mat.opacityNode = smoothstep(0.0, 0.8, bed.sub(positionView.z.negate()));
+    // （山里的清水溪：看得见河底的石头，不是一条柏油路）
+    mat.opacityNode = smoothstep(0.0, 0.8, bed.sub(positionView.z.negate())).mul(mix(float(1 - (r.clear ?? 0)), float(1), max(foam, fres)));
     return mat;
   }
 
