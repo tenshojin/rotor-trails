@@ -5,12 +5,13 @@ import { PadReader, shape, type PadEdge, type PadNav } from '../src/game/gamepad
 interface FakePad {
   id: string;
   connected: boolean;
+  mapping: string;
   axes: number[];
   buttons: Array<{ pressed: boolean; value: number }>;
 }
 
 function fake(): FakePad {
-  return { id: 'pad', connected: true, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+  return { id: 'pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
 }
 
 function plug(p: FakePad | null): void {
@@ -116,6 +117,17 @@ describe('手柄', () => {
     plug(fake());
     r.poll(0.016, false, () => {}, () => {});
     expect(() => r.rumble(1)).not.toThrow();
+  });
+
+  it('不是标准布局的设备不当手柄：方向盘的踏板静止时就在头上', () => {
+    const p = fake();
+    p.mapping = '';
+    p.axes = [0, -1, 0, 0];
+    plug(p);
+    const r = new PadReader();
+    r.poll(0.016, false, () => {}, () => {});
+    expect(r.connected).toBe(false);
+    expect(r.forward).toBe(0);
   });
 
   it('没有手柄接口的环境不出错', () => {
