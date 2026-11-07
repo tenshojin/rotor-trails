@@ -390,6 +390,10 @@ export const JAPAN: MapDef = {
     { model: 'boat_2', len: 13, speed: 5.5, bow: 1 },
     { model: 'boat_3', len: 13, speed: 3.5, bow: 1 },
   ],
+  roadCars: [
+    { pts: [[-1140, 600], [-1120, 870], [-1150, 1180]], models: ['car_white', 'van_white', 'kei_truck', 'car_blue'], speed: 11 },
+    { pts: [[-1120, 870], [-1330, 760], [-1450, 560]], models: ['car_silver', 'car_red'], speed: 9 },
+  ],
   birds: { gull: 18, kite: 7 },
   landmarks: [
     { name: '五重塔', pos: [-1450, 60, 540] },

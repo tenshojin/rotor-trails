@@ -50,6 +50,7 @@ import { TREE_RANGE } from './terrainShader';
 import { TreeView, loadTreeLib } from './treeView';
 import { Birds } from './birds';
 import { Vessels } from './vessels';
+import { RoadCars } from './roadCars';
 import { Traffic } from './traffic';
 import { vistasOf } from '../sim/cruise';
 import { WaterView } from './water';
@@ -190,6 +191,7 @@ export class WorldView {
   private coverSet = false;
   /** 绕场飞的飞机（声音要读它的距离） */
   traffic: Traffic | null = null;
+  roadCars: RoadCars | null = null;
   private scatter: RealScatter | null = null;
   private buildings: RealBuildings | null = null;
   /** 光线追踪的全局光照：探针图要不要重算；算的时候太阳多亮（天气变了按比例调）；正在并行编译（那时什么都画不出来） */
@@ -590,6 +592,10 @@ export class WorldView {
         this.vessels = new Vessels(map.vessels, this.modelLib, (x, z) => world.terrain.heightAt(x, z), map.waterLevel, map.size / 2 - 200, map.seed);
         this.scene.add(this.vessels.group);
       }
+      if (map.roadCars && this.modelLib) {
+        this.roadCars = new RoadCars(map.roadCars, this.modelLib, world.ctx.ground);
+        this.scene.add(this.roadCars.group);
+      }
       if (map.traffic && this.modelLib) {
         this.traffic = new Traffic(map.traffic, this.modelLib);
         this.scene.add(this.traffic.group);
@@ -668,6 +674,7 @@ export class WorldView {
     rm(this.birds?.group);
     rm(this.vessels?.group);
     rm(this.traffic?.group);
+    rm(this.roadCars?.group);
     rm(this.nav?.group);
     rm(this.wash?.group);
     rm(this.wreckFx?.mesh);
@@ -713,6 +720,8 @@ export class WorldView {
     this.vessels = null;
     this.traffic?.dispose();
     this.traffic = null;
+    this.roadCars?.dispose();
+    this.roadCars = null;
     this.coverSet = false;
     this.grass?.dispose();
     this.grass = null;
@@ -1085,6 +1094,7 @@ export class WorldView {
       this.birds?.update(f.dt, f.t, s ? _pos : null, this.tod !== 'night' && w.rain + w.snow < 0.45);
       this.vessels?.update(f.dt, f.t, this.sky?.night ?? 0);
       this.traffic?.update(f.dt, this.sky?.night ?? 0, w.rain + w.snow < 0.3 && w.visibility > 2500, cam.position);
+      this.roadCars?.update(f.dt, this.sky?.night ?? 0);
       this.scatter?.update(cp);
       if (s) this.scatter?.probe(this.renderer, s.body.pos as unknown as THREE.Vector3, f.t, (list) => s.setRingTrees(list));
       if (this.buildings && this.sky) this.buildings.night.value = this.sky.night;

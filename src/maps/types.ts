@@ -222,6 +222,14 @@ export interface TrafficDef {
   route: Array<[number, number, number]>;
 }
 
+/** 路上跑的车（src/render/roadCars.ts）：沿着 pts [x, z] 来回开，模型在这张图的模型库里 */
+export interface RoadCarsDef {
+  pts: Array<[number, number]>;
+  models: string[];
+  /** 米 / 秒 */
+  speed: number;
+}
+
 /** 天上飞的（src/render/birds.ts） */
 export type BirdKind = 'condor' | 'raven' | 'gull' | 'kite' | 'egret' | 'macaw';
 
@@ -352,6 +360,7 @@ export interface MapDef {
   /** 水上有什么船在走 */
   vessels?: VesselDef[];
   traffic?: TrafficDef;
+  roadCars?: RoadCarsDef[];
   /** 夜里亮的灯（跑道边灯之类）：光点，地上没有光斑 */
   lights?: Array<{ pos: V3; size: number; color: [number, number, number] }>;
   /** 这张图有什么鸟、各几只 */
