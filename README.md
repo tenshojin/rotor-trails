@@ -14,6 +14,7 @@
 | ![雪域山口](docs/screenshots/08_himalaya.jpg) | ![浓雾](docs/screenshots/09_weather_fog.jpg) | ![暴雨](docs/screenshots/21_storm_night.jpg) |
 | ![拍照模式：大峡谷](docs/screenshots/15_photo_canyon.jpg) | ![拍照模式：海上](docs/screenshots/16_photo_sea.jpg) | ![拍照模式：峡湾](docs/screenshots/17_photo_fjord.jpg) |
 | ![峡湾的极光](docs/screenshots/18_night_aurora.jpg) | ![大峡谷的星空](docs/screenshots/19_night_sky.jpg) | ![下雪的峡湾](docs/screenshots/20_snow_fjord.jpg) |
+| ![大峡谷的崖壁](docs/screenshots/22_canyon_wall.jpg) | ![大峡谷的内峡谷](docs/screenshots/23_canyon_gorge.jpg) | ![南缘的村子](docs/screenshots/24_canyon_village.jpg) |
 | ![着陆辅助](docs/screenshots/13_landing_assist.jpg) | ![严重受损](docs/screenshots/14_damage_critical.jpg) | ![结算](docs/screenshots/16_results.jpg) |
 
 ## 玩法
