@@ -159,6 +159,8 @@ function vnoise(u: number, v: number, period: number, seed: number): number {
 
 let relief: THREE.DataTexture | null = null;
 let reliefLoading: Promise<void> | null = null;
+let reliefBlock: THREE.DataTexture | null = null;
+let blockLoading: Promise<void> | null = null;
 
 /** 加载岩石浮雕图（tools/prep_relief.py 烘焙）。地形和岩石道具建材质之前调用 */
 export function loadRockRelief(): Promise<void> {
@@ -168,33 +170,51 @@ export function loadRockRelief(): Promise<void> {
   return reliefLoading;
 }
 
-async function fetchRockRelief(): Promise<boolean> {
-  let bmp: ImageBitmap | null = null;
+/** 块状的岩石（花岗岩、片麻岩）用的浮雕图：没有层理，是一块块的平面和节理。只有这种地图才要；加载失败就用层状的那张 */
+export function loadBlockRelief(): Promise<void> {
+  blockLoading ??= fetchRelief('textures/rock_relief_block.webp')
+    .then((r) => {
+      reliefBlock = reliefTexture(r.data, r.width);
+    })
+    .catch((e: unknown) => {
+      console.warn('块状岩石浮雕图加载失败，改用层状的：', e);
+      blockLoading = null;
+    });
+  return blockLoading;
+}
+
+async function fetchRelief(file: string): Promise<{ data: Uint8Array; width: number; height: number }> {
+  const r = await fetch(new URL(file, document.baseURI).href);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const bmp = await createImageBitmap(await r.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none', imageOrientation: 'none' });
   try {
-    const r = await fetch(new URL('textures/rock_relief.webp', document.baseURI).href);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    bmp = await createImageBitmap(await r.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none', imageOrientation: 'none' });
     const cv = document.createElement('canvas');
     cv.width = bmp.width;
     cv.height = bmp.height;
     const g = cv.getContext('2d', { willReadFrequently: true })!;
     g.drawImage(bmp, 0, 0);
-    const data = new Uint8Array(g.getImageData(0, 0, bmp.width, bmp.height).data.buffer);
+    return { data: new Uint8Array(g.getImageData(0, 0, bmp.width, bmp.height).data.buffer), width: bmp.width, height: bmp.height };
+  } finally {
+    bmp.close();
+  }
+}
+
+async function fetchRockRelief(): Promise<boolean> {
+  try {
+    const { data, width, height } = await fetchRelief('textures/rock_relief.webp');
     // A previous attempt may already have supplied a procedural fallback to
     // materials. Keep that shared Texture object alive when retrying the image.
     if (relief) {
       // The baked map is larger than the fallback; free the old GPU allocation
       // before uploading the new dimensions through the same Texture object.
       relief.dispose();
-      relief.image = { data, width: bmp.width, height: bmp.height };
+      relief.image = { data, width, height };
       relief.needsUpdate = true;
-    } else relief = reliefTexture(data, bmp.width);
+    } else relief = reliefTexture(data, width);
     return true;
   } catch (e) {
     console.warn('岩石浮雕图加载失败，改用程序生成：', e);
     return false;
-  } finally {
-    bmp?.close();
   }
 }
 
@@ -210,7 +230,8 @@ function reliefTexture(data: Uint8Array, n: number): THREE.DataTexture {
   return t;
 }
 
-export function getRockReliefTexture(): THREE.DataTexture {
+export function getRockReliefTexture(massive = false): THREE.DataTexture {
+  if (massive && reliefBlock) return reliefBlock;
   if (relief) return relief;
   const N = 512;
   const H = new Float32Array(N * N);

@@ -45,7 +45,7 @@ import { bakeGi, clearGiMap, disposeGi, GI, giGroundLight, setGiMap } from './gi
 import { sunFor, type TimeOfDay } from './timeOfDay';
 import { COVER, WET, WINDOW_LIGHT } from './wetness';
 import { updateCloudShadowMap } from './cloudShadowMap';
-import { loadRockRelief, makeTerrainMacroTexture } from './terrainMacro';
+import { loadBlockRelief, loadRockRelief, makeTerrainMacroTexture } from './terrainMacro';
 import { TREE_RANGE } from './terrainShader';
 import { TreeView, loadTreeLib } from './treeView';
 import { Birds } from './birds';
@@ -91,6 +91,11 @@ const _hiFwd = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _zero = new THREE.Vector3();
 const _project = new THREE.Vector3();
+
+/** 眼睛最多补多少。太阳低的时候山谷都在影子里，上限低了一片昏暗：清晨黄昏要放开（山尖的太阳还在，不会补过头） */
+function eyeMax(tod: TimeOfDay): number {
+  return tod === 'night' ? 3.6 : tod === 'day' ? EYE_DEFAULT.max : 3.4;
+}
 
 export class WorldView {
   readonly renderer: THREE.WebGPURenderer;
@@ -382,7 +387,7 @@ export class WorldView {
       this.eye.snap();
       this.sky.setSun(az, el);
       this.sky.setNight(tod === 'night');
-      this.eye.setMax(tod === 'night' ? 3.6 : EYE_DEFAULT.max);
+      this.eye.setMax(eyeMax(tod));
       this.updateLandingLight();
       if (changed) {
         const real = this.world.real;
@@ -456,6 +461,7 @@ export class WorldView {
     this.discardPrefetch();
     const file = MODEL_FILES[map.id];
     void loadRockRelief();
+    if (map.rockForm?.massive) void loadBlockRelief();
     void loadDetailTextures();
     void loadTreeLib();
     this.early = { id: map.id, texSize, layers: texSize > 0 ? loadTerrainLayers(map.id, map.biome, texSize) : Promise.resolve(null), lib: file ? loadModelLib(file) : Promise.resolve(null) };
@@ -500,6 +506,7 @@ export class WorldView {
       const macroTex = makeTerrainMacroTexture(lowT);
       this.mapTextures.push(surfaceTex, forestTex, groundTex, macroTex);
       await loadRockRelief();
+      if (map.rockForm?.massive) await loadBlockRelief();
       // 水面倒影飞出画面后接着走的地形图
       const field = makeReflectField(map, lowT, world.trees, lowSurface, macroTex.image.data as Uint8Array, forestTex.image.data as Uint8Array);
       this.mapTextures.push(field.height, field.color, field.far);
@@ -545,7 +552,7 @@ export class WorldView {
       const [sunAz, sunEl] = sunFor(map, this.tod);
       this.sky = new SkyDome(sunAz, sunEl, map.biome.fogTint, map.biome.grass, this.tod === 'night', map.biome.air);
       this.sky.setAurora(map.aurora ?? 0);
-      this.eye.setMax(this.tod === 'night' ? 3.6 : EYE_DEFAULT.max);
+      this.eye.setMax(eyeMax(this.tod));
       this.updateLandingLight();
       this.sun.csm.lightMargin = 400 + 1800 * (1 - this.sky.dayK);
       setSunMap(real ? real.sunInner : world.terrain, this.sky.sunDir, this.farGrid, real?.sunOuter);
@@ -691,9 +698,7 @@ export class WorldView {
     this.terrain?.dispose();
     this.hiRing?.dispose();
     this.hiRing = null;
-    this.sky?.clouds.dispose();
-    this.sky?.material.dispose();
-    this.sky?.mesh.geometry.dispose();
+    this.sky?.dispose();
     this.water?.dispose();
     this.props?.dispose();
     this.modelLib?.dispose();
@@ -970,12 +975,13 @@ export class WorldView {
       WIND.k.value = Math.min(1.5, 0.16 + windSpeed * 0.085);
       this.sky.follow(cp);
       const C = this.sky.colors;
-      this.sun.setLight(C.sun, C.sunIntensity);
+      // （月光太强的话，夜里朝上的浅色岩石亮得像雪，上面的石头是一粒粒黑豆）
+      this.sun.setLight(C.sun, C.sunIntensity * (this.tod === 'night' ? 0.74 : 1));
       this.sun.setSunDirection(this.sky.sunDir);
       this.hemi.color.copy(C.hemiSky);
       this.hemi.groundColor.copy(C.hemiGround);
       // 月光照不到的山谷不能是一片死黑：夜空的散射光要够看清地形的轮廓
-      this.hemi.intensity = C.hemiIntensity * 0.65 * (this.tod === 'night' ? 24 : 1);
+      this.hemi.intensity = C.hemiIntensity * 0.65 * (this.tod === 'night' ? 36 : 1);
       // 雾：能见度 → 指数平方雾密度（随高度变稀，见 atmosphere.ts）；进入低云层时另加均匀浓雾
       this.inCloud = 0;
       if (w.lowCloud > 0.05) {

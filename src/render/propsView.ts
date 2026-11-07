@@ -39,7 +39,7 @@ function makeMaterials(detail: THREE.DataArrayTexture | null, map: MapDef, owned
   const rock = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
   const P = positionWorld;
   const rn = texture(noise, P.xz.mul(0.06).add(P.y.mul(0.05))).g.mul(0.6).add(texture(noise, P.xy.mul(0.2).add(0.3)).g.mul(0.4));
-  const relief = getRockReliefTexture();
+  const relief = getRockReliefTexture(map.rockForm?.massive);
   const nW = normalize(normalWorld);
   const aw = pow(abs(nW), vec3(4.0));
   const tw = aw.div(aw.x.add(aw.y).add(aw.z));

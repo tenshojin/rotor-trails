@@ -47,7 +47,7 @@ export function makeTerrainUniforms(map: MapDef, hf: Heightfield, surfaceTex: TH
     forest: forestTex,
     macro: macroTex,
     wash: B.wash === undefined ? null : col(B.wash),
-    relief: getRockReliefTexture(),
+    relief: getRockReliefTexture(map.rockForm?.massive),
     layers,
     mapSize: map.size,
     sand: col(B.sand),

@@ -497,6 +497,13 @@ export class SkyDome {
   }
 
   /** 是否夜晚（太阳换成月亮）：setSun 之后调用 */
+  dispose(): void {
+    this.clouds.dispose();
+    this.material.dispose();
+    this.mesh.geometry.dispose();
+    this.lut.dispose();
+  }
+
   setNight(on: boolean): void {
     this.night = on ? 1 : 0;
     this.u.night.value = this.night;

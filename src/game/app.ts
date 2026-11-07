@@ -979,8 +979,15 @@ export class App {
       this.input.active = true;
       return;
     }
+    this.wreckView();
     this.hud.show(true);
     this.pauseMenu();
+  }
+
+  /** 坠毁之后的页面都是在外面看着残骸，不是坐在翻倒的座舱里 */
+  private wreckView(): void {
+    const s = this.session;
+    if (s?.state === 'crashed' && !this.tutorial) this.view.rig.crash(s.body.pos, s.body.vel, s.world.ctx.ground);
   }
 
   /** 飞行时一路录着。地上干等的时间不录，教学不录 */
@@ -1104,8 +1111,7 @@ export class App {
     this.root.classList.remove('replay-on');
     this.view.setDof(this.eyeDof);
     this.view.rig.setMode(r.view);
-    // （从失败页进来的：回去还是外面看着残骸，不是坐在翻倒的座舱里）
-    if (s?.state === 'crashed' && !this.tutorial) this.view.rig.crash(s.body.pos, s.body.vel, s.world.ctx.ground);
+    this.wreckView();
     this.input.setFreeMouse(false);
     this.input.active = false;
     this.input.clear();
@@ -1537,6 +1543,8 @@ export class App {
       }
       if (s.state === 'complete' && this.completeTimer < 0) this.completeTimer = 1.6;
     }
+    // （坠毁过程中从暂停菜单选了景点：飞机已经好好地在那儿了，这次恢复就不要了，不然两秒后又被传送一次）
+    if (this.failTimer > 0 && s?.state === 'running') this.failTimer = -1;
     if (this.state === 'playing' && this.failTimer > 0) {
       this.failTimer -= dt;
       if (this.failTimer <= 0) {
