@@ -64,6 +64,8 @@ export class Gear {
   /** grounded：恢复/出生时已停在地面上（不产生接地事件） */
   reset(grounded = false): void {
     this.airTime = grounded ? 0 : 10;
+    // （起点检查点就在这之后存：这里不算“压在滑橇上”的话，它会被记成悬在空中）
+    this.weightOnSkids = grounded ? 1 : 0;
     this.touchdown = null;
     this.anchors.fill(null);
     for (const c of this.contacts) {

@@ -248,6 +248,12 @@ export class FlightModel {
 
   /** 检查点恢复或重生后：把控制器状态对齐到当前机体状态，避免突变。 */
   resetTo(b: BodyState, mass: number, altitudeMSL: number, grounded: boolean): void {
+    // 姿态读数跟着回来：起落架第一步用的就是它，不刷新的话报的是传送之前的姿态
+    _fwd.set(0, 0, -1).applyQuaternion(b.quat);
+    _up.set(0, 1, 0).applyQuaternion(b.quat);
+    _right.set(1, 0, 0).applyQuaternion(b.quat);
+    this.telemetry.pitch = Math.asin(clamp(_fwd.y, -1, 1));
+    this.telemetry.roll = Math.atan2(-_right.y, _up.y);
     this.inP = this.inT = this.inL = this.inV = 0;
     this.trimP = this.trimR = this.vsInt = this.altInt = this.yawTrim = 0;
     this.hoverIntF = this.hoverIntR = 0;

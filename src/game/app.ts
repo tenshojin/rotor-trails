@@ -1104,6 +1104,8 @@ export class App {
     this.root.classList.remove('replay-on');
     this.view.setDof(this.eyeDof);
     this.view.rig.setMode(r.view);
+    // （从失败页进来的：回去还是外面看着残骸，不是坐在翻倒的座舱里）
+    if (s?.state === 'crashed' && !this.tutorial) this.view.rig.crash(s.body.pos, s.body.vel, s.world.ctx.ground);
     this.input.setFreeMouse(false);
     this.input.active = false;
     this.input.clear();
