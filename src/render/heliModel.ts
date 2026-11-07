@@ -2,7 +2,7 @@
 // 三片主旋翼（高速时显示为模糊桨盘）、滑橇、航行灯与防撞闪光灯。
 
 import * as THREE from 'three/webgpu';
-import { float, length, materialOpacity, mix, smoothstep, uniform, uv, vec3 } from 'three/tsl';
+import { atan, cos, float, length, materialOpacity, mix, pow, smoothstep, uniform, uv, vec3 } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { HELI } from '../config/flight';
 import { loadGltf } from './gltf';
@@ -45,6 +45,10 @@ export class HeliModel {
   private disc: THREE.Mesh;
   private discMat: THREE.MeshBasicNodeMaterial;
   private readonly rimK = uniform(0.035);
+  /** 桨盘上虚的桨影有多重（外面的镜头才有） */
+  private readonly sectorK = uniform(1);
+  /** 桨影转到哪了：比桨叶慢得多，就像视频里的车轮效应 */
+  private discAngle = 0;
   /** 夜里曝光开得大，桨尖的圆环会变成天上的一道弧线：调暗（0 = 没有） */
   rimDim = 1;
   private inCockpit = true;
@@ -209,9 +213,13 @@ export class HeliModel {
       const r = length(uv().sub(0.5)).mul(2.0);
       const rim = smoothstep(0.9, 0.97, r).mul(float(1).sub(smoothstep(0.97, 1.0, r)));
       const body = smoothstep(0.08, 0.14, r).mul(mix(0.2, 0.12, smoothstep(0.14, 0.9, r))).mul(float(1).sub(smoothstep(0.95, 1.0, r)));
+      // 从外面看：相机的快门拍下来是三道虚的桨影，比一层匀净的灰更像在转（座舱里肉眼看不出，sectorK 是 0）
+      const c = uv().sub(0.5);
+      const sector = pow(cos(atan(c.y, c.x).mul(3.0)).mul(0.5).add(0.5), 5.0);
+      const blades = body.mul(float(1).add(sector.mul(this.sectorK).mul(3.2)));
       this.discMat.colorNode = mix(vec3(0.012, 0.012, 0.014), vec3(0.79, 0.79, 0.79), rim.mul(this.rimK.mul(28.0).min(1.0)));
       // 桨尖一圈只略微显出（太亮的话从座舱里看，晴空上会横着一道白色弧线）
-      this.discMat.opacityNode = body.add(rim.mul(this.rimK)).mul(materialOpacity);
+      this.discMat.opacityNode = blades.add(rim.mul(this.rimK)).mul(materialOpacity);
     }
     this.mats.push(this.discMat);
     this.disc = new THREE.Mesh(new THREE.CircleGeometry(HELI.rotorRadius, 48).rotateX(-Math.PI / 2), this.discMat);
@@ -338,6 +346,7 @@ export class HeliModel {
     // Blender 外观模型从座舱里只能透过顶窗看到整流罩与旋翼，始终显示；程序外观在座舱视角时隐藏
     if (!this.extLoaded) this.exterior.visible = !cockpit;
     this.inCockpit = cockpit;
+    this.sectorK.value = cockpit ? 0 : 1;
     // 从座舱里看，桨尖那一圈在暗的山壁前会变成一道横着的亮线；肉眼其实看不到它
     this.rimK.value = (cockpit ? 0.004 : 0.011) * this.rimDim;
     // 两侧航行灯和顶上的防撞灯离眼睛不到两米，从座舱里看会变成一大团光（真实的灯是朝外照的）；尾灯离得远，留着
@@ -373,7 +382,8 @@ export class HeliModel {
     const shadow = blur < 0.35;
     this.blades.castShadow = shadow;
     for (const m of this.glbBlades) m.castShadow = shadow;
-    this.disc.rotation.y = -this.rotorAngle * 0.13;
+    this.discAngle = (this.discAngle - omega * 0.05 * dt) % (Math.PI * 2);
+    this.disc.rotation.y = this.discAngle;
     this.tailRotor.rotation.x = this.tailAngle;
     (this.tailDisc.material as THREE.MeshBasicMaterial).opacity = blur * 0.3;
     const b = this.beaconOn && (t % 1.2) < 0.08 ? 1 : 0.0;

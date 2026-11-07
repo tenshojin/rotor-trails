@@ -35,6 +35,8 @@ const _target = new THREE.Vector3();
 const _forward = new THREE.Vector3();
 /** 拍照模式的竖直视角范围（度）：全画幅 14 mm 到 300 mm 左右 */
 export const PHOTO_FOV: readonly [number, number] = [4.6, 81];
+/** 电影镜头一共几种 */
+const CINE_SHOTS = 5;
 
 export class CameraRig {
   readonly camera: THREE.PerspectiveCamera;
@@ -97,6 +99,8 @@ export class CameraRig {
    *   0 飞越：机位在前方的地面附近，等直升机飞过去（长焦，背后是远山）
    *   1 伴飞：贴在侧面一起飞（中焦）
    *   2 高空：远远地从后上方看，直升机只是风景里的一个小点（广角）
+   *   3 迎面：飞在前方斜侧，回头拍机头（长焦，背后是刚飞过的地方）
+   *   4 环绕：慢慢绕着直升机转一段（中焦）
    */
   private cinema(dt: number, pos: THREE.Vector3, vel: THREE.Vector3, ground: (x: number, z: number) => number): void {
     this.shotT += dt;
@@ -104,7 +108,7 @@ export class CameraRig {
     const fx = sp > 3 ? vel.x / sp : 0;
     const fz = sp > 3 ? vel.z / sp : -1;
     const dist = this.cine.distanceTo(pos);
-    const kind = ((this.shot % 3) + 3) % 3;
+    const kind = ((this.shot % CINE_SHOTS) + CINE_SHOTS) % CINE_SHOTS;
     // 山挡住了直升机，这个镜头就不能用了
     const hidden = (): boolean => {
       for (let k = 0.15; k < 0.95; k += 0.2) {
@@ -113,11 +117,11 @@ export class CameraRig {
       }
       return false;
     };
-    const over = this.shot < 0 || (this.shotT > 1 && hidden()) || (kind === 0 ? this.shotT > 4 && (dist > 300 || this.shotT > 18) : this.shotT > (kind === 1 ? 13 : 10));
+    const over = this.shot < 0 || (this.shotT > 1 && hidden()) || (kind === 0 ? this.shotT > 4 && (dist > 300 || this.shotT > 18) : this.shotT > [0, 13, 10, 11, 12][kind]);
     if (over) {
       this.shot++;
       this.shotT = 0;
-      const next = this.shot % 3;
+      const next = this.shot % CINE_SHOTS;
       // 左右交替，别总在同一边
       const side = this.shot % 2 === 0 ? 1 : -1;
       if (next === 0) {
@@ -127,14 +131,10 @@ export class CameraRig {
         // 比直升机低一点就够了：再低就是对着天空拍它的肚子
         this.cine.set(x, Math.max(ground(x, z) + 7, pos.y - 9), z);
         this.cineFov = 30;
-      } else if (next === 1) {
-        this.cineFov = 44;
-      } else {
-        this.cineFov = 58;
-      }
+      } else this.cineFov = [0, 44, 58, 30, 38][next];
       this.cineAim.copy(pos);
     }
-    const now = this.shot % 3;
+    const now = this.shot % CINE_SHOTS;
     const side = this.shot % 2 === 0 ? 1 : -1;
     if (now === 1) {
       const x = pos.x - fx * 15 - fz * side * 24;
@@ -146,6 +146,17 @@ export class CameraRig {
       const z = pos.z - fz * 95 + fx * side * 40;
       _target.set(x, Math.max(ground(x, z) + 12, pos.y + 42), z);
       this.cine.lerp(_target, this.shotT < 0.05 ? 1 : 1 - Math.exp(-dt * 1.2));
+    } else if (now === 3) {
+      const x = pos.x + fx * 26 - fz * side * 11;
+      const z = pos.z + fz * 26 + fx * side * 11;
+      _target.set(x, Math.max(ground(x, z) + 5, pos.y + 0.5), z);
+      this.cine.lerp(_target, this.shotT < 0.05 ? 1 : 1 - Math.exp(-dt * 2.6));
+    } else if (now === 4) {
+      const a = this.shotT * 0.2 * side + this.shot;
+      const x = pos.x + Math.sin(a) * 21;
+      const z = pos.z + Math.cos(a) * 21;
+      _target.set(x, Math.max(ground(x, z) + 5, pos.y + 3.5), z);
+      this.cine.lerp(_target, this.shotT < 0.05 ? 1 : 1 - Math.exp(-dt * 5));
     }
     // 取景跟得慢一点，不要死死钉在直升机上
     this.cineAim.lerp(pos, 1 - Math.exp(-dt * 4));

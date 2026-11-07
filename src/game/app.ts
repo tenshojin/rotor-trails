@@ -21,7 +21,7 @@ import type { AssistId } from '../config/flight';
 import { Input } from './input';
 import { SaveStore, type StorageLike } from './save';
 import { keyName, QUALITY, type Settings } from './settings';
-import { clamp } from '../core/math';
+import { clamp, damp } from '../core/math';
 import { PHOTO_FOV } from '../render/cameraRig';
 import { wallDistances } from '../sim/echo';
 import { PhotoPanel } from '../ui/photoPanel';
@@ -134,6 +134,9 @@ export class App {
   /** 休闲模式的自动巡航 */
   private cruise: ScenicCruise | null = null;
   private photoPending = false;
+  /** 电影镜头里耳朵离飞机多远、飞机朝耳朵过来的速度 */
+  private far = 0;
+  private closing = 0;
   /** 左右山壁的距离（一秒算四次，给回声用） */
   private echo: readonly [number, number] = [0, 0];
   private echoT = 0;
@@ -770,6 +773,21 @@ export class App {
     this.input.pad?.rumble(strength);
   }
 
+  /** 电影镜头：耳朵在摄影机那里。声音跟着距离走，飞过的时候有多普勒 */
+  private listenFromCamera(s: GameSession, dt: number): void {
+    const rig = this.view.rig;
+    if (rig?.mode !== 'cinema' || !s.body || dt <= 0) {
+      this.far = this.closing = 0;
+      return;
+    }
+    const c = rig.camera.position;
+    const p = s.body.pos;
+    const d = Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z);
+    const was = this.far || d;
+    this.far = d;
+    this.closing = damp(this.closing, (was - d) / dt, 5, dt);
+  }
+
   /** 左右的山壁有多远：一秒四次就够了 */
   private listenForWalls(s: GameSession, dt: number): void {
     this.echoT -= dt;
@@ -1161,7 +1179,10 @@ export class App {
       a.href = URL.createObjectURL(blob);
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-      if (this.photoPanel) this.photoPanel.saved('已存到下载文件夹');
+      if (this.photoPanel) {
+        this.photoPanel.saved('已存到下载文件夹');
+        this.audio.click();
+      }
       else this.hud.toast('截图已存到下载文件夹', 'good', 1800);
     }, 'image/png');
   }
@@ -1262,6 +1283,7 @@ export class App {
       this.hud.update(s, this.view, this.settings, this.t);
       this.view.drawInstruments(this.t, this.instrumentData(s));
       this.listenForWalls(s, dt);
+      this.listenFromCamera(s, dt);
       this.audio.update(this.audioState(this.state !== 'playing'), dt);
     } else {
       // 菜单背景：长焦、贴着地面绕直升机慢慢转，直升机在画面右边（左边是标题和菜单），背后是谷地和雪山
@@ -1351,6 +1373,8 @@ export class App {
       sim,
       agl: s.agl,
       echo: this.echo,
+      far: this.far,
+      closing: this.closing,
       rpm: s.state === 'crashed' ? 0.2 : tel.rotorRpm,
       load: tel.thrust / (s.totalMass() * 9.81),
       power: tel.powerFrac,

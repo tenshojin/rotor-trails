@@ -41,6 +41,9 @@ export interface AudioState {
   agl?: number;
   /** 左、右最近的山壁有多远（米），没有就是 0 */
   echo?: readonly [number, number];
+  /** 电影镜头：耳朵离飞机多远（米）、飞机正以多快朝耳朵过来（米 / 秒） */
+  far?: number;
+  closing?: number;
   sim?: SimAudio | null;
   rpm: number;
   load: number; // 推力/重量
@@ -88,6 +91,8 @@ export class AudioEngine {
   private ambBus!: GainNode;
   private alertBus!: GainNode;
   private cabinFilter!: BiquadFilterNode;
+  /** 离得远了高频先没：电影镜头里旋翼声只剩闷闷的拍打 */
+  private distFilter!: BiquadFilterNode;
   /** 山壁的回声：左右各一条延迟线，back 是两面山壁之间再来回一次 */
   private echoes: Array<{ delay: DelayNode; gain: GainNode; back: GainNode }> = [];
   private white!: AudioBuffer;
@@ -148,13 +153,16 @@ export class AudioEngine {
       this.cabinFilter.connect(this.master);
       this.engineBus = ctx.createGain();
       this.engineBus.gain.value = 0;
-      // 发动机一路已经在合成器里按舱内 / 舱外滤过了
-      this.engineBus.connect(this.master);
       this.ambBus = ctx.createGain();
       this.ambBus.gain.value = 0;
       this.ambBus.connect(this.cabinFilter);
       this.alertBus = ctx.createGain();
       this.alertBus.connect(this.master);
+      this.distFilter = ctx.createBiquadFilter();
+      this.distFilter.type = 'lowpass';
+      this.distFilter.frequency.value = 20000;
+      // 发动机一路已经在合成器里按舱内 / 舱外滤过了
+      this.engineBus.connect(this.distFilter).connect(this.master);
       // 回声：高频走不远，碰到山壁回来的只有闷闷的一声；声音从那面山壁的方向来
       const far = ctx.createBiquadFilter();
       far.type = 'lowpass';
@@ -275,8 +283,10 @@ export class AudioEngine {
     this.paused = s.paused;
     const ctx = this.ctx;
     if (!ctx || ctx.state === 'closed') return;
-    this.smooth(this.engineBus.gain, s.paused ? 0 : this.volumes.engine, 0.1);
+    const far = s.far ?? 0;
+    this.smooth(this.engineBus.gain, s.paused ? 0 : this.volumes.engine / (1 + far / 60), 0.1);
     this.smooth(this.ambBus.gain, s.paused ? 0 : this.volumes.ambience, 0.1);
+    this.smooth(this.distFilter.frequency, 20000 / (1 + far / 22), 0.15);
     if (s.paused) {
       return;
     }
@@ -296,8 +306,10 @@ export class AudioEngine {
     const turn = Math.abs(s.bank) * 0.9 * Math.max(0, s.load - 0.9) * smooth01(12, 30, speed);
     const fast = smooth01(62, 80, speed) * 0.7;
     const slap = Math.min(1, bvi + turn + fast + (y?.vib ?? 0) * 0.3);
+    // 多普勒：飞机朝耳朵过来音调高，过去了音调低，电影镜头里飞过的那一下全靠它
+    const pitch = 343 / (343 - Math.max(-120, Math.min(120, s.closing ?? 0)));
     this.synth?.port.postMessage({
-      nr: s.rpm,
+      nr: s.rpm * pitch,
       n1: y ? y.n1 : 0.72 + 0.28 * Math.min(1, s.power),
       lit: y ? (y.lit ? 1 : 0) : 1,
       starter: y?.starter ? 1 : 0,

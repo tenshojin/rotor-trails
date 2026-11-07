@@ -5,9 +5,11 @@
 import * as THREE from 'three/webgpu';
 import { abs, float, mix, positionWorld, smoothstep, texture, uv, vec3 } from 'three/tsl';
 import { damp } from '../core/math';
+import { FOG } from './atmosphere';
 import { mulberry32 } from '../core/noise';
 import type { VesselDef } from '../maps/types';
 import { instanceModel, type ModelLib } from './modelLib';
+import { getGlowTexture } from './propsView';
 import { getNoiseTexture } from './textures';
 
 type Point = [number, number];
@@ -128,7 +130,8 @@ function wakeMaterial(): THREE.MeshBasicNodeMaterial {
   const core = float(1).sub(smoothstep(0.0, 0.3, v)).mul(smoothstep(0.03, 0.1, u)).mul(float(1).sub(smoothstep(0.1, 0.62, u)));
   const fade = float(1).sub(u);
   m.opacityNode = arms.mul(fade.mul(fade)).mul(smoothstep(0.3, 0.62, foam)).mul(0.5).add(core.mul(smoothstep(0.22, 0.6, foam)).mul(0.62)).mul(smoothstep(0.0, 0.025, u));
-  m.colorNode = mix(vec3(0.62, 0.68, 0.7), vec3(0.9, 0.93, 0.94), foam);
+  // （这个材质不受光：亮度跟着天色走，不然夜里海上两道白光）
+  m.colorNode = mix(vec3(0.62, 0.68, 0.7), vec3(0.9, 0.93, 0.94), foam).mul(FOG.color).mul(1.6);
   return m;
 }
 
@@ -141,6 +144,8 @@ export class Vessels {
   private readonly wakeGeo = wakeGeometry();
   private readonly wakeMat = wakeMaterial();
   private readonly meshes: THREE.InstancedMesh[] = [];
+  /** 夜里的航行灯：左红右绿，桅顶一盏白的。材质就这三个 */
+  private readonly lamps = [0xff3020, 0x30ff60, 0xfff2d8].map((color) => new THREE.SpriteMaterial({ map: typeof document === 'undefined' ? null : getGlowTexture(), color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
 
   /** ground：地形高度（水底），water：水面高度，half：可以走的范围 */
   constructor(defs: VesselDef[], lib: ModelLib, ground: (x: number, z: number) => number, private readonly water: number, half: number, seed: number) {
@@ -167,6 +172,14 @@ export class Vessels {
       // 模型的长边沿 X：转到 -Z
       hull.rotation.y = d.bow === 1 ? Math.PI / 2 : -Math.PI / 2;
       root.add(hull, wake);
+      const beam = d.len * 0.16;
+      const high = 2 + d.len * 0.2;
+      [[-beam, high * 0.6, -d.len * 0.2, 0], [beam, high * 0.6, -d.len * 0.2, 1], [0, high, 0, 2]].forEach(([x, y, z, k]) => {
+        const s = new THREE.Sprite(this.lamps[k]);
+        s.position.set(x, y, z);
+        s.scale.setScalar(1.6 + d.len * 0.03);
+        root.add(s);
+      });
       this.group.add(root);
       const route = new Route(pts);
       this.list.push({ root, route, s: route.len * ((i * 0.37) % 1), speed: d.speed, bow: d.bow ?? -1, yaw: NaN, bob: i * 1.7 });
@@ -174,7 +187,9 @@ export class Vessels {
     this.update(0.016, 0);
   }
 
-  update(dt: number, t: number): void {
+  /** night：0 白天 .. 1 夜里 */
+  update(dt: number, t: number, night = 0): void {
+    for (const m of this.lamps) m.opacity = night * 0.9;
     if (dt <= 0) return;
     for (const v of this.list) {
       v.s += v.speed * dt;
@@ -195,6 +210,7 @@ export class Vessels {
     for (const m of this.meshes) m.dispose();
     this.wakeGeo.dispose();
     this.wakeMat.dispose();
+    for (const m of this.lamps) m.dispose();
     this.list.length = this.meshes.length = 0;
     this.group.clear();
   }

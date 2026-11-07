@@ -437,7 +437,8 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const spin = (a: number) => (massive ? a : 0);
     const turn = (u: N<'vec2'>, a: number) => (a ? vec2(u.x.mul(Math.cos(a)).sub(u.y.mul(Math.sin(a))), u.x.mul(Math.sin(a)).add(u.y.mul(Math.cos(a)))) : u);
     // 转了角度的几层平铺，隔远了看是一张斜着的网：让它们的坐标慢慢歪，节理就不是直的了
-    const wobble = massive ? texture(noise, vec2(P.x.add(P.z), Py).div(1500.0).add(0.21)).rg.sub(0.5).mul(190.0).toVar() : null;
+    // （歪得太狠就成了木纹一样的漩涡：幅度要比一格小得多，变化也要慢）
+    const wobble = massive ? texture(noise, vec2(P.x.add(P.z), Py).div(3400.0).add(0.21)).rg.sub(0.5).mul(70.0).toVar() : null;
     const wall = (u: N<'vec2'>): N<'vec2'> => (wobble ? u.add(wobble) : u);
     const relief = (s: number, o: number, a = 0) => {
       const fx = texture(U.relief, turn(wall(vec2(P.z, Py)), a).div(s).add(o));
