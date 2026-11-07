@@ -6,6 +6,7 @@ import { attribute, dot, float, floor, fract, mix, positionWorld, sin, step, tex
 import type { RealBridgeDef, RealBuildingDef } from '../maps/types';
 import { bridgeDeckY, buildingFrame } from '../world/realData';
 import type { Heightfield } from '../sim/terrain';
+import type { HiRing } from './hiRing';
 import { getNoiseTexture } from './textures';
 
 export class RealBuildings {
@@ -15,7 +16,7 @@ export class RealBuildings {
   /** 1 = 天黑了，窗户亮灯 */
   readonly night = uniform(0);
 
-  constructor(list: readonly RealBuildingDef[], bridges: readonly RealBridgeDef[], terrain: Heightfield, image: THREE.Texture) {
+  constructor(list: readonly RealBuildingDef[], bridges: readonly RealBridgeDef[], terrain: Heightfield, image: THREE.Texture, hi: HiRing | null = null) {
     const pos: number[] = [];
     const nor: number[] = [];
     const col: number[] = [];
@@ -146,7 +147,9 @@ export class RealBuildings {
     const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0, vertexColors: true });
     const info = attribute<'vec4'>('wallInfo', 'vec4');
     const uv = positionWorld.xz.div(terrain.size).add(0.5);
-    const roof = texture(image, uv).rgb;
+    // （屋顶和地面一样，镜头周围换成 30 厘米的）
+    const near = hi?.sample(positionWorld);
+    const roof = near ? mix(texture(image, uv).rgb, near.rgb, near.k) : texture(image, uv).rgb;
     // 墙上的窗：一层 3.2 米，从檐口往下数，有几层画几排；一个开间 3.8 米
     const fy = fract(info.x.div(3.2));
     const fx = fract(info.y.div(3.8));

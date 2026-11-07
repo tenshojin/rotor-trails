@@ -25,6 +25,7 @@ import { loadTerrainLayers, type TerrainLayers } from './terrainLayers';
 import { makeTerrainUniforms, TerrainView, type TerrainUniforms } from './terrainView';
 import { RealBuildings } from './realBuildings';
 import { RealScatter, scatterModels } from './realScatter';
+import { HiRing } from './hiRing';
 import { RealTerrain } from './realTerrain';
 import { loadAux, loadRealImages, loadStrata, realFarGrid } from './realImages';
 import { makeForestTexture, makeGroundHeightTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
@@ -74,6 +75,7 @@ const _cabinWarm = new THREE.Color(1.0, 0.9, 0.76);
 const _pos = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
 const _vel = new THREE.Vector3();
+const _hiFwd = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _zero = new THREE.Vector3();
 const _project = new THREE.Vector3();
@@ -119,6 +121,8 @@ export class WorldView {
   world: WorldData | null = null;
   sky: SkyDome | null = null;
   terrain: TerrainView | RealTerrain | null = null;
+  /** 真实地形的 30 厘米影像 */
+  hiRing: HiRing | null = null;
   terrainUniforms: TerrainUniforms | null = null;
   private terrainTexSize = 0;
   private terrainRequestedSize: number | null = null;
@@ -239,6 +243,7 @@ export class WorldView {
         this.terrain.lodScale = q.terrainLod;
         this.terrain.shadowRange = q.shadowRange;
       }
+      this.hiRing?.setEnabled(q.hiRing > 0);
       if (this.trees) this.trees.quality = { near: q.treeNear, far: q.treeFar, shadows: q.shadows, aa: q.msaa > 0 };
       TREE_RANGE.value = q.treeFar;
       this.grass?.setMidRange(GRASS_MID[s.quality] ?? 0);
@@ -474,7 +479,8 @@ export class WorldView {
         if (aux) this.mapTextures.push(aux);
         if (auxMid) this.mapTextures.push(auxMid);
         if (scatter) this.mapTextures.push(scatter);
-        this.terrain = new RealTerrain(real, images, strata, [aux, auxMid], layers);
+        this.hiRing = await HiRing.create(this.renderer, real.def, QUALITY[this.settings.quality].hiRing);
+        this.terrain = new RealTerrain(real, images, strata, [aux, auxMid], layers, this.hiRing);
         scatterTex = scatter;
         scatterAux = auxMid;
         realImages = images;
@@ -528,10 +534,10 @@ export class WorldView {
       this.scene.add(this.trees.group);
       if (real && scatterTex && this.terrain instanceof RealTerrain) {
         const pads = map.pads.map((p): [number, number, number] => [p.pos[0], p.pos[2], p.size * 0.9 + 3]);
-        this.scatter = new RealScatter(real, { height: this.terrain.coreHeight, density: scatterTex, image: realImages[0] }, { ...this.terrain.midMaps, image: realImages[1], aux: scatterAux }, scatterModels(treeLib), pads, this.settings.quality);
+        this.scatter = new RealScatter(real, { height: this.terrain.coreHeight, density: scatterTex, image: realImages[0] }, { ...this.terrain.midMaps, image: realImages[1], aux: scatterAux }, scatterModels(treeLib), pads, this.settings.quality, this.hiRing);
         this.scene.add(this.scatter.group);
         if (real.def.buildings) {
-          this.buildings = new RealBuildings(real.def.buildings, real.def.bridges ?? [], world.terrain, realImages[0]);
+          this.buildings = new RealBuildings(real.def.buildings, real.def.bridges ?? [], world.terrain, realImages[0], this.hiRing);
           this.scene.add(this.buildings.group);
         }
       }
@@ -605,6 +611,8 @@ export class WorldView {
     rm(this.buildings?.group);
     rm(this.clouds?.group);
     this.terrain?.dispose();
+    this.hiRing?.dispose();
+    this.hiRing = null;
     this.sky?.clouds.dispose();
     this.sky?.material.dispose();
     this.sky?.mesh.geometry.dispose();
@@ -957,6 +965,7 @@ export class WorldView {
       this.updateEnv(w, f.t);
       if (this.terrain instanceof RealTerrain) this.terrain.update(cp, cam);
       else this.terrain?.update(cp);
+      if (this.hiRing && this.sky && this.world) this.hiRing.update(cp, cam.getWorldDirection(_hiFwd), this.sky.sunDir, cp.y - this.world.terrain.heightAt(cp.x, cp.z), f.dt);
       if (this.terrainUniforms) this.terrainUniforms.uWet.value = w.wetness;
       WET.value = w.wetness;
       this.water?.update(f.t, _w.x, _w.z, Math.hypot(_w.x, _w.z), w.rain);

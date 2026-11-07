@@ -97,6 +97,8 @@ export interface QualityPreset {
   envSize: number;
   /** 地形照片材质的分辨率 */
   terrainTex: number;
+  /** 真实地形 30 厘米影像的环形贴图一边放几块（0 = 不用）：一块 160 米，清晰的半径约 (块数 - 1) × 80 米 */
+  hiRing: number;
   /** 抗锯齿：低 = FXAA，中及以上 = TRAA 时间抗锯齿（数值只用于判断是否开启，叶片用 alpha-to-coverage） */
   msaa: number;
   /** 泛光（强光、太阳、水面反光的光晕） */
@@ -106,10 +108,10 @@ export interface QualityPreset {
 }
 
 export const QUALITY: Record<QualityId, QualityPreset> = {
-  low: { label: '低', pixelRatio: 0.8, shadows: false, shadowSize: 512, shadowRange: 0, treeNear: 260, treeFar: 1300, terrainLod: 0.7, rainDensity: 0.35, envSize: 64, terrainTex: 0, msaa: 0, bloom: false, ao: false },
-  medium: { label: '中', pixelRatio: 1, shadows: true, shadowSize: 1024, shadowRange: 600, treeNear: 380, treeFar: 2000, terrainLod: 1, rainDensity: 0.65, envSize: 128, terrainTex: 1024, msaa: 4, bloom: false, ao: true },
-  high: { label: '高', pixelRatio: 1.5, shadows: true, shadowSize: 2048, shadowRange: 1200, treeNear: 520, treeFar: 2900, terrainLod: 1.35, rainDensity: 1, envSize: 256, terrainTex: 1024, msaa: 4, bloom: true, ao: true },
-  ultra: { label: '极高（Ultra）', pixelRatio: 2, shadows: true, shadowSize: 4096, shadowRange: 2000, treeNear: 700, treeFar: 3600, terrainLod: 2.1, rainDensity: 1, envSize: 256, terrainTex: 1024, msaa: 4, bloom: true, ao: true },
+  low: { label: '低', pixelRatio: 0.8, shadows: false, shadowSize: 512, shadowRange: 0, treeNear: 260, treeFar: 1300, terrainLod: 0.7, rainDensity: 0.35, envSize: 64, terrainTex: 0, hiRing: 0, msaa: 0, bloom: false, ao: false },
+  medium: { label: '中', pixelRatio: 1, shadows: true, shadowSize: 1024, shadowRange: 600, treeNear: 380, treeFar: 2000, terrainLod: 1, rainDensity: 0.65, envSize: 128, terrainTex: 1024, hiRing: 4, msaa: 4, bloom: false, ao: true },
+  high: { label: '高', pixelRatio: 1.5, shadows: true, shadowSize: 2048, shadowRange: 1200, treeNear: 520, treeFar: 2900, terrainLod: 1.35, rainDensity: 1, envSize: 256, terrainTex: 1024, hiRing: 6, msaa: 4, bloom: true, ao: true },
+  ultra: { label: '极高（Ultra）', pixelRatio: 2, shadows: true, shadowSize: 4096, shadowRange: 2000, treeNear: 700, treeFar: 3600, terrainLod: 2.1, rainDensity: 1, envSize: 256, terrainTex: 1024, hiRing: 8, msaa: 4, bloom: true, ao: true },
 };
 
 export interface Settings {

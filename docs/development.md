@@ -70,6 +70,18 @@ python -I tools/real/prep_grandcanyon.py art/src/real/grandcanyon public/real/gr
 
 第一步从 USGS The National Map 下载约 230 MB（放在 `art/src/real/`，不进仓库）。外圈是后来换细的（10 米高程、5 米影像），已有旧数据的话单独下到一个子目录，`prep_grandcanyon.py` 看到 `mid10` 就用它：`python -I tools/real/fetch_grandcanyon.py art/src/real/grandcanyon/mid10 mid`。第二步大约十五分钟，内存要留 8 GB，要有 numpy、scipy、Pillow。`--sun` 是拍摄时的太阳方位和高度，不写就从照片和高程里自动拟合。
 
+30 厘米影像是单独的两步，核心区全部下载约 425 MB（下载前先问过用户），切块 4 个进程约二十五分钟，内存 5 GB 以内（全图的中间结果用半精度、一条一条算，机器上常有别的大程序在跑），成品 241 MB：
+
+```bash
+python -I tools/real/fetch_hires.py art/src/real/grandcanyon/hi30
+python -I tools/real/fetch_hires.py art/src/real/grandcanyon/hi30 nir
+python -I tools/real/prep_hires.py art/src/real/grandcanyon/hi30 public/real/grandcanyon/core.webp ../rotor-trails-tiles/grandcanyon/hi
+```
+
+成品放在单独的仓库 [rotor-trails-tiles](https://github.com/tenshojin/rotor-trails-tiles)，用 GitHub Pages 发布（`src/maps/grandcanyon.ts` 的 `hi`）。放在这个仓库的话，每次推送都要多传 241 MB，重新生成一次仓库就多一份。那个仓库只有数据，重新生成以后可以把历史压掉。本机开发也是读线上的（Pages 允许跨域），读不到就退回 1.25 米。
+
+`prep_hires.py` 要在 `prep_grandcanyon.py` 之后跑：颜色跟着 `core.webp`，还会把 `trees.dat` 里的树挪到树冠上（原始位置留在下载目录的 `trees_orig.dat`；`prep_grandcanyon.py` 重跑过的话要删掉它）。`--rows`、`--cols` 只做一部分，试参数用；`--again` 只重新切块，第一遍的结果还在 `_work` 里。
+
 第二步生成高程、影像、岩层色表、树，还有核心区和外圈的辅助图（`sky_river.webp`、`sky_river_mid.webp`）和地面散布的疏密图（`scatter.webp`）。跑完看一下 `public/real/grandcanyon/meta.json` 的 `bases`，要和 `src/maps/grandcanyon.ts` 里每层的 `base` 一样：河面压平之后最低点可能变，差一米整张图的高度都错（`tests/real-data.test.ts` 会查）。
 
 在线服务在地图中西部（x -5000 ~ -1000，z -5000 ~ 1800）只有 10 米的高程，提交的数据已经换成了 1 米的激光测绘。重新生成时要在第二步之前多跑一步，下载 266 MB，同样不进仓库：

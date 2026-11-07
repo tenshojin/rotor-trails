@@ -242,6 +242,8 @@ export interface RealTerrainDef {
   auxMid?: string;
   /** 核心区 5 米一格的散布密度：R 灌木，G 碎石，B 枯草（见 render/realScatter.ts） */
   scatter?: string;
+  /** 30 厘米影像的目录（下面有 index.json 和一块块的图），相对 base，也可以是完整的网址。见 render/hiRing.ts */
+  hi?: string;
   /** 照着航拍描的房子 */
   buildings?: readonly RealBuildingDef[];
   bridges?: readonly RealBridgeDef[];

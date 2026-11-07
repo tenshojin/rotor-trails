@@ -1,4 +1,4 @@
-// 大峡谷：真实地形。高程来自 USGS 3DEP（2.5 米一格），地表来自 2023 年 NAIP 航拍（1.25 米/像素）。
+// 大峡谷：真实地形。高程来自 USGS 3DEP（2.5 米一格），地表来自 2023 年 NAIP 航拍（1.25 米/像素，镜头周围是 30 厘米的）。
 // 地图中心在南缘和科罗拉多河之间（北纬 36.085，西经 112.095），世界坐标 x 向东、-z 向北、y 就是海拔。
 // 数据和处理流程见 tools/real/。这是一张超大地图：核心区 10 公里是精细数据，往外到 41 公里也能飞（20 米高程、10 米影像），
 // 北缘、大景观点、隐士歇脚处都在里面。玩法是休闲飞行。
@@ -41,6 +41,8 @@ export const GRAND_CANYON: MapDef = {
     aux: 'sky_river.webp',
     auxMid: 'sky_river_mid.webp',
     scatter: 'scatter.webp',
+    // 241 MB，放在单独的仓库：放这里的话每次部署都要多传一遍。同一个域名，本机开发也能读（Pages 允许跨域）
+    hi: 'https://tenshojin.github.io/rotor-trails-tiles/grandcanyon/hi/',
     buildings: GRAND_CANYON_BUILDINGS,
     bridges: GRAND_CANYON_BRIDGES,
     // 后缀别用 .bin、.gz：下载软件会把这些请求拦走，游戏只收到一个空的 204

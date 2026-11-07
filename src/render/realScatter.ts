@@ -45,6 +45,7 @@ import type { TreeType } from '../maps/types';
 import type { RingTree } from '../sim/session';
 import type { RealData, RealGrid } from '../world/realData';
 import { FOG, gustAt, WASH, WIND } from './atmosphere';
+import type { HiRing } from './hiRing';
 import { getNoiseTexture } from './textures';
 import type { TreeLib } from './treeView';
 import { VFOG } from './volumetricFog';
@@ -237,6 +238,8 @@ export class RealScatter {
     /** 这些圆里什么都不长（停机坪）：x、z、半径 */
     private readonly keepOut: Array<[number, number, number]>,
     quality: string,
+    /** 30 厘米影像：灌木长在影像上看得见的地方 */
+    private readonly hi: HiRing | null = null,
   ) {
     // 近处的碎石面多一些：飞低了看得见棱，二十个面的石头是一块多面体
     const rocks = [rockGeometry(0), rockGeometry(1)];
@@ -448,7 +451,13 @@ export class RealScatter {
     // 碎石一片多一片少，不是均匀撒的
     // 外圈的树：高处、不陡、够深的地方。影子里的崖壁也暗，所以要看高度
     const forest = float(1).sub(smoothstep(0.075, 0.17, l1)).mul(float(1).sub(steep)).mul(smoothstep(1750.0, 1900.0, y0)).mul(float(1).sub(inCore)).mul(dry);
-    const d = tree ? (def.tall ? forest.mul(smoothstep(2060.0, 2230.0, y0)) : forest) : shrub ? dens.x : rock ? dens.y.mul(smoothstep(0.34, 0.66, texture(noise, vec2(wx, wz).div(490.0)).level(float(0)).r).mul(0.9).add(0.25)) : dens.z;
+    // 30 厘米的影像上一丛丛看得清：灌木就长在这些地方，地上不是一块块贴纸
+    let bush: N<'float'> = dens.x;
+    if (shrub && this.hi) {
+      const c = this.hi.bushAt(wx, wz);
+      bush = mix(dens.x, max(c.bush, dens.x.mul(0.5)), c.k.mul(inCore));
+    }
+    const d = tree ? (def.tall ? forest.mul(smoothstep(2060.0, 2230.0, y0)) : forest) : shrub ? bush : rock ? dens.y.mul(smoothstep(0.34, 0.66, texture(noise, vec2(wx, wz).div(490.0)).level(float(0)).r).mul(0.9).add(0.25)) : dens.z;
     let inside: N<'float'> = step(max(abs2(wx), abs2(wz)), g1.half - 8);
     for (const [cx, cz, r] of this.keepOut.slice(0, 16)) inside = inside.mul(step(r, length(vec2(wx, wz).sub(vec2(cx, cz)))));
     const keep = step(h.z, d.mul(def.p)).mul(inside);
