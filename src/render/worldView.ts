@@ -537,7 +537,10 @@ export class WorldView {
       this.trees = new TreeView(world.trees, treeLib, map.biome.rock, map.rockForm ?? null, map.leafTint, !!real);
       this.scene.add(this.trees.group);
       if (map.birds) {
-        const anchors = [...map.pads.map((p): [number, number] => [p.pos[0], p.pos[2]]), ...vistasOf(map).map((v): [number, number] => [v.at[0], v.at[2]])];
+        // 前两个是玩家最先待的地方：闯关的起飞点、休闲飞行的第一个景点
+        const start = map.pads.find((p) => p.id === map.spawn.padId) ?? map.pads[0];
+        const views = vistasOf(map).map((v): [number, number] => [v.at[0], v.at[2]]);
+        const anchors: Array<[number, number]> = [[start.pos[0], start.pos[2]], ...views, ...map.pads.map((p): [number, number] => [p.pos[0], p.pos[2]])];
         this.birds = new Birds(map.birds, anchors, (x, z) => Math.max(world.ctx.ground(x, z), map.waterLevel ?? -1e9), map.seed);
         this.scene.add(this.birds.group);
       }

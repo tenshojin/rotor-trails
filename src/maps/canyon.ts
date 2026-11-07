@@ -188,7 +188,8 @@ function farLand(x: number, z: number): number {
     const ww = WALL + 24 * n.noise(x / 380, 3.3);
     if (d >= fw + ww) continue;
     if (d < fw) h = Math.min(h, floor + 3 * smoothstep(fw * 0.55, fw, d));
-    else h = Math.min(h, floor + (h - floor) * terrace((d - fw) / ww + 0.04 * n2.noise(x / 40, z / 40), 3));
+    // （远景网格几十米一格，表现不了台阶：一级级的平台采出来是崖壁上一排白色的三角）
+    else h = Math.min(h, floor + (h - floor) * smoothstep(0, 1, (d - fw) / ww + 0.04 * n2.noise(x / 40, z / 40)));
   }
   return h;
 }

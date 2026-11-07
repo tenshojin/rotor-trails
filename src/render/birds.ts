@@ -23,15 +23,19 @@ interface Species {
   glide: [number, number];
   /** 滑翔时翅膀抬起的角度 */
   dihedral: number;
+  /** 几只一群、群里隔多远（米）、是不是在气流里盘旋 */
+  group: number;
+  spread: number;
+  soars: boolean;
 }
 
 const SPECIES: Record<BirdKind, Species> = {
-  condor: { half: 1.45, color: [0.02, 0.02, 0.022], speed: 15, alt: [50, 170], radius: [130, 320], hz: 1.5, amp: 0.3, beat: [1.2, 2.5], glide: [14, 40], dihedral: 0.13 },
-  raven: { half: 0.62, color: [0.012, 0.012, 0.016], speed: 13, alt: [25, 110], radius: [60, 180], hz: 3.2, amp: 0.5, beat: [2, 5], glide: [2, 7], dihedral: 0.05 },
-  gull: { half: 0.65, color: [0.72, 0.73, 0.74], speed: 11, alt: [14, 70], radius: [50, 170], hz: 2.6, amp: 0.55, beat: [1.5, 4], glide: [2, 6], dihedral: 0.1 },
-  kite: { half: 0.85, color: [0.09, 0.06, 0.04], speed: 11, alt: [40, 150], radius: [70, 200], hz: 2.2, amp: 0.38, beat: [1, 2], glide: [8, 22], dihedral: 0.04 },
-  egret: { half: 0.78, color: [0.8, 0.8, 0.77], speed: 10, alt: [12, 55], radius: [90, 260], hz: 1.9, amp: 0.62, beat: [30, 60], glide: [1, 3], dihedral: 0.03 },
-  macaw: { half: 0.5, color: [0.5, 0.045, 0.03], speed: 15, alt: [22, 70], radius: [80, 240], hz: 4.5, amp: 0.6, beat: [30, 60], glide: [0.5, 1.5], dihedral: 0.02 },
+  condor: { half: 1.45, color: [0.02, 0.02, 0.022], speed: 15, alt: [50, 170], radius: [130, 320], hz: 1.5, amp: 0.3, beat: [1.2, 2.5], glide: [14, 40], dihedral: 0.13, group: 3, spread: 30, soars: true },
+  raven: { half: 0.62, color: [0.012, 0.012, 0.016], speed: 13, alt: [25, 110], radius: [60, 180], hz: 3.2, amp: 0.5, beat: [2, 5], glide: [2, 7], dihedral: 0.05, group: 4, spread: 12, soars: false },
+  gull: { half: 0.65, color: [0.72, 0.73, 0.74], speed: 11, alt: [14, 70], radius: [50, 170], hz: 2.6, amp: 0.55, beat: [1.5, 4], glide: [2, 6], dihedral: 0.1, group: 6, spread: 11, soars: false },
+  kite: { half: 0.85, color: [0.09, 0.06, 0.04], speed: 11, alt: [40, 150], radius: [70, 200], hz: 2.2, amp: 0.38, beat: [1, 2], glide: [8, 22], dihedral: 0.04, group: 2, spread: 22, soars: true },
+  egret: { half: 0.78, color: [0.8, 0.8, 0.77], speed: 10, alt: [12, 55], radius: [90, 260], hz: 1.9, amp: 0.62, beat: [30, 60], glide: [1, 3], dihedral: 0.03, group: 5, spread: 9, soars: false },
+  macaw: { half: 0.5, color: [0.5, 0.045, 0.03], speed: 15, alt: [22, 70], radius: [80, 240], hz: 4.5, amp: 0.6, beat: [30, 60], glide: [0.5, 1.5], dihedral: 0.02, group: 2, spread: 4, soars: false },
 };
 
 interface Bird {
@@ -131,34 +135,44 @@ export class Birds {
    */
   constructor(kinds: Partial<Record<BirdKind, number>>, anchors: Array<[number, number]>, ground: (x: number, z: number) => number, seed: number) {
     const rng = mulberry32(seed);
-    for (const k of Object.keys(kinds) as BirdKind[]) {
+    (Object.keys(kinds) as BirdKind[]).forEach((k, ki) => {
       const s = SPECIES[k];
-      for (let i = 0; i < (kinds[k] ?? 0); i++) {
-        const at = anchors[Math.floor(rng() * anchors.length)];
+      // 一只一只散在天上是看不见的：成群地飞才有人注意到。第一群就在起飞的地方
+      let left = kinds[k] ?? 0;
+      for (let g = 0; left > 0; g++) {
+        const at = g === 0 ? anchors[ki % Math.min(2, anchors.length)] : anchors[Math.floor(rng() * anchors.length)];
         const r = s.radius[0] + (s.radius[1] - s.radius[0]) * rng();
-        const off = 80 + 520 * rng();
+        const off = g === 0 ? 60 + 200 * rng() : 80 + 520 * rng();
         const dir = rng() * Math.PI * 2;
         const x = at[0] + Math.cos(dir) * off;
         const z = at[1] + Math.sin(dir) * off;
         let top = ground(x, z);
         for (let j = 0; j < 8; j++) top = Math.max(top, ground(x + Math.cos(j * 0.785) * r, z + Math.sin(j * 0.785) * r));
-        this.birds.push({
-          s,
-          x,
-          y: top + s.alt[0] + (s.alt[1] - s.alt[0]) * rng(),
-          z,
-          r,
-          w: ((rng() < 0.5 ? -1 : 1) * s.speed) / r,
-          a: rng() * Math.PI * 2,
-          ph: rng() * 40,
-          left: rng() * 6,
-          flapping: false,
-          wing: rng() * 6,
-          beat: 0,
-          shy: 0,
-        });
+        const y = top + s.alt[0] + (s.alt[1] - s.alt[0]) * rng();
+        const w = ((rng() < 0.5 ? -1 : 1) * s.speed) / r;
+        const a = rng() * Math.PI * 2;
+        const n = Math.min(left, s.group);
+        left -= n;
+        for (let i = 0; i < n; i++) {
+          this.birds.push({
+            s,
+            x,
+            y: y + (rng() - 0.5) * s.spread * 0.5,
+            z,
+            r: r + (rng() - 0.5) * s.spread,
+            w,
+            // 盘旋的鸟在一个气流圈里错开，赶路的跟在一起
+            a: a + (s.soars ? (i / n) * Math.PI * 2 : (i * s.spread * 0.9 + rng() * s.spread) / r),
+            ph: rng() * 40,
+            left: rng() * 6,
+            flapping: false,
+            wing: rng() * 6,
+            beat: 0,
+            shy: 0,
+          });
+        }
       }
-    }
+    });
     const n = this.birds.length;
     this.lifts = Array.from({ length: Math.max(1, n) }, () => new THREE.Vector3());
     const lifts = uniformArray(this.lifts, 'vec3') as unknown as { element(i: unknown): THREE.Node<'vec3'> };
