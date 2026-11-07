@@ -55,7 +55,8 @@ export class PadReader {
   /** 读一次手柄。inMenu：方向键和 A、B 用来走菜单，不是飞行动作 */
   poll(dt: number, inMenu: boolean, edge: (a: PadEdge) => void, nav: (d: PadNav) => void): void {
     const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
-    const pad = [...pads].find((p) => p && p.connected && p.buttons.length >= 10) ?? null;
+    // 只认标准布局：方向盘、飞行摇杆、踏板也报成手柄，它们的轴静止时可能在 ±1，接上就等于有人一直推着杆
+    const pad = [...pads].find((p) => p && p.connected && p.mapping === 'standard' && p.buttons.length >= 10) ?? null;
     if (!pad) {
       if (this.connected) this.reset();
       return;

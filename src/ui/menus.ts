@@ -29,6 +29,18 @@ const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), a[href], [tabindex="0"]';
 
+/** 等加载的时候看一句：这些东西不说的话没人知道 */
+const TIPS = [
+  '暂停菜单里有拍照模式：世界定格，机位随便放，焦距、曝光、虚化都能调。',
+  '休闲飞行里按 J 自动巡航，动任何飞行键就交回给你。',
+  '休闲飞行里按 V 能切到电影镜头：机位自己换，声音跟着距离走。',
+  '按 U 收起 HUD，看风景的时候画面更干净。',
+  '按 F 截图，不带 HUD，暂停的时候也能拍。',
+  '飞行也可以用手柄，按键表在操作说明里。',
+  '贴着山壁飞的时候听一听：旋翼声会从山壁上弹回来。',
+  '暂停菜单里可以换时段和天气，黄昏的大峡谷值得看一眼。',
+];
+
 export class UI {
   readonly root: HTMLDivElement;
   private screen: HTMLDivElement | null = null;
@@ -396,7 +408,7 @@ export class UI {
       el = this.show(
         h(`<div class="screen loading"${art}>
           <div class="load-name">${map ? `<h2>${map.name}</h2><span>${map.subtitle}</span>` : '<h2>正在准备地图</h2>'}</div>
-          <div class="load-foot"><div class="lbar" role="progressbar" aria-label="地图准备进度" aria-valuemin="0" aria-valuemax="100"><i></i></div><div class="llabel" role="status"></div></div>
+          <div class="load-foot"><div class="lbar" role="progressbar" aria-label="地图准备进度" aria-valuemin="0" aria-valuemax="100"><i></i></div><div class="llabel" role="status"></div>${map ? `<div class="ltip">${TIPS[Math.floor(Math.random() * TIPS.length)]}</div>` : ''}</div>
         </div>`),
       );
     }

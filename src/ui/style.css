@@ -2044,3 +2044,12 @@ canvas.gl.sim-cursor.sim-cursor-hot {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* 加载画面的小提示 */
+.ltip {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+}
