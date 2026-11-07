@@ -29,7 +29,9 @@ CACTUS = K.material('tree_cactus', 0x4f6e3a, rough=0.7)
 # 西黄松的树皮：贴图一样，游戏里按名字染成橙褐色（见 treeView.ts）
 PONDB = K.material('tree_bark_pond', 0x808080, rough=1.0, tex='art/out/tex/pine_bark_diffuse_1024.jpg',
                    normal='art/out/tex/pine_bark_nor_gl_1024.jpg', rough_tex='art/out/tex/pine_bark_rough_1024.jpg')
-MATS = [BARK, LEAF, PALMB, CACTUS, PONDB]
+# 白桦的树皮画在图集里（白底黑斑）：树皮不透明，不能走叶片的材质，那个材质按透明度裁切、还跟着风抖
+BIRCHB = K.material('tree_bark_birch', 0x808080, rough=0.85, tex=ATLAS)
+MATS = [BARK, LEAF, PALMB, CACTUS, PONDB, BIRCHB]
 MI = {m.name: i for i, m in enumerate(MATS)}
 
 
@@ -186,7 +188,35 @@ def along(path, z):
     return Vector(path[-1])
 
 
-def leafy_tree(name, lod, rng, trunk_h, trunk_r, cy, rx, ry, rect, n_cards, card_size, n_branch, seg, bark=BARK, bark_rect=None, flat_top=0.0, lean=0.0, extra=None):
+def lobes_of(seed, cc, rx, ry, n, tall=0.0):
+    """树冠不是一个球：几团大小不一的枝叶叠在一起，外形才有起伏，每一团上面亮、下面暗。
+    两级细节用同一个种子，换级的时候轮廓不跳。tall：往高处收（白桦这种窄长的树冠）。"""
+    r = random.Random(seed)
+    out = [(Vector(cc), rx * 0.66, ry * 0.7)]
+    for i in range(n):
+        a = 2 * math.pi * i / n + r.uniform(-0.55, 0.55)
+        h = r.uniform(-0.62, 0.8)
+        d = math.sqrt(max(0.0, 1 - h * h * 0.75)) * (1 - tall * max(0.0, h))
+        c = Vector(cc) + Vector((math.cos(a) * d * rx * 0.52, math.sin(a) * d * rx * 0.52, h * ry * 0.66))
+        k = r.uniform(0.42, 0.58)
+        out.append((c, rx * k, ry * k * 0.82))
+    return out
+
+
+def lobed_cards(mb, rng, lobes, n_cards, card_size, rect, cc):
+    """叶卡按表面积分到每一团上（按体积分的话小团只有两三张卡，飘在外面）。
+    法线一半朝这一团的外面，一半朝整棵树冠的外面；卡片不能比这一团还大"""
+    total = sum(a * b for _, a, b in lobes)
+    for c, a, b in lobes:
+        n = max(6, round(n_cards * a * b / total))
+        for p in crown_points(rng, n, c, a, b, (0.35, 0.95)):
+            out = ((p - c).normalized() + (p - cc).normalized() * 0.6).normalized()
+            sz = min(card_size, a * 1.2) * rng.uniform(0.75, 1.1)
+            nrm = out.lerp(Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-1, 1))).normalized(), 0.55)
+            mb.card(p, nrm, sz, sz, rect, rng.uniform(0, 6.28), c)
+
+
+def leafy_tree(name, lod, rng, trunk_h, trunk_r, cy, rx, ry, rect, n_cards, card_size, n_branch, seg, bark=BARK, bark_rect=None, flat_top=0.0, lean=0.0, extra=None, lobes=None):
     mb = MB()
     cc = Vector((lean, 0, cy))
     top = Vector((lean * 0.9, 0, cy + ry * 0.25))
@@ -195,7 +225,8 @@ def leafy_tree(name, lod, rng, trunk_h, trunk_r, cy, rx, ry, rect, n_cards, card
     rs[0] = trunk_r * 1.35
     mb.tube(tp, rs, seg, bark, uv_rect=bark_rect)
     if lod < 2:
-        tips = crown_points(rng, n_branch, cc, rx * 0.75, ry * 0.6, (0.6, 1.0))
+        # 分了团的树：主枝伸到每一团里去
+        tips = [c for c, _, _ in lobes[1:]] if lobes else crown_points(rng, n_branch, cc, rx * 0.75, ry * 0.6, (0.6, 1.0))
         for k, tip in enumerate(tips):
             z0 = trunk_h * rng.uniform(0.7, 0.95)
             base = along(tp, z0)
@@ -207,7 +238,9 @@ def leafy_tree(name, lod, rng, trunk_h, trunk_r, cy, rx, ry, rect, n_cards, card
                     s0 = bp[rng.randint(1, len(bp) - 2)]
                     s1 = s0 + (tip - base).normalized() * rx * 0.35 + Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(0, 0.8))) * rx * 0.25
                     mb.tube([s0, s1], [br[1] * 0.6, br[1] * 0.2], 5, bark, uv_rect=bark_rect)
-    for p in crown_points(rng, n_cards, cc, rx, ry, flat_top=flat_top):
+    if lobes:
+        lobed_cards(mb, rng, lobes, n_cards, card_size, rect, cc)
+    for p in [] if lobes else crown_points(rng, n_cards, cc, rx, ry, flat_top=flat_top):
         out = (p - cc).normalized()
         sz = card_size * rng.uniform(0.8, 1.2)
         mb.card(p, out.lerp(Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-1, 1))).normalized(), 0.45), sz, sz, rect, rng.uniform(0, 6.28), cc)
@@ -232,11 +265,13 @@ def understory(lod, n, r_rng, h_rng, cards, size):
     return fn
 
 
-def mass_tree(name, trunk_h, trunk_r, cy, rx, ry, bark=BARK, bark_rect=None, cone=False, under=None, rect=S_MASS):
+def mass_tree(name, trunk_h, trunk_r, cy, rx, ry, bark=BARK, bark_rect=None, cone=False, under=None, rect=S_MASS, bumpy=0.0):
     """最远一级：简化树干 + 体块树冠（椭球或圆锥），用图集里的不透明“树冠体块”纹理。under=(高度, 横半径, 竖半径)：再加一个林下层体块。"""
     mb = MB()
     mb.tube([(0, 0, 0), (0, 0, cy)], [trunk_r, trunk_r * 0.6], 4, bark, uv_rect=bark_rect)
     u0, v0, u1, v1 = rect
+    # 分团的树在最远一级也不是一个正圆：同样的顶点数，轮廓上鼓几块
+    wob = lambda ph, th: 1 + bumpy * (math.sin(3 * th + 1.3) * math.sin(2 * ph) + 0.6 * math.sin(5 * th + 0.7 + ph * 2))
     if cone:
         n = 7
         base_z, top_z = cy - ry, cy + ry
@@ -257,7 +292,8 @@ def mass_tree(name, trunk_h, trunk_r, cy, rx, ry, bark=BARK, bark_rect=None, con
             row = []
             for j in range(segs):
                 th = 2 * math.pi * j / segs + (0.45 if bc != cy else 0.0)
-                row.append(cc + Vector((math.sin(ph) * math.cos(th) * brx, math.sin(ph) * math.sin(th) * brx, math.cos(ph) * bry)))
+                k = wob(ph, th)
+                row.append(cc + Vector((math.sin(ph) * math.cos(th) * brx * k, math.sin(ph) * math.sin(th) * brx * k, math.cos(ph) * bry * k)))
             pts.append(row)
         for i in range(rings):
             for j in range(segs):
@@ -276,15 +312,19 @@ def add(obj):
 
 # ------------------------------------------------------------------ 各树种
 def broadleaf():
-    for lod, (nc, cs, nb) in enumerate([(95, 2.2, 6), (30, 3.4, 3)]):
-        add(leafy_tree(f'broadleaf_{lod}', lod, random.Random(11), 6, 0.32, 8, 4.2, 3.4, S_BROAD, nc, cs, nb, 12 if lod == 0 else 6))
-    add(mass_tree('broadleaf_2', 6, 0.32, 8, 4.0, 3.2))
+    # 主干不高就分枝，树冠宽：不是一根棍子顶一个球
+    cy, rx, ry = 7.6, 4.8, 4.0
+    for lod, (nc, cs, nb) in enumerate([(100, 2.1, 6), (32, 3.4, 3)]):
+        add(leafy_tree(f'broadleaf_{lod}', lod, random.Random(11), 4.6, 0.34, cy, rx, ry, S_BROAD, nc, cs, nb, 12 if lod == 0 else 6, lobes=lobes_of(111, (0, 0, cy), rx, ry, 7)))
+    add(mass_tree('broadleaf_2', 4.6, 0.34, cy, 4.5, 3.8, bumpy=0.11))
 
 
 def birch():
-    for lod, (nc, cs, nb) in enumerate([(100, 1.9, 5), (30, 2.9, 3)]):
-        add(leafy_tree(f'birch_{lod}', lod, random.Random(12), 8, 0.2, 9.5, 2.6, 3.2, S_BIRCH, nc, cs, nb, 10 if lod == 0 else 5, bark_rect=S_BIRCHBARK))
-    add(mass_tree('birch_2', 8, 0.2, 9.5, 2.5, 3.1, bark_rect=S_BIRCHBARK))
+    # 白桦：细高，窄长的树冠从很低的地方就开始
+    cy, rx, ry = 9.0, 3.0, 5.0
+    for lod, (nc, cs, nb) in enumerate([(100, 1.8, 5), (32, 2.9, 3)]):
+        add(leafy_tree(f'birch_{lod}', lod, random.Random(12), 6.0, 0.21, cy, rx, ry, S_BIRCH, nc, cs, nb, 10 if lod == 0 else 5, bark=BIRCHB, bark_rect=S_BIRCHBARK, lobes=lobes_of(112, (0, 0, cy), rx, ry, 6, tall=0.55)))
+    add(mass_tree('birch_2', 6.0, 0.21, cy, 2.8, 4.7, bark=BIRCHB, bark_rect=S_BIRCHBARK, bumpy=0.1))
 
 
 def canopy():

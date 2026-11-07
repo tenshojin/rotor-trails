@@ -155,57 +155,6 @@ def torii():
     ROOTS.append(root)
 
 
-# ------------------------------------------------------------------ 渔船（参考长度 13 m，游戏按长度等比缩放）
-def boat(name, hull_hex):
-    parts = []
-    L, W = 13.0, 4.2
-    hull_m = F(f'hull_{name}', hull_hex, rough=0.4)
-    # 船体：船首尖、船尾方的放样（截面为 U 形）
-    n = 20
-    verts, faces = [], []
-    prof = 10
-    for i in range(n + 1):
-        t = i / n
-        x = -L / 2 + L * t
-        bow = max(0.0, (t - 0.72) / 0.28)
-        half = W / 2 * (1 - bow ** 1.6 * 0.96)
-        keel = -1.0 + 0.25 * bow
-        top = 1.0 + 0.45 * bow ** 2
-        for j in range(prof + 1):
-            a = math.pi * j / prof
-            y = -half * math.cos(a)
-            z = keel + (top - keel) * (1 - math.sin(a) ** 0.55) if 0 < j < prof else top
-            z = top if j in (0, prof) else keel * math.sin(a) ** 0.6 + top * (1 - math.sin(a) ** 0.6)
-            verts.append((x, y, z))
-    for i in range(n):
-        for j in range(prof):
-            a = i * (prof + 1) + j
-            b = a + prof + 1
-            faces.append((a, b, b + 1, a + 1))
-    stern = [j for j in range(prof + 1)]
-    faces.append(tuple(stern[::-1]))
-    hull = K.mesh_obj('hull', verts, faces, hull_m, smooth=40)
-    K.fix_normals(hull)
-    parts.append(hull)
-    parts.append(BK.bx('deck', (L * 0.9, W * 0.92, 0.1), (-0.3, 0, 0.95), M('hinoki')))
-    parts.append(BK.bx('rail_l', (L * 0.8, 0.08, 0.12), (0, W / 2 - 0.05, 1.05), F('boat_trim', 0x2a2d31, rough=0.5), uv=False))
-    parts.append(BK.bx('rail_r', (L * 0.8, 0.08, 0.12), (0, -W / 2 + 0.05, 1.05), F('boat_trim', 0x2a2d31, rough=0.5), uv=False))
-    # 驾驶室
-    cx = L * 0.12
-    parts.append(BK.bx('cabin', (L * 0.28, W * 0.72, 1.8), (cx, 0, 1.9), WHITE, uv=False))
-    parts.append(BK.bx('cabin_roof', (L * 0.31, W * 0.78, 0.12), (cx, 0, 2.86), WHITE, uv=False))
-    parts.append(BK.bx('cabin_glass', (L * 0.285, W * 0.73, 0.6), (cx, 0, 2.35), GLASS, uv=False))
-    # 桅杆、雷达、集鱼灯、救生圈
-    parts.append(BK.cyl('mast', 0.08, 3.4, (cx - 0.6, 0, 4.4), WHITE, 8, uv=False))
-    parts.append(BK.bx('radar', (1.2, 0.18, 0.12), (cx - 0.6, 0, 5.0), WHITE, uv=False))
-    for i in range(6):
-        parts.append(K.sphere(f'lamp{i}', 0.16, (-L * 0.32 + i * 1.0, 0, 2.6), F('lamp_glass', 0xf2f2e6, rough=0.1), 10, 6))
-    parts.append(BK.bx('lampline', (6.0, 0.04, 0.04), (-L * 0.32 + 2.5, 0, 2.75), F('boat_trim', 0x2a2d31, rough=0.5), uv=False))
-    parts.append(K.torus('buoy', 0.32, 0.08, (cx + 0.7, W * 0.36 + 0.05, 1.9), F('buoy', 0xff6a1a, rough=0.5), 20, 8, rot=(math.pi / 2, 0, 0)))
-    root, _ = BK.model(name, parts)
-    ROOTS.append(root)
-
-
 jhouse('jhouse_1a', False, 'plaster')
 jhouse('jhouse_1b', False, 'wood')
 jhouse('jhouse_2a', True, 'plaster')
@@ -223,7 +172,7 @@ for lod in range(3):
 ROOTS.append(JL.lighthouse())
 ROOTS.append(JL.joyato())
 for i, c in enumerate(HULL_COLORS):
-    boat(f'boat_{i}', c)
+    ROOTS.append(CP.fishing_boat(f'boat_{i}', c))
 ROOTS += JP.build_all()
 
 # 每个模型沿 X 方向排开（仅用于预览；导出的子网格相对各自的根节点）

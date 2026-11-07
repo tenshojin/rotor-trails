@@ -383,6 +383,13 @@ export const JAPAN: MapDef = {
   },
   sun: [235, 38],
   ambience: { sea: 1, gulls: 0.6, wind: 0.25 },
+  vessels: [
+    { model: 'ferry_jp', len: 46, speed: 7.5, bow: 1 },
+    { model: 'boat_0', len: 13, speed: 5, bow: 1 },
+    { model: 'boat_1', len: 13, speed: 4, bow: 1 },
+    { model: 'boat_2', len: 13, speed: 5.5, bow: 1 },
+    { model: 'boat_3', len: 13, speed: 3.5, bow: 1 },
+  ],
   birds: { gull: 18, kite: 7 },
   landmarks: [
     { name: '五重塔', pos: [-1450, 60, 540] },

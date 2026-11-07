@@ -21,12 +21,12 @@ export interface TreeSpec {
 
 export const TREE_SPECS: Record<TreeType, TreeSpec> = {
   pine: { trunkH: 7, trunkR: 0.28, crownY: 7.5, crownR: 3.6, crownRy: 2.2, collide: true },
-  broadleaf: { trunkH: 6, trunkR: 0.32, crownY: 8, crownR: 4.2, crownRy: 3.4, collide: true },
+  broadleaf: { trunkH: 4.6, trunkR: 0.34, crownY: 7.6, crownR: 4.8, crownRy: 4.0, collide: true },
   canopy: { trunkH: 20, trunkR: 0.7, crownY: 24, crownR: 9, crownRy: 5, collide: true },
   emergent: { trunkH: 40, trunkR: 1.3, crownY: 45, crownR: 12, crownRy: 5, collide: true },
   palm: { trunkH: 9, trunkR: 0.25, crownY: 9.5, crownR: 3.2, crownRy: 1.4, collide: true },
   spruce: { trunkH: 2, trunkR: 0.3, crownY: 9, crownR: 2.8, crownRy: 7.5, collide: true },
-  birch: { trunkH: 8, trunkR: 0.2, crownY: 9.5, crownR: 2.6, crownRy: 3.2, collide: true },
+  birch: { trunkH: 6, trunkR: 0.21, crownY: 9, crownR: 3, crownRy: 5, collide: true },
   juniper: { trunkH: 1.2, trunkR: 0.25, crownY: 2.4, crownR: 2.3, crownRy: 1.8, collide: true },
   shrub: { trunkH: 0.3, trunkR: 0.1, crownY: 0.9, crownR: 1.3, crownRy: 0.9, collide: false },
   cactus: { trunkH: 6.5, trunkR: 0.4, crownY: 4.5, crownR: 1.4, crownRy: 2.2, collide: true },

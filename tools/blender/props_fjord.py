@@ -292,5 +292,8 @@ if PREVIEW:
     bpy.data.objects.remove(bpy.data.objects['ground'])
 
 ROOTS += CP.build_all()
+# 峡湾里走的渔船（船体的红、蓝、白都是挪威渔港常见的）
+for i, c in enumerate((0xa8281e, 0x2a4f7a, 0xe2e4e0)):
+    ROOTS.append(CP.fishing_boat(f'boat_f{i}', c))
 BK.export(OUT, ROOTS)
 print('EXPORTED', OUT, len(ROOTS), 'models')

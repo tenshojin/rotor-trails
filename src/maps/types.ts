@@ -197,6 +197,19 @@ export interface AmbienceDef {
   gulls?: number;
 }
 
+/** 水上走的船（src/render/vessels.ts）：模型在这张图的模型库里，不给航线就在开阔水面上自己找一个圈 */
+export interface VesselDef {
+  model: string;
+  /** 船长（米）：尾浪的大小 */
+  len: number;
+  /** 米 / 秒 */
+  speed: number;
+  /** 模型的船头朝哪边：-1 = -X（默认），1 = +X */
+  bow?: number;
+  /** 闭合的航线 [x, z] */
+  route?: Array<[number, number]>;
+}
+
 /** 天上飞的（src/render/birds.ts） */
 export type BirdKind = 'condor' | 'raven' | 'gull' | 'kite' | 'egret' | 'macaw';
 
@@ -320,6 +333,8 @@ export interface MapDef {
   fringe?: number;
   /** 远景地形比真实地面抬高了多少（抬到树冠的高度）：那一圈树要种在真实的地面上，树冠才是从林冠层里鼓出来的 */
   farCanopy?: (x: number, z: number) => number;
+  /** 水上有什么船在走 */
+  vessels?: VesselDef[];
   /** 这张图有什么鸟、各几只 */
   birds?: Partial<Record<BirdKind, number>>;
   landmarks: Array<{ name: string; pos: V3 }>;

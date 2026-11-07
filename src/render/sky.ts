@@ -59,11 +59,11 @@ export function cloudDensity(p: THREE.Node<'vec3'>, fineDetail = false): THREE.N
   const cluster = smoothstep(0.38, 0.62, field);
   const cov = min(CLOUD.cover.mul(mix(0.45, 1.6, cluster)), 1.0);
   const tall = smoothstep(0.46, 0.6, field);
-  const hn = clamp(p.y.sub(CLOUD.base).div(span.mul(mix(0.42, 1.0, tall))), 0.0, 1.0);
-  // 积云的高度轮廓：底部平整（很快变浓），往上逐渐收窄成圆顶
-  const prof = smoothstep(0.0, 0.09, hn).mul(float(1).sub(smoothstep(0.28, 1.0, hn)));
+  const hn = clamp(p.y.sub(CLOUD.base).div(span.mul(mix(0.62, 1.0, tall))), 0.0, 1.0);
+  // 积云的高度轮廓：底部平整（很快变浓），中段鼓起来，到顶才收成圆的。收得太早一朵云就是压扁的一张饼
+  const prof = smoothstep(0.0, 0.07, hn).mul(float(1).sub(smoothstep(0.46, 1.0, hn)));
   // 三维 Perlin-Worley 团块（菜花状）：一大一小两个尺度混合
-  const uvw = vec3(q.x, p.y.mul(1.4), q.y).div(CLOUD.size);
+  const uvw = vec3(q.x, p.y, q.y).div(CLOUD.size);
   const shape = texture3D(noise3, uvw).level(float(0));
   const big = texture3D(noise3, uvw.mul(0.29).add(0.13)).level(float(0));
   const d0 = mix(big.r, shape.r.mul(shape.a.mul(0.35).add(0.65)), 0.62).mul(prof);
@@ -317,12 +317,13 @@ function volumetricClouds(U: SkyU) {
           const tMs = float(1).div(tau.mul(0.16).add(1.0));
           const powder = float(1).sub(exp(den.mul(-SIGMA * 2.0 * 220.0)));
           const hn = clamp(p.y.sub(U.cloudBase).div(U.cloudTop.sub(U.cloudBase)), 0.0, 1.0);
-          const amb0 = mix(U.ambBottom as unknown as THREE.Node<'vec3'>, U.ambTop as unknown as THREE.Node<'vec3'>, smoothstep(0.0, 0.5, hn)).mul(0.62);
+          // 云底朝下，看到的是地面不是天：比云顶暗得多。一朵云才有底，才是立着的
+          const amb0 = mix(U.ambBottom as unknown as THREE.Node<'vec3'>, U.ambTop as unknown as THREE.Node<'vec3'>, smoothstep(0.0, 0.5, hn)).mul(mix(float(0.3), float(0.62), smoothstep(0.0, 0.3, hn)));
           const amb = mix(amb0, vec3(dot(amb0, vec3(0.3, 0.55, 0.15))), 0.45);
           // 阴天时云层就是天空：亮度要和灰色的天顶、地平线一致，否则厚云会把整个世界（和环境贴图）压成一片黑
           const nightK = mix(vec3(1.0), vec3(NIGHT_TINT.r, NIGHT_TINT.g, NIGHT_TINT.b), U.night);
           const ovc = mix(U.ovHorizon as unknown as THREE.Node<'vec3'>, U.ovZenith as unknown as THREE.Node<'vec3'>, hn).mul(U.overcast.mul(1.05)).mul(nightK);
-          const S = sunC.mul(tSun.mul(phase).mul(mix(float(1), powder, 0.5)).add(tMs.mul(0.3))).add(amb).add(ovc);
+          const S = sunC.mul(tSun.mul(phase).mul(mix(float(1), powder, 0.5)).add(tMs.mul(0.22))).add(amb).add(ovc);
           const a = exp(den.mul(-SIGMA).mul(dt));
           acc.addAssign(S.mul(trans).mul(float(1).sub(a)));
           trans.mulAssign(a);

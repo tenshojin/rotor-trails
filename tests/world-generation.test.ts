@@ -75,6 +75,49 @@ describe('世界生成边界与数据隔离', () => {
     }
   });
 
+  it('地图外面那一圈：只种高的，越往外越稀，地图中间的树一棵不变', () => {
+    const map = smallMap();
+    map.size = 2048;
+    map.vegetation = [{ type: 'emergent', density: 150, scale: [1, 1] }, { type: 'shrub', density: 300, scale: [1, 1] }];
+    const hb = new HeightBuilder(map.size, map.res);
+    const terrain = hb.build();
+    const plain = scatterTrees(map, terrain, hb.surface, []);
+    const ringed = scatterTrees({ ...map, fringe: 600 }, terrain, hb.surface, []);
+    const outside = (t: typeof ringed, i: number): number => Math.max(Math.abs(t.x[i]), Math.abs(t.z[i])) - terrain.half;
+    let near = 0;
+    let far = 0;
+    for (let i = 0; i < ringed.count; i++) {
+      const d = outside(ringed, i);
+      if (d <= 0) continue;
+      expect(TREE_TYPES[ringed.type[i]]).toBe('emergent');
+      if (d < 200) near++;
+      else if (d > 450) far++;
+    }
+    expect(near).toBeGreaterThan(far * 2);
+    expect(far).toBeGreaterThanOrEqual(0);
+    for (let i = 0; i < plain.count; i++) expect(outside(plain, i)).toBeLessThanOrEqual(0);
+    const middle = (t: typeof ringed): number[] => {
+      const out: number[] = [];
+      for (let i = 0; i < t.count; i++) if (outside(t, i) < -400) out.push(t.x[i], t.z[i]);
+      return out.sort((a, b) => a - b);
+    };
+    expect(middle(ringed)).toEqual(middle(plain));
+  });
+
+  it('远景地面抬到树冠高度的地方，那一圈树种在抬之前的地面上', () => {
+    const map = smallMap();
+    map.size = 1024;
+    map.vegetation = [{ type: 'emergent', density: 150, scale: [1, 1] }];
+    const hb = new HeightBuilder(map.size, map.res);
+    const terrain = hb.build();
+    const low = scatterTrees({ ...map, fringe: 300 }, terrain, hb.surface, []);
+    const sunk = scatterTrees({ ...map, fringe: 300, farCanopy: () => 20 }, terrain, hb.surface, []);
+    expect(sunk.count).toBe(low.count);
+    let moved = 0;
+    for (let i = 0; i < low.count; i++) if (low.y[i] - sunk.y[i] > 10) moved++;
+    expect(moved).toBeGreaterThan(0);
+  });
+
   it('散布网格的末格不会把树种到地图边界外', () => {
     const map = smallMap();
     map.size = 256;

@@ -139,6 +139,27 @@ function nrm(p: PathSampler, s: number): Vec2 {
   return [-(b[1] - a[1]) / l, (b[0] - a[0]) / l];
 }
 
+/** 客船的航线：沿河上去，靠另一边下来。side：上行时偏向哪岸（占半个河宽的比例） */
+function riverLoop(side: number): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  const a = RP.len * 0.08;
+  const b = RP.len * 0.92;
+  const n = 90;
+  for (let i = 0; i <= n; i++) {
+    const s = a + ((b - a) * i) / n;
+    const c = RP.at(s);
+    const m = nrm(RP, s);
+    out.push([c[0] + m[0] * riverHalf(s) * side, c[1] + m[1] * riverHalf(s) * side]);
+  }
+  for (let i = n; i >= 0; i--) {
+    const s = a + ((b - a) * i) / n;
+    const c = RP.at(s);
+    const m = nrm(RP, s);
+    out.push([c[0] - m[0] * riverHalf(s) * side, c[1] - m[1] * riverHalf(s) * side]);
+  }
+  return out;
+}
+
 /** 河岸边一点（side = 1 / -1，offset = 离岸距离） */
 function bank(p: PathSampler, half: (s: number) => number, s: number, side: number, offset: number, y: number): V3 {
   const c = p.at(s);
@@ -394,6 +415,7 @@ export const AMAZON: MapDef = {
   },
   sun: [250, 52],
   ambience: { insects: 1, birds: 0.6, river: 0.6 },
+  vessels: [{ model: 'river_boat', len: 26, speed: 4.2, route: riverLoop(0.34) }, { model: 'river_boat', len: 26, speed: 3.6, route: riverLoop(-0.3) }],
   birds: { egret: 10, macaw: 10 },
   landmarks: [
     { name: '林冠观测塔', pos: [FINAL[0] + 26, 55, FINAL[2] + 18] },

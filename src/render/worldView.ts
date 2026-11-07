@@ -45,6 +45,7 @@ import { loadRockRelief, makeTerrainMacroTexture } from './terrainMacro';
 import { TREE_RANGE } from './terrainShader';
 import { TreeView, loadTreeLib } from './treeView';
 import { Birds } from './birds';
+import { Vessels } from './vessels';
 import { vistasOf } from '../sim/cruise';
 import { WaterView } from './water';
 import { CloudLayer, Lightning, RainFx } from './weatherFx';
@@ -158,6 +159,7 @@ export class WorldView {
   private rivers: RiverView | null = null;
   private grass: GroundCover | null = null;
   private birds: Birds | null = null;
+  private vessels: Vessels | null = null;
   private scatter: RealScatter | null = null;
   private buildings: RealBuildings | null = null;
   /** 光线追踪的全局光照：探针图要不要重算；算的时候太阳多亮（天气变了按比例调）；正在并行编译（那时什么都画不出来） */
@@ -539,6 +541,10 @@ export class WorldView {
         this.birds = new Birds(map.birds, anchors, (x, z) => Math.max(world.ctx.ground(x, z), map.waterLevel ?? -1e9), map.seed);
         this.scene.add(this.birds.group);
       }
+      if (map.vessels && this.modelLib && map.waterLevel !== null) {
+        this.vessels = new Vessels(map.vessels, this.modelLib, (x, z) => world.terrain.heightAt(x, z), map.waterLevel, map.size / 2 - 200, map.seed);
+        this.scene.add(this.vessels.group);
+      }
       if (real && scatterTex && this.terrain instanceof RealTerrain) {
         const pads = map.pads.map((p): [number, number, number] => [p.pos[0], p.pos[2], p.size * 0.9 + 3]);
         this.scatter = new RealScatter(real, { height: this.terrain.coreHeight, density: scatterTex, image: realImages[0] }, { ...this.terrain.midMaps, image: realImages[1], aux: scatterAux }, scatterModels(treeLib), pads, this.settings.quality);
@@ -607,6 +613,7 @@ export class WorldView {
     rm(this.props?.group);
     rm(this.trees?.group);
     rm(this.birds?.group);
+    rm(this.vessels?.group);
     rm(this.nav?.group);
     rm(this.wash?.group);
     rm(this.lamps?.group);
@@ -640,6 +647,8 @@ export class WorldView {
     this.rivers = null;
     this.birds?.dispose();
     this.birds = null;
+    this.vessels?.dispose();
+    this.vessels = null;
     this.grass?.dispose();
     this.grass = null;
     this.scatter?.dispose();
@@ -988,6 +997,7 @@ export class WorldView {
       if (this.rig.mode === 'photo' && this.dofOn) this.photoFocus();
       // （夜里和大雨的时候鸟都回去了）
       this.birds?.update(f.dt, f.t, s ? _pos : null, this.tod !== 'night' && w.rain < 0.45);
+      this.vessels?.update(f.dt, f.t);
       this.scatter?.update(cp);
       if (s) this.scatter?.probe(this.renderer, s.body.pos as unknown as THREE.Vector3, f.t, (list) => s.setRingTrees(list));
       if (this.buildings && this.sky) this.buildings.night.value = this.sky.night;
@@ -1035,11 +1045,12 @@ export class WorldView {
 
   /** 景深的开关：超仿真才有，拍照模式要的时候也开。管线要重建，放在加载阶段 */
   setDof(on: boolean, taps = 22): void {
+    // （超仿真里进拍照模式又没动滑块：管线不用重建，但拍照时放大的上限要还回去）
+    DOF.aperture.value = 0;
+    DOF.max.value = DOF_EYE;
     if (on === this.dofOn && taps === this.dofTaps) return;
     this.dofOn = on;
     this.dofTaps = taps;
-    DOF.aperture.value = 0;
-    DOF.max.value = DOF_EYE;
     this.buildPost();
   }
 

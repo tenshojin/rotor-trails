@@ -51,6 +51,9 @@ export class CameraRig {
   private impact = 0;
   private chasePos = new THREE.Vector3();
   private chaseInit = false;
+  /** 追尾时往转弯内侧偏多少（-1..1）：正后方只看得到尾梁，一转弯才看得到机身侧面 */
+  private chaseSide = 0;
+  private chaseHeading = 0;
   private prevVel = new THREE.Vector3();
   /** 电影镜头：第几个镜头、拍了多久、机位、焦距（竖直视角） */
   private shot = -1;
@@ -226,7 +229,15 @@ export class CameraRig {
       fwd.y = 0;
       if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
       fwd.normalize();
+      const heading = Math.atan2(fwd.x, -fwd.z);
+      if (dt > 0) {
+        const turn = Math.atan2(Math.sin(heading - this.chaseHeading), Math.cos(heading - this.chaseHeading)) / dt;
+        this.chaseSide = damp(this.chaseSide, clamp(turn / 0.6, -1, 1), 1.6, dt);
+      }
+      this.chaseHeading = heading;
       const want = _target.copy(pos).addScaledVector(fwd, -14);
+      want.x += -fwd.z * this.chaseSide * 5.5;
+      want.z += fwd.x * this.chaseSide * 5.5;
       want.y += 4.2;
       if (!this.chaseInit) {
         this.chasePos.copy(want);
