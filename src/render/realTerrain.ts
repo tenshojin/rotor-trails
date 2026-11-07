@@ -312,7 +312,14 @@ export class RealTerrain {
       // 比周围暗一截的斑也提起来，纹理交给下面的石头
       stretch = smoothstep(0.16, 0.34, float(1).sub(N0.y)).toVar();
       hiSoil = hi.soft(4).toVar();
-      col = mix(col, mix(hi.rgb, max(hi.soft(3), hi.soft(5).mul(0.97)), stretch), hiK);
+      const wide = hi.soft(5).toVar();
+      let fresh: N<'vec3'> = mix(hi.rgb, max(hi.soft(3), wide.mul(0.97)), stretch);
+      // 航拍里的影子提亮以后发蓝发灰，低空看是地上一片片的残雪。比周围偏冷的地方，颜色换成周围的土，明暗留着
+      const hiL = max(dot(fresh, LUMW), 0.02);
+      const cold = smoothstep(-0.16, 0.04, fresh.b.sub(fresh.r).div(hiL)).toVar();
+      const wideL = max(dot(wide, LUMW), 0.02);
+      fresh = mix(fresh, wide.mul(hiL.div(wideL)).mul(0.92), cold.mul(0.82).mul(float(1).sub(smoothstep(-0.2, 0.0, wide.b.sub(wide.r).div(wideL)))));
+      col = mix(col, fresh, hiK);
     }
     // 真正的崖壁：航拍是从正上方拍的，接近竖直的面在照片上只有一条缝，贴上去是一道道竖着拉长的条纹。
     // 这里的地层几乎是水平的，同一高度就是同一层岩石：颜色改从岩层色表里查，明暗只取照片的低频。

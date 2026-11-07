@@ -594,8 +594,27 @@ export class AudioEngine {
     [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.4, 0.18, 'triangle', undefined, i * 0.12));
   }
 
+  /** 任务失败：飞机刚摔了，不能是一段滑稽的下行音。一个低低的音程，等撞击声过去才响 */
   fail(): void {
-    [392, 330, 262].forEach((f, i) => this.tone(f, 0.5, 0.2, 'sawtooth', undefined, i * 0.2));
+    [147, 175].forEach((f, i) => this.tone(f, 1.8, 0.1, 'sine', undefined, 1.1 + i * 0.22));
+  }
+
+  /** 坠毁：一声闷响，碎片落了一地。water：砸进水里 */
+  crash(water: boolean): void {
+    if (!this.ctx) return;
+    this.tone(46, 1, 0.7, 'sine', this.engineBus);
+    if (water) {
+      this.burst(1.5, 0.6, 'lowpass', 1500, this.engineBus);
+      this.burst(0.5, 0.3, 'highpass', 2600, this.engineBus, 0.05);
+      return;
+    }
+    this.burst(1.4, 0.9, 'lowpass', 420, this.engineBus, 0, true);
+    this.burst(0.5, 0.55, 'bandpass', 1100, this.engineBus);
+    for (let i = 0; i < 9; i++) {
+      const t = 0.14 + i * 0.1 + Math.random() * 0.13;
+      this.tone(420 + Math.random() * 1100, 0.05 + Math.random() * 0.05, 0.03 + Math.random() * 0.05, 'square', this.engineBus, t);
+      this.burst(0.03, 0.07, 'bandpass', 2400 + Math.random() * 1600, this.engineBus, t);
+    }
   }
 
   thunder(delay: number, strength: number): void {
@@ -676,9 +695,24 @@ export class AudioEngine {
     }
   }
 
+  /** 菜单：很轻的一下，点多了也不烦 */
   click(): void {
     this.init();
-    this.tone(1400, 0.05, 0.08, 'square');
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    const t = ctx.currentTime;
+    o.frequency.setValueAtTime(980, t);
+    o.frequency.exponentialRampToValueAtTime(620, t + 0.045);
+    const g = ctx.createGain();
+    o.connect(g).connect(this.alertBus);
+    this.track(o, [g]);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.07, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+    o.start(t);
+    o.stop(t + 0.08);
   }
 
   suspend(): void {

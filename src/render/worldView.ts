@@ -892,7 +892,7 @@ export class WorldView {
       const sys = s.sys;
       this.heli.beaconOn = sys ? sys.beacon : true;
       this.heli.navOn = sys ? sys.navLights : true;
-      this.heli.update(f.t, f.dt, s.state === 'crashed' && !f.replay ? Math.max(0, tel.rotorRpm * 0.3) : tel.rotorRpm);
+      this.heli.update(f.t, f.dt, s.state === 'crashed' && !f.replay ? tel.rotorRpm * Math.exp(-s.wreckAge * 1.1) : tel.rotorRpm);
       // 超仿真坐在真实的机长位上；从外面看也是（座舱里的镜头才往机身中线挪）
       const eyeX = sys || this.rig.mode !== 'cockpit' ? EYE.x : EYE.x * (1 - set.viewCenter);
       this.cockpit.setPilotOffset(eyeX - EYE.x);

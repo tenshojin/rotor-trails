@@ -303,13 +303,22 @@ export class GameSession {
   }
 
   /** 推进一个固定步长。 */
+  /** 坠毁之后过了几秒 */
+  get wreckAge(): number {
+    return this.wreckT;
+  }
+
   /** 坠毁之后：不再有升力，残骸带着撞完的速度翻滚着掉下去，停在地上（水里沉一点）。只给画面看 */
   private stepWreck(): void {
     const dt = STEP;
     const b = this.body;
     copyBody(this.prev, b);
     this.wreckT += dt;
-    if (this.wreckT > 7) return;
+    if (this.wreckT > 7) {
+      b.vel.set(0, 0, 0);
+      b.angVel.set(0, 0, 0);
+      return;
+    }
     const wl = this.world.map.waterLevel ?? -1e9;
     const floor = Math.max(this.world.ctx.ground(b.pos.x, b.pos.z), wl - 0.9) + 0.7;
     b.vel.y -= 9.81 * dt;

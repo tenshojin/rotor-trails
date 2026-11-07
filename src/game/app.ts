@@ -1684,7 +1684,8 @@ export class App {
       plane: this.view.traffic?.sound ?? null,
       far: this.far,
       closing: this.closing,
-      rpm: s.state === 'crashed' && !this.replay ? 0.2 : tel.rotorRpm,
+      // （旋翼撞坏了，转速几秒内慢慢没了）
+      rpm: s.state === 'crashed' && !this.replay ? tel.rotorRpm * Math.exp(-s.wreckAge * 1.1) : tel.rotorRpm,
       load: tel.thrust / (s.totalMass() * 9.81),
       power: tel.powerFrac,
       airspeed: tel.airspeed,
@@ -1812,6 +1813,7 @@ export class App {
           } else if (e.status === 'normal' || (e.status === 'damaged' && e.prev === 'critical')) hud.toast('维修完成，性能恢复', 'good');
           break;
         case 'crash':
+          if (!this.tutorial && this.session) A.crash?.(this.session.body.pos.y < (this.session.world.map.waterLevel ?? -1e9) + 3);
           A.fail();
           hud.toast(`坠毁：${e.label}`, 'bad', 3000);
           break;
