@@ -12,6 +12,14 @@ const EDGE_ZONE = 0.2;
 const EDGE_YAW = 1.5;
 const EDGE_PITCH = 1.05;
 
+/** 触屏的两根摇杆：量和手柄走同一条路 */
+export interface TouchAxes {
+  forward: number;
+  turn: number;
+  lateral: number;
+  vertical: number;
+}
+
 export interface PointerClick {
   button: number;
   /** 画面坐标 -1..1，y 向下 */
@@ -35,6 +43,8 @@ export class Input {
   readonly pad = new PadReader();
   /** 手柄在菜单里按了一下 */
   onPadNav: ((d: PadNav) => void) | null = null;
+  /** 手机、平板：没有鼠标，也就不锁鼠标 */
+  touch: TouchAxes | null = null;
   onLockChange: ((locked: boolean) => void) | null = null;
   /** 改键捕获：返回按下的按键代码 */
   private capture: ((code: string) => void) | null = null;
@@ -133,8 +143,8 @@ export class Input {
 
   /** 这个动作在手柄上的量：教学里判断“按住了没有”也看它 */
   private padAxis(a: Action): number {
-    const p = this.pad;
-    if (!p.connected || !this.active) return 0;
+    const p: TouchAxes | null = this.pad.connected ? this.pad : this.touch;
+    if (!p || !this.active) return 0;
     switch (a) {
       case 'forward':
         return Math.max(0, p.forward);
@@ -326,7 +336,7 @@ export class Input {
   };
 
   requestLock(): void {
-    if (!this.active || this.disposed || this.simMode || this.freeMouse) return;
+    if (!this.active || this.disposed || this.simMode || this.freeMouse || this.touch) return;
     const request = ++this.lockRequest;
     const failed = () => {
       if (request === this.lockRequest && this.active && !this.locked && !this.disposed) this.lockFailed = true;

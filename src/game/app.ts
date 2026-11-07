@@ -21,7 +21,8 @@ import { generateWorld, type WorldData } from '../world/worldgen';
 import type { AssistId } from '../config/flight';
 import { Input } from './input';
 import { SaveStore, type StorageLike } from './save';
-import { keyName, QUALITY, type Settings } from './settings';
+import { keyName, QUALITY, useTouchNames, type Settings } from './settings';
+import { TouchControls, touchOnly } from '../ui/touchControls';
 import { clamp, damp } from '../core/math';
 import { PHOTO_FOV } from '../render/cameraRig';
 import { wallDistances } from '../sim/echo';
@@ -105,18 +106,6 @@ function gpuWarning(gpu: string): string | null {
 }
 
 
-/** 只有触屏、没有精确指针（手机/平板）时提示：本游戏需要键盘和鼠标 */
-function touchOnlyWarning(): string | null {
-  try {
-    if (window.matchMedia('(hover: none) and (pointer: coarse)').matches && !window.matchMedia('(any-pointer: fine)').matches) {
-      return '检测到触屏设备：本游戏需要键盘和鼠标操作，请在电脑浏览器中打开同一个链接。';
-    }
-  } catch {
-    /* 旧浏览器不支持 matchMedia：不提示 */
-  }
-  return null;
-}
-
 export class App {
   readonly save: SaveStore;
   settings: Settings;
@@ -155,6 +144,7 @@ export class App {
   private loadWarning: string | null = null;
   /** 休闲模式的自动巡航 */
   private cruise: ScenicCruise | null = null;
+  private touch: TouchControls | null = null;
   private photoPending = false;
   /** 电影镜头里耳朵离飞机多远、飞机朝耳朵过来的速度 */
   private far = 0;
@@ -201,6 +191,7 @@ export class App {
     try {
       this.save = new SaveStore(storage);
       this.settings = this.save.data.settings;
+      this.audio.applyVolumes({ master: this.settings.volMaster, engine: this.settings.volEngine, ambience: this.settings.volAmbience, alerts: this.settings.volAlerts, music: this.settings.volMusic });
       const canvas = this.canvas = document.createElement('canvas');
       rollback.push(() => canvas.remove());
       canvas.className = 'gl';
@@ -221,6 +212,7 @@ export class App {
       rollback.push(() => this.input.dispose());
       this.input.onEdge = (a) => this.onEdge(a);
       this.input.onPadNav = (d) => padNavigate(this.root, d);
+      if (touchOnly()) this.setupTouch(rollback);
       this.input.onLockChange = (locked) => {
         if (!locked && this.state === 'playing' && !this.input.lockFailed) this.pause();
       };
@@ -339,7 +331,8 @@ export class App {
     this.assertActive();
     this.gpu = this.view.gpuInfo().name;
     if (this.save.fresh || this.save.requalify) {
-      this.settings.quality = pickQuality(this.gpu);
+      // （手机的显卡名字看不出好坏，先从低档开始）
+      this.settings.quality = this.touch ? 'low' : pickQuality(this.gpu);
       this.settings.rayTracing = this.settings.quality === 'high' || this.settings.quality === 'ultra';
       this.view.applySettings(this.settings);
       this.save.save();
@@ -423,7 +416,7 @@ export class App {
     this.input.cancelCapture();
     this.input.exitLock();
     this.ui.main(
-      { warning: [this.loadWarning, touchOnlyWarning(), gpuWarning(this.gpu), this.save.warning].filter(Boolean).join('<br>') || null, tutorialDone: this.save.data.tutorialDone },
+      { warning: [this.loadWarning, gpuWarning(this.gpu), this.save.warning].filter(Boolean).join('<br>') || null, tutorialDone: this.save.data.tutorialDone },
       {
         play: () => this.mapSelect(),
         free: () => this.freeSelect(),
@@ -509,7 +502,7 @@ export class App {
     this.tutorial?.setSettings(s);
     this.hud.setOpacity(s.hudOpacity);
     this.refreshControlHint();
-    this.audio.applyVolumes({ master: s.volMaster, engine: s.volEngine, ambience: s.volAmbience, alerts: s.volAlerts });
+    this.audio.applyVolumes({ master: s.volMaster, engine: s.volEngine, ambience: s.volAmbience, alerts: s.volAlerts, music: s.volMusic });
     // Sliders update the game immediately, but storage is synchronous and should
     // only receive the final value after a short pause or when leaving settings.
     if (this.settingsSaveTimer !== null) clearTimeout(this.settingsSaveTimer);
@@ -570,7 +563,7 @@ export class App {
 
   private async loadRun(cfg: RunConfig): Promise<void> {
     this.audio.init();
-    this.audio.applyVolumes({ master: this.settings.volMaster, engine: this.settings.volEngine, ambience: this.settings.volAmbience, alerts: this.settings.volAlerts });
+    this.audio.applyVolumes({ master: this.settings.volMaster, engine: this.settings.volEngine, ambience: this.settings.volAmbience, alerts: this.settings.volAlerts, music: this.settings.volMusic });
     this.state = 'loading';
     this.refreshControlHint();
     this.hud.show(false);
@@ -614,6 +607,7 @@ export class App {
     this.tutorialHtml = '';
     this.hud.setTutorial?.(null);
     this.hud.setFree?.(cfg.free === true);
+    this.touch?.setFree(cfg.free === true);
     this.hud.setCinema?.(false);
     this.cruise = null;
     this.tape.clear();
@@ -744,7 +738,7 @@ export class App {
       // 超仿真要低头看仪表板：卡片放到上面，别挡住开关
       this.tutBox.classList.toggle('top', this.run?.course === 'sim');
     }
-    if (this.input.lockFailed && !this.input.pad.connected) this.hud.toast('鼠标锁定不可用：按住鼠标拖动或使用方向键观察', 'warn', 6000);
+    if (this.input.lockFailed && !this.input.pad.connected && !this.touch) this.hud.toast('鼠标锁定不可用：按住鼠标拖动或使用方向键观察', 'warn', 6000);
   }
 
   pause(): void {
@@ -1509,6 +1503,7 @@ export class App {
       this.view.drawInstruments(this.t, this.instrumentData(s));
       this.listenForWalls(s, dt);
       this.listenFromCamera(s, dt);
+      this.touch?.setMode(this.state !== 'playing' ? (this.photoPanel ? 'look' : 'off') : this.replay ? 'off' : 'fly');
       if (this.state === 'playing') this.watchPlaces(s, dt);
       this.audio.update(this.audioState(this.state !== 'playing' && (!this.replay || !!this.photoPanel)), dt);
     } else {
@@ -1522,6 +1517,7 @@ export class App {
       this.idlePose.pos.set(c.x + sx * r, c.y + 0.5, c.z + cz * r);
       this.idlePose.target.set(c.x - cz * 3.6, c.y + 2.6, c.z + sx * 3.6);
       this.view.render(null, { dt, t: this.t, alpha: 1 }, this.idlePose);
+      this.touch?.setMode('off');
       this.audio.update(this.audioState(true), dt);
     }
   }
@@ -1562,9 +1558,45 @@ export class App {
     if (I.sim) this.simControls(s, dt);
   }
 
+  /** 手机、平板：屏幕上的摇杆，超仿真藏起来（要用鼠标按开关），第一次点屏幕时进全屏、锁横屏 */
+  private setupTouch(rollback: Array<() => void>): void {
+    const t = (this.touch = new TouchControls(this.root));
+    rollback.push(() => t.dispose());
+    this.input.touch = t;
+    t.onEdge = (a) => {
+      if (this.state === 'playing') this.onEdge(a);
+    };
+    t.onLook = (dx, dy) => {
+      this.input.lookDX += dx;
+      this.input.lookDY += dy;
+    };
+    useTouchNames(true);
+    rollback.push(() => useTouchNames(false));
+    this.ui.touch = true;
+    this.tutorialCtx.touch = true;
+    this.root.classList.add('touch-device');
+    if (this.settings.assist === 'sim') this.settings.assist = 'standard';
+    window.addEventListener('pointerup', () => {
+      const el = document.documentElement;
+      void el.requestFullscreen?.({ navigationUI: 'hide' })
+        ?.then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape'))
+        .catch(() => undefined);
+    }, { once: true, signal: this.lifetime.signal });
+  }
+
+  /** 背景音乐放多大：菜单里放，任务和训练里不放（要听发动机和告警），休闲飞行垫在风景底下，让它自己飞的时候大一点 */
+  private musicLevel(): number {
+    if (this.replay) return 0.8;
+    if (this.state === 'loading') return 0.6;
+    if (this.state !== 'playing' && this.state !== 'ready') return this.state === 'paused' ? 0.7 : 1;
+    if (!this.run?.free || this.tutorial) return 0;
+    return this.cruise ? 0.85 : 0.4;
+  }
+
   private audioState(paused: boolean) {
     const s = this.session;
-    if (!s) return { rpm: 0, load: 0, power: 0, airspeed: 0, gust: 0, rain: 0, inCockpit: true, paused, bank: 0, descent: 0 };
+    const music = this.musicLevel();
+    if (!s) return { rpm: 0, load: 0, power: 0, airspeed: 0, gust: 0, rain: 0, inCockpit: true, paused, bank: 0, descent: 0, music };
     const tel = s.flight.telemetry;
     const y = s.sys;
     const c = y?.c;
@@ -1597,6 +1629,7 @@ export class App {
       : null;
     return {
       sim,
+      music,
       agl: s.agl,
       echo: this.echo,
       plane: this.view.traffic?.sound ?? null,

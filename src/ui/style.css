@@ -1789,6 +1789,43 @@ kbd.big.on {
   }
 }
 
+/* 手机横着放：菜单排两列，简报两栏，开始按钮一屏看得到 */
+@media (max-height: 520px) and (min-width: 560px) {
+  .logo {
+    font-size: 36px;
+    margin-bottom: 2px;
+  }
+  .logo-sub {
+    font-size: 13px;
+    margin-bottom: 10px !important;
+  }
+  .menu-col {
+    display: grid;
+    grid-template-columns: repeat(2, 200px);
+    width: auto;
+  }
+  .menu-col .btn {
+    padding-top: 9px;
+    padding-bottom: 9px;
+  }
+  .main-menu {
+    padding-top: 14px !important;
+    padding-bottom: 8px !important;
+    padding-left: 5vw;
+  }
+  .menu-foot {
+    margin-top: 8px !important;
+    font-size: 11px;
+  }
+  .brief {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+  }
+  .brief-hero {
+    height: 84px;
+  }
+}
+
 @media (max-height: 620px) {
   .main-menu {
     justify-content: flex-start;
@@ -2159,4 +2196,155 @@ canvas.gl.sim-cursor.sim-cursor-hot {
   color: inherit;
   font: inherit;
   font-size: 13px;
+}
+
+/* 手机和平板：虚拟摇杆。手指按在哪儿摇杆就到哪儿，平时只在两个下角淡淡地画一个圈 */
+.touch-ui {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.touch-ui.hidden,
+.touch-ui .hidden {
+  display: none;
+}
+.t-look {
+  position: absolute;
+  inset: 0;
+}
+.t-stick {
+  position: absolute;
+  bottom: 0;
+  width: 42%;
+  height: 64%;
+}
+.t-left {
+  left: 0;
+}
+.t-right {
+  right: 0;
+}
+.t-base {
+  position: absolute;
+  left: calc(92px + env(safe-area-inset-left));
+  bottom: 28px;
+  width: 124px;
+  height: 124px;
+  margin-left: -62px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.26);
+  background: rgba(6, 12, 18, 0.16);
+  box-sizing: border-box;
+  pointer-events: none;
+  font-style: normal;
+}
+.t-right .t-base {
+  left: auto;
+  right: calc(92px + env(safe-area-inset-right));
+  margin-left: 0;
+  margin-right: -62px;
+}
+.t-base.on {
+  right: auto;
+  bottom: auto;
+  margin: -62px 0 0 -62px;
+  border-color: rgba(255, 255, 255, 0.5);
+}
+.t-base span {
+  position: absolute;
+  left: 50%;
+  top: -21px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.62);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.t-base.on span {
+  display: none;
+}
+.t-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 54px;
+  margin: -27px 0 0 -27px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+}
+.t-keys {
+  position: absolute;
+  top: calc(8px + env(safe-area-inset-top));
+  display: flex;
+  gap: 6px;
+}
+.t-keys-l {
+  left: calc(10px + env(safe-area-inset-left));
+}
+.t-keys-r {
+  right: calc(10px + env(safe-area-inset-right));
+}
+.t-key {
+  min-width: 46px;
+  height: 36px;
+  padding: 0 8px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(6, 12, 18, 0.46);
+  color: #e8f0f4;
+  font: inherit;
+  font-size: 13px;
+  touch-action: none;
+}
+.t-key:active {
+  background: rgba(56, 232, 255, 0.34);
+}
+.touch-ui.look-only .t-stick,
+.touch-ui.look-only .t-keys {
+  display: none;
+}
+/* 提示里全是键盘，手机上用不着；矮屏幕两边的大面板会压住摇杆，上面的航向条已经写着速度和高度 */
+.touch-device .hud-hint {
+  display: none;
+}
+@media (max-height: 520px) {
+  .touch-device .hud-flight,
+  .touch-device .hud-status {
+    display: none;
+  }
+  .touch-device .heading-tape {
+    width: min(300px, 38vw);
+  }
+  .touch-device .hud-nav {
+    left: 50%;
+    right: auto;
+    width: min(300px, 38vw);
+    transform: translateX(-50%);
+  }
+}
+/* 超仿真要用鼠标按开关：手机上不给选 */
+.touch-device .course-tabs,
+.touch-device .opt-card[data-a='assist'][data-v='sim'],
+.touch-device .card:has(#brief-sim) {
+  display: none;
+}
+@media (orientation: portrait) and (max-width: 640px) {
+  .touch-device::after {
+    content: '把手机横过来玩';
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 10, 16, 0.94);
+    color: #e8f0f4;
+    font-size: 20px;
+  }
 }

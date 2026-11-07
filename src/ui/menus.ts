@@ -53,6 +53,8 @@ export class UI {
   private disposed = false;
   private panelId = 0;
   onClick: (() => void) | null = null;
+  /** 手机、平板：操作说明多一段摇杆 */
+  touch = false;
 
   constructor(parent: HTMLElement) {
     this.root = document.createElement('div');
@@ -529,7 +531,7 @@ export class UI {
   }
 
   help(bindings: Settings['bindings']): void {
-    const k = (a: Action) => bindings[a].map(keyName).join(' / ');
+    const k = (a: Action) => [...new Set(bindings[a].map(keyName))].join(' / ');
     const el = this.openModal(
       h(`<div class="modal"><div class="card wide"><div class="screen-head"><h2>操作说明</h2><button class="btn ghost" data-a="close">关闭</button></div>
       <div class="help-grid">
@@ -542,7 +544,7 @@ export class UI {
           <tr><td>${k('strafeLeft')} / ${k('strafeRight')}</td><td>向左/右平移（悬停修正、侧风修正）</td></tr>
           <tr><td>${k('hover')}</td><td>悬停辅助：逐渐减速并保持位置</td></tr>
           <tr><td>${k('boost')}</td><td>使用已获得的动力增强</td></tr>
-          <tr><td>鼠标</td><td>观察四周（不控制飞机方向）</td></tr>
+          <tr><td>${this.touch ? '拖动屏幕' : '鼠标'}</td><td>观察四周（不控制飞机方向）</td></tr>
           <tr><td>${k('center')}</td><td>视角回正</td></tr>
           <tr><td>${k('view')}</td><td>切换座舱/追尾视角</td></tr>
           <tr><td>${k('nav')}</td><td>切换导航目标（主线/可选任务）；分岔处切换推荐路线</td></tr>
@@ -551,6 +553,12 @@ export class UI {
           <tr><td>${k('cruise')}</td><td>自动巡航（休闲飞行）：沿着景点自己飞，动任何飞行键就交回给你</td></tr>
           <tr><td>${k('photo')}</td><td>截图：把这一帧存成图片，不带 HUD，暂停的时候也能拍。想挑机位、调焦距和曝光，暂停菜单里有拍照模式</td></tr>
           <tr><td>${k('pause')}</td><td>暂停。暂停菜单里还有回放（电影镜头再放一遍刚才飞的）；休闲飞行还能换时段、换天气、跳到景点</td></tr></table></div>
+        ${this.touch ? `<div><h3>手机和平板</h3><table class="keys">
+          <tr><td>左边按住</td><td>出现左摇杆：上下爬升、下降，左右转向</td></tr>
+          <tr><td>右边按住</td><td>出现右摇杆：上下前进、后退，左右平移</td></tr>
+          <tr><td>中间拖动</td><td>转头看四周</td></tr>
+          <tr><td>上面两边的键</td><td>暂停、切换视角、视角回正、悬停、动力增强、自动巡航</td></tr></table>
+          <p class="muted">超仿真要用鼠标按开关，只能在电脑上玩。</p></div>` : ''}
         <div><h3>手柄（Xbox / PS 布局）</h3><table class="keys">
           <tr><td>左摇杆</td><td>前后 = 机头俯仰，左右 = 转向</td></tr>
           <tr><td>右摇杆</td><td>转头看</td></tr>
@@ -667,7 +675,7 @@ export class UI {
           check('lightning', '闪电闪光', '对光敏感可关闭') +
           '<p class="muted">低画质减少远景细节、阴影和雨滴数量，不改变碰撞、导航或物理难度。画面卡顿时，先降低画质或渲染分辨率，再关闭光线追踪。</p>';
       } else if (tab === 'audio') {
-        body.innerHTML = range('volMaster', '总音量', 0, 1, 0.05, pct) + range('volEngine', '发动机与旋翼', 0, 1, 0.05, pct) + range('volAmbience', '环境与天气', 0, 1, 0.05, pct) + range('volAlerts', '告警与提示', 0, 1, 0.05, pct);
+        body.innerHTML = range('volMaster', '总音量', 0, 1, 0.05, pct) + range('volEngine', '发动机与旋翼', 0, 1, 0.05, pct) + range('volAmbience', '环境与天气', 0, 1, 0.05, pct) + range('volAlerts', '告警与提示', 0, 1, 0.05, pct) + range('volMusic', '背景音乐（菜单和休闲飞行）', 0, 1, 0.05, pct);
       } else {
         body.innerHTML =
           select('assist', '默认飞行辅助', (Object.keys(ASSISTS) as AssistId[]).map((a) => [a, ASSISTS[a].label])) +

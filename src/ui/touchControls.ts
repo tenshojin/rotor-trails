@@ -1,0 +1,185 @@
+// 触屏操作：两根虚拟摇杆（和航模遥控器一样的“美国手”）加几个按键，手指按在哪儿摇杆就出现在哪儿。
+//   左摇杆  上下 = 爬升 / 下降，左右 = 转向
+//   右摇杆  上下 = 前进 / 后退，左右 = 平移
+//   屏幕其余地方拖动 = 转头看
+// 摇杆的量走手柄同一条路（Input.padAxis），所以教学里“按住了没有”、飞行手感都不用另写一份。
+
+import { shape } from '../game/gamepad';
+
+export type TouchEdge = 'hover' | 'boost' | 'view' | 'center' | 'pause' | 'cruise';
+
+/** 拇指从按下的地方推多远算推到底（像素） */
+const REACH = 58;
+/** 拖动转头比鼠标灵敏一些：手机屏幕小 */
+const LOOK_GAIN = 2.2;
+
+/** 'fly' 全有，'look' 只能拖动转头（拍照模式），'off' 什么都没有 */
+export type TouchMode = 'off' | 'look' | 'fly';
+
+interface Stick {
+  el: HTMLElement;
+  base: HTMLElement;
+  knob: HTMLElement;
+  id: number | null;
+  x0: number;
+  y0: number;
+}
+
+/** 只有触屏、没有鼠标的设备（手机、平板）。网址加 ?touch=1 可以在电脑上看 */
+export function touchOnly(): boolean {
+  try {
+    if (new URLSearchParams(location.search).get('touch') === '1') return true;
+    return window.matchMedia('(hover: none) and (pointer: coarse)').matches && !window.matchMedia('(any-pointer: fine)').matches;
+  } catch {
+    return false;
+  }
+}
+
+export class TouchControls {
+  forward = 0;
+  turn = 0;
+  lateral = 0;
+  vertical = 0;
+  onEdge: (a: TouchEdge) => void = () => {};
+  onLook: (dx: number, dy: number) => void = () => {};
+  private readonly root: HTMLElement;
+  private readonly left: Stick;
+  private readonly right: Stick;
+  private readonly cruiseBtn: HTMLElement;
+  private readonly lookLayer: HTMLElement;
+  private lookId: number | null = null;
+  private lookX = 0;
+  private lookY = 0;
+  private mode: TouchMode = 'off';
+
+  constructor(parent: HTMLElement) {
+    const root = (this.root = document.createElement('div'));
+    root.className = 'touch-ui hidden';
+    root.innerHTML = `<div class="t-look"></div>
+      <div class="t-stick t-left"><i class="t-base"><b class="t-knob"></b><span>升降 · 转向</span></i></div>
+      <div class="t-stick t-right"><i class="t-base"><b class="t-knob"></b><span>前后 · 平移</span></i></div>
+      <div class="t-keys t-keys-l">
+        <button type="button" class="t-key" data-k="pause" aria-label="暂停">暂停</button>
+        <button type="button" class="t-key" data-k="view" aria-label="切换视角">视角</button>
+        <button type="button" class="t-key" data-k="center" aria-label="视角回正">回正</button>
+      </div>
+      <div class="t-keys t-keys-r">
+        <button type="button" class="t-key hidden" data-k="cruise" aria-label="自动巡航">巡航</button>
+        <button type="button" class="t-key" data-k="boost" aria-label="动力增强">增强</button>
+        <button type="button" class="t-key" data-k="hover" aria-label="悬停辅助">悬停</button>
+      </div>`;
+    parent.appendChild(root);
+    this.lookLayer = root.querySelector('.t-look') as HTMLElement;
+    this.cruiseBtn = root.querySelector('[data-k="cruise"]') as HTMLElement;
+    this.left = this.stick('.t-left');
+    this.right = this.stick('.t-right');
+    this.lookLayer.addEventListener('pointerdown', this.lookStart);
+    this.lookLayer.addEventListener('pointermove', this.lookMove);
+    this.lookLayer.addEventListener('pointerup', this.lookEnd);
+    this.lookLayer.addEventListener('pointercancel', this.lookEnd);
+    root.querySelectorAll<HTMLElement>('.t-key').forEach((b) => {
+      b.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.onEdge(b.dataset.k as TouchEdge);
+      });
+    });
+    root.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  private stick(selector: string): Stick {
+    const el = this.root.querySelector(selector) as HTMLElement;
+    const s: Stick = { el, base: el.querySelector('.t-base') as HTMLElement, knob: el.querySelector('.t-knob') as HTMLElement, id: null, x0: 0, y0: 0 };
+    el.addEventListener('pointerdown', (e) => {
+      if (s.id !== null) return;
+      e.preventDefault();
+      s.id = e.pointerId;
+      s.x0 = e.clientX;
+      s.y0 = e.clientY;
+      el.setPointerCapture?.(e.pointerId);
+      // 按在哪儿摇杆就到哪儿：手大手小、屏幕大小都不用找位置
+      const r = el.getBoundingClientRect();
+      s.base.style.left = `${e.clientX - r.left}px`;
+      s.base.style.top = `${e.clientY - r.top}px`;
+      s.base.style.bottom = 'auto';
+      s.base.classList.add('on');
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== s.id) return;
+      this.push(s, e.clientX - s.x0, e.clientY - s.y0);
+    });
+    const end = (e: PointerEvent): void => {
+      if (e.pointerId !== s.id) return;
+      this.release(s);
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+    return s;
+  }
+
+  private push(s: Stick, dx: number, dy: number): void {
+    const d = Math.hypot(dx, dy);
+    const k = d > REACH ? REACH / d : 1;
+    const x = dx * k;
+    const y = dy * k;
+    s.knob.style.transform = `translate(${x}px, ${y}px)`;
+    const h = shape(x / REACH);
+    const v = shape(-y / REACH);
+    if (s === this.left) {
+      this.turn = h;
+      this.vertical = v;
+    } else {
+      this.lateral = h;
+      this.forward = v;
+    }
+  }
+
+  private release(s: Stick): void {
+    s.id = null;
+    s.knob.style.transform = '';
+    s.base.style.left = s.base.style.top = s.base.style.bottom = '';
+    s.base.classList.remove('on');
+    if (s === this.left) this.turn = this.vertical = 0;
+    else this.lateral = this.forward = 0;
+  }
+
+  private lookStart = (e: PointerEvent): void => {
+    if (this.lookId !== null) return;
+    this.lookId = e.pointerId;
+    this.lookX = e.clientX;
+    this.lookY = e.clientY;
+    this.lookLayer.setPointerCapture?.(e.pointerId);
+  };
+
+  private lookMove = (e: PointerEvent): void => {
+    if (e.pointerId !== this.lookId) return;
+    this.onLook((e.clientX - this.lookX) * LOOK_GAIN, (e.clientY - this.lookY) * LOOK_GAIN);
+    this.lookX = e.clientX;
+    this.lookY = e.clientY;
+  };
+
+  private lookEnd = (e: PointerEvent): void => {
+    if (e.pointerId === this.lookId) this.lookId = null;
+  };
+
+  setMode(m: TouchMode): void {
+    if (m === this.mode) return;
+    this.mode = m;
+    this.root.classList.toggle('hidden', m === 'off');
+    this.root.classList.toggle('look-only', m === 'look');
+    if (m !== 'fly') {
+      this.release(this.left);
+      this.release(this.right);
+    }
+    if (m === 'off') this.lookId = null;
+  }
+
+  /** 休闲飞行才有自动巡航 */
+  setFree(on: boolean): void {
+    this.cruiseBtn.classList.toggle('hidden', !on);
+  }
+
+  dispose(): void {
+    this.root.remove();
+  }
+}

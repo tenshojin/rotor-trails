@@ -141,6 +141,7 @@ export interface Settings {
   volEngine: number;
   volAmbience: number;
   volAlerts: number;
+  volMusic: number;
   assist: AssistId;
   speedUnit: 'kmh' | 'kt' | 'ms';
   hudOpacity: number;
@@ -170,6 +171,7 @@ export function defaultSettings(): Settings {
     volEngine: 0.8,
     volAmbience: 0.7,
     volAlerts: 0.8,
+    volMusic: 0.55,
     assist: 'standard',
     speedUnit: 'kmh',
     hudOpacity: 1,
@@ -259,6 +261,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     volEngine: num(r.volEngine, 0, 1, d.volEngine),
     volAmbience: num(r.volAmbience, 0, 1, d.volAmbience),
     volAlerts: num(r.volAlerts, 0, 1, d.volAlerts),
+    volMusic: num(r.volMusic, 0, 1, d.volMusic),
     assist: pick(r.assist, ['novice', 'standard', 'challenge', 'sim'] as const, d.assist),
     speedUnit: pick(r.speedUnit, ['kmh', 'kt', 'ms'] as const, d.speedUnit),
     hudOpacity: num(r.hudOpacity, 0.3, 1, d.hudOpacity),
@@ -286,7 +289,32 @@ const KEY_NAMES: Record<string, string> = {
     Backspace: '退格',
 };
 
+/** 手机、平板上提示里写的是屏幕上的摇杆和按键 */
+const TOUCH_NAMES: Record<string, string> = {
+  KeyW: '右摇杆上推',
+  KeyS: '右摇杆下拉',
+  KeyA: '左摇杆左推',
+  KeyD: '左摇杆右推',
+  KeyQ: '右摇杆左推',
+  KeyE: '右摇杆右推',
+  Space: '左摇杆上推',
+  ShiftLeft: '左摇杆下拉',
+  ShiftRight: '左摇杆下拉',
+  KeyH: '悬停',
+  KeyC: '增强',
+  KeyZ: '回正',
+  KeyV: '视角',
+  KeyJ: '巡航',
+  Escape: '暂停',
+  KeyP: '暂停',
+};
+let touchNames = false;
+export function useTouchNames(on: boolean): void {
+  touchNames = on;
+}
+
 export function keyName(code: string): string {
+  if (touchNames && TOUCH_NAMES[code]) return TOUCH_NAMES[code];
   if (KEY_NAMES[code]) return KEY_NAMES[code];
   if (code.startsWith('Key')) return code.slice(3);
   if (code.startsWith('Digit')) return code.slice(5);

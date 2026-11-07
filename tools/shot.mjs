@@ -89,7 +89,9 @@ const send = (method, params = {}) =>
 await send('Page.enable');
 await send('Runtime.enable');
 await send('Log.enable');
-await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: cfg.mobile ? 2 : 1, mobile: !!cfg.mobile });
+// 手机：{ "mobile": true } 打开触屏模拟，步骤里用 { "touch": [[x, y], ...], "phase": "start|move|end" } 按屏幕
+if (cfg.mobile) await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
 // preload：每次打开页面时最先执行的脚本（比如钩住 WebGPU 接口，抓取生成的着色器）
 if (cfg.preload) await send('Page.addScriptToEvaluateOnNewDocument', { source: cfg.preload });
 await send('Page.navigate', { url: cfg.url });
@@ -149,6 +151,10 @@ for (const s of cfg.steps) {
     await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
     await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
     console.log('click', x, y);
+  }
+  if (s.touch) {
+    const type = { start: 'touchStart', move: 'touchMove', end: 'touchEnd' }[s.phase ?? 'start'];
+    await send('Input.dispatchTouchEvent', { type, touchPoints: s.touch.map(([x, y], id) => ({ x, y, id })) });
   }
   if (s.key) {
     // 真实的按键（keyDown → 等待 → keyUp）

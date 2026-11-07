@@ -3,6 +3,7 @@
 
 import type { AmbienceDef } from '../maps/types';
 import synthUrl from './heliSynth.js?url';
+import { Music } from './music';
 
 const volume = (value: number) => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 
@@ -46,6 +47,8 @@ export interface AudioState {
   closing?: number;
   /** 绕场飞的飞机：离耳朵多远、朝耳朵过来多快 */
   plane?: { dist: number; closing: number } | null;
+  /** 背景音乐放多大（0 = 不放），再乘设置里的音量 */
+  music?: number;
   sim?: SimAudio | null;
   rpm: number;
   load: number; // 推力/重量
@@ -64,6 +67,7 @@ export interface Volumes {
   engine: number;
   ambience: number;
   alerts: number;
+  music?: number;
 }
 
 function smooth01(a: number, b: number, x: number): number {
@@ -91,7 +95,10 @@ export class AudioEngine {
   private master!: GainNode;
   private engineBus!: GainNode;
   private ambBus!: GainNode;
+  /** 贴着地面才听得到的声音（海浪、河、虫、鸟）：飞高了淡下去 */
+  private ambLow!: GainNode;
   private alertBus!: GainNode;
+  private music: Music | null = null;
   private cabinFilter!: BiquadFilterNode;
   /** 离得远了高频先没：电影镜头里旋翼声只剩闷闷的拍打 */
   private distFilter!: BiquadFilterNode;
@@ -113,7 +120,7 @@ export class AudioEngine {
   private targets = new WeakMap<AudioParam, number>();
   private ambTimer = 0;
   private ambience: AmbienceDef = {};
-  private volumes: Volumes = { master: 0.8, engine: 0.8, ambience: 0.7, alerts: 0.8 };
+  private volumes: Required<Volumes> = { master: 0.8, engine: 0.8, ambience: 0.7, alerts: 0.8, music: 0.55 };
   private alertCooldown: Record<string, number> = {};
   private paused = true;
   enabled = true;
@@ -162,6 +169,14 @@ export class AudioEngine {
       this.ambBus.connect(this.cabinFilter);
       this.alertBus = ctx.createGain();
       this.alertBus.connect(this.master);
+      this.ambLow = ctx.createGain();
+      this.ambLow.connect(this.ambBus);
+      try {
+        this.music = new Music(ctx, this.master);
+      } catch (e) {
+        // 没有音乐也能玩：老浏览器缺一两个节点不该把整个声音都关掉
+        console.warn('背景音乐用不了：', e);
+      }
       this.distFilter = ctx.createBiquadFilter();
       this.distFilter.type = 'lowpass';
       this.distFilter.frequency.value = 20000;
@@ -239,7 +254,7 @@ export class AudioEngine {
     this.drone = null;
     if (!this.ctx || this.ctx.state === 'closed') return;
     const ctx = this.ctx;
-    const addLoop = (buf: AudioBuffer, rate: number, type: BiquadFilterType, freq: number, q: number, level: number, lfoHz = 0) => {
+    const addLoop = (buf: AudioBuffer, rate: number, type: BiquadFilterType, freq: number, q: number, level: number, lfoHz = 0, low = true) => {
       const s = this.loop(buf, rate);
       this.ambSources.add(s);
       const f = ctx.createBiquadFilter();
@@ -248,7 +263,7 @@ export class AudioEngine {
       f.Q.value = q;
       const g = ctx.createGain();
       g.gain.value = level;
-      s.connect(f).connect(g).connect(this.ambBus);
+      s.connect(f).connect(g).connect(low ? this.ambLow : this.ambBus);
       if (lfoHz > 0) {
         const l = ctx.createOscillator();
         l.frequency.value = lfoHz;
@@ -264,11 +279,11 @@ export class AudioEngine {
     if (a.sea) addLoop(this.brown, 0.8, 'lowpass', 600, 0.5, 0.25 * a.sea, 0.09);
     if (a.river) addLoop(this.white, 0.5, 'bandpass', 700, 0.6, 0.08 * a.river, 0.3);
     if (a.insects) addLoop(this.white, 1, 'bandpass', 5200, 6, 0.1 * a.insects, 23);
-    if (a.wind) addLoop(this.brown, 0.5, 'bandpass', 240, 1.5, 0.18 * a.wind, 0.05);
+    if (a.wind) addLoop(this.brown, 0.5, 'bandpass', 240, 1.5, 0.18 * a.wind, 0.05, false);
   }
 
   applyVolumes(v: Volumes): void {
-    this.volumes = { master: volume(v.master), engine: volume(v.engine), ambience: volume(v.ambience), alerts: volume(v.alerts) };
+    this.volumes = { master: volume(v.master), engine: volume(v.engine), ambience: volume(v.ambience), alerts: volume(v.alerts), music: volume(v.music ?? this.volumes.music) };
     if (!this.ctx) return;
     const current = this.volumes;
     this.smooth(this.master.gain, current.master, 0.03);
@@ -292,9 +307,13 @@ export class AudioEngine {
     this.smooth(this.engineBus.gain, s.paused ? 0 : this.volumes.engine / (1 + far / 60), 0.1);
     this.smooth(this.ambBus.gain, s.paused ? 0 : this.volumes.ambience, 0.1);
     this.smooth(this.distFilter.frequency, 20000 / (1 + far / 22), 0.15);
+    this.music?.setLevel((s.music ?? 0) * this.volumes.music);
+    this.music?.update();
     if (s.paused) {
       return;
     }
+    // 飞高了，海浪、河水、虫鸟都淡下去，只剩发动机和风：高度也是听得出来的
+    this.smooth(this.ambLow.gain, 0.16 + 0.84 * (1 - smooth01(30, 380, s.agl ?? 0)), 0.5);
     this.smooth(this.cabinFilter.frequency, s.inCockpit ? 3400 : 12000, 0.2);
     this.echoes.forEach((e, i) => {
       const d = s.echo?.[i] ?? 0;
@@ -470,7 +489,7 @@ export class AudioEngine {
     o.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.6);
     o.frequency.exponentialRampToValueAtTime(f0 * 1.1, t + dur);
     const g = ctx.createGain();
-    o.connect(g).connect(this.ambBus);
+    o.connect(g).connect(this.ambLow);
     this.track(o, [g], true);
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(peak, t + 0.02);
@@ -581,8 +600,17 @@ export class AudioEngine {
 
   thunder(delay: number, strength: number): void {
     if (!this.ctx) return;
-    this.burst(2.5 + strength * 2, 0.6 * strength, 'lowpass', 160, this.ambBus, Math.min(8, delay), true);
-    this.burst(0.6, 0.35 * strength, 'lowpass', 500, this.ambBus, Math.min(8, delay), true);
+    const at = Math.min(8, delay);
+    // 打得近先有一声脆响
+    if (delay < 1.6) this.burst(0.09, 0.42 * strength, 'bandpass', 2100, this.ambBus, at);
+    this.burst(2.5 + strength * 2, 0.45 * strength, 'lowpass', 160, this.ambBus, at, true);
+    // 一道闪电有几公里长，各段的声音到得有先有后：是一串滚过去的闷响，不是一声
+    const rolls = 3 + Math.floor(strength * 4);
+    let t = at;
+    for (let i = 0; i < rolls; i++) {
+      this.burst(0.6 + Math.random() * 1.3, 0.34 * strength * (1 - i / (rolls + 1)), 'lowpass', 180 + Math.random() * 320, this.ambBus, t, true);
+      t += 0.2 + Math.random() * 0.75;
+    }
   }
 
   /** 座舱开关的声音：每一种都由“金属/塑料的一声脆响 + 底座传来的一声闷响”组成 */
@@ -672,6 +700,8 @@ export class AudioEngine {
     this.ctx = null;
     this.synth?.disconnect();
     this.synth = null;
+    this.music?.dispose();
+    this.music = null;
     this.synthLoading = false;
     this.horn = null;
     this.wasLit = false;

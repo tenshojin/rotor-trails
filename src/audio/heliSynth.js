@@ -158,7 +158,8 @@ export class HeliSynth {
     const nrAmp = nr * nr;
     // ---------- 这一块的增益 ----------
     const thumpA = nrAmp * (0.42 + 0.30 * clamp(load, 0, 1.6)) * (0.8 + 0.5 * (1 - cabin));
-    const bodyA = nrAmp * (0.16 + 0.12 * load + 0.42 * P.slap);
+    // （中频这一层：笔记本和手机的喇叭放不出 200 Hz 以下，“哒哒哒”的节奏全靠它）
+    const bodyA = nrAmp * (0.24 + 0.17 * load + 0.42 * P.slap);
     const slapA = nrAmp * P.slap * (0.36 + 0.3 * (1 - cabin));
     const swishA = nrAmp * (0.05 + 0.04 * load) * (cabin > 0.5 ? 0.8 : 1.5);
     const tailA = nr * nr * (0.012 + 0.05 * P.tail) * (cabin > 0.5 ? 0.45 : 2.2);
@@ -167,7 +168,8 @@ export class HeliSynth {
     const combA = lit * n1 * (0.05 + 0.09 * clamp(P.torque, 0, 1.2)) * (cabin > 0.5 ? 0.75 : 1.1);
     const exhA = lit * n1 * n1 * (cabin > 0.5 ? 0.012 : 0.05);
     const windN = clamp(air / 62, 0, 1.6);
-    const windA = 0.34 * Math.pow(windN, 2.4) * (cabin > 0.5 ? 0.55 : 1) + 0.05 * P.gust * windN;
+    // （飞得再快也不能盖过旋翼：风噪一大，五十多米每秒时只听得到一片“沙沙”，听不出是直升机）
+    const windA = 0.34 * Math.pow(windN, 2.4) * (cabin > 0.5 ? 0.42 : 0.45) + 0.05 * P.gust * windN;
     const whistleA = 0.02 * Math.pow(clamp(air / 72, 0, 1.3), 4) * cabin;
     const rainRate = P.rain * P.rain * 1400 + P.rain * 300;
     // ---------- 频率 ----------

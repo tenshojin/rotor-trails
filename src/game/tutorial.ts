@@ -24,6 +24,8 @@ export interface TutorialCtx {
   held(a: Action): boolean;
   /** 鼠标锁定不可用（只能按住拖动观察） */
   dragLook: boolean;
+  /** 手机、平板：手指在屏幕上拖 */
+  touch?: boolean;
   /** 超仿真：鼠标指着哪个控件 */
   hover?: string | null;
 }
@@ -126,8 +128,8 @@ export const LESSONS: Lesson[] = [
       {
         id: 'look',
         title: '转头看看',
-        text: (_, c) => `${c.dragLook ? '按住鼠标左键拖动' : '移动鼠标'}，向<b>左</b>看，再向<b>右</b>看。`,
-        why: () => '鼠标只管你的视线，不管飞机。飞行中随时可以转头看风景。',
+        text: (_, c) => `${c.touch ? '手指在屏幕中间拖动' : c.dragLook ? '按住鼠标左键拖动' : '移动鼠标'}，向<b>左</b>看，再向<b>右</b>看。`,
+        why: () => '这个动作只管你的视线，不管飞机。飞行中随时可以转头看风景。',
         check: (_s, st, _dt, c) => {
           st.a = Math.max(st.a, c.yaw);
           st.b = Math.max(st.b, -c.yaw);
@@ -682,8 +684,8 @@ export class Tutorial {
     const enterBound = Object.values(this.settings.bindings).some((codes) => codes.includes('Enter'));
     const pause = `<kbd>${k('pause')}</kbd> 暂停`;
     const foot = step.manual
-      ? `${enterBound ? '点击鼠标' : '按 <kbd>回车</kbd> 或点击鼠标'}继续 · ${pause}`
-      : `${enterBound ? '可在暂停菜单跳过这一步' : '<kbd>回车</kbd> 跳过这一步'} · ${pause}`;
+      ? `${ctx.touch ? '点一下屏幕' : enterBound ? '点击鼠标' : '按 <kbd>回车</kbd> 或点击鼠标'}继续 · ${pause}`
+      : `${ctx.touch || enterBound ? '可在暂停菜单跳过这一步' : '<kbd>回车</kbd> 跳过这一步'} · ${pause}`;
     const big = (step.keys ?? []).map((a) => `<kbd class="big ${ctx.held(a) ? 'on' : ''}">${k(a)}</kbd>`).join('');
     this.cachedHtml =
       `<div class="tut-head"><span class="tut-lesson">第 ${l + 1} 课 · ${this.lessons[l].title}</span><span class="tut-dots">${dots}</span></div>` +
