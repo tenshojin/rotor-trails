@@ -997,7 +997,7 @@ export class WorldView {
       if (this.rig.mode === 'photo' && this.dofOn) this.photoFocus();
       // （夜里和大雨的时候鸟都回去了）
       this.birds?.update(f.dt, f.t, s ? _pos : null, this.tod !== 'night' && w.rain < 0.45);
-      this.vessels?.update(f.dt, f.t);
+      this.vessels?.update(f.dt, f.t, this.sky?.night ?? 0);
       this.scatter?.update(cp);
       if (s) this.scatter?.probe(this.renderer, s.body.pos as unknown as THREE.Vector3, f.t, (list) => s.setRingTrees(list));
       if (this.buildings && this.sky) this.buildings.night.value = this.sky.night;
