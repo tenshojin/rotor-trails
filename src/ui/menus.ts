@@ -347,7 +347,7 @@ export class UI {
   }
 
   /** 休闲飞行的暂停菜单 */
-  freePause(o: { map: MapDef; time: TimeOfDay; weather: string; vistas: string[]; cruise: boolean }, on: { resume: () => void; time: (t: TimeOfDay) => void | Promise<void>; weather: (id: string) => void; vista: (i: number) => void; cruise: () => void; settings: () => void; help: () => void; quit: () => void }): void {
+  freePause(o: { map: MapDef; time: TimeOfDay; weather: string; vistas: string[]; cruise: boolean }, on: { resume: () => void; time: (t: TimeOfDay) => void | Promise<void>; weather: (id: string) => void; vista: (i: number) => void; cruise: () => void; settings: () => void; help: () => void; quit: () => void; photo: () => void }): void {
     const chip = (a: string, v: string, label: string, sel: boolean) => `<button type="button" class="chip ${sel ? 'sel' : ''}" data-a="${a}" data-v="${v}" aria-pressed="${sel}">${label}</button>`;
     const el = this.show(
       h(`<div class="screen center dim"><div class="card free-pause"><h2>${o.map.name}</h2>
@@ -356,6 +356,7 @@ export class UI {
       <h3>去这些地方</h3><div class="chips">${o.vistas.map((v, i) => chip('vista', String(i), v, false)).join('')}</div>
       <div class="free-actions"><button class="btn primary" data-a="resume">继续飞行</button>
       <button class="btn" data-a="cruise">${o.cruise ? '关闭自动巡航' : '自动巡航（看风景）'}</button>
+      <button class="btn" data-a="photo">拍照模式</button>
       <button class="btn" data-a="settings">设置</button>
       <button class="btn" data-a="help">操作说明</button>
       <button class="btn ghost" data-a="quit">回主菜单</button></div></div></div>`),
@@ -377,6 +378,7 @@ export class UI {
       },
       vista: (b) => on.vista(Number(b.dataset.v)),
       cruise: on.cruise,
+      photo: on.photo,
       settings: on.settings,
       help: on.help,
       quit: on.quit,
@@ -408,7 +410,7 @@ export class UI {
     this.bind(el, { go: on });
   }
 
-  pause(opts: { tutorial: boolean; checkpoints: CheckpointItem[] }, on: { resume: () => void; checkpoint: (i: number, mode: 'exact' | 'safe') => void; restart: () => void; settings: () => void; help: () => void; quit: () => void; skipStep?: () => void }): void {
+  pause(opts: { tutorial: boolean; checkpoints: CheckpointItem[] }, on: { resume: () => void; checkpoint: (i: number, mode: 'exact' | 'safe') => void; restart: () => void; settings: () => void; help: () => void; quit: () => void; photo: () => void; skipStep?: () => void }): void {
     const last = opts.checkpoints[opts.checkpoints.length - 1];
     const el = this.show(
       h(`<div class="screen center dim"><div class="card narrow pause"><h2>已暂停</h2>
@@ -417,6 +419,7 @@ export class UI {
       ${last && opts.checkpoints.length > 1 ? `<button class="btn" data-a="cp">从最近检查点继续（${last.label}）</button>` : ''}
       ${opts.checkpoints.length > 1 ? '<button class="btn" data-a="cplist">选择检查点…</button>' : ''}
       <button class="btn" data-a="restart">${opts.tutorial ? '重新开始这一课' : '从关卡起点重新开始'}</button>
+      <button class="btn" data-a="photo">拍照模式</button>
       <button class="btn" data-a="settings">设置</button>
       <button class="btn" data-a="help">操作说明</button>
       <button class="btn ghost" data-a="quit">${opts.tutorial ? '退出教学' : '退出到主菜单'}</button></div></div>`),
@@ -427,6 +430,7 @@ export class UI {
       cp: () => on.checkpoint(last.index, 'exact'),
       cplist: () => this.checkpointList(opts.checkpoints, on.checkpoint),
       restart: on.restart,
+      photo: on.photo,
       settings: on.settings,
       help: on.help,
       quit: on.quit,

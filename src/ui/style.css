@@ -1935,3 +1935,106 @@ canvas.gl.sim-cursor.sim-cursor-hot {
   font-size: 11.5px;
   line-height: 1.45;
 }
+
+/* 拍照模式：画面是主角，面板只占最下面一条。面板和构图线都不进存下来的图 */
+.photo-on .tutorial,
+.photo-on .sim-tip,
+.photo-on .sim-list {
+  display: none;
+}
+.photo-on canvas.gl {
+  cursor: grab;
+}
+.photo-on canvas.gl:active {
+  cursor: grabbing;
+}
+.photo-panel {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  width: min(1120px, calc(100vw - 24px));
+  padding: 8px 14px 10px;
+  background: rgba(7, 13, 20, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 13px;
+  z-index: 30;
+}
+.photo-panel.hidden {
+  display: none;
+}
+.photo-keys {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.photo-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.photo-slider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.photo-slider input {
+  width: 110px;
+  accent-color: var(--accent);
+}
+.photo-slider output {
+  min-width: 46px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.photo-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+.photo-check input {
+  accent-color: var(--accent);
+}
+.photo-note {
+  flex: 1;
+  min-width: 0;
+  color: var(--good);
+  text-align: right;
+}
+.photo-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 29;
+}
+.photo-grid.lines {
+  background:
+    linear-gradient(90deg, transparent calc(33.333% - 0.5px), rgba(255, 255, 255, 0.35) calc(33.333% - 0.5px), rgba(255, 255, 255, 0.35) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px), transparent calc(66.667% - 0.5px), rgba(255, 255, 255, 0.35) calc(66.667% - 0.5px), rgba(255, 255, 255, 0.35) calc(66.667% + 0.5px), transparent calc(66.667% + 0.5px)),
+    linear-gradient(0deg, transparent calc(33.333% - 0.5px), rgba(255, 255, 255, 0.35) calc(33.333% - 0.5px), rgba(255, 255, 255, 0.35) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px), transparent calc(66.667% - 0.5px), rgba(255, 255, 255, 0.35) calc(66.667% - 0.5px), rgba(255, 255, 255, 0.35) calc(66.667% + 0.5px), transparent calc(66.667% + 0.5px));
+}
+.photo-grid.photo-flash::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  animation: photo-flash 0.28s ease-out forwards;
+}
+@keyframes photo-flash {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .photo-grid.photo-flash::after {
+    animation: none;
+    opacity: 0;
+  }
+}

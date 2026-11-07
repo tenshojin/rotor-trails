@@ -161,6 +161,9 @@ export class WorldView {
   private giSun = 1;
   private compiling = false;
   flash = 0;
+  /** 拍照模式：曝光补偿（档）、把直升机藏起来 */
+  exposureBias = 0;
+  hideHeli = false;
   /** 雷声回调（音频层） */
   onThunder: ((delay: number, strength: number) => void) | null = null;
   inCloud = 0;
@@ -796,7 +799,7 @@ export class WorldView {
       weather = s.weather.current;
       this.heli.root.position.copy(_pos);
       this.heli.root.quaternion.copy(_quat);
-      this.heli.root.visible = true;
+      this.heli.root.visible = !this.hideHeli;
       const tel = s.flight.telemetry;
       const load = Math.min(1.5, tel.thrust / (s.totalMass() * 9.81));
       const sys = s.sys;
@@ -811,11 +814,11 @@ export class WorldView {
       this.heli.rimDim = this.tod === 'night' ? 0 : 1;
       this.heli.setCockpitView(cockpitView);
       // 有 Blender 外观时座舱模型（含机身外壳）在追尾视角也显示：从外面能透过玻璃看到舱内
-      this.cockpit.root.visible = cockpitView || this.heli.extLoaded;
+      this.cockpit.root.visible = (cockpitView || this.heli.extLoaded) && !this.hideHeli;
       this.cockpit.updateControls(tel.stickPitch, tel.stickRoll, tel.collective, tel.pedal);
       this.cockpit.updateSwitches(sys, f.dt, f.t);
       if (this.pilot) {
-        this.pilot.root.visible = !!sys;
+        this.pilot.root.visible = !!sys && !this.hideHeli;
         if (sys) {
           this.pilot.setView(cockpitView);
           this.pilot.update({ dt: f.dt, cyclic: this.cockpit.stick('cyclic'), collective: this.cockpit.stick('collective'), pedal: tel.pedal, eye: _eye.set(eyeX, EYE.y, EYE.z), collectiveKey: s.input.vertical !== 0 });
@@ -943,7 +946,7 @@ export class WorldView {
       // 清晨、黄昏整体更暗：曝光只补回一部分（像相机那样稍微提亮，但保留低光的气氛）
       const adapted = this.eye.update(f.dt);
       const fixed = this.tod === 'night' ? 2.8 : 1 + 0.32 * (1 - this.sky.dayK);
-      this.renderer.toneMappingExposure = (1.0 - w.overcast * 0.12) * (this.settings.eyeAdapt ? adapted : fixed) + this.flash * 0.6;
+      this.renderer.toneMappingExposure = ((1.0 - w.overcast * 0.12) * (this.settings.eyeAdapt ? adapted : fixed) + this.flash * 0.6) * 2 ** this.exposureBias;
       const q = QUALITY[set.quality];
       // 分层阴影：视野或宽高比变了要重新划分；每帧把各层阴影框跟随相机（内部按纹素对齐，避免闪烁）
       this.syncCameraProjection();

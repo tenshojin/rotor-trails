@@ -8,6 +8,7 @@ import { HELI } from '../config/flight';
 import { loadGltf } from './gltf';
 import { getGlowTexture } from './propsView';
 import { modelResources } from './modelResources';
+import { acquireLivery, liveryMaterial, releaseLivery } from './heliLivery';
 
 const EXT_URL = 'models/heli_ext.glb';
 
@@ -71,6 +72,23 @@ export class HeliModel {
   private glbBlades: THREE.Mesh[] = [];
   /** 外观模型加载完成（失败也会 resolve，extLoaded 为 false） */
   readonly ready: Promise<void>;
+  /** 拍照：相当于快门很快，桨叶一片一片定住，不是虚的 */
+  get frozen(): boolean {
+    return this.stopped;
+  }
+
+  set frozen(on: boolean) {
+    if (on === this.stopped) return;
+    this.stopped = on;
+    // 平时桨叶是半透明的（转起来要虚），定住的时候是实心的
+    for (const m of this.glbBladeMats) {
+      m.transparent = !on;
+      m.needsUpdate = true;
+    }
+  }
+
+  private stopped = false;
+  private usesLivery = false;
 
   constructor() {
     const body = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.38, metalness: 0.25 });
@@ -249,7 +267,8 @@ export class HeliModel {
 
   /** 加载 Blender 外观模型；成功后隐藏程序生成的外观（失败时保留，游戏照常可玩）。 */
   private async loadExt(): Promise<void> {
-    const gltf = await loadGltf(EXT_URL);
+    this.usesLivery = true;
+    const [gltf, livery] = await Promise.all([loadGltf(EXT_URL), acquireLivery()]);
     const scene = gltf.scene;
     const resources = modelResources(scene);
     if (this.disposed) {
@@ -266,18 +285,28 @@ export class HeliModel {
     }
     this.extResources = resources;
     for (const o of this.proc) o.visible = false;
-    // 白漆的反照率 0.8 太高：山和水都暗，曝光开得大，追尾视角里机身一片死白，看不出形状
-    const whitened = new Set<THREE.Material>();
+    // 涂装：机身一个材质，逐像素从贴图取（贴图没到就是纯色，但白漆要压暗：
+    // 反照率 0.8 太高，山和水都暗，曝光开得大，追尾视角里机身一片死白，看不出形状）
+    const painted = new Map<THREE.Material, THREE.Material>();
     scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
       m.castShadow = true;
       m.receiveShadow = true;
       const paint = m.material as THREE.MeshStandardMaterial;
-      if (paint.name === 'cp_paint' && !whitened.has(paint)) {
-        paint.color.multiplyScalar(0.72);
-        whitened.add(paint);
+      if (paint.name !== 'cp_paint') return;
+      let next = painted.get(paint);
+      if (!next) {
+        if (livery) {
+          next = liveryMaterial(paint, livery);
+          this.mats.push(next);
+        } else {
+          paint.color.multiplyScalar(0.72);
+          next = paint;
+        }
+        painted.set(paint, next);
       }
+      m.material = next;
     });
     this.root.add(body);
     // 主旋翼：桨毂与桨叶放进一个随转速旋转的子组（桨毂位置与程序旋翼相同）
@@ -297,6 +326,11 @@ export class HeliModel {
     });
     this.tailRotor.position.copy(tail.position);
     for (const c of [...tail.children]) this.tailRotor.add(c);
+    // 灯装在模型上它们真正的位置：航行灯在平尾两端，防撞灯在垂尾顶上
+    this.navLights[0].position.set(-1.13, 0.72, 5.38);
+    this.navLights[1].position.set(1.13, 0.72, 5.38);
+    this.navLights[2].position.set(0, 0.78, 7.32);
+    this.beacon.position.set(0, 1.82, 7.26);
     this.extLoaded = true;
   }
 
@@ -305,7 +339,7 @@ export class HeliModel {
     if (!this.extLoaded) this.exterior.visible = !cockpit;
     this.inCockpit = cockpit;
     // 从座舱里看，桨尖那一圈在暗的山壁前会变成一道横着的亮线；肉眼其实看不到它
-    this.rimK.value = (cockpit ? 0.004 : 0.02) * this.rimDim;
+    this.rimK.value = (cockpit ? 0.004 : 0.011) * this.rimDim;
     // 两侧航行灯和顶上的防撞灯离眼睛不到两米，从座舱里看会变成一大团光（真实的灯是朝外照的）；尾灯离得远，留着
     this.navLights[0].visible = !cockpit;
     this.navLights[1].visible = !cockpit;
@@ -320,7 +354,7 @@ export class HeliModel {
     this.blades.rotation.y = this.rotorAngle;
     this.rotorSpin.rotation.y = this.rotorAngle;
     // 高转速时桨叶变透明、显示模糊桨盘（避免频闪）
-    const blur = Math.min(1, Math.max(0, (rpm - 0.3) / 0.5));
+    const blur = this.stopped ? 0 : Math.min(1, Math.max(0, (rpm - 0.3) / 0.5));
     // 从座舱里看：高速转动的桨叶肉眼看不出一片一片的，只有桨盘那层淡淡的灰影。
     // 哪怕只留 5% 的不透明度，每一帧都会有一块半透明的四边形横在头顶，所以转起来就整片隐藏
     const fade = this.inCockpit ? 1 : 0.82;
@@ -333,7 +367,7 @@ export class HeliModel {
     }
     this.blades.visible = !this.extLoaded && bladeA > 0.004;
     for (const m of this.glbBlades) m.visible = bladeA > 0.004;
-    this.discMat.opacity = blur * (this.inCockpit ? 0.14 : 0.45);
+    this.discMat.opacity = blur * (this.inCockpit ? 0.14 : 0.8);
     // 高速旋转时桨叶不投影：每帧角度不同的桨叶阴影会被时间抗锯齿累积成一整块深色圆盘，
     // 而真实的旋翼阴影只是很淡的闪烁
     const shadow = blur < 0.35;
@@ -344,7 +378,9 @@ export class HeliModel {
     (this.tailDisc.material as THREE.MeshBasicMaterial).opacity = blur * 0.3;
     const b = this.beaconOn && (t % 1.2) < 0.08 ? 1 : 0.0;
     this.beacon.material.opacity = b;
-    for (const l of this.navLights) l.material.opacity = this.navOn ? 0.9 : 0;
+    // 白天的航行灯只是一个小亮点，到晚上才是一团光
+    const glow = this.rimDim > 0.5 ? 0.3 : 0.9;
+    for (const l of this.navLights) l.material.opacity = this.navOn ? glow : 0;
   }
 
   dispose(): void {
@@ -353,6 +389,7 @@ export class HeliModel {
     for (const g of this.geos) g.dispose();
     for (const m of new Set(this.mats)) m.dispose();
     this.extResources?.dispose();
+    if (this.usesLivery) releaseLivery();
     this.root.clear();
     this.geos.clear();
     this.glbBlades.length = this.glbBladeMats.length = this.mats.length = this.proc.length = 0;

@@ -37,6 +37,8 @@ export class Input {
   private lockRequest = 0;
   /** 超仿真：鼠标不锁定，是一只真的手 */
   private simMode = false;
+  /** 拍照模式：鼠标不锁定，按住才转镜头，放开了能点面板 */
+  private freeMouse = false;
   /** 鼠标在画面里的位置（-1..1，y 向下）；移出窗口时 inside = false */
   mouseX = 0;
   mouseY = 0;
@@ -75,6 +77,13 @@ export class Input {
 
   get sim(): boolean {
     return this.simMode;
+  }
+
+  /** 进入或离开拍照模式 */
+  setFreeMouse(on: boolean): void {
+    this.freeMouse = on;
+    this.dragging = false;
+    if (on) this.exitLock();
   }
 
   /** 进入或离开超仿真：鼠标放开 */
@@ -216,7 +225,7 @@ export class Input {
 
   private onMouseMove = (e: MouseEvent): void => {
     if (!this.active) return;
-    if (this.simMode) {
+    if (this.simMode && !this.freeMouse) {
       this.pointerAt(e);
       if (this.rightDrag) {
         this.lookDX += e.movementX;
@@ -235,13 +244,18 @@ export class Input {
   };
 
   private onWheel = (e: WheelEvent): void => {
-    if (!this.active || !this.simMode) return;
+    if (!this.active || !(this.simMode || this.freeMouse)) return;
     e.preventDefault();
     this.wheelSteps += e.deltaY < 0 ? 1 : e.deltaY > 0 ? -1 : 0;
   };
 
   private onMouseDown = (e: MouseEvent): void => {
     if (!this.active) return;
+    // （超仿真里进拍照模式也是这样：这时候鼠标不是手）
+    if (this.freeMouse) {
+      this.dragging = e.button === 0 || e.button === 2;
+      return;
+    }
     if (this.simMode) {
       this.pointerAt(e);
       if (e.button === 0) this.mouseHeld = true;
@@ -268,7 +282,7 @@ export class Input {
   };
 
   requestLock(): void {
-    if (!this.active || this.disposed || this.simMode) return;
+    if (!this.active || this.disposed || this.simMode || this.freeMouse) return;
     const request = ++this.lockRequest;
     const failed = () => {
       if (request === this.lockRequest && this.active && !this.locked && !this.disposed) this.lockFailed = true;

@@ -121,7 +121,7 @@ await test('休闲飞行的暂停菜单换时段、天气、景点', (ui) => {
   const log: string[] = [];
   ui.freePause({ map, time: 'dusk', weather: 'clear', vistas: ['甲', '乙'], cruise: false }, {
     resume: () => log.push('resume'), time: (t) => { log.push(`t:${t}`); }, weather: (w) => log.push(`w:${w}`), vista: (i) => log.push(`v:${i}`),
-    cruise: () => log.push('cruise'), settings: () => {}, help: () => {}, quit: () => {},
+    cruise: () => log.push('cruise'), photo: () => {}, settings: () => {}, help: () => {}, quit: () => {},
   });
   assert(find('.chip[data-v="dusk"]').getAttribute('aria-pressed') === 'true', '当前时段没有选中');
   click('.chip[data-v="night"]');

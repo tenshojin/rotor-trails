@@ -14,6 +14,7 @@ import { Systems } from '../sim/systems';
 import { getNoiseTexture } from './textures';
 import { modelResources } from './modelResources';
 import { disposeTextures } from './disposeTextures';
+import { acquireLivery, liveryMaterial, releaseLivery, type LiveryTextures } from './heliLivery';
 
 /** 驾驶员眼点（机体坐标，右侧机长座位），与 tools/blender/cockpit_layout.py 的 EYE 一致；实际视点的左右位置由设置“座舱视点居中”调整 */
 export const EYE = new THREE.Vector3(0.45, 0.42, -1.0);
@@ -125,6 +126,10 @@ export class Cockpit {
   /** 雨刷：-1 = 跟着雨自动（其他模式），0/1/2 = 开关位置 */
   wiperMode = -1;
   private sourceResources: ReturnType<typeof modelResources> | null = null;
+  private livery: LiveryTextures | null = null;
+  /** 机身外壳的漆：三个旧材质用同一个（涂装在贴图里） */
+  private paint: THREE.MeshStandardNodeMaterial | null = null;
+  private usesLivery = false;
 
   constructor() {
     this.ready = this.load().catch((e) => {
@@ -134,16 +139,19 @@ export class Cockpit {
   }
 
   private async load(): Promise<void> {
-    const [modelResult, aoResult, giResult] = await Promise.allSettled([
+    this.usesLivery = true;
+    const [modelResult, aoResult, giResult, liveryResult] = await Promise.allSettled([
       loadGltf(MODEL_URL),
       new THREE.TextureLoader().loadAsync(new URL(AO_URL, document.baseURI).href).catch((error) => {
         console.warn('驾驶舱 AO 贴图加载失败，使用未烘焙遮蔽的材质：', error);
         return null;
       }),
       new THREE.TextureLoader().loadAsync(new URL(GI_URL, document.baseURI).href).catch(() => null),
+      acquireLivery(),
     ]);
     const ao = aoResult.status === 'fulfilled' ? aoResult.value : null;
     const gi = giResult.status === 'fulfilled' ? giResult.value : null;
+    this.livery = liveryResult.status === 'fulfilled' ? liveryResult.value : null;
     if (modelResult.status === 'rejected') {
       if (ao) disposeTextures([ao]);
       throw modelResult.reason;
@@ -318,6 +326,7 @@ export class Cockpit {
   }
 
   private interiorMaterial(src: THREE.MeshStandardMaterial, ao: THREE.Texture | null): THREE.MeshStandardNodeMaterial {
+    if (this.livery && src.name.startsWith('cp_paint')) return (this.paint ??= liveryMaterial(src, this.livery));
     const nm = new THREE.MeshStandardNodeMaterial();
     for (const k of STD_KEYS) (nm as unknown as Record<string, unknown>)[k] = (src as unknown as Record<string, unknown>)[k];
     if (ao) {
@@ -613,6 +622,7 @@ export class Cockpit {
     for (const g of this.geos) g.dispose();
     for (const m of this.mats) m.dispose();
     disposeTextures(this.textures);
+    if (this.usesLivery) releaseLivery();
     this.controls?.dispose();
     this.controls = null;
     this.sourceResources?.dispose();

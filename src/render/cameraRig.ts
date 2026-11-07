@@ -33,12 +33,14 @@ const _eul = new THREE.Euler(0, 0, 0, 'YXZ');
 const _off = new THREE.Vector3();
 const _target = new THREE.Vector3();
 const _forward = new THREE.Vector3();
+/** 拍照模式的竖直视角范围（度）：全画幅 14 mm 到 300 mm 左右 */
+export const PHOTO_FOV: readonly [number, number] = [4.6, 81];
 
 export class CameraRig {
   readonly camera: THREE.PerspectiveCamera;
   yaw = 0;
   pitch = DEFAULT_PITCH;
-  mode: 'cockpit' | 'chase' | 'cinema' = 'cockpit';
+  mode: 'cockpit' | 'chase' | 'cinema' | 'photo' = 'cockpit';
   /** 视野缩放（1 = 不缩放，越小越近）：超仿真里滚轮用，看清远处的表 */
   zoom = 1;
   /** 探身：够远处的按钮时头也会往前（0..1） */
@@ -56,6 +58,13 @@ export class CameraRig {
   private cine = new THREE.Vector3();
   private cineFov = 40;
   private cineAim = new THREE.Vector3();
+  /** 拍照模式：世界定格，机位归玩家。竖直视角（度）和倾斜（弧度）面板上也能改 */
+  photoFov = 40;
+  photoRoll = 0;
+  private photoYaw = 0;
+  private photoPitch = 0;
+  private photoVel = new THREE.Vector3();
+  private photoBack: 'cockpit' | 'chase' | 'cinema' = 'cockpit';
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(72, aspect, 0.05, 30000);
@@ -143,6 +152,14 @@ export class CameraRig {
 
   update(dt: number, t: number, pos: THREE.Vector3, quat: THREE.Quaternion, vel: THREE.Vector3, rpmLoad: number, s: CameraSettings): void {
     const cam = this.camera;
+    if (this.mode === 'photo') {
+      this.prevVel.copy(vel);
+      if (Math.abs(cam.fov - this.photoFov) > 0.01) {
+        cam.fov = this.photoFov;
+        cam.updateProjectionMatrix();
+      }
+      return;
+    }
     if (this.mode === 'cinema') {
       this.cinema(dt, pos, vel, s.ground ?? (() => -1e4));
       this.prevVel.copy(vel);
@@ -223,6 +240,63 @@ export class CameraRig {
       _eul.set(this.pitch * 0.5, this.yaw, 0);
       _qh.setFromEuler(_eul);
       cam.quaternion.multiply(_qh);
+    }
+  }
+
+  /** 进拍照模式。在座舱里的话先走到机身斜后方：那里才拍得到飞机，座舱里也挪不开身 */
+  enterPhoto(pos: THREE.Vector3, quat: THREE.Quaternion, floor: (x: number, z: number) => number): void {
+    if (this.mode === 'photo') return;
+    const cam = this.camera;
+    this.photoBack = this.mode;
+    this.photoFov = 40;
+    if (this.mode === 'cockpit') {
+      const fwd = _forward.set(0, 0, -1).applyQuaternion(quat);
+      fwd.y = 0;
+      if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
+      fwd.normalize();
+      const x = pos.x - fwd.x * 15 - fwd.z * 9;
+      const z = pos.z - fwd.z * 15 + fwd.x * 9;
+      cam.position.set(x, Math.max(pos.y + 2.5, floor(x, z) + 1.5), z);
+      cam.lookAt(pos.x, pos.y + 0.8, pos.z);
+    } else this.photoFov = clamp(cam.fov, PHOTO_FOV[0], PHOTO_FOV[1]);
+    _eul.setFromQuaternion(cam.quaternion, 'YXZ');
+    this.photoYaw = _eul.y;
+    this.photoPitch = _eul.x;
+    this.photoRoll = 0;
+    this.photoVel.set(0, 0, 0);
+    this.mode = 'photo';
+  }
+
+  leavePhoto(): void {
+    if (this.mode === 'photo') this.setMode(this.photoBack);
+  }
+
+  /**
+   * 拍照的机位：move 是前后、左右、上下（-1..1）。按离地高度定速度：贴着地要慢慢挪，高处一下要走很远。
+   * look 的单位是弧度，长焦的时候手要稳，所以跟着视角一起变小。
+   */
+  movePhoto(dt: number, move: { x: number; y: number; z: number }, look: readonly [number, number], fast: boolean, half: number, floor: (x: number, z: number) => number): void {
+    const cam = this.camera;
+    const k = this.photoFov / 50;
+    this.photoYaw -= look[0] * k;
+    this.photoPitch = clamp(this.photoPitch - look[1] * k, -1.5, 1.5);
+    _eul.set(this.photoPitch, this.photoYaw, this.photoRoll);
+    cam.quaternion.setFromEuler(_eul);
+    const agl = cam.position.y - floor(cam.position.x, cam.position.z);
+    const speed = clamp(agl * 0.5, 5, 90) * (fast ? 4 : 1);
+    // 朝前走的时候跟着镜头抬头低头：不然看着谷底却走不下去
+    const sy = Math.sin(this.photoYaw);
+    const cy = Math.cos(this.photoYaw);
+    const flat = Math.cos(this.photoPitch) * move.z;
+    _target.set(cy * move.x - sy * flat, Math.sin(this.photoPitch) * move.z + move.y, -sy * move.x - cy * flat).multiplyScalar(speed);
+    this.photoVel.lerp(_target, 1 - Math.exp(-dt * 7));
+    const p = cam.position.addScaledVector(this.photoVel, dt);
+    p.x = clamp(p.x, -half, half);
+    p.z = clamp(p.z, -half, half);
+    const low = floor(p.x, p.z) + 0.7;
+    if (p.y < low) {
+      p.y = low;
+      this.photoVel.y = Math.max(0, this.photoVel.y);
     }
   }
 

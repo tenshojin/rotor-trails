@@ -95,6 +95,8 @@ python -I tools/real/fetch_lidar.py art/src/real/grandcanyon/lidar
 
 模型文件缺失或加载失败时，游戏会退回程序生成的几何体，仍然可以玩。
 
+机身涂装（注册号、接缝、铆钉、风化都在这张图里）：`python tools/blender/heli_livery.py public/models <Inter 字体路径>`，只用 Pillow 和 numpy，不用 Blender。默认读 Blender 自带的 `datafiles/fonts/Inter.woff2`。改了 `heli_shape.py` 或门窗的位置，要对着正投影看一下接缝还对不对得上。
+
 停机坪灯具与固定环可单独生成：`blender -b --factory-startup --python tools/blender/pad_fixtures.py -- public/models/pad_fixtures.glb --preview tmp/pad-fixtures`。游戏按材质批量绘制这些部件，灯光位置跟随停机坪朝向。
 
 ## 部署到 GitHub Pages

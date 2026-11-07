@@ -21,6 +21,9 @@ import type { AssistId } from '../config/flight';
 import { Input } from './input';
 import { SaveStore, type StorageLike } from './save';
 import { keyName, QUALITY, type Settings } from './settings';
+import { clamp } from '../core/math';
+import { PHOTO_FOV } from '../render/cameraRig';
+import { PhotoPanel } from '../ui/photoPanel';
 import { blocked, GPS_RANGES, operate, PressQueue, readout, type ActEnv, type ReadEnv } from '../sim/controls';
 import { SimPanel } from '../ui/simPanel';
 import type { Spot } from '../render/cockpitControls';
@@ -129,6 +132,8 @@ export class App {
   /** 休闲模式的自动巡航 */
   private cruise: ScenicCruise | null = null;
   private photoPending = false;
+  /** 拍照模式开着的时候是它的面板 */
+  private photoPanel: PhotoPanel | null = null;
   private tutorialHtml = '';
   private readonly tutorialCtx: TutorialCtx = { yaw: 0, pitch: 0, held: (a) => this.input.is(a), dragLook: false };
   private controlHintHtml = '';
@@ -281,6 +286,7 @@ export class App {
     this.ui.dispose();
     this.hud.dispose();
     this.tutBox.remove();
+    this.photoPanel?.dispose();
     this.simPanel?.dispose();
     this.canvas.remove();
     if (this.pendingOperations === 0) this.disposeView();
@@ -688,6 +694,11 @@ export class App {
     this.input.exitLock();
     this.simPanel?.hideTooltip();
     this.audio.update(this.audioState(true), 0);
+    this.pauseMenu();
+  }
+
+  private pauseMenu(): void {
+    if (!this.session) return;
     if (this.run?.free) {
       this.freePause();
       return;
@@ -699,6 +710,7 @@ export class App {
         resume: () => this.resume(),
         checkpoint: (i, mode) => this.restoreCheckpoint(i, mode),
         restart: () => void this.restart(),
+        photo: () => this.openPhoto(),
         settings: () => this.openSettings(),
         help: () => this.ui.help(this.settings.bindings),
         quit: () => this.quitToMenu(),
@@ -733,11 +745,93 @@ export class App {
           this.toggleCruise();
           this.resume();
         },
+        photo: () => this.openPhoto(),
         settings: () => this.openSettings(),
         help: () => this.ui.help(this.settings.bindings),
         quit: () => this.quitToMenu(),
       },
     );
+  }
+
+  /** 地面和水面：拍照的机位不能钻下去 */
+  private photoFloor = (x: number, z: number): number => {
+    const w = this.session?.world;
+    return w ? Math.max(w.terrain.heightAt(x, z), w.map.waterLevel ?? -Infinity) : -1e4;
+  };
+
+  /** 拍照模式：世界定格（状态还是暂停），机位归玩家。菜单和 HUD 都收起来 */
+  private openPhoto(): void {
+    const s = this.session;
+    if (!s || this.state !== 'paused' || this.photoPanel) return;
+    const rig = this.view.rig;
+    const b = this.settings.bindings;
+    const k = (a: keyof Settings['bindings']): string => keyName(b[a][0]);
+    this.ui.clear();
+    this.hud.show(false);
+    this.root.classList.add('photo-on');
+    rig.enterPhoto(this.view.heli.root.position, this.view.heli.root.quaternion, this.photoFloor);
+    this.view.heli.frozen = true;
+    this.input.setFreeMouse(true);
+    this.input.active = true;
+    this.input.clear();
+    const keys = `按住鼠标转镜头 · ${k('forward')}${k('left')}${k('back')}${k('right')} 移动 · ${k('up')} / ${k('down')} 升降 · 按住 ${k('boost')} 走得快 · 滚轮变焦 · ${k('strafeLeft')} / ${k('strafeRight')} 倾斜 · ${k('hud')} 收起面板 · ${k('photo')} 存图 · ${k('pause')} 返回`;
+    this.photoPanel = new PhotoPanel(this.root, rig.photoFov, keys, {
+      fov: (v) => {
+        rig.photoFov = v;
+      },
+      exposure: (v) => {
+        this.view.exposureBias = v;
+      },
+      roll: (v) => {
+        rig.photoRoll = v;
+      },
+      hideHeli: (on) => {
+        this.view.hideHeli = on;
+      },
+      blurRotor: (on) => {
+        this.view.heli.frozen = !on;
+      },
+      save: () => {
+        this.photoPending = true;
+      },
+      back: () => this.closePhoto(),
+    });
+  }
+
+  private closePhoto(): void {
+    if (!this.photoPanel) return;
+    this.photoPanel.dispose();
+    this.photoPanel = null;
+    this.view.exposureBias = 0;
+    this.view.hideHeli = false;
+    this.view.heli.frozen = false;
+    this.view.rig.leavePhoto();
+    this.root.classList.remove('photo-on');
+    this.input.setFreeMouse(false);
+    this.input.active = false;
+    this.input.clear();
+    this.hud.show(true);
+    this.pauseMenu();
+  }
+
+  /** 拍照模式每一帧：世界不走，只走机位 */
+  private stepPhoto(dt: number): void {
+    const panel = this.photoPanel;
+    const s = this.session;
+    if (!panel || !s) return;
+    const i = this.input;
+    const rig = this.view.rig;
+    const wheel = i.takeWheel();
+    if (wheel) {
+      rig.photoFov = clamp(rig.photoFov * 0.93 ** wheel, PHOTO_FOV[0], PHOTO_FOV[1]);
+      panel.setFov(rig.photoFov);
+    }
+    const tilt = i.axis('strafeLeft', 'strafeRight');
+    if (tilt) {
+      rig.photoRoll = clamp(rig.photoRoll - tilt * dt * 0.35, -0.5236, 0.5236);
+      panel.setRoll(rig.photoRoll);
+    }
+    rig.movePhoto(dt, { x: i.axis('left', 'right'), y: i.axis('down', 'up'), z: i.axis('back', 'forward') }, i.takeLook(dt), i.is('boost'), (s.world.map.flightSize ?? s.world.map.size) / 2 - 30, this.photoFloor);
   }
 
   /** 换时段：夜里多一盏着陆灯，所有材质要重新编译，所以进出夜晚时等它编译完 */
@@ -961,6 +1055,16 @@ export class App {
 
   private onEdge(a: 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim' | 'photo'): void {
     const s = this.session;
+    if (this.photoPanel) {
+      if (a === 'pause') this.closePhoto();
+      else if (a === 'photo') this.photoPending = true;
+      else if (a === 'hud') this.photoPanel.toggle();
+      else if (a === 'center') {
+        this.view.rig.photoRoll = 0;
+        this.photoPanel.setRoll(0);
+      }
+      return;
+    }
     if (a === 'pause') {
       if (this.state === 'playing') this.pause();
       else if (this.state === 'paused' && !this.ui.hasModal) this.resume();
@@ -1024,7 +1128,8 @@ export class App {
       a.href = URL.createObjectURL(blob);
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-      this.hud.toast('截图已存到下载文件夹', 'good', 1800);
+      if (this.photoPanel) this.photoPanel.saved('已存到下载文件夹');
+      else this.hud.toast('截图已存到下载文件夹', 'good', 1800);
     }, 'image/png');
   }
 
@@ -1114,6 +1219,7 @@ export class App {
       if (this.completeTimer <= 0) this.showResult();
     }
     if (s && (this.state === 'playing' || this.state === 'paused' || this.state === 'ready' || this.state === 'failed')) {
+      this.stepPhoto(dt);
       this.view.render(s, { dt: renderDt, t: this.t, alpha });
       if (this.photoPending) {
         this.photoPending = false;
