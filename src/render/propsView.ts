@@ -67,9 +67,18 @@ function makeMaterials(detail: THREE.DataArrayTexture | null, map: MapDef, owned
     for (const [kx, kz, a, ph] of R.waves) sw = sw.add(sin(P.x.mul(kx).add(P.z.mul(kz)).add(ph)).mul(a));
     const lut = makeStrataTexture(R);
     ownedTextures.push(lut);
-    const y = P.y.add(sw).add(rn.sub(0.5).mul(4.0));
+    // 层线不是尺子画的：沿层面有十几米的起伏，一层和下一层之间也不是一刀切
+    const wave = texture(noise, vec2(P.x.add(P.z).mul(0.011), P.y.mul(0.017))).r.sub(0.5).mul(15.0).add(texture(noise, vec2(P.x.sub(P.z).mul(0.043), P.y.mul(0.06).add(0.4))).g.sub(0.5).mul(6.0));
+    const y = P.y.add(sw).add(wave);
+    const at = (v: THREE.Node<'float'>) => texture(lut, vec2(v.sub(R.y0).div(R.y1 - R.y0), 0.5)).rgb;
+    // 上面风化下来的颜色顺着石头往下淌一点；色表只有大的层，一米上下的细层理在这里加（和岩壁的远近看着一样）
+    const washed = mix(at(y), at(y.add(9.0)), smoothstep(0.42, 0.74, band).mul(0.55));
+    const thin = texture(noise, vec2(y.mul(0.37), P.x.add(P.z).mul(0.004))).g.mul(0.36).add(0.82).mul(texture(noise, vec2(y.mul(1.3), P.x.sub(P.z).mul(0.011).add(0.3))).r.mul(0.2).add(0.9));
+    // 裂缝和岩层下面的凹处是石头上最暗的地方，没有这个，整块石头是一层匀净的颜料
+    const crack = (s: number, o: number) => texture(relief, P.zy.div(s).add(o)).a.mul(tw.x).add(texture(relief, P.xz.div(s).add(o)).a.mul(tw.y)).add(texture(relief, P.xy.div(s).add(o)).a.mul(tw.z));
+    const dark = float(1).sub(crack(46.0, 0.13).mul(0.4).add(crack(11.0, 0.57).mul(0.36)));
     rock.vertexColors = false;
-    rock.colorNode = vec4(texture(lut, vec2(y.sub(R.y0).div(R.y1 - R.y0), 0.5)).rgb.mul(mott.mul(0.8).add(0.1)), 1.0);
+    rock.colorNode = vec4(washed.mul(mott.mul(0.8).add(0.1)).mul(thin).mul(dark), 1.0);
   }
   rock.normalNode = normalize(cameraViewMatrix.mul(vec4(normalize(nW.add(rA.xyz.mul(1.1)).add(rB.xyz.mul(0.9)).add(rC.xyz.mul(0.8))), 0.0)).xyz);
   const std = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });

@@ -254,7 +254,7 @@ archNodes[0].checkpoint = true;
 archNodes[0].label = '岩拱峡入口';
 
 const S3 = MAINP.point(S_SENS[2], ALT(S_SENS[2]));
-const RANGER: V3 = [420, 305.45, -760];
+const RANGER: V3 = [420, 301.35, -760];
 const NODES: RouteNodeDef[] = [
   ...canyonNodes,
   { id: 'c-r1', pos: [-1150, 380, 520], radius: 70, speed: 45, label: '北缘高空' },
@@ -366,11 +366,11 @@ export const CANYON: MapDef = {
   farExtent: 18,
   spawn: { padId: 'C-visitor', heading: 110 },
   pads: [
-    { id: 'C-visitor', name: '峡谷游客中心', pos: [-1480, 308.45, 820], size: 22, kind: 'start', style: 'ground' },
+    { id: 'C-visitor', name: '峡谷游客中心', pos: [-1480, 301.95, 820], size: 22, kind: 'start', style: 'ground' },
     { id: 'C-station', name: '谷底研究站', pos: STATION, size: 20, kind: 'delivery', style: 'ground' },
     { id: 'C-mesa', name: '天空台地研究站', pos: [MESA[0], MESA[1] + 0.45, MESA[2]], size: 18, kind: 'final', style: 'ground' },
     { id: 'C-ranger', name: '护林站维修坪', pos: RANGER, size: 18, kind: 'repair', style: 'ground', repair: { amount: 100, uses: 2 } },
-    { id: 'C-view', name: '石林观景台', pos: [-760, 309.45, 160], size: 16, kind: 'helipad', style: 'ground' },
+    { id: 'C-view', name: '石林观景台', pos: [-760, 301.05, 160], size: 16, kind: 'helipad', style: 'ground' },
   ],
   props: [
     { type: 'visitorCenter', pos: [-1525, 0, 775], rotY: 0.3, ground: true },
