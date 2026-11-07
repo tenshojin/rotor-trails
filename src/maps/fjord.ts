@@ -450,6 +450,7 @@ export const FJORD_MAP: MapDef = {
   },
   sun: [200, 26],
   ambience: { sea: 0.6, gulls: 0.4, wind: 0.6, river: 0.3 },
+  birds: { gull: 18, raven: 4 },
   landmarks: [
     { name: '木板教堂', pos: [VILLAGE[0], 20, VILLAGE[2]] },
     { name: '悬崖农场', pos: FARM },

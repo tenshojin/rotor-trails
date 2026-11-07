@@ -110,7 +110,14 @@ export const TRAINING: MapDef = {
       [300, -420, 0.15, 112, 100, 0.48],
       [-470, -640, 0.3, 80, 120, 0.66],
     ]) {
-      b.paintRect(1, x, z, rot, hw, hd, 3, k);
+      // 一块田是几条不同的作物：有的刚翻过，有的正绿着，条和条之间留一道田埂
+      const n = Math.max(3, Math.round(hw / 13));
+      const w = (hw * 2) / n;
+      for (let i = 0; i < n; i++) {
+        const u = -hw + (i + 0.5) * w;
+        const kind = 0.35 + 1.1 * Math.abs(Math.sin(x * 0.7 + z * 1.3 + i * 2.4));
+        b.paintRect(1, x + u * Math.cos(rot), z - u * Math.sin(rot), rot, w / 2 - 1.2, hd, 1.4, Math.min(0.95, k * kind));
+      }
       b.paintRect(2, x, z, rot, hw + 2, hd + 2, 2, 1);
     }
     // 通到停机坪的砂石路
@@ -248,6 +255,7 @@ export const TRAINING: MapDef = {
   },
   sun: [215, 42],
   ambience: { birds: 0.5, wind: 0.4 },
+  birds: { raven: 8, kite: 3 },
   landmarks: [{ name: '机库', pos: [70, 10, 170] }],
   vistas: [
     { name: '谷地全景', at: [120, 130, 420], look: [-40, -900] },

@@ -39,6 +39,8 @@ export interface SimAudio {
 export interface AudioState {
   /** 离地高度（贴地时的反射声） */
   agl?: number;
+  /** 左、右最近的山壁有多远（米），没有就是 0 */
+  echo?: readonly [number, number];
   sim?: SimAudio | null;
   rpm: number;
   load: number; // 推力/重量
@@ -86,6 +88,8 @@ export class AudioEngine {
   private ambBus!: GainNode;
   private alertBus!: GainNode;
   private cabinFilter!: BiquadFilterNode;
+  /** 山壁的回声：左右各一条延迟线，back 是两面山壁之间再来回一次 */
+  private echoes: Array<{ delay: DelayNode; gain: GainNode; back: GainNode }> = [];
   private white!: AudioBuffer;
   private brown!: AudioBuffer;
   /** 旋翼、涡轮、传动、风雨都在音频线程里合成（heliSynth.js） */
@@ -151,6 +155,23 @@ export class AudioEngine {
       this.ambBus.connect(this.cabinFilter);
       this.alertBus = ctx.createGain();
       this.alertBus.connect(this.master);
+      // 回声：高频走不远，碰到山壁回来的只有闷闷的一声；声音从那面山壁的方向来
+      const far = ctx.createBiquadFilter();
+      far.type = 'lowpass';
+      far.frequency.value = 1300;
+      this.engineBus.connect(far);
+      for (const side of [-1, 1]) {
+        const delay = ctx.createDelay(3.2);
+        const gain = ctx.createGain();
+        const back = ctx.createGain();
+        const pan = ctx.createStereoPanner();
+        gain.gain.value = back.gain.value = 0;
+        pan.pan.value = side * 0.75;
+        far.connect(delay);
+        delay.connect(gain).connect(pan).connect(this.master);
+        delay.connect(back).connect(delay);
+        this.echoes.push({ delay, gain, back });
+      }
       this.loadSynth();
       this.applyVolumes(this.volumes);
       this.setAmbience(this.ambience);
@@ -260,6 +281,14 @@ export class AudioEngine {
       return;
     }
     this.smooth(this.cabinFilter.frequency, s.inCockpit ? 3400 : 12000, 0.2);
+    this.echoes.forEach((e, i) => {
+      const d = s.echo?.[i] ?? 0;
+      const near = d > 0 ? 1 - smooth01(60, 520, d) : 0;
+      // （延迟时间慢慢变：离山壁越来越近的时候，回声的音调真的会变）
+      if (d > 0) this.smooth(e.delay.delayTime, (2 * d) / 343, 0.35);
+      this.smooth(e.gain.gain, near * (s.inCockpit ? 0.16 : 0.34), 0.25);
+      this.smooth(e.back.gain, near * 0.3, 0.25);
+    });
     const y = s.sim;
     const speed = s.airspeed;
     // 桨叶拍击：撞上自己的尾涡。典型工况是带速度的小下降率、压坡度的转弯；太快时前行桨尖的激波也有类似的声音

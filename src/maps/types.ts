@@ -197,6 +197,9 @@ export interface AmbienceDef {
   gulls?: number;
 }
 
+/** 天上飞的（src/render/birds.ts） */
+export type BirdKind = 'condor' | 'raven' | 'gull' | 'kite' | 'egret' | 'macaw';
+
 /** 观景点（休闲模式）：at = [x, 离地高度, z]，look = 看向哪里 [x, z] */
 export interface Vista {
   name: string;
@@ -313,6 +316,12 @@ export interface MapDef {
   sunDawn?: [number, number];
   sunDusk?: [number, number];
   ambience: AmbienceDef;
+  /** 地图外面再种多宽一圈真树（米）：林子密的图，地图边上不能只剩一层贴图 */
+  fringe?: number;
+  /** 远景地形比真实地面抬高了多少（抬到树冠的高度）：那一圈树要种在真实的地面上，树冠才是从林冠层里鼓出来的 */
+  farCanopy?: (x: number, z: number) => number;
+  /** 这张图有什么鸟、各几只 */
+  birds?: Partial<Record<BirdKind, number>>;
   landmarks: Array<{ name: string; pos: V3 }>;
   /** 休闲模式的观景点（第一个是出生点）；地标也会自动列进去 */
   vistas?: Vista[];

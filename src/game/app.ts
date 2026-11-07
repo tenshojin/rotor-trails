@@ -23,6 +23,7 @@ import { SaveStore, type StorageLike } from './save';
 import { keyName, QUALITY, type Settings } from './settings';
 import { clamp } from '../core/math';
 import { PHOTO_FOV } from '../render/cameraRig';
+import { wallDistances } from '../sim/echo';
 import { PhotoPanel } from '../ui/photoPanel';
 import { blocked, GPS_RANGES, operate, PressQueue, readout, type ActEnv, type ReadEnv } from '../sim/controls';
 import { SimPanel } from '../ui/simPanel';
@@ -132,8 +133,13 @@ export class App {
   /** 休闲模式的自动巡航 */
   private cruise: ScenicCruise | null = null;
   private photoPending = false;
+  /** 左右山壁的距离（一秒算四次，给回声用） */
+  private echo: readonly [number, number] = [0, 0];
+  private echoT = 0;
   /** 拍照模式开着的时候是它的面板 */
   private photoPanel: PhotoPanel | null = null;
+  /** 超仿真的人眼景深 */
+  private eyeDof = false;
   private tutorialHtml = '';
   private readonly tutorialCtx: TutorialCtx = { yaw: 0, pitch: 0, held: (a) => this.input.is(a), dragLook: false };
   private controlHintHtml = '';
@@ -540,8 +546,11 @@ export class App {
       this.world = w;
     }
     this.ui.loading('初始化物理', 0.98, cfg.map);
+    // 超仿真要等身体到了才开始；别的模式只有从外面看才用得到，飞起来再到也行
     if (cfg.assist === 'sim') await this.view.ensurePilot();
-    this.view.setDof?.(cfg.assist === 'sim' && !cfg.tutorial);
+    else void this.view.ensurePilot?.();
+    this.eyeDof = cfg.assist === 'sim' && !cfg.tutorial;
+    this.view.setDof?.(this.eyeDof);
     const session = await GameSession.create(this.world, cfg.weather, cfg.assist, cfg.free === true);
     if (this.disposed) {
       session.dispose();
@@ -753,6 +762,15 @@ export class App {
     );
   }
 
+  /** 左右的山壁有多远：一秒四次就够了 */
+  private listenForWalls(s: GameSession, dt: number): void {
+    this.echoT -= dt;
+    const ground = s.world?.ctx?.ground;
+    if (this.echoT > 0 || !ground || !s.body) return;
+    this.echoT = 0.25;
+    this.echo = wallDistances(ground, s.body.pos.x, s.body.pos.y, s.body.pos.z, s.flight.telemetry.heading);
+  }
+
   /** 地面和水面：拍照的机位不能钻下去 */
   private photoFloor = (x: number, z: number): number => {
     const w = this.session?.world;
@@ -775,12 +793,17 @@ export class App {
     this.input.active = true;
     this.input.clear();
     const keys = `按住鼠标转镜头 · ${k('forward')}${k('left')}${k('back')}${k('right')} 移动 · ${k('up')} / ${k('down')} 升降 · 按住 ${k('boost')} 走得快 · 滚轮变焦 · ${k('strafeLeft')} / ${k('strafeRight')} 倾斜 · ${k('hud')} 收起面板 · ${k('photo')} 存图 · ${k('pause')} 返回`;
-    this.photoPanel = new PhotoPanel(this.root, rig.photoFov, keys, {
+    this.photoPanel = new PhotoPanel(this.root, rig.photoFov, keys, this.settings.quality !== 'low', {
       fov: (v) => {
         rig.photoFov = v;
       },
       exposure: (v) => {
         this.view.exposureBias = v;
+      },
+      blur: (v) => {
+        this.view.photoBlur = v;
+        // （景深那一步要重建后期，动了滑块才建）
+        this.view.setDof(this.eyeDof || v > 0, 48);
       },
       roll: (v) => {
         rig.photoRoll = v;
@@ -804,6 +827,8 @@ export class App {
     this.photoPanel = null;
     this.view.exposureBias = 0;
     this.view.hideHeli = false;
+    this.view.photoBlur = 0;
+    this.view.setDof(this.eyeDof);
     this.view.heli.frozen = false;
     this.view.rig.leavePhoto();
     this.root.classList.remove('photo-on');
@@ -1227,6 +1252,7 @@ export class App {
       }
       this.hud.update(s, this.view, this.settings, this.t);
       this.view.drawInstruments(this.t, this.instrumentData(s));
+      this.listenForWalls(s, dt);
       this.audio.update(this.audioState(this.state !== 'playing'), dt);
     } else {
       // 菜单背景：长焦、贴着地面绕直升机慢慢转，直升机在画面右边（左边是标题和菜单），背后是谷地和雪山
@@ -1315,6 +1341,7 @@ export class App {
     return {
       sim,
       agl: s.agl,
+      echo: this.echo,
       rpm: s.state === 'crashed' ? 0.2 : tel.rotorRpm,
       load: tel.thrust / (s.totalMass() * 9.81),
       power: tel.powerFrac,

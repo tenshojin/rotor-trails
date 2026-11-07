@@ -524,7 +524,7 @@ export class UI {
           <tr><td>${k('mapRange')}</td><td>切换座舱地图显示范围</td></tr>
           <tr><td>${k('hud')}</td><td>HUD 显示：自动（平稳飞行时收起）/ 完整 / 隐藏（想看风景、截图的时候）</td></tr>
           <tr><td>${k('cruise')}</td><td>自动巡航（休闲飞行）：沿着景点自己飞，动任何飞行键就交回给你</td></tr>
-          <tr><td>${k('photo')}</td><td>截图：把这一帧存成图片，不带 HUD，暂停的时候也能拍</td></tr>
+          <tr><td>${k('photo')}</td><td>截图：把这一帧存成图片，不带 HUD，暂停的时候也能拍。想挑机位、调焦距和曝光，暂停菜单里有拍照模式</td></tr>
           <tr><td>${k('pause')}</td><td>暂停</td></tr></table></div>
         <div><h3>飞行要点</h3><ul class="tips">
           <li>直升机有真实的重量和惯性：加速、减速、转弯都需要时间和空间，<b>高速时请提前减速</b>。</li>

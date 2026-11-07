@@ -38,6 +38,8 @@ class Context {
   createBiquadFilter(): Node { return this.createGain(); }
   createWaveShaper(): Node { return this.createGain(); }
   createDynamicsCompressor(): Node { return new Node(); }
+  createDelay(): Node { return Object.assign(new Node(), { delayTime: new Node().gain }); }
+  createStereoPanner(): Node { return Object.assign(new Node(), { pan: { value: 0 } }); }
   createBuffer(_channels: number, length: number) { return { getChannelData: () => new Float32Array(length) }; }
   createBufferSource(): Node { const n = this.createGain(); this.sources.push(n); return n; }
   createOscillator(): Node { return this.createBufferSource(); }

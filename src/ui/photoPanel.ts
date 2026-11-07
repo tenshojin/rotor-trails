@@ -14,6 +14,8 @@ const sliderAt = (mm: number): number => Math.log(mm / LENS_MIN) / Math.log(LENS
 export interface PhotoPanelHandlers {
   fov(deg: number): void;
   exposure(ev: number): void;
+  /** 背景虚化（0..1） */
+  blur(k: number): void;
   roll(rad: number): void;
   hideHeli(on: boolean): void;
   /** 勾上是慢快门：旋翼虚成一片 */
@@ -32,7 +34,8 @@ export class PhotoPanel {
   private readonly tiltOut: HTMLElement;
   private noteTimer = 0;
 
-  constructor(parent: HTMLElement, fov: number, keys: string, on: PhotoPanelHandlers) {
+  /** canBlur：低画质没有景深那一步 */
+  constructor(parent: HTMLElement, fov: number, keys: string, canBlur: boolean, on: PhotoPanelHandlers) {
     this.grid = document.createElement('div');
     this.grid.className = 'photo-grid';
     parent.appendChild(this.grid);
@@ -43,6 +46,7 @@ export class PhotoPanel {
         <label class="photo-slider"><span>焦距</span><input type="range" data-k="lens" min="0" max="1" step="0.002" aria-label="焦距"><output></output></label>
         <label class="photo-slider"><span>曝光</span><input type="range" data-k="ev" min="-2" max="2" step="0.1" value="0" aria-label="曝光"><output>0.0</output></label>
         <label class="photo-slider"><span>倾斜</span><input type="range" data-k="roll" min="-30" max="30" step="1" value="0" aria-label="倾斜"><output>0°</output></label>
+        ${canBlur ? '<label class="photo-slider"><span>虚化</span><input type="range" data-k="dof" min="0" max="1" step="0.02" value="0" aria-label="背景虚化"><output>关</output></label>' : ''}
         <label class="photo-check"><input type="checkbox" data-k="heli">隐藏直升机</label>
         <label class="photo-check"><input type="checkbox" data-k="blur">旋翼虚化</label>
         <label class="photo-check"><input type="checkbox" data-k="grid">构图线</label>
@@ -68,6 +72,12 @@ export class PhotoPanel {
       const v = Number(ev.value);
       (ev.nextElementSibling as HTMLElement).textContent = `${v > 0 ? '+' : ''}${v.toFixed(1)}`;
       on.exposure(v);
+    });
+    const dof = root.querySelector<HTMLInputElement>('[data-k="dof"]');
+    dof?.addEventListener('input', () => {
+      const v = Number(dof.value);
+      (dof.nextElementSibling as HTMLElement).textContent = v > 0 ? `${Math.round(v * 100)}%` : '关';
+      on.blur(v);
     });
     this.tilt.addEventListener('input', () => {
       const v = Number(this.tilt.value);

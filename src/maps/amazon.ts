@@ -105,8 +105,8 @@ const FAR_WATER: Array<{ path: Vec2[]; half: number; depth: number }> = [
   },
 ];
 
-/** 地图外面：看不到一棵棵树，地面直接抬到树冠的高度（否则地图边上的林子像一堵墙，外面是一块平地） */
-function farForest(x: number, z: number): number {
+/** 地图外面：地面直接抬到树冠的高度（否则地图边上的林子像一堵墙，外面是一块平地）。ground = 抬之前，lift = 抬了多少 */
+function farParts(x: number, z: number): { ground: number; lift: number } {
   let h = base(x, z);
   let toWater = Infinity;
   const beyond = Math.max(Math.abs(x), Math.abs(z)) - 2048;
@@ -124,7 +124,12 @@ function farForest(x: number, z: number): number {
       if (e < 230) h = Math.min(h, shore + (h - shore) * smoothstep(92, 230, e));
     }
   }
-  return h + 26 * smoothstep(0, 170, beyond) * smoothstep(60, 240, toWater);
+  return { ground: h, lift: 26 * smoothstep(0, 170, beyond) * smoothstep(60, 240, toWater) };
+}
+
+function farForest(x: number, z: number): number {
+  const p = farParts(x, z);
+  return p.ground + p.lift;
 }
 
 function nrm(p: PathSampler, s: number): Vec2 {
@@ -219,6 +224,8 @@ export const AMAZON: MapDef = {
     b.paint(0, (x, z, h) => (h > 1.6 && h < 4.5 ? 0.3 * (1 - smoothstep(2.6, 4.5, h)) * (0.5 + 0.5 * n.noise(x / 40, z / 40)) : 0));
   },
   farTerrain: farForest,
+  fringe: 760,
+  farCanopy: (x, z) => farParts(x, z).lift,
   farBlend: 200,
   spawn: { padId: 'A-base', heading: Math.round(headingOf(RIVER_AT_START[0] - START[0], RIVER_AT_START[1] - START[2])) },
   pads: [
@@ -387,6 +394,7 @@ export const AMAZON: MapDef = {
   },
   sun: [250, 52],
   ambience: { insects: 1, birds: 0.6, river: 0.6 },
+  birds: { egret: 10, macaw: 10 },
   landmarks: [
     { name: '林冠观测塔', pos: [FINAL[0] + 26, 55, FINAL[2] + 18] },
     { name: '牛轭湖', pos: [250, 0, 880] },

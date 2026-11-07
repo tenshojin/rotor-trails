@@ -383,6 +383,7 @@ export const JAPAN: MapDef = {
   },
   sun: [235, 38],
   ambience: { sea: 1, gulls: 0.6, wind: 0.25 },
+  birds: { gull: 18, kite: 7 },
   landmarks: [
     { name: '五重塔', pos: [-1450, 60, 540] },
     { name: '海角灯塔', pos: [-372, 30, -1478] },

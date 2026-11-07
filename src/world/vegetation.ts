@@ -1,6 +1,7 @@
 // 植被：按地图规则确定性散布（同一份实例数据同时用于实例化渲染与碰撞代理）。
 
 import { Perlin2, Rng } from '../core/noise';
+import { farHeightAt } from './farHeight';
 import { flowAt, type FlowMap } from './flow';
 import type { MapDef, TreeType } from '../maps/types';
 import type { Heightfield } from '../sim/terrain';
@@ -116,7 +117,9 @@ export function scatterTrees(map: MapDef, terrain: Heightfield, surface: Uint8Ar
   // 融进地形画的树冠层（判定不消耗随机数，地图里面的树一棵也不会变）
   const edgeN = new Perlin2(map.seed + 41);
   const edgeK = terrain.size / 4096;
+  const fringe = map.fringe ?? 0;
   const thinned = (x: number, z: number): boolean => {
+    if (fringe > 0) return false;
     const e = terrain.half - Math.max(Math.abs(x), Math.abs(z));
     if (e > 620 * edgeK) return false;
     const reach = edgeK * Math.max(40, 300 + 420 * edgeN.noise(x / 340, z / 340) + 170 * edgeN.noise(x / 105, z / 105));
@@ -175,7 +178,48 @@ export function scatterTrees(map: MapDef, terrain: Heightfield, surface: Uint8Ar
       }
     }
   }
-  return packTrees(terrain, xs, ys, zs, ss, ts, rs, ghosts);
+  if (fringe > 0) {
+    // 地图外面一圈：林子不在地图边上断掉，在外面一片片稀下去（单独的随机数：地图里面的树一棵也不变）
+    const fr = new Rng(map.seed * 13 + 5);
+    const outer = terrain.half + fringe;
+    const floor = (x: number, z: number): number => farHeightAt(map, terrain, x, z);
+    for (const rule of map.vegetation) {
+      // 矮的看不见，不种
+      if (rule.type === 'shrub' || rule.type === 'scrub' || rule.type === 'boulder') continue;
+      const spacing = Math.sqrt(1e6 / rule.density);
+      const ti = TREE_TYPES.indexOf(rule.type);
+      for (let gz = -outer; gz < outer; gz += spacing) {
+        for (let gx = -outer; gx < outer; gx += spacing) {
+          // （地图里面一格一格跳过去太慢）
+          if (Math.abs(gz) < terrain.half - spacing && gx > -terrain.half && gx < terrain.half - spacing) {
+            gx = terrain.half - spacing;
+            continue;
+          }
+          const x = gx + fr.float() * spacing;
+          const z = gz + fr.float() * spacing;
+          const out = Math.max(Math.abs(x), Math.abs(z)) - terrain.half;
+          if (out <= 0) continue;
+          const h = floor(x, z);
+          if (map.waterLevel !== null && h < map.waterLevel + 0.8) continue;
+          if (rule.minH !== undefined && h < rule.minH) continue;
+          if (rule.maxH !== undefined && h > rule.maxH) continue;
+          const slope = 1 - 1 / Math.hypot((floor(x + 8, z) - h) / 8, 1, (floor(x, z + 8) - h) / 8);
+          if (slope > (rule.maxSlope ?? 0.35)) continue;
+          const w = rule.mask ? rule.mask(x, z, h, slope) : 1;
+          const reach = fringe * (0.86 + 0.3 * edgeN.noise(x / 340, z / 340));
+          const k = out / reach;
+          if (k >= 1 || fr.float() > w * (1 - k ** 4)) continue;
+          xs.push(x);
+          ys.push(h - 0.2 - 0.72 * (map.farCanopy?.(x, z) ?? 0));
+          zs.push(z);
+          ss.push(rule.scale[0] + (rule.scale[1] - rule.scale[0]) * fr.float());
+          ts.push(ti);
+          rs.push(fr.float() * Math.PI * 2);
+        }
+      }
+    }
+  }
+  return packTrees(terrain, xs, ys, zs, ss, ts, rs, ghosts, terrain.size + fringe * 2);
 }
 
 /** 把一批树排进空间网格 */

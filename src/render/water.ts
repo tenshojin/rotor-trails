@@ -125,7 +125,9 @@ export class WaterView {
       const muv = p.div(map.size).add(0.5);
       const inside = step(0.0, muv.x).mul(step(muv.x, 1.0)).mul(step(0.0, muv.y)).mul(step(muv.y, 1.0));
       // （地图外没有水深图：海按深水算；浑水河按河心算，否则河水一出地图就换了个颜色）
-      const wDepth = mix(float(muddy ? 0.22 : 1), texture(depthTex, muv).r, inside).toVar();
+      // （水深图只到地图边：外面用一个定值，在边上慢慢过渡，不然河面上横着一条直线）
+      const edgeIn = min(min(muv.x, float(1).sub(muv.x)), min(muv.y, float(1).sub(muv.y)));
+      const wDepth = mix(float(muddy ? 0.22 : 1), texture(depthTex, muv).r, smoothstep(0.0, 0.035, edgeIn).mul(inside)).toVar();
       const wDist = length(positionWorld.sub(cameraPosition)).toVar();
       // 一个像素覆盖的水面尺寸（米）：波长小于约 6 个像素的波逐渐淡出，否则远处会出现规则的摩尔纹
       const foot = length(fwidth(p)).toVar();

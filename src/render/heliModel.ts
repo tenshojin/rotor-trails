@@ -379,8 +379,10 @@ export class HeliModel {
     const b = this.beaconOn && (t % 1.2) < 0.08 ? 1 : 0.0;
     this.beacon.material.opacity = b;
     // 白天的航行灯只是一个小亮点，到晚上才是一团光
-    const glow = this.rimDim > 0.5 ? 0.3 : 0.9;
+    const day = this.rimDim > 0.5;
+    const glow = day ? 0.3 : 0.9;
     for (const l of this.navLights) l.material.opacity = this.navOn ? glow : 0;
+    this.beacon.scale.setScalar(day ? 0.5 : 1.2);
   }
 
   dispose(): void {

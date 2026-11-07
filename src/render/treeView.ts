@@ -529,8 +529,18 @@ export class TreeView {
     let m: THREE.MeshStandardNodeMaterial;
     if (!src) {
       m = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
-      // 石块在影子里只有环境光，比旁边的地面暗一大截，逆光时是地上一个个黑洞。地面反上来的光补一点
-      if (rock) m.emissiveNode = vertexColor().rgb.mul(varyingProperty('vec3', 'vInstanceColor')).mul(FOG.color.mul(0.08).add(VFOG.sun.mul(0.03)));
+      if (rock) {
+        // 一块纯色的石头从远处看是地上一颗橘子：上面要有风化的斑驳和裂缝，整体也比岩壁的颜色暗
+        const q = positionWorld;
+        const noise = getNoiseTexture();
+        const big = texture(noise, q.xz.add(q.y.mul(0.6)).mul(0.13)).r;
+        const mid = texture(noise, q.zx.sub(q.y.mul(0.8)).mul(0.57)).g;
+        const fine = texture(noise, q.xz.mul(2.1).add(q.y)).b;
+        const worn = mix(float(0.34), float(0.92), smoothstep(0.32, 0.7, big.mul(0.55).add(mid.mul(0.45)))).mul(fine.mul(0.35).add(0.82));
+        m.colorNode = vec4(vec3(worn), 1);
+        // 石块在影子里只有环境光，比旁边的地面暗一大截，逆光时是地上一个个黑洞。地面反上来的光补一点
+        m.emissiveNode = vertexColor().rgb.mul(varyingProperty('vec3', 'vInstanceColor')).mul(worn).mul(FOG.color.mul(0.08).add(VFOG.sun.mul(0.03)));
+      }
     } else {
       m = new THREE.MeshStandardNodeMaterial({
         map: src.map,
