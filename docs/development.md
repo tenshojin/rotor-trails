@@ -98,6 +98,12 @@ python -I tools/real/prep_hires.py art/src/real/grandcanyon/hi30 public/real/gra
 python -I tools/real/fetch_lidar.py art/src/real/grandcanyon/lidar
 ```
 
+村里的住宅是半自动描的。种子点在 `tools/real/roof_seeds.json`（看着 30 厘米影像点屋顶），程序长出轮廓，输出贴进 `src/maps/grandcanyonBuildings.ts`：
+
+```bash
+python -I tools/real/trace_roofs.py ../rotor-trails-tiles/grandcanyon/hi tools/real/roof_seeds.json src/maps/grandcanyonBuildings.ts
+```
+
 `prep_grandcanyon.py` 的 `merge_lidar` 看到这个目录里有 `.tif` 就会换上去；没有这一步，这一块会退回服务里的 10 米数据。
 
 改了 `tools/blender/leaf_atlas.py` 的颜色要重新生成 `public/models/trees.glb`，步骤见下一节。
