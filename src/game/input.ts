@@ -1,6 +1,7 @@
 // 键盘鼠标输入：可重绑定的按键、鼠标锁定观察（失败时退化为拖拽/方向键观察）、
 // 浏览器快捷键冲突处理（游戏中拦截可拦截的 Ctrl 组合键）、失焦/切后台时清空按键状态。
 
+import { PadReader, type PadEdge, type PadNav } from './gamepad';
 import { isBindingCode, type Action, type Settings } from './settings';
 
 type EdgeAction = 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim' | 'photo';
@@ -30,6 +31,10 @@ export class Input {
   lookDX = 0;
   lookDY = 0;
   onEdge: ((a: EdgeAction) => void) | null = null;
+  /** 手柄：摇杆和扳机是模拟量，和键盘谁动用谁 */
+  readonly pad = new PadReader();
+  /** 手柄在菜单里按了一下 */
+  onPadNav: ((d: PadNav) => void) | null = null;
   onLockChange: ((locked: boolean) => void) | null = null;
   /** 改键捕获：返回按下的按键代码 */
   private capture: ((code: string) => void) | null = null;
@@ -123,7 +128,40 @@ export class Input {
 
   is(a: Action): boolean {
     for (const c of this.settings.bindings[a]) if (this.down.has(c)) return true;
-    return false;
+    return Math.abs(this.padAxis(a)) > 0.5;
+  }
+
+  /** 这个动作在手柄上的量：教学里判断“按住了没有”也看它 */
+  private padAxis(a: Action): number {
+    const p = this.pad;
+    if (!p.connected || !this.active) return 0;
+    switch (a) {
+      case 'forward':
+        return Math.max(0, p.forward);
+      case 'back':
+        return Math.max(0, -p.forward);
+      case 'right':
+        return Math.max(0, p.turn);
+      case 'left':
+        return Math.max(0, -p.turn);
+      case 'strafeRight':
+        return Math.max(0, p.lateral);
+      case 'strafeLeft':
+        return Math.max(0, -p.lateral);
+      case 'up':
+        return Math.max(0, p.vertical);
+      case 'down':
+        return Math.max(0, -p.vertical);
+      default:
+        return 0;
+    }
+  }
+
+  /** 每帧读一次手柄。飞行中按键走 onEdge，菜单里走 onPadNav */
+  pollPad(dt: number): void {
+    this.pad.poll(dt, !this.active, (a: PadEdge) => {
+      if (this.active || a === 'pause') this.onEdge?.(a);
+    }, (d) => this.onPadNav?.(d));
   }
 
   /** 取出这一帧的点击 */
@@ -155,7 +193,13 @@ export class Input {
   }
 
   axis(neg: Action, pos: Action): number {
-    return (this.is(pos) ? 1 : 0) - (this.is(neg) ? 1 : 0);
+    const keys = (this.keyDown(pos) ? 1 : 0) - (this.keyDown(neg) ? 1 : 0);
+    return keys || this.padAxis(pos) - this.padAxis(neg);
+  }
+
+  private keyDown(a: Action): boolean {
+    for (const c of this.settings.bindings[a]) if (this.down.has(c)) return true;
+    return false;
   }
 
   clear = (): void => {
@@ -338,6 +382,10 @@ export class Input {
     // 方向键观察（鼠标锁定不可用时的替代方式）
     dx += this.axis('lookLeft', 'lookRight') * 1.6 * dt;
     dy -= this.axis('lookDown', 'lookUp') * 1.2 * dt;
+    if (this.active && this.pad.connected) {
+      dx += this.pad.lookX * 2.1 * dt;
+      dy += this.pad.lookY * 1.6 * dt;
+    }
     if (s.invertX) dx = -dx;
     if (s.invertY) dy = -dy;
     return [dx, dy];

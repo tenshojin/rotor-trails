@@ -4,7 +4,7 @@
 
 **在线试玩：https://tenshojin.github.io/rotor-trails/**
 
-需要键盘和鼠标。推荐桌面版 Chrome 或 Edge，并打开浏览器的硬件加速。进度保存在你自己的浏览器里。第一次玩建议先进「飞行训练」。
+需要键盘和鼠标，飞行也可以用手柄（Xbox / PS 布局）。推荐桌面版 Chrome 或 Edge，并打开浏览器的硬件加速。进度保存在你自己的浏览器里。第一次玩建议先进「飞行训练」。
 
 ![濑户湾群岛](docs/screenshots/04_japan.jpg)
 
@@ -12,6 +12,7 @@
 | --- | --- | --- |
 | ![赤岩峡谷](docs/screenshots/05_canyon.jpg) | ![雨林河湾](docs/screenshots/06_amazon.jpg) | ![雾湾峡湾](docs/screenshots/07_fjord.jpg) |
 | ![雪域山口](docs/screenshots/08_himalaya.jpg) | ![浓雾](docs/screenshots/09_weather_fog.jpg) | ![暴雨](docs/screenshots/12_weather_storm.jpg) |
+| ![拍照模式：大峡谷](docs/screenshots/15_photo_canyon.jpg) | ![拍照模式：海上](docs/screenshots/16_photo_sea.jpg) | ![拍照模式：峡湾](docs/screenshots/17_photo_fjord.jpg) |
 | ![着陆辅助](docs/screenshots/13_landing_assist.jpg) | ![严重受损](docs/screenshots/14_damage_critical.jpg) | ![结算](docs/screenshots/16_results.jpg) |
 
 ## 玩法

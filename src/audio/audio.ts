@@ -337,6 +337,7 @@ export class AudioEngine {
       if (a.gulls && Math.random() < a.gulls) this.chirp(1300, 2300, 0.35, 0.05, 'triangle');
       if (a.birds && Math.random() < a.birds) for (let i = 0; i < 3; i++) this.chirp(2600 + Math.random() * 1500, 3800 + Math.random() * 900, 0.09, 0.025, 'sine', i * 0.12);
       if (a.insects && Math.random() < 0.4) this.chirp(160, 120, 0.25, 0.04, 'square');
+      if (a.ships && Math.random() < a.ships * 0.06) this.shipHorn();
     }
   }
 
@@ -377,6 +378,32 @@ export class AudioEngine {
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.start(t);
     o.stop(t + dur + 0.05);
+  }
+
+  /** 远处的船笛：两个低音叠在一起，起落都慢，高频被距离吃掉了 */
+  private shipHorn(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime + 0.05;
+    const dur = 2.6 + Math.random() * 1.2;
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 560;
+    const g = ctx.createGain();
+    f.connect(g).connect(this.ambBus);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.07, t + 0.35);
+    g.gain.setValueAtTime(0.07, t + dur - 0.6);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    for (const hz of [138, 207]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = hz;
+      o.connect(f);
+      this.track(o, [f, g], true);
+      o.start(t);
+      o.stop(t + dur + 0.05);
+    }
   }
 
   private chirp(f0: number, f1: number, dur: number, peak: number, type: OscillatorType, delay = 0): void {

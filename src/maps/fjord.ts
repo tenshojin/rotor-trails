@@ -449,7 +449,7 @@ export const FJORD_MAP: MapDef = {
     mist: 1.15,
   },
   sun: [200, 26],
-  ambience: { sea: 0.6, gulls: 0.4, wind: 0.6, river: 0.3 },
+  ambience: { sea: 0.6, gulls: 0.4, wind: 0.6, river: 0.3, ships: 0.4 },
   vessels: [
     { model: 'boat_f0', len: 13, speed: 4.5, bow: 1 },
     { model: 'boat_f1', len: 13, speed: 5, bow: 1 },

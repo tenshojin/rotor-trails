@@ -78,7 +78,8 @@ export class UI {
     this.screen = el;
     this.root.appendChild(el);
     el.tabIndex = -1;
-    (el.querySelector<HTMLElement>('.primary, button:not([disabled]), [tabindex="0"]') ?? el).focus({ preventScroll: true });
+    // （主按钮优先：按文档顺序的话休闲飞行的暂停菜单一进来焦点在第一个时段上，手柄的 A 和回车都按错）
+    (el.querySelector<HTMLElement>('.primary') ?? el.querySelector<HTMLElement>('button:not([disabled]), [tabindex="0"]') ?? el).focus({ preventScroll: true });
     return el;
   }
 
@@ -526,6 +527,18 @@ export class UI {
           <tr><td>${k('cruise')}</td><td>自动巡航（休闲飞行）：沿着景点自己飞，动任何飞行键就交回给你</td></tr>
           <tr><td>${k('photo')}</td><td>截图：把这一帧存成图片，不带 HUD，暂停的时候也能拍。想挑机位、调焦距和曝光，暂停菜单里有拍照模式</td></tr>
           <tr><td>${k('pause')}</td><td>暂停</td></tr></table></div>
+        <div><h3>手柄（Xbox / PS 布局）</h3><table class="keys">
+          <tr><td>左摇杆</td><td>前后 = 机头俯仰，左右 = 转向</td></tr>
+          <tr><td>右摇杆</td><td>转头看</td></tr>
+          <tr><td>LT / RT</td><td>下降 / 爬升（按得越深越快）</td></tr>
+          <tr><td>LB / RB</td><td>向左 / 右平移</td></tr>
+          <tr><td>A / B</td><td>悬停辅助 / 动力增强</td></tr>
+          <tr><td>X / Y</td><td>切换视角 / 视角回正</td></tr>
+          <tr><td>十字键</td><td>上 导航目标，下 HUD，左右 地图范围</td></tr>
+          <tr><td>菜单键 / 视图键</td><td>暂停 / 自动巡航</td></tr>
+          <tr><td>按下右摇杆</td><td>截图</td></tr>
+          <tr><td>菜单里</td><td>十字键或左摇杆走，A 确认，B 返回</td></tr></table>
+          <p class="muted">超仿真的开关要用鼠标按。</p></div>
         <div><h3>飞行要点</h3><ul class="tips">
           <li>直升机有真实的重量和惯性：加速、减速、转弯都需要时间和空间，<b>高速时请提前减速</b>。</li>
           <li>升力来自旋翼，机身倾斜时升力方向也随之倾斜；急转弯需要更多动力，动力不足时会掉高度。</li>

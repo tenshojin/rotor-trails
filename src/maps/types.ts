@@ -195,6 +195,8 @@ export interface AmbienceDef {
   wind?: number;
   river?: number;
   gulls?: number;
+  /** 远处的船笛，1 = 大约一分钟一声 */
+  ships?: number;
 }
 
 /** 水上走的船（src/render/vessels.ts）：模型在这张图的模型库里，不给航线就在开阔水面上自己找一个圈 */

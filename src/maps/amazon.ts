@@ -414,7 +414,7 @@ export const AMAZON: MapDef = {
     mist: 1.6,
   },
   sun: [250, 52],
-  ambience: { insects: 1, birds: 0.6, river: 0.6 },
+  ambience: { insects: 1, birds: 0.6, river: 0.6, ships: 0.35 },
   vessels: [{ model: 'river_boat', len: 26, speed: 4.2, route: riverLoop(0.34) }, { model: 'river_boat', len: 26, speed: 3.6, route: riverLoop(-0.3) }],
   birds: { egret: 10, macaw: 10 },
   landmarks: [

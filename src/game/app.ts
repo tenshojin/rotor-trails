@@ -25,6 +25,7 @@ import { clamp } from '../core/math';
 import { PHOTO_FOV } from '../render/cameraRig';
 import { wallDistances } from '../sim/echo';
 import { PhotoPanel } from '../ui/photoPanel';
+import { padNavigate } from '../ui/padNav';
 import { blocked, GPS_RANGES, operate, PressQueue, readout, type ActEnv, type ReadEnv } from '../sim/controls';
 import { SimPanel } from '../ui/simPanel';
 import type { Spot } from '../render/cockpitControls';
@@ -188,6 +189,7 @@ export class App {
       this.input = new Input(canvas, this.settings);
       rollback.push(() => this.input.dispose());
       this.input.onEdge = (a) => this.onEdge(a);
+      this.input.onPadNav = (d) => padNavigate(this.root, d);
       this.input.onLockChange = (locked) => {
         if (!locked && this.state === 'playing' && !this.input.lockFailed) this.pause();
       };
@@ -280,7 +282,7 @@ export class App {
     this.lifetime.abort();
     if (this.frameId !== null) cancelAnimationFrame(this.frameId);
     this.frameId = null;
-    this.input.onEdge = this.input.onLockChange = null;
+    this.input.onEdge = this.input.onLockChange = this.input.onPadNav = null;
     this.view.onThunder = null;
     this.input.dispose();
     this.audio.dispose();
@@ -691,7 +693,7 @@ export class App {
       // 超仿真要低头看仪表板：卡片放到上面，别挡住开关
       this.tutBox.classList.toggle('top', this.run?.course === 'sim');
     }
-    if (this.input.lockFailed) this.hud.toast('鼠标锁定不可用：按住鼠标拖动或使用方向键观察', 'warn', 6000);
+    if (this.input.lockFailed && !this.input.pad.connected) this.hud.toast('鼠标锁定不可用：按住鼠标拖动或使用方向键观察', 'warn', 6000);
   }
 
   pause(): void {
@@ -760,6 +762,12 @@ export class App {
         quit: () => this.quitToMenu(),
       },
     );
+  }
+
+  /** 撞了一下：镜头震，手柄也震 */
+  private shake(strength: number): void {
+    this.view.rig.kick(strength);
+    this.input.pad?.rumble(strength);
   }
 
   /** 左右的山壁有多远：一秒四次就够了 */
@@ -1179,6 +1187,7 @@ export class App {
     const frameSeconds = Number.isFinite(elapsed) && elapsed > 0 ? elapsed : 0;
     const dt = Math.min(frameSeconds, 0.1);
     this.frames++;
+    this.input.pollPad?.(dt);
     // Report actual elapsed time; the simulation clamp must not hide long stalls.
     this.fpsT += frameSeconds;
     if (this.fpsT >= 1) {
@@ -1417,18 +1426,18 @@ export class App {
           // 休闲模式不提耐久，磕一下有声音和震动就够了
           if (this.run?.free) {
             A.impact(d.severity * 0.5);
-            this.view.rig.kick(Math.min(1, d.amount / 20));
+            this.shake(Math.min(1, d.amount / 20));
           } else if (d.blocked) {
             if (this.t - this.lastBlocked > 1.5) hud.toast(`护盾吸收了碰撞（${CAUSE_LABEL[d.cause]}）`, 'info', 2000);
             this.lastBlocked = this.t;
             A.impact(d.severity * 0.5);
-            this.view.rig.kick(Math.min(1, d.severity / 10));
+            this.shake(Math.min(1, d.severity / 10));
           } else {
             hud.toast(`耐久 -${Math.round(d.amount)}：${CAUSE_LABEL[d.cause]}`, d.amount > 15 ? 'bad' : 'warn', 2600);
             if (d.cause === 'rotor' || d.cause === 'tailRotor') A.rotorStrike();
             else if (d.cause === 'scrape') A.scrape();
             else A.impact(d.severity);
-            this.view.rig.kick(Math.min(1.5, d.amount / 20));
+            this.shake(Math.min(1.5, d.amount / 20));
           }
           break;
         }

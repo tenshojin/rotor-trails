@@ -140,6 +140,10 @@ export class WaterView {
       const drawn = float(0).toVar();
       // 阵风吹过的地方小浪更碎、更暗（水面上一片片的“猫爪”），这是开阔水面最耐看的纹理
       const paw = smoothstep(0.34, 0.7, texture(noise, p.mul(0.0011).add(wd.mul(t).mul(0.0035))).r.mul(0.7).add(texture(noise, p.mul(0.0043).add(wd.mul(t).mul(0.006))).g.mul(0.3))).mul(1.05).add(0.45).toVar();
+      // 浪是一群一群来的：这一片有、那一片没有。几列正弦波老老实实叠在一起，从高处看太阳的反光是一张方格布
+      const grpA = texture(noise, p.mul(0.0057).add(wd.mul(t).mul(0.011)));
+      const grpB = texture(noise, p.mul(0.0131).add(0.37).sub(wd.mul(t).mul(0.017)));
+      const groups: Array<N<'float'>> = [grpA.r, grpA.g, grpB.r, grpB.g, grpA.a].map((v) => smoothstep(0.24, 0.76, v).mul(1.7));
       for (let i = 0; i < 8; i++) {
         const fade = float(1).sub(smoothstep(WL[i] * 0.06, WL[i] * 0.16, foot));
         const c = Math.cos(AN[i]);
@@ -148,7 +152,7 @@ export class WaterView {
         const k = (2 * Math.PI) / WL[i];
         // 相位里加一点低频噪声，打散整齐的波峰线
         const ph = dot(d, p).mul(k).sub(t.mul(Math.sqrt(9.81 * k))).add(i * 1.7).add(texture(noise, p.mul(0.0037).add(i * 0.13)).r.mul(6.0));
-        g.addAssign(d.mul(cos(ph).mul(AM[i] * k)).mul(fade).mul(i >= 3 ? paw : float(1)));
+        g.addAssign(d.mul(cos(ph).mul(AM[i] * k)).mul(fade).mul(i >= 3 ? paw : float(1)).mul(i < groups.length ? groups[i] : float(1)));
         drawn.addAssign(fade.mul(fade).mul((AM[i] * k) ** 2 / SLOPE_ALL));
       }
       g.mulAssign(amp);

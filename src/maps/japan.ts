@@ -382,7 +382,7 @@ export const JAPAN: MapDef = {
     mist: 1.3,
   },
   sun: [235, 38],
-  ambience: { sea: 1, gulls: 0.6, wind: 0.25 },
+  ambience: { sea: 1, gulls: 0.6, wind: 0.25, ships: 1 },
   vessels: [
     { model: 'ferry_jp', len: 46, speed: 7.5, bow: 1 },
     { model: 'boat_0', len: 13, speed: 5, bow: 1 },
