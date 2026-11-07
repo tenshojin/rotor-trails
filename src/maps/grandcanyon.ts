@@ -98,6 +98,7 @@ export const GRAND_CANYON: MapDef = {
   // 南缘的矮松和刺柏是发灰的橄榄绿
   leafTint: [1, 1, 1],
   ambience: { wind: 0.9, birds: 0.12 },
+  birds: { condor: 10, raven: 12 },
   // 山顶的位置和海拔来自高程数据（和公开的海拔对得上：琐罗亚斯德 2171 m、梵天 2301 m、胡夫金字塔 1646 m、战舰 1783 m）
   landmarks: [
     { name: '马瑟观景点', pos: [-1176, 2162, 2570] },

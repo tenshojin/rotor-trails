@@ -18,7 +18,7 @@ import { NavView } from './navView';
 import { PropsView } from './propsView';
 import { CLOUD, SkyDome } from './sky';
 import { FOG, sceneFog, WIND } from './atmosphere';
-import { DOF, buildPost, protectTransparent, CONTACT, SCOTOPIC, type Post } from './post';
+import { DOF, DOF_EYE, buildPost, protectTransparent, CONTACT, SCOTOPIC, type Post } from './post';
 import { markNearShadow, SunShadows } from './sunShadows';
 import type { MapDef } from '../maps/types';
 import { loadTerrainLayers, type TerrainLayers } from './terrainLayers';
@@ -45,6 +45,9 @@ import { updateCloudShadowMap } from './cloudShadowMap';
 import { loadRockRelief, makeTerrainMacroTexture } from './terrainMacro';
 import { TREE_RANGE } from './terrainShader';
 import { TreeView, loadTreeLib } from './treeView';
+import { Birds } from './birds';
+import { Vessels } from './vessels';
+import { vistasOf } from '../sim/cruise';
 import { WaterView } from './water';
 import { CloudLayer, Lightning, RainFx } from './weatherFx';
 import type { InstrumentData } from './instruments';
@@ -156,8 +159,11 @@ export class WorldView {
   /** 超仿真里自己的身体 */
   pilot: PilotBody | null = null;
   private dofOn = false;
+  private dofTaps = 22;
   private rivers: RiverView | null = null;
   private grass: GroundCover | null = null;
+  private birds: Birds | null = null;
+  private vessels: Vessels | null = null;
   private scatter: RealScatter | null = null;
   private buildings: RealBuildings | null = null;
   /** 光线追踪的全局光照：探针图要不要重算；算的时候太阳多亮（天气变了按比例调）；正在并行编译（那时什么都画不出来） */
@@ -165,6 +171,10 @@ export class WorldView {
   private giSun = 1;
   private compiling = false;
   flash = 0;
+  /** 拍照模式：曝光补偿（档）、把直升机藏起来、背景虚化（0..1） */
+  exposureBias = 0;
+  hideHeli = false;
+  photoBlur = 0;
   /** 雷声回调（音频层） */
   onThunder: ((delay: number, strength: number) => void) | null = null;
   inCloud = 0;
@@ -367,7 +377,7 @@ export class WorldView {
   private buildPost(): void {
     if (!this.ready) return;
     const s = this.settings;
-    const key = `${s.quality}_${s.rayTracing}_${s.motionBlur}_${s.volumetric}_${s.renderScale}_${this.dofOn}`;
+    const key = `${s.quality}_${s.rayTracing}_${s.motionBlur}_${s.volumetric}_${s.renderScale}_${this.dofOn}_${this.dofTaps}`;
     if (key === this.postKey && this.post) return;
     const next = buildPost(this.renderer, this.scene, this.rig.camera, this.sun, { quality: s.quality, rayTracing: s.rayTracing, motionBlur: s.motionBlur, volumetric: s.volumetric, dof: this.dofOn, upscale: s.quality === 'low' ? 1 : s.renderScale });
     const previous = this.post;
@@ -532,6 +542,15 @@ export class WorldView {
       this.scene.add(this.props.group);
       this.trees = new TreeView(world.trees, treeLib, map.biome.rock, map.rockForm ?? null, map.leafTint, !!real);
       this.scene.add(this.trees.group);
+      if (map.birds) {
+        const anchors = [...map.pads.map((p): [number, number] => [p.pos[0], p.pos[2]]), ...vistasOf(map).map((v): [number, number] => [v.at[0], v.at[2]])];
+        this.birds = new Birds(map.birds, anchors, (x, z) => Math.max(world.ctx.ground(x, z), map.waterLevel ?? -1e9), map.seed);
+        this.scene.add(this.birds.group);
+      }
+      if (map.vessels && this.modelLib && map.waterLevel !== null) {
+        this.vessels = new Vessels(map.vessels, this.modelLib, (x, z) => world.terrain.heightAt(x, z), map.waterLevel, map.size / 2 - 200, map.seed);
+        this.scene.add(this.vessels.group);
+      }
       if (real && scatterTex && this.terrain instanceof RealTerrain) {
         const pads = map.pads.map((p): [number, number, number] => [p.pos[0], p.pos[2], p.size * 0.9 + 3]);
         this.scatter = new RealScatter(real, { height: this.terrain.coreHeight, density: scatterTex, image: realImages[0] }, { ...this.terrain.midMaps, image: realImages[1], aux: scatterAux }, scatterModels(treeLib), pads, this.settings.quality, this.hiRing);
@@ -599,6 +618,8 @@ export class WorldView {
     rm(this.water?.mesh);
     rm(this.props?.group);
     rm(this.trees?.group);
+    rm(this.birds?.group);
+    rm(this.vessels?.group);
     rm(this.nav?.group);
     rm(this.wash?.group);
     rm(this.lamps?.group);
@@ -632,6 +653,10 @@ export class WorldView {
     this.landing = null;
     this.rivers?.dispose();
     this.rivers = null;
+    this.birds?.dispose();
+    this.birds = null;
+    this.vessels?.dispose();
+    this.vessels = null;
     this.grass?.dispose();
     this.grass = null;
     this.scatter?.dispose();
@@ -804,30 +829,32 @@ export class WorldView {
       weather = s.weather.current;
       this.heli.root.position.copy(_pos);
       this.heli.root.quaternion.copy(_quat);
-      this.heli.root.visible = true;
+      this.heli.root.visible = !this.hideHeli;
       const tel = s.flight.telemetry;
       const load = Math.min(1.5, tel.thrust / (s.totalMass() * 9.81));
       const sys = s.sys;
       this.heli.beaconOn = sys ? sys.beacon : true;
       this.heli.navOn = sys ? sys.navLights : true;
       this.heli.update(f.t, f.dt, s.state === 'crashed' ? Math.max(0, tel.rotorRpm * 0.3) : tel.rotorRpm);
-      // 超仿真坐在真实的机长位上
-      const eyeX = sys ? EYE.x : EYE.x * (1 - set.viewCenter);
+      // 超仿真坐在真实的机长位上；从外面看也是（座舱里的镜头才往机身中线挪）
+      const eyeX = sys || this.rig.mode !== 'cockpit' ? EYE.x : EYE.x * (1 - set.viewCenter);
       this.cockpit.setPilotOffset(eyeX - EYE.x);
       this.rig.update(f.dt, f.t, _pos, _quat, _vel, load, { fov: set.fov, eyeX, shake: set.shake, headMotion: set.headMotion, vibration: tel.vibration, rotor: sys ? Math.min(1, tel.rotorRpm * 1.4) : 1, ground: (x, z) => Math.max(s.world.ctx.ground(x, z), s.world.map.waterLevel ?? -1e9) });
       const cockpitView = this.rig.mode === 'cockpit';
       this.heli.rimDim = this.tod === 'night' ? 0 : 1;
       this.heli.setCockpitView(cockpitView);
       // 有 Blender 外观时座舱模型（含机身外壳）在追尾视角也显示：从外面能透过玻璃看到舱内
-      this.cockpit.root.visible = cockpitView || this.heli.extLoaded;
+      this.cockpit.root.visible = (cockpitView || this.heli.extLoaded) && !this.hideHeli;
       this.cockpit.updateControls(tel.stickPitch, tel.stickRoll, tel.collective, tel.pedal);
       this.cockpit.updateSwitches(sys, f.dt, f.t);
       if (this.pilot) {
-        this.pilot.root.visible = !!sys;
-        if (sys) {
+        // 外面的镜头都看得到飞行员（没人开的直升机在天上飞太怪了）；座舱视角只有超仿真有身体
+        const seated = !!sys || !cockpitView;
+        this.pilot.root.visible = seated && !this.hideHeli;
+        if (seated) {
           this.pilot.setView(cockpitView);
           this.pilot.update({ dt: f.dt, cyclic: this.cockpit.stick('cyclic'), collective: this.cockpit.stick('collective'), pedal: tel.pedal, eye: _eye.set(eyeX, EYE.y, EYE.z), collectiveKey: s.input.vertical !== 0 });
-          this.rig.lean = this.pilot.lean;
+          this.rig.lean = sys ? this.pilot.lean : 0;
         } else this.rig.lean = 0;
       }
       this.cockpit.wiperMode = sys ? sys.wiperSpeed : -1;
@@ -951,7 +978,7 @@ export class WorldView {
       // 清晨、黄昏整体更暗：曝光只补回一部分（像相机那样稍微提亮，但保留低光的气氛）
       const adapted = this.eye.update(f.dt);
       const fixed = this.tod === 'night' ? 2.8 : 1 + 0.32 * (1 - this.sky.dayK);
-      this.renderer.toneMappingExposure = (1.0 - w.overcast * 0.12) * (this.settings.eyeAdapt ? adapted : fixed) + this.flash * 0.6;
+      this.renderer.toneMappingExposure = ((1.0 - w.overcast * 0.12) * (this.settings.eyeAdapt ? adapted : fixed) + this.flash * 0.6) * 2 ** this.exposureBias;
       const q = QUALITY[set.quality];
       // 分层阴影：视野或宽高比变了要重新划分；每帧把各层阴影框跟随相机（内部按纹素对齐，避免闪烁）
       this.syncCameraProjection();
@@ -976,6 +1003,10 @@ export class WorldView {
       if (s) this.nav?.update(s, f.t, cp, cam);
       this.rivers?.update(f.t);
       this.grass?.update(f.t, cp);
+      if (this.rig.mode === 'photo' && this.dofOn) this.photoFocus();
+      // （夜里和大雨的时候鸟都回去了）
+      this.birds?.update(f.dt, f.t, s ? _pos : null, this.tod !== 'night' && w.rain < 0.45);
+      this.vessels?.update(f.dt, f.t);
       this.scatter?.update(cp);
       if (s) this.scatter?.probe(this.renderer, s.body.pos as unknown as THREE.Vector3, f.t, (list) => s.setRingTrees(list));
       if (this.buildings && this.sky) this.buildings.night.value = this.sky.night;
@@ -1021,12 +1052,36 @@ export class WorldView {
     }
   }
 
-  /** 景深的开关：超仿真才有。管线要重建，放在加载阶段 */
-  setDof(on: boolean): void {
-    if (on === this.dofOn) return;
-    this.dofOn = on;
+  /** 景深的开关：超仿真才有，拍照模式要的时候也开。管线要重建，放在加载阶段 */
+  setDof(on: boolean, taps = 22): void {
+    // （超仿真里进拍照模式又没动滑块：管线不用重建，但拍照时放大的上限要还回去）
     DOF.aperture.value = 0;
+    DOF.max.value = DOF_EYE;
+    if (on === this.dofOn && taps === this.dofTaps) return;
+    this.dofOn = on;
+    this.dofTaps = taps;
     this.buildPost();
+  }
+
+  /** 拍照的对焦：有直升机就对直升机，藏起来了就对画面中间的地面 */
+  private photoFocus(): void {
+    const cam = this.rig.camera;
+    const world = this.world;
+    let d = 3000;
+    if (!this.hideHeli) d = cam.position.distanceTo(this.heli.root.position);
+    else if (world) {
+      _rayD.set(0, 0, -1).applyQuaternion(cam.quaternion);
+      for (let t = 4; t < 12000; t *= 1.05) {
+        _rayO.copy(cam.position).addScaledVector(_rayD, t);
+        if (world.ctx.ground(_rayO.x, _rayO.z) > _rayO.y) {
+          d = t;
+          break;
+        }
+      }
+    }
+    DOF.max.value = 0.011;
+    DOF.focus.value = d;
+    DOF.aperture.value = this.photoBlur * d * 0.011 * 1.3;
   }
 
   /**

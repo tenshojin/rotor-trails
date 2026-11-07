@@ -4,6 +4,7 @@ import { UI } from '../src/ui/menus';
 import { Hud } from '../src/ui/hud';
 import { defaultSettings, type Settings } from '../src/game/settings';
 import { LESSONS } from '../src/game/tutorial';
+import { padNavigate } from '../src/ui/padNav';
 import type { MapDef } from '../src/maps/types';
 import type { GameSession } from '../src/sim/session';
 import type { WorldView } from '../src/render/worldView';
@@ -121,7 +122,7 @@ await test('休闲飞行的暂停菜单换时段、天气、景点', (ui) => {
   const log: string[] = [];
   ui.freePause({ map, time: 'dusk', weather: 'clear', vistas: ['甲', '乙'], cruise: false }, {
     resume: () => log.push('resume'), time: (t) => { log.push(`t:${t}`); }, weather: (w) => log.push(`w:${w}`), vista: (i) => log.push(`v:${i}`),
-    cruise: () => log.push('cruise'), settings: () => {}, help: () => {}, quit: () => {},
+    cruise: () => log.push('cruise'), photo: () => {}, settings: () => {}, help: () => {}, quit: () => {},
   });
   assert(find('.chip[data-v="dusk"]').getAttribute('aria-pressed') === 'true', '当前时段没有选中');
   click('.chip[data-v="night"]');
@@ -131,6 +132,27 @@ await test('休闲飞行的暂停菜单换时段、天气、景点', (ui) => {
   click('[data-a="cruise"]');
   click('[data-a="resume"]');
   assert(log.join() === 't:night,w:rain,v:1,cruise,resume', `操作不对：${log.join()}`);
+});
+
+await test('手柄走菜单：方向找最近的控件，A 确认，B 退出弹窗', (ui) => {
+  const log: string[] = [];
+  ui.freePause({ map, time: 'dusk', weather: 'clear', vistas: ['甲', '乙'], cruise: false }, {
+    resume: () => log.push('resume'), time: (t) => { log.push(`t:${t}`); }, weather: (w) => log.push(`w:${w}`), vista: () => {},
+    cruise: () => {}, photo: () => log.push('photo'), settings: () => {}, help: () => ui.help(defaultSettings().bindings), quit: () => {},
+  });
+  const first = document.activeElement;
+  assert(first === find('[data-a="resume"]'), '一进来焦点要在主按钮上');
+  padNavigate(fixture, 'up');
+  assert(document.activeElement !== first && (document.activeElement as HTMLElement).classList.contains('chip'), '往上走到选项');
+  padNavigate(fixture, 'down');
+  assert(document.activeElement === first, '往下走回主按钮');
+  padNavigate(fixture, 'ok');
+  assert(log.join() === 'resume', `A 没有按到：${log.join()}`);
+  (find('[data-a="help"]') as HTMLElement).focus();
+  padNavigate(fixture, 'ok');
+  assert(ui.hasModal, '操作说明没打开');
+  padNavigate(fixture, 'back');
+  assert(!ui.hasModal, 'B 没有关掉弹窗');
 });
 
 await test('任务简介选择有读屏状态，开始时保留天气/时段/辅助', (ui) => {

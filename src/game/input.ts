@@ -1,6 +1,7 @@
 // 键盘鼠标输入：可重绑定的按键、鼠标锁定观察（失败时退化为拖拽/方向键观察）、
 // 浏览器快捷键冲突处理（游戏中拦截可拦截的 Ctrl 组合键）、失焦/切后台时清空按键状态。
 
+import { PadReader, type PadEdge, type PadNav } from './gamepad';
 import { isBindingCode, type Action, type Settings } from './settings';
 
 type EdgeAction = 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim' | 'photo';
@@ -30,6 +31,10 @@ export class Input {
   lookDX = 0;
   lookDY = 0;
   onEdge: ((a: EdgeAction) => void) | null = null;
+  /** 手柄：摇杆和扳机是模拟量，和键盘谁动用谁 */
+  readonly pad = new PadReader();
+  /** 手柄在菜单里按了一下 */
+  onPadNav: ((d: PadNav) => void) | null = null;
   onLockChange: ((locked: boolean) => void) | null = null;
   /** 改键捕获：返回按下的按键代码 */
   private capture: ((code: string) => void) | null = null;
@@ -37,6 +42,8 @@ export class Input {
   private lockRequest = 0;
   /** 超仿真：鼠标不锁定，是一只真的手 */
   private simMode = false;
+  /** 拍照模式：鼠标不锁定，按住才转镜头，放开了能点面板 */
+  private freeMouse = false;
   /** 鼠标在画面里的位置（-1..1，y 向下）；移出窗口时 inside = false */
   mouseX = 0;
   mouseY = 0;
@@ -77,6 +84,13 @@ export class Input {
     return this.simMode;
   }
 
+  /** 进入或离开拍照模式 */
+  setFreeMouse(on: boolean): void {
+    this.freeMouse = on;
+    this.dragging = false;
+    if (on) this.exitLock();
+  }
+
   /** 进入或离开超仿真：鼠标放开 */
   setSim(on: boolean): void {
     if (on === this.simMode) return;
@@ -114,7 +128,40 @@ export class Input {
 
   is(a: Action): boolean {
     for (const c of this.settings.bindings[a]) if (this.down.has(c)) return true;
-    return false;
+    return Math.abs(this.padAxis(a)) > 0.5;
+  }
+
+  /** 这个动作在手柄上的量：教学里判断“按住了没有”也看它 */
+  private padAxis(a: Action): number {
+    const p = this.pad;
+    if (!p.connected || !this.active) return 0;
+    switch (a) {
+      case 'forward':
+        return Math.max(0, p.forward);
+      case 'back':
+        return Math.max(0, -p.forward);
+      case 'right':
+        return Math.max(0, p.turn);
+      case 'left':
+        return Math.max(0, -p.turn);
+      case 'strafeRight':
+        return Math.max(0, p.lateral);
+      case 'strafeLeft':
+        return Math.max(0, -p.lateral);
+      case 'up':
+        return Math.max(0, p.vertical);
+      case 'down':
+        return Math.max(0, -p.vertical);
+      default:
+        return 0;
+    }
+  }
+
+  /** 每帧读一次手柄。飞行中按键走 onEdge，菜单里走 onPadNav */
+  pollPad(dt: number): void {
+    this.pad.poll(dt, !this.active, (a: PadEdge) => {
+      if (this.active || a === 'pause') this.onEdge?.(a);
+    }, (d) => this.onPadNav?.(d));
   }
 
   /** 取出这一帧的点击 */
@@ -146,7 +193,13 @@ export class Input {
   }
 
   axis(neg: Action, pos: Action): number {
-    return (this.is(pos) ? 1 : 0) - (this.is(neg) ? 1 : 0);
+    const keys = (this.keyDown(pos) ? 1 : 0) - (this.keyDown(neg) ? 1 : 0);
+    return keys || this.padAxis(pos) - this.padAxis(neg);
+  }
+
+  private keyDown(a: Action): boolean {
+    for (const c of this.settings.bindings[a]) if (this.down.has(c)) return true;
+    return false;
   }
 
   clear = (): void => {
@@ -216,7 +269,7 @@ export class Input {
 
   private onMouseMove = (e: MouseEvent): void => {
     if (!this.active) return;
-    if (this.simMode) {
+    if (this.simMode && !this.freeMouse) {
       this.pointerAt(e);
       if (this.rightDrag) {
         this.lookDX += e.movementX;
@@ -235,13 +288,18 @@ export class Input {
   };
 
   private onWheel = (e: WheelEvent): void => {
-    if (!this.active || !this.simMode) return;
+    if (!this.active || !(this.simMode || this.freeMouse)) return;
     e.preventDefault();
     this.wheelSteps += e.deltaY < 0 ? 1 : e.deltaY > 0 ? -1 : 0;
   };
 
   private onMouseDown = (e: MouseEvent): void => {
     if (!this.active) return;
+    // （超仿真里进拍照模式也是这样：这时候鼠标不是手）
+    if (this.freeMouse) {
+      this.dragging = e.button === 0 || e.button === 2;
+      return;
+    }
     if (this.simMode) {
       this.pointerAt(e);
       if (e.button === 0) this.mouseHeld = true;
@@ -268,7 +326,7 @@ export class Input {
   };
 
   requestLock(): void {
-    if (!this.active || this.disposed || this.simMode) return;
+    if (!this.active || this.disposed || this.simMode || this.freeMouse) return;
     const request = ++this.lockRequest;
     const failed = () => {
       if (request === this.lockRequest && this.active && !this.locked && !this.disposed) this.lockFailed = true;
@@ -324,6 +382,10 @@ export class Input {
     // 方向键观察（鼠标锁定不可用时的替代方式）
     dx += this.axis('lookLeft', 'lookRight') * 1.6 * dt;
     dy -= this.axis('lookDown', 'lookUp') * 1.2 * dt;
+    if (this.active && this.pad.connected) {
+      dx += this.pad.lookX * 2.1 * dt;
+      dy += this.pad.lookY * 1.6 * dt;
+    }
     if (s.invertX) dx = -dx;
     if (s.invertY) dy = -dy;
     return [dx, dy];

@@ -8,6 +8,10 @@ Rotor Trails 的游戏代码、地形高度、仪表画面与音效由本项目�
 
 游戏里用到的 28 种：aerial_grass_rock、aerial_rocks_02、brown_mud_02、clay_plaster、cliff_side、coast_sand_01、concrete_wall_008、corrugated_iron、cracked_red_ground、distressed_painted_planks、dry_ground_01、forest_ground_04、forest_leaves_02、gravelly_sand、grey_roof_tiles、hinoki_planks、japanese_cedar_planks、mossy_rock、palm_bark、pine_bark、poly_wool_herringbone、rabdentse_ruins_wall、red_laterite_soil_stones、rock_face、rocky_terrain_02、snow_field_aerial、thatch_roof_angled、white_plaster_02（下载清单与脚本见 `tools/assets/sources.json`、`tools/fetch_assets.mjs`；清单里另有几种下载过但最终没有使用）。木板教堂的焦油木瓦贴图为程序生成。
 
+## 字体：Inter（SIL OFL 1.1）
+
+直升机机身上的文字（注册号、ROTOR TRAILS、各处标牌）是用 [Inter](https://rsms.me/inter/) 排好烧进涂装贴图的，游戏不带字体文件。Inter 由 The Inter Project Authors 制作，以 SIL Open Font License 1.1 授权，这里用的是 Blender 自带的那一份。
+
 ## 建模参照照片（不随游戏分发）
 
 以下照片只在建模时用来对照比例与细节，**不包含在仓库和网站中**：

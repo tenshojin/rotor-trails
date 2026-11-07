@@ -78,7 +78,8 @@ export class UI {
     this.screen = el;
     this.root.appendChild(el);
     el.tabIndex = -1;
-    (el.querySelector<HTMLElement>('.primary, button:not([disabled]), [tabindex="0"]') ?? el).focus({ preventScroll: true });
+    // （主按钮优先：按文档顺序的话休闲飞行的暂停菜单一进来焦点在第一个时段上，手柄的 A 和回车都按错）
+    (el.querySelector<HTMLElement>('.primary') ?? el.querySelector<HTMLElement>('button:not([disabled]), [tabindex="0"]') ?? el).focus({ preventScroll: true });
     return el;
   }
 
@@ -347,7 +348,7 @@ export class UI {
   }
 
   /** 休闲飞行的暂停菜单 */
-  freePause(o: { map: MapDef; time: TimeOfDay; weather: string; vistas: string[]; cruise: boolean }, on: { resume: () => void; time: (t: TimeOfDay) => void | Promise<void>; weather: (id: string) => void; vista: (i: number) => void; cruise: () => void; settings: () => void; help: () => void; quit: () => void }): void {
+  freePause(o: { map: MapDef; time: TimeOfDay; weather: string; vistas: string[]; cruise: boolean }, on: { resume: () => void; time: (t: TimeOfDay) => void | Promise<void>; weather: (id: string) => void; vista: (i: number) => void; cruise: () => void; settings: () => void; help: () => void; quit: () => void; photo: () => void }): void {
     const chip = (a: string, v: string, label: string, sel: boolean) => `<button type="button" class="chip ${sel ? 'sel' : ''}" data-a="${a}" data-v="${v}" aria-pressed="${sel}">${label}</button>`;
     const el = this.show(
       h(`<div class="screen center dim"><div class="card free-pause"><h2>${o.map.name}</h2>
@@ -356,6 +357,7 @@ export class UI {
       <h3>去这些地方</h3><div class="chips">${o.vistas.map((v, i) => chip('vista', String(i), v, false)).join('')}</div>
       <div class="free-actions"><button class="btn primary" data-a="resume">继续飞行</button>
       <button class="btn" data-a="cruise">${o.cruise ? '关闭自动巡航' : '自动巡航（看风景）'}</button>
+      <button class="btn" data-a="photo">拍照模式</button>
       <button class="btn" data-a="settings">设置</button>
       <button class="btn" data-a="help">操作说明</button>
       <button class="btn ghost" data-a="quit">回主菜单</button></div></div></div>`),
@@ -377,6 +379,7 @@ export class UI {
       },
       vista: (b) => on.vista(Number(b.dataset.v)),
       cruise: on.cruise,
+      photo: on.photo,
       settings: on.settings,
       help: on.help,
       quit: on.quit,
@@ -408,7 +411,7 @@ export class UI {
     this.bind(el, { go: on });
   }
 
-  pause(opts: { tutorial: boolean; checkpoints: CheckpointItem[] }, on: { resume: () => void; checkpoint: (i: number, mode: 'exact' | 'safe') => void; restart: () => void; settings: () => void; help: () => void; quit: () => void; skipStep?: () => void }): void {
+  pause(opts: { tutorial: boolean; checkpoints: CheckpointItem[] }, on: { resume: () => void; checkpoint: (i: number, mode: 'exact' | 'safe') => void; restart: () => void; settings: () => void; help: () => void; quit: () => void; photo: () => void; skipStep?: () => void }): void {
     const last = opts.checkpoints[opts.checkpoints.length - 1];
     const el = this.show(
       h(`<div class="screen center dim"><div class="card narrow pause"><h2>已暂停</h2>
@@ -417,6 +420,7 @@ export class UI {
       ${last && opts.checkpoints.length > 1 ? `<button class="btn" data-a="cp">从最近检查点继续（${last.label}）</button>` : ''}
       ${opts.checkpoints.length > 1 ? '<button class="btn" data-a="cplist">选择检查点…</button>' : ''}
       <button class="btn" data-a="restart">${opts.tutorial ? '重新开始这一课' : '从关卡起点重新开始'}</button>
+      <button class="btn" data-a="photo">拍照模式</button>
       <button class="btn" data-a="settings">设置</button>
       <button class="btn" data-a="help">操作说明</button>
       <button class="btn ghost" data-a="quit">${opts.tutorial ? '退出教学' : '退出到主菜单'}</button></div></div>`),
@@ -427,6 +431,7 @@ export class UI {
       cp: () => on.checkpoint(last.index, 'exact'),
       cplist: () => this.checkpointList(opts.checkpoints, on.checkpoint),
       restart: on.restart,
+      photo: on.photo,
       settings: on.settings,
       help: on.help,
       quit: on.quit,
@@ -520,8 +525,20 @@ export class UI {
           <tr><td>${k('mapRange')}</td><td>切换座舱地图显示范围</td></tr>
           <tr><td>${k('hud')}</td><td>HUD 显示：自动（平稳飞行时收起）/ 完整 / 隐藏（想看风景、截图的时候）</td></tr>
           <tr><td>${k('cruise')}</td><td>自动巡航（休闲飞行）：沿着景点自己飞，动任何飞行键就交回给你</td></tr>
-          <tr><td>${k('photo')}</td><td>截图：把这一帧存成图片，不带 HUD，暂停的时候也能拍</td></tr>
+          <tr><td>${k('photo')}</td><td>截图：把这一帧存成图片，不带 HUD，暂停的时候也能拍。想挑机位、调焦距和曝光，暂停菜单里有拍照模式</td></tr>
           <tr><td>${k('pause')}</td><td>暂停</td></tr></table></div>
+        <div><h3>手柄（Xbox / PS 布局）</h3><table class="keys">
+          <tr><td>左摇杆</td><td>前后 = 机头俯仰，左右 = 转向</td></tr>
+          <tr><td>右摇杆</td><td>转头看</td></tr>
+          <tr><td>LT / RT</td><td>下降 / 爬升（按得越深越快）</td></tr>
+          <tr><td>LB / RB</td><td>向左 / 右平移</td></tr>
+          <tr><td>A / B</td><td>悬停辅助 / 动力增强</td></tr>
+          <tr><td>X / Y</td><td>切换视角 / 视角回正</td></tr>
+          <tr><td>十字键</td><td>上 导航目标，下 HUD，左右 地图范围</td></tr>
+          <tr><td>菜单键 / 视图键</td><td>暂停 / 自动巡航</td></tr>
+          <tr><td>按下右摇杆</td><td>截图</td></tr>
+          <tr><td>菜单里</td><td>十字键或左摇杆走，A 确认，B 返回</td></tr></table>
+          <p class="muted">超仿真的开关要用鼠标按。</p></div>
         <div><h3>飞行要点</h3><ul class="tips">
           <li>直升机有真实的重量和惯性：加速、减速、转弯都需要时间和空间，<b>高速时请提前减速</b>。</li>
           <li>升力来自旋翼，机身倾斜时升力方向也随之倾斜；急转弯需要更多动力，动力不足时会掉高度。</li>

@@ -77,6 +77,8 @@ export interface TerrainUniforms {
   forestFloor: THREE.Color;
   /** 地图边缘一圈的平均树冠覆盖度：地图外面的远景按这个接着铺 */
   forestFar: number;
+  /** 地图外面那一圈真树的宽度（米），见 MapDef.fringe */
+  fringe: number;
   strataA: THREE.Color;
   strataB: THREE.Color;
   strataC: THREE.Color;
@@ -434,10 +436,13 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const massive = U.rockForm?.massive ?? false;
     const spin = (a: number) => (massive ? a : 0);
     const turn = (u: N<'vec2'>, a: number) => (a ? vec2(u.x.mul(Math.cos(a)).sub(u.y.mul(Math.sin(a))), u.x.mul(Math.sin(a)).add(u.y.mul(Math.cos(a)))) : u);
+    // 转了角度的几层平铺，隔远了看是一张斜着的网：让它们的坐标慢慢歪，节理就不是直的了
+    const wobble = massive ? texture(noise, vec2(P.x.add(P.z), Py).div(1500.0).add(0.21)).rg.sub(0.5).mul(190.0).toVar() : null;
+    const wall = (u: N<'vec2'>): N<'vec2'> => (wobble ? u.add(wobble) : u);
     const relief = (s: number, o: number, a = 0) => {
-      const fx = texture(U.relief, turn(vec2(P.z, Py), a).div(s).add(o));
+      const fx = texture(U.relief, turn(wall(vec2(P.z, Py)), a).div(s).add(o));
       const fy = texture(U.relief, P.xz.div(s).add(o));
-      const fz = texture(U.relief, turn(vec2(P.x, Py), a).div(s).add(o));
+      const fz = texture(U.relief, turn(wall(vec2(P.x, Py)), a).div(s).add(o));
       const hgt = fx.b.mul(tw.x).add(fy.b.mul(tw.y)).add(fz.b.mul(tw.z));
       const ux = turn(fx.rg.mul(2.0).sub(1.0), -a);
       const uy = fy.rg.mul(2.0).sub(1.0);
@@ -445,7 +450,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       const wn = vec3(0.0, ux.y, ux.x).mul(tw.x).add(vec3(uy.x, 0.0, uy.y).mul(tw.y)).add(vec3(uz.x, uz.y, 0.0).mul(tw.z));
       return vec4(wn, hgt);
     };
-    const cavOf = (s: number, o: number, a = 0) => texture(U.relief, turn(vec2(P.z, Py), a).div(s).add(o)).a.mul(tw.x).add(texture(U.relief, P.xz.div(s).add(o)).a.mul(tw.y)).add(texture(U.relief, turn(vec2(P.x, Py), a).div(s).add(o)).a.mul(tw.z));
+    const cavOf = (s: number, o: number, a = 0) => texture(U.relief, turn(wall(vec2(P.z, Py)), a).div(s).add(o)).a.mul(tw.x).add(texture(U.relief, P.xz.div(s).add(o)).a.mul(tw.y)).add(texture(U.relief, turn(wall(vec2(P.x, Py)), a).div(s).add(o)).a.mul(tw.z));
     const angA = spin(0.35);
     const angB = spin(1.15);
     const angC = spin(-0.75);
@@ -508,7 +513,14 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       const graze = smoothstep(0.05, 0.38, abs(P.y.sub(cameraPosition.y)).div(max(camDist, 1.0)));
       // 有真树的范围里，这一层只从树和树的缝里露出来：那是树冠底下的阴影，不能比树冠还亮
       const gap = mix(float(1), mix(float(0.42), float(1), smoothstep(TREE_RANGE.mul(0.72), TREE_RANGE, camDist)), smoothstep(0.25, 0.8, forestMap.b).mul(float(1).sub(outK)));
-      const canopy = mix(vec3(0.016, 0.062, 0.013), vec3(0.032, 0.096, 0.015), hue).mul(dome.mul(0.75).add(0.35)).mul(fine.mul(0.3).add(0.85)).mul(mix(float(0.9), float(1), graze)).mul(gap);
+      // 大一些的明暗：几十米一丛，几百米一片。贴图的树冠离远了就平了，光靠它林子是一块匀净的绿布，一看就是贴图
+      const clump = cell(vec2(0, 0), 700, 0.13);
+      const patch = texture(noise, P.xz.div(1900.0)).grad(dPx.xz.div(1900.0), dPy.xz.div(1900.0)).r;
+      const mass = float(1).sub(clump.mul(clump).mul(0.9)).mul(0.5).add(patch.mul(0.62)).add(0.34);
+      // 地图外面那一圈真树：这一层是树冠中间的缝，要比树冠暗
+      // （真树画不到的距离上就不用暗了，不然飞高了地图外面围着一圈黑边）
+      const gapOut = U.fringe > 0 ? mix(float(0.42), float(1), max(smoothstep(U.fringe * 0.6, U.fringe * 1.08, edgeD.mul(U.mapSize)), smoothstep(TREE_RANGE.mul(0.72), TREE_RANGE, camDist))) : float(1);
+      const canopy = mix(vec3(0.011, 0.044, 0.01), vec3(0.024, 0.074, 0.012), hue).mul(dome.mul(0.75).add(0.35)).mul(fine.mul(0.3).add(0.85)).mul(mix(float(0.9), float(1), graze)).mul(mass).mul(gap).mul(gapOut);
       // （风吹过林冠也有一片片的明暗，幅度比草地小）
       col.assign(mix(col, canopy.mul(windK.mul(0.16).add(1.0)), canopyK));
       // 树冠起伏的法线（用 Worley 距离在 x / z 方向的差分）

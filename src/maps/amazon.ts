@@ -105,8 +105,8 @@ const FAR_WATER: Array<{ path: Vec2[]; half: number; depth: number }> = [
   },
 ];
 
-/** 地图外面：看不到一棵棵树，地面直接抬到树冠的高度（否则地图边上的林子像一堵墙，外面是一块平地） */
-function farForest(x: number, z: number): number {
+/** 地图外面：地面直接抬到树冠的高度（否则地图边上的林子像一堵墙，外面是一块平地）。ground = 抬之前，lift = 抬了多少 */
+function farParts(x: number, z: number): { ground: number; lift: number } {
   let h = base(x, z);
   let toWater = Infinity;
   const beyond = Math.max(Math.abs(x), Math.abs(z)) - 2048;
@@ -124,7 +124,12 @@ function farForest(x: number, z: number): number {
       if (e < 230) h = Math.min(h, shore + (h - shore) * smoothstep(92, 230, e));
     }
   }
-  return h + 26 * smoothstep(0, 170, beyond) * smoothstep(60, 240, toWater);
+  return { ground: h, lift: 26 * smoothstep(0, 170, beyond) * smoothstep(60, 240, toWater) };
+}
+
+function farForest(x: number, z: number): number {
+  const p = farParts(x, z);
+  return p.ground + p.lift;
 }
 
 function nrm(p: PathSampler, s: number): Vec2 {
@@ -132,6 +137,27 @@ function nrm(p: PathSampler, s: number): Vec2 {
   const b = p.at(s + 6);
   const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
   return [-(b[1] - a[1]) / l, (b[0] - a[0]) / l];
+}
+
+/** 客船的航线：沿河上去，靠另一边下来。side：上行时偏向哪岸（占半个河宽的比例） */
+function riverLoop(side: number): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  const a = RP.len * 0.08;
+  const b = RP.len * 0.92;
+  const n = 90;
+  for (let i = 0; i <= n; i++) {
+    const s = a + ((b - a) * i) / n;
+    const c = RP.at(s);
+    const m = nrm(RP, s);
+    out.push([c[0] + m[0] * riverHalf(s) * side, c[1] + m[1] * riverHalf(s) * side]);
+  }
+  for (let i = n; i >= 0; i--) {
+    const s = a + ((b - a) * i) / n;
+    const c = RP.at(s);
+    const m = nrm(RP, s);
+    out.push([c[0] - m[0] * riverHalf(s) * side, c[1] - m[1] * riverHalf(s) * side]);
+  }
+  return out;
 }
 
 /** 河岸边一点（side = 1 / -1，offset = 离岸距离） */
@@ -219,6 +245,8 @@ export const AMAZON: MapDef = {
     b.paint(0, (x, z, h) => (h > 1.6 && h < 4.5 ? 0.3 * (1 - smoothstep(2.6, 4.5, h)) * (0.5 + 0.5 * n.noise(x / 40, z / 40)) : 0));
   },
   farTerrain: farForest,
+  fringe: 760,
+  farCanopy: (x, z) => farParts(x, z).lift,
   farBlend: 200,
   spawn: { padId: 'A-base', heading: Math.round(headingOf(RIVER_AT_START[0] - START[0], RIVER_AT_START[1] - START[2])) },
   pads: [
@@ -386,7 +414,9 @@ export const AMAZON: MapDef = {
     mist: 1.6,
   },
   sun: [250, 52],
-  ambience: { insects: 1, birds: 0.6, river: 0.6 },
+  ambience: { insects: 1, birds: 0.6, river: 0.6, ships: 0.35 },
+  vessels: [{ model: 'river_boat', len: 26, speed: 4.2, route: riverLoop(0.34) }, { model: 'river_boat', len: 26, speed: 3.6, route: riverLoop(-0.3) }],
+  birds: { egret: 10, macaw: 10 },
   landmarks: [
     { name: '林冠观测塔', pos: [FINAL[0] + 26, 55, FINAL[2] + 18] },
     { name: '牛轭湖', pos: [250, 0, 880] },

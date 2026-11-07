@@ -133,6 +133,26 @@ describe('键盘鼠标生命周期', () => {
     expect(canvas.requestPointerLock).toHaveBeenCalledOnce();
   });
 
+  it('拍照模式：不锁鼠标，按住才转镜头，滚轮归变焦', () => {
+    input.active = true;
+    input.setFreeMouse(true);
+    input.requestLock();
+    win.dispatchEvent(event('mousemove', { movementX: 12, movementY: 4 }));
+    expect(input.takeLook(0)).toEqual([0, 0]);
+    canvas.dispatchEvent(event('mousedown', { button: 0 }));
+    expect(canvas.requestPointerLock).not.toHaveBeenCalled();
+    win.dispatchEvent(event('mousemove', { movementX: 12, movementY: 4 }));
+    expect(input.takeLook(0)[0]).toBeGreaterThan(0);
+    win.dispatchEvent(event('mouseup', { button: 0 }));
+    win.dispatchEvent(event('mousemove', { movementX: 12, movementY: 4 }));
+    expect(input.takeLook(0)).toEqual([0, 0]);
+    canvas.dispatchEvent(event('wheel', { deltaY: -100 }));
+    expect(input.takeWheel()).toBe(1);
+    input.setFreeMouse(false);
+    canvas.dispatchEvent(event('wheel', { deltaY: -100 }));
+    expect(input.takeWheel()).toBe(0);
+  });
+
   it('仅左键拖动观察；暂停后才获准的鼠标锁定会立即退出', () => {
     input.active = true;
     input.lockFailed = true;

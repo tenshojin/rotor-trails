@@ -38,9 +38,11 @@ class Context {
   createBiquadFilter(): Node { return this.createGain(); }
   createWaveShaper(): Node { return this.createGain(); }
   createDynamicsCompressor(): Node { return new Node(); }
+  createDelay(): Node { return Object.assign(new Node(), { delayTime: new Node().gain }); }
+  createStereoPanner(): Node { return Object.assign(new Node(), { pan: { value: 0 } }); }
   createBuffer(_channels: number, length: number) { return { getChannelData: () => new Float32Array(length) }; }
   createBufferSource(): Node { const n = this.createGain(); this.sources.push(n); return n; }
-  createOscillator(): Node { return this.createBufferSource(); }
+  createOscillator(): Node { return Object.assign(this.createBufferSource(), { type: 'sine' }); }
 }
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
@@ -149,6 +151,22 @@ describe('环境音资源生命周期', () => {
     expect(vi.getTimerCount()).toBe(0);
     a.setAmbience({});
     for (const bird of birds) expect(bird.stop).toHaveBeenCalled();
+    a.dispose();
+  });
+
+  it('远处的船笛：两个低音一起响，换图时跟着别的环境音一起停', () => {
+    vi.stubGlobal('window', { AudioContext: Context });
+    const a = new AudioEngine();
+    a.init();
+    const ctx = a.ctx as unknown as Context;
+    a.setAmbience({ ships: 1 });
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const base = ctx.sources.length;
+    a.update({ rpm: 1, load: 1, power: 0.5, airspeed: 0, gust: 0, rain: 0, inCockpit: true, paused: false, bank: 0, descent: 0 }, 10);
+    const horn = ctx.sources.slice(base);
+    expect(horn.length).toBe(2);
+    a.setAmbience({});
+    for (const o of horn) expect(o.stop).toHaveBeenCalled();
     a.dispose();
   });
 });

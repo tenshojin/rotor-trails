@@ -27,9 +27,11 @@ PREVIEW = argv[argv.index('--preview') + 1] if '--preview' in argv else None
 TX = 'art/out/tex/'
 
 K.reset()
+# cp_paint：涂装逐像素从贴图里取（src/render/heliLivery.ts），分色线和面没有关系，所以整个机身一个材质
 PAINT = K.material('cp_paint', 0xe9eaeb, rough=0.32, coat=0.3)
-DARK = K.material('cp_paint_dark', 0x1f2a3a, rough=0.36, coat=0.3)
-STRIPE = K.material('cp_paint_stripe', 0xc0281e, rough=0.34, coat=0.3)
+# 不按机身坐标取涂装的小件：平尾、端板、桨毂小盒这些和机身的投影对不上
+WHITE = K.material('ext_white', 0xc6c8ca, rough=0.34, coat=0.3)
+STRIPE = K.material('ext_red', 0xa8231a, rough=0.34, coat=0.3)
 METAL = K.material('ext_metal', 0x8a8f95, rough=0.35, metal=0.9)
 DMETAL = K.material('ext_darkmetal', 0x2e3136, rough=0.45, metal=0.7)
 STAR = K.material('ext_starflex', 0x8d9196, rough=0.5, metal=0.2)       # 照片里星形板、套筒是浅灰色涂层
@@ -41,9 +43,9 @@ TAPE = {'r': K.material('ext_tape_red', 0xc8241c, rough=0.4), 'b': K.material('e
 TR_BLADE = K.material('ext_tr_blade', 0xaeb2b7, rough=0.3, metal=0.9)
 WARN_W = K.material('ext_warn_white', 0xeeeeea, rough=0.4)
 BLADE_TIP = K.material('ext_blade_tip', 0xe8c21c, rough=0.45)
-GRILLE = K.material('ext_grille', 0x45484d, rough=0.45, metal=0.7)
-GRILLE_BACK = K.material('ext_grille_back', 0x050505, rough=0.9)
-EXHAUST = K.material('ext_exhaust', 0x6a5a4a, rough=0.42, metal=0.85)
+GRILLE = K.material('ext_grille', 0x777b80, rough=0.45, metal=0.7)
+GRILLE_BACK = K.material('ext_grille_back', 0x030303, rough=1.0)
+EXHAUST = K.material('ext_exhaust', 0x4c4743, rough=0.5, metal=0.85)  # 烧过的不锈钢，不是铜
 SKID = K.material('ext_skid', 0x9a9ea3, rough=0.3, metal=0.85)
 TREAD = K.material('ext_tread', 0x5c6066, rough=0.55, metal=0.8)
 RUBBER = K.material('ext_rubber', 0x151515, rough=0.9)
@@ -53,17 +55,14 @@ LIGHT_W = K.material('ext_light_white', 0xffffff, rough=0.2, emit=0xffffff, emit
 LENS = K.material('ext_lens', 0xdfe6ea, rough=0.05, metal=0.0, alpha=0.5)
 
 PARTS = []  # 静态外观部件
-LIVERY = [PAINT, DARK, STRIPE]
 
 
-def livery(ob):
-    """按面中心位置给涂装面分配白/深灰蓝/红三种材质。"""
+def outward(ob):
+    """法线一律朝外：一头开口的放样 recalc 不一定翻对，涂装要靠法线分朝上朝下。"""
     me = ob.data
-    me.materials.clear()
-    for m in LIVERY:
-        me.materials.append(m)
-    for p in me.polygons:
-        p.material_index = HS.livery_slot(p.center)
+    c = sum((v.co for v in me.vertices), Vector()) / len(me.vertices)
+    if sum((p.center - c).dot(p.normal) * p.area for p in me.polygons) < 0:
+        me.flip_normals()
     return ob
 
 
@@ -82,6 +81,7 @@ def loft(name, ys, point, NT=96, cap_end=True, section=None, mat=PAINT):
         faces.append(tuple(last + i for i in range(NT)))
     ob = K.mesh_obj(name, verts, faces, mat)
     K.fix_normals(ob)
+    outward(ob)
     K.shade(ob, 55)
     return ob
 
@@ -128,9 +128,9 @@ def wing(name, spans, mat, axis='X', profile=AIRFOIL, cap=True):
 
 
 # ------------------------------------------------------------------ 后机身与尾梁
-ys = [-1.32 - 0.05 * i for i in range(31)]
+# （多伸出去一点：盖子藏在尾梁里面，不然接缝处透光）
+ys = [-1.32 - 0.05 * i for i in range(33)]
 rear = loft('rear', ys, HS.rear_point, NT=160, section=HS.rear_section)
-livery(rear)
 PARTS.append(rear)
 
 nb = 48
@@ -148,14 +148,6 @@ def boom_point(y, t):
 
 
 boom = loft('boom', ys, boom_point, NT=48)
-me = boom.data
-me.materials.clear()
-for m in LIVERY:
-    me.materials.append(m)
-for p in me.polygons:
-    r, zc = boom_axis(p.center.y)
-    dz = p.center.z - zc
-    p.material_index = 1 if dz < -0.06 else (2 if dz < 0.0 else 0)
 PARTS.append(boom)
 # 尾梁上方的尾桨传动轴整流罩（半圆长条）+ 三个轴承座小鼓包
 shaft_pts = []
@@ -171,19 +163,10 @@ for y in (-3.6, -4.6, -5.6):
 # ------------------------------------------------------------------ 发动机 / 减速器整流罩（座舱顶部后方）
 
 
-def cowl_point(y, t):
-    k = (0.55 - y) / 3.3
-    W = 0.30 + 0.28 * math.sin(math.pi * min(1.0, k * 1.15)) ** 0.6
-    top = 1.18 + 0.32 * math.sin(math.pi * min(1.0, k * 1.05)) ** 0.5
-    # 底面贴着机身顶壳走：座舱段不能低于舱顶内饰，否则白色整流罩会从天花板穿进客舱
-    bot = HS.section(y)[1] - 0.012 if y > -1.32 else 0.86 - 0.05 * k
-    W = max(0.08, W * (1 - max(0.0, k - 0.9) * 6))
-    return HS.superellipse(W, top, bot, 2.6, y, t)
-
-
-ys = [0.55 - 3.3 * i / 80 for i in range(81)]
-cowl = loft('cowl', ys, cowl_point, NT=64)
-K.shade(cowl, 60)
+cowl_point = HS.cowl_point
+ys = [0.80 - 4.0 * i / 120 for i in range(121)]
+cowl = loft('cowl', ys, cowl_point, NT=96)
+K.shade(cowl, 45)
 PARTS.append(cowl)
 
 
@@ -235,13 +218,15 @@ for side in (-1, 1):
         q, nq = cowl_side(yc + dy, zc - 0.13, side)
         PARTS.append(xform(K.box(f'latch{side}{dy}', (0.012, 0.07, 0.025), (0, 0, 0), METAL, bevel=0.004), Matrix.Translation(q + nq * 0.006) @ rot))
 
-# 排气管（右后方，向后上方伸出，带隔热罩与法兰）
-ex_pts = K.round_path([(0.22, -2.05, 1.16), (0.32, -2.45, 1.22), (0.40, -2.78, 1.38), (0.43, -2.95, 1.55)], 0.22)
-PARTS.append(K.tube_path('exhaust', ex_pts, 0.13, EXHAUST, seg=24))
-PARTS.append(K.tube_path('exhaust_lip', [ex_pts[-2], ex_pts[-1]], 0.137, EXHAUST, seg=24, cap=False))
-PARTS.append(K.torus('exhaust_flange', 0.14, 0.012, (0.30, -2.40, 1.21), DMETAL, 32, 8, rot=(math.radians(80), 0, math.radians(-12))))
+# 排气管（右后方，从整流罩侧面伸出来朝后上方）：一节短管，管口有一圈唇边，里面是黑的
+ex_pts = K.round_path([(0.26, -2.20, 1.10), (0.35, -2.55, 1.12), (0.43, -2.84, 1.19), (0.46, -3.00, 1.27)], 0.2)
+ex_end, ex_prev = Vector(ex_pts[-1]), Vector(ex_pts[-2])
+ex_d = (ex_end - ex_prev).normalized()
+PARTS.append(K.tube_path('exhaust', ex_pts, 0.098, EXHAUST, seg=28, cap=False))
+PARTS.append(K.tube_path('exhaust_lip', [ex_end - ex_d * 0.035, ex_end + ex_d * 0.004], 0.105, DMETAL, seg=28, cap=False))
+PARTS.append(K.tube_path('exhaust_core', [ex_end - ex_d * 0.25, ex_end - ex_d * 0.012], 0.096, GRILLE_BACK, seg=28))
 # 主减速器整流罩（前缘下凹的圆罩）与旋翼轴防尘套（黑色波纹）
-PARTS.append(K.cylinder('mast_fair', 0.34, 0.22, (0, 0, 1.40), PAINT, 40, r2=0.22))
+PARTS.append(K.cylinder('mast_fair', 0.37, 0.32, (0, 0, 1.35), PAINT, 40, r2=0.22))
 prof = []
 for i in range(13):
     t = i / 12
@@ -272,7 +257,7 @@ rotor_parts.append(K.cylinder('hub_core', 0.12, 0.10, (0, 0, 0.0), STAR, 32, bev
 # 顶部圆盘与上面的小盒（照片里是一块浅灰色大圆盘）
 rotor_parts.append(K.cylinder('hub_dish', 0.33, 0.035, (0, 0, 0.115), STAR, 48, r2=0.30, bevel=0.008))
 rotor_parts.append(K.cylinder('hub_dish_rim', 0.20, 0.06, (0, 0, 0.08), STAR, 32, r2=0.33))
-rotor_parts.append(K.box('hub_box', (0.13, 0.09, 0.07), (0.04, 0.0, 0.165), PAINT, bevel=0.01))
+rotor_parts.append(K.box('hub_box', (0.13, 0.09, 0.07), (0.04, 0.0, 0.165), WHITE, bevel=0.01))
 rotor_parts.append(K.cylinder('hub_box_eye', 0.025, 0.004, (0.04, -0.046, 0.165), DMETAL, 16, rot=(math.pi / 2, 0, 0)))
 # 自动倾斜器（旋转环）+ 剪刀臂
 rotor_parts.append(K.cylinder('swash', 0.21, 0.035, (0, 0, -0.26), METAL, 40, bevel=0.006))
@@ -349,7 +334,7 @@ for o in (rotor_hub, rotor_blades):
 
 # ------------------------------------------------------------------ 平尾、端板、垂尾、尾撬
 # 平尾：翼型截面（倒装弯度），展长 2.2 m、弦长 0.5 m
-stab = wing('stab', [(-1.08, 0.50, 0, 1.6, -5.55, 0.66), (0.0, 0.52, 0, 1.6, -5.55, 0.66), (1.08, 0.50, 0, 1.6, -5.55, 0.66)], PAINT,
+stab = wing('stab', [(-1.08, 0.50, 0, 1.6, -5.55, 0.66), (0.0, 0.52, 0, 1.6, -5.55, 0.66), (1.08, 0.50, 0, 1.6, -5.55, 0.66)], WHITE,
             profile=[(u, -v) for (u, v) in AIRFOIL])
 PARTS.append(stab)
 for sx in (-1, 1):
@@ -360,7 +345,7 @@ for sx in (-1, 1):
     PARTS.append(K.sphere(f'nav_lens{sx}', 0.05, (sx * 1.13, -5.38, 0.72), LENS, 12, 8, scale=(0.8, 1.2, 1.0)))
 # 上垂尾（后掠，红色）与下垂尾（白色，带尾撬）
 fin_up = [(0.78, 0.62, 0.0, 0.85, -6.80, 0.0), (1.10, 0.54, 0.0, 0.85, -6.98, 0.0), (1.45, 0.46, 0.0, 0.85, -7.12, 0.0), (1.78, 0.36, 0.0, 0.85, -7.25, 0.0)]
-PARTS.append(wing('fin_up', fin_up, STRIPE, axis='Z'))
+PARTS.append(wing('fin_up', fin_up, PAINT, axis='Z'))
 fin_lo = [(0.62, 0.44, 0.0, 0.85, -6.86, 0.0), (0.35, 0.36, 0.0, 0.85, -6.98, 0.0), (0.06, 0.26, 0.0, 0.85, -7.12, 0.0)]
 PARTS.append(wing('fin_lo', fin_lo, PAINT, axis='Z'))
 PARTS.append(K.tube_path('tailskid', K.round_path([(0, -7.05, 0.10), (0, -7.25, 0.04), (0, -7.45, 0.05)], 0.1), 0.022, METAL, seg=10))
@@ -423,9 +408,10 @@ for sx in (-1, 1):
 PARTS.append(K.box('vhf_blade', (0.016, 0.16, 0.30), (0, -1.95, 1.43), DMETAL, bevel=0.006))
 PARTS.append(K.tube_path('whip', K.round_path([(0, -4.2, 0.80), (0, -4.35, 1.05), (0, -4.65, 1.18)], 0.15), 0.006, DMETAL, seg=6))
 PARTS.append(K.box('xpdr', (0.014, 0.10, 0.12), (0.0, -0.6, -1.0), DMETAL, bevel=0.004))
-PARTS.append(K.cylinder('gps_puck', 0.06, 0.02, (0, -0.1, 1.42), PAINT, 24, bevel=0.008))
-PARTS.append(K.tube_path('pitot', [(0.0, 1.62, 0.86), (0.0, 2.05, 0.88)], 0.012, METAL, seg=10))
-PARTS.append(K.tube_path('pitot_mast', [(0.0, 1.62, 0.83), (0.0, 1.70, 0.88)], 0.02, PAINT, seg=10))
+PARTS.append(K.cylinder('gps_puck', 0.06, 0.02, (0, -0.75, HS.cowl_top(-0.75) + 0.004), WHITE, 24, bevel=0.008))
+# 空速管：装在舱顶右前方，支架从顶壳上长出来
+PARTS.append(K.tube_path('pitot', [(0.30, 1.02, 1.03), (0.30, 1.42, 1.03)], 0.011, METAL, seg=10))
+PARTS.append(K.tube_path('pitot_mast', [(0.30, 0.92, 0.90), (0.30, 1.06, 1.03)], 0.02, WHITE, seg=10))
 # 外温探头：装在座舱顶右前方的外表面上（沿表面法线伸出 6 cm）
 _W, _Zt, _Zb, _e = HS.section(1.15)
 _best = min(range(720), key=lambda i: abs(HS.superellipse(_W, _Zt, _Zb, _e, 1.15, 2 * math.pi * i / 720).z - 0.80) if HS.superellipse(_W, _Zt, _Zb, _e, 1.15, 2 * math.pi * i / 720).x > 0 else 9)
@@ -433,11 +419,11 @@ _p = HS.superellipse(_W, _Zt, _Zb, _e, 1.15, 2 * math.pi * _best / 720)
 _n = Vector((_p.x, 0, _p.z - (_Zt + _Zb) / 2)).normalized()
 PARTS.append(K.tube_path('oat', [_p - _n * 0.01, _p + _n * 0.06], 0.006, METAL, seg=6))
 # 上切割器（风挡顶部）+ 风挡导流条，下切割器（机头下方）
-PARTS.append(K.tube_path('wsps_up', [(0, 1.45, 0.92), (0, 1.62, 1.18)], 0.02, DMETAL, seg=8))
-cut = K.prism('wsps_up_blade', [(1.52, 1.08), (1.70, 1.20), (1.72, 1.24), (1.50, 1.13)], -0.008, 0.008, METAL, axis='X')
+PARTS.append(K.tube_path('wsps_up', [(0, 1.16, 0.89), (0, 1.40, 1.13)], 0.02, DMETAL, seg=8))
+cut = K.prism('wsps_up_blade', [(1.30, 1.03), (1.48, 1.15), (1.50, 1.19), (1.28, 1.08)], -0.008, 0.008, METAL, axis='X')
 PARTS.append(cut)
 for i in range(5):
-    PARTS.append(K.box(f'serr{i}', (0.012, 0.02, 0.02), (0, 1.53 + i * 0.035, 1.105 + i * 0.024), METAL))
+    PARTS.append(K.box(f'serr{i}', (0.012, 0.02, 0.02), (0, 1.31 + i * 0.035, 1.055 + i * 0.024), METAL))
 PARTS.append(K.tube_path('wsps_lo', [(0, 2.25, -0.72), (0, 2.35, -1.05)], 0.02, DMETAL, seg=8))
 PARTS.append(K.box('hook', (0.12, 0.2, 0.12), (0, -0.2, -1.0), DMETAL, bevel=0.015))
 PARTS.append(K.tube_path('hook_arm', [(0, -0.30, -0.95), (0, -0.10, -1.05)], 0.018, METAL, seg=8))

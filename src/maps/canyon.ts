@@ -524,7 +524,10 @@ export const CANYON: MapDef = {
     wash: 0xdcc39a,
   },
   sun: [220, 34],
+  // 干旱地带的灌丛是灰绿色的，不是草坪的绿
+  leafTint: [0.86, 0.76, 0.6],
   ambience: { wind: 0.9, birds: 0.15 },
+  birds: { condor: 6, raven: 8 },
   landmarks: [
     { name: '大岩拱', pos: [ARCH_X, 140, ARCH_Z] },
     { name: '天空台地', pos: MESA },

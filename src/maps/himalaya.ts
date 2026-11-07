@@ -400,6 +400,7 @@ export const HIMALAYA: MapDef = {
   },
   sun: [160, 40],
   ambience: { wind: 1.2, birds: 0.1 },
+  birds: { kite: 8, raven: 8 },
   landmarks: [
     { name: '山脊寺院', pos: MONASTERY },
     { name: '山口', pos: COL },

@@ -125,7 +125,9 @@ export class WaterView {
       const muv = p.div(map.size).add(0.5);
       const inside = step(0.0, muv.x).mul(step(muv.x, 1.0)).mul(step(0.0, muv.y)).mul(step(muv.y, 1.0));
       // （地图外没有水深图：海按深水算；浑水河按河心算，否则河水一出地图就换了个颜色）
-      const wDepth = mix(float(muddy ? 0.22 : 1), texture(depthTex, muv).r, inside).toVar();
+      // （水深图只到地图边：外面用一个定值，在边上慢慢过渡，不然河面上横着一条直线）
+      const edgeIn = min(min(muv.x, float(1).sub(muv.x)), min(muv.y, float(1).sub(muv.y)));
+      const wDepth = mix(float(muddy ? 0.22 : 1), texture(depthTex, muv).r, smoothstep(0.0, 0.035, edgeIn).mul(inside)).toVar();
       const wDist = length(positionWorld.sub(cameraPosition)).toVar();
       // 一个像素覆盖的水面尺寸（米）：波长小于约 6 个像素的波逐渐淡出，否则远处会出现规则的摩尔纹
       const foot = length(fwidth(p)).toVar();
@@ -138,6 +140,10 @@ export class WaterView {
       const drawn = float(0).toVar();
       // 阵风吹过的地方小浪更碎、更暗（水面上一片片的“猫爪”），这是开阔水面最耐看的纹理
       const paw = smoothstep(0.34, 0.7, texture(noise, p.mul(0.0011).add(wd.mul(t).mul(0.0035))).r.mul(0.7).add(texture(noise, p.mul(0.0043).add(wd.mul(t).mul(0.006))).g.mul(0.3))).mul(1.05).add(0.45).toVar();
+      // 浪是一群一群来的：这一片有、那一片没有。几列正弦波老老实实叠在一起，从高处看太阳的反光是一张方格布
+      const grpA = texture(noise, p.mul(0.0057).add(wd.mul(t).mul(0.011)));
+      const grpB = texture(noise, p.mul(0.0131).add(0.37).sub(wd.mul(t).mul(0.017)));
+      const groups: Array<N<'float'>> = [grpA.r, grpA.g, grpB.r, grpB.g, grpA.a].map((v) => smoothstep(0.24, 0.76, v).mul(1.7));
       for (let i = 0; i < 8; i++) {
         const fade = float(1).sub(smoothstep(WL[i] * 0.06, WL[i] * 0.16, foot));
         const c = Math.cos(AN[i]);
@@ -146,7 +152,7 @@ export class WaterView {
         const k = (2 * Math.PI) / WL[i];
         // 相位里加一点低频噪声，打散整齐的波峰线
         const ph = dot(d, p).mul(k).sub(t.mul(Math.sqrt(9.81 * k))).add(i * 1.7).add(texture(noise, p.mul(0.0037).add(i * 0.13)).r.mul(6.0));
-        g.addAssign(d.mul(cos(ph).mul(AM[i] * k)).mul(fade).mul(i >= 3 ? paw : float(1)));
+        g.addAssign(d.mul(cos(ph).mul(AM[i] * k)).mul(fade).mul(i >= 3 ? paw : float(1)).mul(i < groups.length ? groups[i] : float(1)));
         drawn.addAssign(fade.mul(fade).mul((AM[i] * k) ** 2 / SLOPE_ALL));
       }
       g.mulAssign(amp);

@@ -195,7 +195,25 @@ export interface AmbienceDef {
   wind?: number;
   river?: number;
   gulls?: number;
+  /** 远处的船笛，1 = 大约一分钟一声 */
+  ships?: number;
 }
+
+/** 水上走的船（src/render/vessels.ts）：模型在这张图的模型库里，不给航线就在开阔水面上自己找一个圈 */
+export interface VesselDef {
+  model: string;
+  /** 船长（米）：尾浪的大小 */
+  len: number;
+  /** 米 / 秒 */
+  speed: number;
+  /** 模型的船头朝哪边：-1 = -X（默认），1 = +X */
+  bow?: number;
+  /** 闭合的航线 [x, z] */
+  route?: Array<[number, number]>;
+}
+
+/** 天上飞的（src/render/birds.ts） */
+export type BirdKind = 'condor' | 'raven' | 'gull' | 'kite' | 'egret' | 'macaw';
 
 /** 观景点（休闲模式）：at = [x, 离地高度, z]，look = 看向哪里 [x, z] */
 export interface Vista {
@@ -315,6 +333,14 @@ export interface MapDef {
   sunDawn?: [number, number];
   sunDusk?: [number, number];
   ambience: AmbienceDef;
+  /** 地图外面再种多宽一圈真树（米）：林子密的图，地图边上不能只剩一层贴图 */
+  fringe?: number;
+  /** 远景地形比真实地面抬高了多少（抬到树冠的高度）：那一圈树要种在真实的地面上，树冠才是从林冠层里鼓出来的 */
+  farCanopy?: (x: number, z: number) => number;
+  /** 水上有什么船在走 */
+  vessels?: VesselDef[];
+  /** 这张图有什么鸟、各几只 */
+  birds?: Partial<Record<BirdKind, number>>;
   landmarks: Array<{ name: string; pos: V3 }>;
   /** 休闲模式的观景点（第一个是出生点）；地标也会自动列进去 */
   vistas?: Vista[];

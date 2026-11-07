@@ -169,6 +169,12 @@ export function makeReflectField(map: MapDef, t: Heightfield, trees: TreeSet, su
   const cell = farSize / R;
   const farData = new Uint16Array(R * R * 4);
   const edgeWood = 0.5 * (smooth(0.2, 0.7, forest[0] / 255) + smooth(0.2, 0.7, forest[(fN * fN - 1) * 4] / 255));
+  // 地图里面的高度图算上了树冠：外面不算的话，河里的倒影在地图边上突然亮一截
+  if (map.fringe) {
+    const level = (map.waterLevel ?? -1e9) + 2;
+    for (let i = 0; i < R * R; i++) if (fh[i] > level) fh[i] += 26 * edgeWood;
+    farTop += 26 * edgeWood;
+  }
   for (let y = 0; y < R; y++)
     for (let x = 0; x < R; x++) {
       const h = fh[y * R + x];
