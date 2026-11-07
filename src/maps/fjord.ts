@@ -255,6 +255,7 @@ export const FJORD_MAP: MapDef = {
   erosion: 260000,
   rockForm: ROCK,
   buildTerrain(b) {
+    b.rimWobble = 0.4;
     b.fill(land);
     b.applySpline(FJORD, WALL + 400, (h, d, s) => {
       const w = halfW(s);

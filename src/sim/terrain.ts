@@ -199,7 +199,15 @@ export interface SplineField {
  * 地形构建器：各地图用它组合基础噪声、河道/峡谷/峡湾雕刻、平台压平等操作。
  * 同时维护一张地表材质掩码（R 湿地/沙滩、G 道路/裸土、B 植被抑制、A 积雪/冰）。
  */
+/** 平台的边不是圆规画的：绕一圈半径慢慢变（0..1）。cx、cz 让每个平台的形状不一样 */
+export function rimWobble(cx: number, cz: number, angle: number): number {
+  const p = cx * 0.013 + cz * 0.029;
+  return 0.5 + 0.25 * Math.sin(2 * angle + p) + 0.15 * Math.sin(3 * angle + p * 1.7 + 1.3) + 0.1 * Math.sin(5 * angle - p * 2.3);
+}
+
 export class HeightBuilder {
+  /** flatten 的平台边缘最多往外长多少（相对半径）。山上的平台才要：圆规画的边在岩壁上一眼就看得出来 */
+  rimWobble = 0;
   readonly size: number;
   readonly res: number;
   readonly cell: number;
@@ -367,16 +375,21 @@ export class HeightBuilder {
   /** 把圆形区域压平到指定高度（停机坪、营地）。blend 为过渡带宽度。 */
   flatten(cx: number, cz: number, radius: number, height: number, blend = 20, mode: 'set' | 'min' | 'max' = 'set'): this {
     const r = this.res;
-    const R = radius + blend;
+    const wob = this.rimWobble;
+    // （只往外长：里面放东西的地方还是平的）
+    const R = radius * (1 + wob) + blend;
     const ix0 = clamp(Math.floor((cx - R + this.half) / this.cell), 0, r - 1);
     const ix1 = clamp(Math.ceil((cx + R + this.half) / this.cell), 0, r - 1);
     const iz0 = clamp(Math.floor((cz - R + this.half) / this.cell), 0, r - 1);
     const iz1 = clamp(Math.ceil((cz + R + this.half) / this.cell), 0, r - 1);
     for (let iz = iz0; iz <= iz1; iz++) {
       for (let ix = ix0; ix <= ix1; ix++) {
-        const d = Math.hypot(this.x(ix) - cx, this.z(iz) - cz);
+        const dx = this.x(ix) - cx;
+        const dz = this.z(iz) - cz;
+        const d = Math.hypot(dx, dz);
         if (d > R) continue;
-        const w = 1 - smoothstep(radius, R, d);
+        const rim = wob > 0 ? radius * (1 + wob * rimWobble(cx, cz, Math.atan2(dz, dx))) : radius;
+        const w = 1 - smoothstep(rim, rim + blend, d);
         const i = iz * r + ix;
         const cur = this.data[i];
         let target = height;

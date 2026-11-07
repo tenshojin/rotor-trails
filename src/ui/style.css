@@ -1196,6 +1196,13 @@ table.score .total td {
 .hud-warn .w.amber {
   color: var(--amber);
 }
+/* 选路线的卡片在同一个位置：告警和提示让到卡片下面，不然两层字叠着谁也看不清 */
+.hud:has(.hud-forks:not(.hidden)) .hud-warn {
+  top: max(24%, 285px);
+}
+.hud:has(.hud-forks:not(.hidden)) .hud-toasts {
+  top: max(34%, 335px);
+}
 @keyframes blink {
   from {
     opacity: 1;

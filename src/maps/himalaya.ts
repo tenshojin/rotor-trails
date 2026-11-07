@@ -207,6 +207,7 @@ export const HIMALAYA: MapDef = {
     },
   ],
   buildTerrain(b) {
+    b.rimWobble = 0.4;
     b.fill(mountains);
     // U 形冰川谷
     b.applySpline(VALLEY, 900, (h, d, s, x, z) => {

@@ -4,7 +4,7 @@ import { Rng } from '../core/noise';
 import { makeFlowMap, type FlowMap } from './flow';
 import type { MapDef, PadDef, V3 } from '../maps/types';
 import { obstacleTop } from '../sim/routeCheck';
-import { HeightBuilder, type Heightfield } from '../sim/terrain';
+import { HeightBuilder, rimWobble, type Heightfield } from '../sim/terrain';
 import { bridgeDeckY, buildingFrame, loadRealData, loadRealTrees, outerForest, type RealData } from './realData';
 import { erode } from './erosion';
 import { dissect } from './fluvial';
@@ -40,16 +40,18 @@ function protectMask(map: MapDef): Float32Array {
   const cell = map.size / (r - 1);
   const half = map.size / 2;
   const mask = new Float32Array(r * r).fill(1);
+  const wob = map.rockForm ? 0.4 : 0;
   const spot = (x: number, z: number, rad: number, blend: number): void => {
-    const R = rad + blend;
+    const R = rad * (1 + wob) + blend;
     const x0 = Math.max(0, Math.floor((x - R + half) / cell));
     const x1 = Math.min(r - 1, Math.ceil((x + R + half) / cell));
     const z0 = Math.max(0, Math.floor((z - R + half) / cell));
     const z1 = Math.min(r - 1, Math.ceil((z + R + half) / cell));
     for (let iz = z0; iz <= z1; iz++)
       for (let ix = x0; ix <= x1; ix++) {
-        const d = Math.hypot(ix * cell - half - x, iz * cell - half - z);
-        const t = Math.min(1, Math.max(0, (d - rad) / blend));
+        const dx = ix * cell - half - x;
+        const dz = iz * cell - half - z;
+        const t = Math.min(1, Math.max(0, (Math.hypot(dx, dz) - rad * (1 + wob * rimWobble(x, z, Math.atan2(dz, dx)))) / blend));
         const k = iz * r + ix;
         mask[k] = Math.min(mask[k], t * t * (3 - 2 * t));
       }
