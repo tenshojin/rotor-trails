@@ -392,6 +392,10 @@ export class RealTerrain {
       }
       // （模糊之后草和土混成一片黄绿色，灰一点才像土）
       col = mix(col, mix(soil, vec3(dot(soil, LUMW)), 0.2), near.mul(flatK));
+    } else {
+      // 外圈的影像五米一个像素，树和树影是一团团糊的黑斑，真树已经站在那儿了：贴地飞的时候把这些斑提起来
+      const lift = max(col, texture(image, uv0).bias(float(2.6)).rgb.mul(0.94));
+      col = mix(col, lift, float(1).sub(smoothstep(300.0, 1800.0, dist)).mul(flatK));
     }
     let N: N<'vec3'> = N0;
     if (L) {

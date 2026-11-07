@@ -40,10 +40,12 @@ export interface SaveData {
   /** 休闲飞行到过的地方（地名） */
   visited: Partial<Record<MapId, string[]>>;
   log: FlightLog;
+  /** 提示过的勋章 */
+  medals: string[];
 }
 
 function defaults(): SaveData {
-  return { version: SAVE_VERSION, settings: defaultSettings(), maps: {}, tutorialDone: false, lessonsDone: [], simLessonsDone: [], visited: {}, log: { seconds: 0, landings: 0, softest: null, photos: 0 } };
+  return { version: SAVE_VERSION, settings: defaultSettings(), maps: {}, tutorialDone: false, lessonsDone: [], simLessonsDone: [], visited: {}, log: { seconds: 0, landings: 0, softest: null, photos: 0 }, medals: [] };
 }
 
 const MAP_IDS: readonly MapId[] = ['training', 'japan', 'canyon', 'amazon', 'fjord', 'himalaya'];
@@ -78,6 +80,7 @@ export function migrate(raw: unknown): SaveData {
   const lessons = (v: unknown): number[] => (Array.isArray(v) ? [...new Set(v.filter((x): x is number => Number.isInteger(x) && x >= 0 && x < 32))] : []);
   d.lessonsDone = lessons(o.lessonsDone);
   d.simLessonsDone = lessons(o.simLessonsDone);
+  if (Array.isArray(o.medals)) d.medals = [...new Set(o.medals.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length < 24))];
   if (isSaveObject(o.log)) {
     const count = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
     d.log.seconds = count(o.log.seconds);

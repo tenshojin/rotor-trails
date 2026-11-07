@@ -2348,3 +2348,44 @@ canvas.gl.sim-cursor.sim-cursor-hot {
     font-size: 20px;
   }
 }
+
+/* 勋章 */
+.medals {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.medal {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  opacity: 0.62;
+}
+.medal.on {
+  opacity: 1;
+  border-color: rgba(255, 205, 96, 0.55);
+  background: rgba(255, 205, 96, 0.07);
+}
+.medal i {
+  font-style: normal;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--muted);
+}
+.medal.on i {
+  color: #ffcd60;
+}
+.medal b {
+  display: block;
+  font-size: 14px;
+}
+.medal small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.35;
+}

@@ -42,7 +42,7 @@ export class CameraRig {
   readonly camera: THREE.PerspectiveCamera;
   yaw = 0;
   pitch = DEFAULT_PITCH;
-  mode: 'cockpit' | 'chase' | 'cinema' | 'photo' = 'cockpit';
+  mode: 'cockpit' | 'chase' | 'cinema' | 'photo' | 'crash' = 'cockpit';
   /** 视野缩放（1 = 不缩放，越小越近）：超仿真里滚轮用，看清远处的表 */
   zoom = 1;
   /** 探身：够远处的按钮时头也会往前（0..1） */
@@ -70,6 +70,9 @@ export class CameraRig {
   private photoPitch = 0;
   private photoVel = new THREE.Vector3();
   private photoBack: 'cockpit' | 'chase' | 'cinema' = 'cockpit';
+  /** 坠毁：镜头留在撞之前的方向上看着残骸，别跟着翻滚（坐在翻滚的座舱里看不清，也晕） */
+  private crashBack: 'cockpit' | 'chase' | 'cinema' = 'cockpit';
+  private crashAim = new THREE.Vector3();
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(72, aspect, 0.05, 30000);
@@ -174,6 +177,13 @@ export class CameraRig {
       }
       return;
     }
+    if (this.mode === 'crash') {
+      this.crashAim.x = damp(this.crashAim.x, pos.x, 4, dt);
+      this.crashAim.y = damp(this.crashAim.y, pos.y, 4, dt);
+      this.crashAim.z = damp(this.crashAim.z, pos.z, 4, dt);
+      this.camera.lookAt(this.crashAim);
+      return;
+    }
     if (this.mode === 'cinema') {
       this.cinema(dt, pos, vel, s.ground ?? (() => -1e4));
       this.prevVel.copy(vel);
@@ -269,7 +279,7 @@ export class CameraRig {
   enterPhoto(pos: THREE.Vector3, quat: THREE.Quaternion, floor: (x: number, z: number) => number): void {
     if (this.mode === 'photo') return;
     const cam = this.camera;
-    this.photoBack = this.mode;
+    this.photoBack = this.mode === 'crash' ? this.crashBack : this.mode;
     this.photoFov = 40;
     if (this.mode === 'cockpit') {
       const fwd = _forward.set(0, 0, -1).applyQuaternion(quat);
@@ -325,6 +335,27 @@ export class CameraRig {
   /** 电影镜头现在就换下一个机位 */
   nextShot(): void {
     this.shotT = 1e6;
+  }
+
+  /** 坠毁的那一刻调用。vel：撞的时候的速度 */
+  crash(pos: THREE.Vector3, vel: THREE.Vector3, ground: (x: number, z: number) => number): void {
+    if (this.mode === 'crash' || this.mode === 'photo') return;
+    this.crashBack = this.mode;
+    this.mode = 'crash';
+    const sp = Math.hypot(vel.x, vel.z);
+    const bx = sp > 2 ? -vel.x / sp : Math.sin(this.chaseHeading);
+    const bz = sp > 2 ? -vel.z / sp : Math.cos(this.chaseHeading);
+    const x = pos.x + bx * 30 - bz * 13;
+    const z = pos.z + bz * 30 + bx * 13;
+    this.camera.position.set(x, Math.max(ground(x, z) + 5, pos.y + 7), z);
+    this.camera.fov = 46;
+    this.camera.updateProjectionMatrix();
+    this.crashAim.copy(pos);
+  }
+
+  /** 回到飞行（重试、恢复） */
+  endCrash(): void {
+    if (this.mode === 'crash') this.setMode(this.crashBack);
   }
 
   setMode(m: 'cockpit' | 'chase' | 'cinema'): void {

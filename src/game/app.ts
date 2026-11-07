@@ -35,6 +35,7 @@ import { padNavigate } from '../ui/padNav';
 import { blocked, GPS_RANGES, operate, PressQueue, readout, type ActEnv, type ReadEnv } from '../sim/controls';
 import { SimPanel } from '../ui/simPanel';
 import type { Spot } from '../render/cockpitControls';
+import { medalRows, newMedals, type MedalWorld } from './medals';
 import { LESSONS, Tutorial, type TutorialCtx } from './tutorial';
 import { SIM_LESSONS } from './simTutorial';
 import { isTimeOfDay, type TimeOfDay } from '../render/timeOfDay';
@@ -145,6 +146,8 @@ export class App {
   /** 休闲模式的自动巡航 */
   private cruise: ScenicCruise | null = null;
   private touch: TouchControls | null = null;
+  private medalInfo: MedalWorld | null = null;
+  private medalT = 0;
   private photoPending = false;
   /** 电影镜头里耳朵离飞机多远、飞机朝耳朵过来的速度 */
   private far = 0;
@@ -434,7 +437,26 @@ export class App {
     this.ui.logbook({
       ...this.save.data.log,
       maps: all.map((m) => ({ name: m.name, been: this.save.data.visited[m.id]?.length ?? 0, total: placesOf(m).length, rating: this.save.data.maps[m.id]?.bestRating ?? '' })),
+      medals: medalRows(this.save.data, this.medalWorld()),
     });
+  }
+
+  private medalWorld(): MedalWorld {
+    return (this.medalInfo ??= {
+      lessons: LESSONS.length,
+      simLessons: SIM_LESSONS.length,
+      missions: MAPS.filter((m) => m.id !== 'training').map((m) => ({ id: m.id, optional: m.mission.optional.map((o) => o.id) })),
+      places: [...MAPS, ...REAL_MAPS].map((m) => ({ id: m.id, total: placesOf(m).length })),
+    });
+  }
+
+  /** 看看有没有新拿到的勋章：落地、到了新地方、每隔一会儿。结算页自己写在页面上 */
+  private checkMedals(): void {
+    const got = newMedals(this.save.data, this.medalWorld());
+    if (!got.length) return;
+    this.save.save();
+    for (const m of got) this.hud.toast(`获得勋章：${m.name}（${m.how}）`, 'good', 5000);
+    this.audio.checkpoint();
   }
 
   /** 飞行训练的课程表：从头学，或者直接选一课 */
@@ -827,6 +849,7 @@ export class App {
   private shake(strength: number): void {
     this.view.rig.kick(strength);
     this.input.pad?.rumble(strength);
+    if (this.session) this.view.impactFx?.(this.session, strength);
   }
 
   /** 电影镜头：耳朵在摄影机那里。声音跟着距离走，飞过的时候有多普勒 */
@@ -986,7 +1009,7 @@ export class App {
     this.state = 'paused';
     this.root.classList.add('replay-on');
     this.view.setDof(false);
-    const view = rig.mode === 'photo' ? 'cockpit' : rig.mode;
+    const view = rig.mode === 'photo' || rig.mode === 'crash' ? 'cockpit' : rig.mode;
     rig.setMode('cinema');
     this.input.setFreeMouse(true);
     this.input.active = true;
@@ -1430,6 +1453,10 @@ export class App {
     if (this.fpsT >= 1) {
       this.fps = this.frames / this.fpsT;
       this.watchFrameRate();
+      if (this.state === 'playing' && !this.replay && ++this.medalT >= 15) {
+        this.medalT = 0;
+        this.checkMedals();
+      }
       this.frames = 0;
       this.fpsT = 0;
     }
@@ -1438,6 +1465,13 @@ export class App {
     const running = this.state === 'playing' && s && s.state === 'running';
     const renderDt = this.state === 'paused' ? this.replayDt(dt) : dt;
     this.t += renderDt;
+    if (s && s.state === 'crashed' && !this.tutorial && !this.replay && (this.state === 'playing' || this.state === 'failed')) {
+      // 残骸还在往下掉
+      const steps = this.stepper.advance(dt);
+      for (let i = 0; i < steps; i++) s.step?.();
+      alpha = this.stepper.alpha;
+    }
+    if (s && s.state === 'running') this.view.rig.endCrash?.();
     if (s && running) {
       this.readInput(s, dt);
       const steps = this.stepper.advance(dt);
@@ -1471,7 +1505,14 @@ export class App {
       }
     }
     if (this.state === 'playing' && s && s.state !== 'running') {
-      if (s.state === 'crashed' && this.failTimer < 0) this.failTimer = 1.4;
+      if (s.state === 'crashed' && this.failTimer < 0) {
+        // （教学里撞了不算什么：一下就回到这一课的安全点，不用看残骸）
+        this.failTimer = this.tutorial ? 1.4 : 2.8;
+        if (!this.tutorial) {
+          this.view.impactFx?.(s, 1);
+          this.view.rig.crash(s.body.pos, s.body.vel, s.world.ctx.ground);
+        }
+      }
       if (s.state === 'complete' && this.completeTimer < 0) this.completeTimer = 1.6;
     }
     if (this.state === 'playing' && this.failTimer > 0) {
@@ -1748,6 +1789,7 @@ export class App {
             const soft = Math.max(0.01, e.metrics.descent);
             if (log.softest !== null && soft < log.softest && !this.tutorial) hud.toast(`最轻的一次接地：${soft.toFixed(2)} m/s`, 'good', 3000);
             log.softest = Math.min(log.softest ?? Infinity, soft);
+            this.checkMedals();
           }
           if (e.padId && e.metrics.safe) hud.toast(`接地：${GRADE_LABEL[e.metrics.grade]}（下降 ${e.metrics.descent.toFixed(1)} m/s）`, 'info', 2200);
           break;
@@ -1888,6 +1930,8 @@ export class App {
       });
       return;
     } else best = this.save.recordResult(run.map.id, score.total, score.rating, s.mission.optional.filter((o) => o.status === 'done').map((o) => o.def.id), s.t);
+    const medals = newMedals(this.save.data, this.medalWorld()).map((m) => m.name);
+    if (medals.length) this.save.save();
     const idx = CAMPAIGN.indexOf(run.map.id);
     const nextId = run.tutorial ? 'japan' : idx >= 0 && idx < CAMPAIGN.length - 1 ? CAMPAIGN[idx + 1] : null;
     const next = nextId && MAPS.find((m) => m.id === nextId) ? getMap(nextId) : null;
@@ -1901,6 +1945,7 @@ export class App {
         optional: s.mission.optional.map((o) => ({ title: o.def.title, done: o.status === 'done' })),
         next,
         tutorial: run.tutorial,
+        medals,
       },
       {
         replay: this.tape.seconds >= REPLAY_MIN

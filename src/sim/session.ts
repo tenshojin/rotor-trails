@@ -125,6 +125,8 @@ export class GameSession {
   steps = 0;
   state: 'running' | 'crashed' | 'complete' = 'running';
   crashCause: DamageCause | null = null;
+  /** 坠毁之后过了多久 */
+  private wreckT = 0;
   events: GameEvent[] = [];
   readonly windNow = new Vector3();
   windInfo: WindInfo;
@@ -301,7 +303,42 @@ export class GameSession {
   }
 
   /** 推进一个固定步长。 */
+  /** 坠毁之后：不再有升力，残骸带着撞完的速度翻滚着掉下去，停在地上（水里沉一点）。只给画面看 */
+  private stepWreck(): void {
+    const dt = STEP;
+    const b = this.body;
+    copyBody(this.prev, b);
+    this.wreckT += dt;
+    if (this.wreckT > 7) return;
+    const wl = this.world.map.waterLevel ?? -1e9;
+    const floor = Math.max(this.world.ctx.ground(b.pos.x, b.pos.z), wl - 0.9) + 0.7;
+    b.vel.y -= 9.81 * dt;
+    b.vel.multiplyScalar(1 - 0.12 * dt);
+    b.pos.addScaledVector(b.vel, dt);
+    if (b.pos.y <= floor) {
+      b.pos.y = floor;
+      if (b.vel.y < 0) b.vel.y *= -0.12;
+      const f = Math.exp(-5 * dt);
+      b.vel.x *= f;
+      b.vel.z *= f;
+      b.angVel.multiplyScalar(Math.exp(-5 * dt));
+    }
+    b.angVel.multiplyScalar(1 - 0.25 * dt);
+    const w = b.angVel;
+    const q = b.quat;
+    // dq = 0.5 * w * q
+    const hx = 0.5 * dt * w.x;
+    const hy = 0.5 * dt * w.y;
+    const hz = 0.5 * dt * w.z;
+    const { x, y, z, w: qw } = q;
+    q.set(x + hx * qw + hy * z - hz * y, y - hx * z + hy * qw + hz * x, z + hx * y - hy * x + hz * qw, qw - hx * x - hy * y - hz * z).normalize();
+  }
+
   step(): void {
+    if (this.state === 'crashed' && !this.disposed) {
+      this.stepWreck();
+      return;
+    }
     if (this.disposed || this.state !== 'running') return;
     const dt = STEP;
     const b = this.body;
@@ -436,6 +473,10 @@ export class GameSession {
       const cause = this.damage.lastCause ?? 'impact';
       this.state = 'crashed';
       this.crashCause = cause;
+      this.wreckT = 0;
+      // （撞完总要翻一下）
+      b.angVel.x += 0.5 - Math.sin(this.t * 7.3);
+      b.angVel.z += 0.9 * Math.sin(this.t * 5.1 + 1);
       this.events.push({ type: 'crash', cause, label: CAUSE_LABEL[cause] });
       return;
     }

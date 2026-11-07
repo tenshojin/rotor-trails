@@ -510,7 +510,7 @@ export class UI {
     });
   }
 
-  result(opts: { map: MapDef; score: ScoreResult; best: boolean; time: number; landing: LandingMetrics | null; optional: Array<{ title: string; done: boolean }>; next: MapDef | null; tutorial: boolean }, on: { replay?: () => void; again: () => void; maps: () => void; next: () => void; menu: () => void }): void {
+  result(opts: { map: MapDef; score: ScoreResult; best: boolean; time: number; landing: LandingMetrics | null; optional: Array<{ title: string; done: boolean }>; next: MapDef | null; tutorial: boolean ; medals?: string[] }, on: { replay?: () => void; again: () => void; maps: () => void; next: () => void; menu: () => void }): void {
     const s = opts.score;
     const rows = s.breakdown.map((b) => `<tr><td>${b.label}</td><td class="muted">${b.note ?? ''}</td><td class="num">${b.value > 0 ? '+' : ''}${b.value}</td></tr>`).join('');
     const el = this.show(
@@ -519,6 +519,7 @@ export class UI {
         ${opts.tutorial ? '<p>你已经掌握了起飞、加速、减速、转向、高度控制、悬停、侧风修正和安全降落。可以开始正式地图了！</p>' : ''}
         <table class="score">${rows}<tr class="total"><td>总分</td><td></td><td class="num">${s.total}</td></tr></table>
         ${opts.best && !opts.tutorial ? '<div class="newbest">新的最佳成绩！</div>' : ''}
+        ${opts.medals?.length ? `<div class="newbest">获得勋章：${opts.medals.join('、')}</div>` : ''}
         <div class="res-grid">
           <div><span class="muted">最终降落</span><b>${opts.landing ? `${GRADE_LABEL[opts.landing.grade]} · 下降 ${opts.landing.descent.toFixed(1)} m/s · 漂移 ${opts.landing.horizontal.toFixed(1)} m/s · 偏移 ${opts.landing.offset.toFixed(1)} m` : '—'}</b></div>
           <div><span class="muted">用时（仅记录，不计分）</span><b>${fmtTime(opts.time)}</b></div>
@@ -587,12 +588,13 @@ export class UI {
   }
 
   /** 飞行记录：飞了多久、落了多少次、到过多少地方 */
-  logbook(o: { seconds: number; landings: number; softest: number | null; photos: number; maps: Array<{ name: string; been: number; total: number; rating: string }> }): void {
+  logbook(o: { seconds: number; landings: number; softest: number | null; photos: number; maps: Array<{ name: string; been: number; total: number; rating: string }>; medals?: Array<{ name: string; how: string; done: boolean; note: string }> }): void {
     const m = Math.floor(o.seconds / 60);
     const time = m >= 60 ? `${Math.floor(m / 60)} 小时 ${m % 60} 分` : `${m} 分钟`;
     const rows = o.maps.map((r) => `<tr><td>${r.name}</td><td class="muted">${r.rating ? `最佳 ${r.rating}` : ''}</td><td class="num">${r.been} / ${r.total}</td></tr>`).join('');
     const been = o.maps.reduce((a, r) => a + r.been, 0);
     const total = o.maps.reduce((a, r) => a + r.total, 0);
+    const medals = o.medals ?? [];
     const el = this.openModal(
       h(`<div class="modal"><div class="card wide"><div class="screen-head"><h2>飞行记录</h2><button class="btn ghost" data-a="close">关闭</button></div>
       <div class="res-grid log-grid">
@@ -601,6 +603,7 @@ export class UI {
         <div><span class="muted">最轻的一次</span><b>${o.softest === null ? '—' : `${o.softest.toFixed(2)} m/s`}</b></div>
         <div><span class="muted">存下的照片</span><b>${o.photos} 张</b></div>
       </div>
+      ${medals.length ? `<h3>勋章（${medals.filter((m) => m.done).length} / ${medals.length}）</h3><div class="medals">${medals.map((m) => `<div class="medal ${m.done ? 'on' : ''}"><i aria-hidden="true">${m.done ? '★' : '☆'}</i><span><b>${m.name}</b><small>${m.how}${m.note ? ` · ${m.note}` : ''}</small></span></div>`).join('')}</div>` : ''}
       <h3>到过的地方（${been} / ${total}）</h3>
       <table class="score">${rows}</table>
       <p class="muted">休闲飞行飞到一个地方就算到过。记录存在这个浏览器里。</p></div></div>`),

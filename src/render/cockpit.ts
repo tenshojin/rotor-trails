@@ -89,9 +89,78 @@ const _q = new THREE.Quaternion();
 const _controlEuler = new THREE.Euler(0, 0, 0, 'XZY');
 const _controlAxis = new THREE.Vector3(1, 0, 0);
 
+/** 风挡的裂纹：红色通道是第一次裂开的，绿色通道是后来又裂的。不用透明度：画布贴图在 WebGPU 下丢透明度 */
+function crackTexture(): THREE.Texture {
+  const S = 1024;
+  const cv = globalThis.document?.createElement?.('canvas');
+  const g = cv?.getContext?.('2d');
+  if (!cv || !g) return new THREE.Texture();
+  cv.width = cv.height = S;
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, S, S);
+  g.globalCompositeOperation = 'lighter';
+  let seed = 41;
+  const rnd = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  /** 从一点往外裂：几根放射的裂缝一路拐弯、分岔，靠近中心有一圈圈连着的短缝 */
+  const star = (cx: number, cy: number, n: number, reach: number, color: string): void => {
+    g.strokeStyle = color;
+    g.lineCap = 'round';
+    const ends: Array<Array<[number, number]>> = [];
+    for (let i = 0; i < n; i++) {
+      let a = (i / n) * Math.PI * 2 + rnd() * 0.5;
+      let x = cx;
+      let y = cy;
+      const line: Array<[number, number]> = [];
+      const steps = 7 + Math.floor(rnd() * 8);
+      const len = (reach * (0.5 + 0.5 * rnd())) / steps;
+      g.lineWidth = 2.2;
+      g.beginPath();
+      g.moveTo(x, y);
+      for (let k = 0; k < steps; k++) {
+        a += (rnd() - 0.5) * 0.5;
+        x += Math.cos(a) * len;
+        y += Math.sin(a) * len;
+        g.lineTo(x, y);
+        line.push([x, y]);
+        if (rnd() < 0.2) {
+          const b = a + (rnd() < 0.5 ? -1 : 1) * (0.4 + rnd() * 0.5);
+          g.moveTo(x, y);
+          g.lineTo(x + Math.cos(b) * len * 2.2, y + Math.sin(b) * len * 2.2);
+          g.moveTo(x, y);
+        }
+      }
+      g.stroke();
+      ends.push(line);
+    }
+    g.lineWidth = 1.4;
+    for (let ring = 0; ring < 3; ring++) {
+      g.beginPath();
+      ends.forEach((line, i) => {
+        const p = line[Math.min(line.length - 1, 1 + ring * 2)];
+        const q = ends[(i + 1) % ends.length];
+        const r = q[Math.min(q.length - 1, 1 + ring * 2)];
+        if (rnd() < 0.68) {
+          g.moveTo(p[0], p[1]);
+          g.lineTo(r[0], r[1]);
+        }
+      });
+      g.stroke();
+    }
+  };
+  star(S * 0.66, S * 0.5, 11, S * 0.34, '#ff0000');
+  star(S * 0.3, S * 0.38, 9, S * 0.3, '#00ff00');
+  star(S * 0.48, S * 0.72, 7, S * 0.22, '#00ff00');
+  const t = new THREE.CanvasTexture(cv);
+  t.generateMipmaps = true;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.anisotropy = 4;
+  return t;
+}
+
 export class Cockpit {
   readonly root = new THREE.Group();
-  readonly glassUniforms = { uRain: uniform(0), uTime: uniform(0), uFlow: uniform(0), uShield: uniform(0), uWipe: uniform(new THREE.Vector3(0, 0, 0)), uWipeOn: uniform(0), uFog: uniform(0), uOutside: uniform(0) };
+  private crackTex: THREE.Texture | null = null;
+  readonly glassUniforms = { uCrack: uniform(0), uRain: uniform(0), uTime: uniform(0), uFlow: uniform(0), uShield: uniform(0), uWipe: uniform(new THREE.Vector3(0, 0, 0)), uWipeOn: uniform(0), uFog: uniform(0), uOutside: uniform(0) };
   /** 两支雨刷（转轴绕玻璃法线转） */
   private wipers: Array<{ pivot: THREE.Group; x: number; y: number; side: number }> = [];
   private wipeT = 0;
@@ -408,6 +477,7 @@ export class Cockpit {
     });
     const GU = this.glassUniforms;
     const noise = getNoiseTexture();
+    this.crackTex ??= crackTexture();
     // 雨滴坐标：按玻璃朝向取机体坐标平面（风挡用 x/y，侧窗用 z/y，顶窗用 x/z）
     const an = abs(normalize(normalGeometry));
     const lp = positionGeometry;
@@ -428,15 +498,18 @@ export class Cockpit {
     const wiped = max(wipeArea(GU.uWipe.x), wipeArea(GU.uWipe.y)).mul(GU.uWipeOn).mul(0.82);
     const w = clamp(drops.mul(0.85).add(streak.mul(0.6)).mul(GU.uRain).mul(float(1).sub(wiped)), 0.0, 1.0);
     // 舱内起雾：一层白，边角先起（中间是从暖风口吹干的）
+    // 裂纹：撞得重了风挡裂开，只有正面的玻璃。迎着太阳时一根根发亮
+    const crk = texture(this.crackTex, p.mul(vec2(0.42, 0.62)).add(vec2(0.5, 0.1)));
+    const crack = clamp(crk.r.mul(step(0.5, GU.uCrack)).add(crk.g.mul(step(1.5, GU.uCrack))), 0.0, 1.0).mul(step(max(an.x, an.y), an.z)).toVar();
     const fogPatch = GU.uFog.mul(smoothstep(0.2, 0.75, texture(noise, p.mul(0.9)).r.mul(0.5).add(0.25).add(abs(lp.x).mul(0.5))));
-    const c = mix(mix(mix(vec3(base.r, base.g, base.b), vec3(0.85, 0.9, 0.95), w), vec3(0.3, 0.7, 1.0), GU.uShield.mul(0.6)), vec3(0.82, 0.85, 0.87), fogPatch);
+    const c = mix(mix(mix(mix(vec3(base.r, base.g, base.b), vec3(0.85, 0.9, 0.95), w), vec3(0.3, 0.7, 1.0), GU.uShield.mul(0.6)), vec3(0.82, 0.85, 0.87), fogPatch), vec3(0.86, 0.9, 0.93), crack);
     mat.colorNode = vec4(c, 1.0);
     // 玻璃上的灰尘与擦拭痕：平时几乎看不见，迎着太阳时被照亮成一片眩光（清晨、黄昏最明显）
     const dust = smoothstep(0.45, 0.85, texture(noise, p.mul(1.7)).r).mul(0.55).add(smoothstep(0.62, 0.95, texture(noise, p.mul(6.0).add(0.3)).g).mul(0.35));
     const vdir = normalize(positionWorld.sub(cameraPosition));
     const sunK = pow(max(dot(vdir, FOG.sunDir), 0.0), 10.0);
-    const glare = VFOG.sun.mul(dust.mul(sunK.mul(0.12).add(0.004)));
-    const alpha = clamp(w.mul(0.38).add(opacity).add(dust.mul(0.03)).add(fogPatch.mul(0.62)).add(GU.uOutside.mul(0.1)), 0.0, 1.0).add(GU.uShield.mul(0.08)).toVar();
+    const glare = VFOG.sun.mul(dust.mul(sunK.mul(0.12).add(0.004)).add(crack.mul(sunK.mul(0.5).add(0.012))));
+    const alpha = clamp(w.mul(0.38).add(opacity).add(dust.mul(0.03)).add(fogPatch.mul(0.62)).add(GU.uOutside.mul(0.1)).add(crack.mul(0.62)), 0.0, 1.0).add(GU.uShield.mul(0.08)).toVar();
     mat.opacityNode = alpha;
     // 从外面看：玻璃是一面斜着的镜子，映着天。透明材质的高光会被不透明度压掉，这里按菲涅尔单独加回来
     const nOut = normalize(normalWorld).toVar();
@@ -629,6 +702,8 @@ export class Cockpit {
     this.geos.clear();
     this.mats.clear();
     this.textures.length = this.screens.length = this.wipers.length = this.pilotParts.length = 0;
+    this.crackTex?.dispose();
+    this.crackTex = null;
     this.needles.clear();
     this.ctl = {};
     this.root.clear();

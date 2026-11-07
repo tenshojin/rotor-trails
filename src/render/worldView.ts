@@ -16,6 +16,7 @@ import { HeliModel } from './heliModel';
 import { loadModelLib, MODEL_FILES, type ModelLib } from './modelLib';
 import { loadDetailTextures } from './detailTextures';
 import { NavView } from './navView';
+import { WreckFx } from './wreckFx';
 import { PropsView } from './propsView';
 import { CLOUD, SkyDome } from './sky';
 import { FOG, sceneFog, WIND } from './atmosphere';
@@ -80,6 +81,7 @@ const _groundLit = new THREE.Color();
 const _cabinBounce = new THREE.Color();
 const _cabinWarm = new THREE.Color(1.0, 0.9, 0.76);
 const _pos = new THREE.Vector3();
+const _fx = new THREE.Vector3();
 const _boltFwd = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
 const _vel = new THREE.Vector3();
@@ -131,6 +133,17 @@ export class WorldView {
   terrain: TerrainView | RealTerrain | null = null;
   /** 真实地形的 30 厘米影像 */
   hiRing: HiRing | null = null;
+  private wreckFx: WreckFx | null = null;
+
+  /** 撞了一下：strength 0..1 */
+  impactFx(s: GameSession, strength: number): void {
+    const p = s.body.pos;
+    const wl = s.world.map.waterLevel ?? -1e9;
+    const hex = s.world.map.biome.dirt;
+    const dust: [number, number, number] = [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
+    const ground = s.world.ctx.ground(p.x, p.z);
+    this.wreckFx?.burst(p, s.body.vel, strength, p.y < wl + 3 && wl > ground ? 'water' : p.y < ground + 7 ? 'ground' : 'air', dust);
+  }
   terrainUniforms: TerrainUniforms | null = null;
   private terrainTexSize = 0;
   private terrainRequestedSize: number | null = null;
@@ -587,6 +600,8 @@ export class WorldView {
       this.scene.add(this.nav.group);
       this.wash = new DownwashView(map);
       this.scene.add(this.wash.group);
+      this.wreckFx = new WreckFx((this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true);
+      this.scene.add(this.wreckFx.mesh);
       this.lamps = new NightLights(world);
       this.scene.add(this.lamps.group);
       this.padDetails = new PadDetails(map);
@@ -645,6 +660,7 @@ export class WorldView {
     rm(this.traffic?.group);
     rm(this.nav?.group);
     rm(this.wash?.group);
+    rm(this.wreckFx?.mesh);
     rm(this.lamps?.group);
     rm(this.padDetails?.group);
     rm(this.landing?.target);
@@ -668,6 +684,8 @@ export class WorldView {
     this.nav?.dispose();
     this.wash?.dispose();
     this.wash = null;
+    this.wreckFx?.dispose();
+    this.wreckFx = null;
     this.lamps?.dispose();
     this.lamps = null;
     this.padDetails?.dispose();
@@ -872,6 +890,7 @@ export class WorldView {
       // 有 Blender 外观时座舱模型（含机身外壳）在追尾视角也显示：从外面能透过玻璃看到舱内
       this.cockpit.root.visible = (cockpitView || this.heli.extLoaded) && !this.hideHeli;
       this.cockpit.updateControls(tel.stickPitch, tel.stickRoll, tel.collective, tel.pedal);
+      this.cockpit.glassUniforms.uCrack.value = s.damage.durability < 34 ? 2 : s.damage.durability < 66 ? 1 : 0;
       this.cockpit.updateSwitches(sys, f.dt, f.t);
       if (this.pilot) {
         // 外面的镜头都看得到飞行员（没人开的直升机在天上飞太怪了）；座舱视角只有超仿真有身体
@@ -1035,6 +1054,16 @@ export class WorldView {
       const gust = s ? Math.min(1, s.windInfo.gust / 8) : 0.2;
       this.trees?.update(f.t, cam, _w.x, _w.z, gust);
       if (s) this.nav?.update(s, f.t, cp, cam);
+      if (s && this.wreckFx) {
+        if (!f.replay && f.dt > 0) {
+          const dur = s.damage.durability;
+          _fx.set(0, 1.45, 1.5).applyQuaternion(_quat).add(_pos);
+          if (s.state === 'crashed') this.wreckFx.wreck(_fx, f.dt, _pos.y < (s.world.map.waterLevel ?? -1e9) + 1.2);
+          else if (dur < 60 && s.state === 'running') this.wreckFx.damage(_fx, _vel, (60 - dur) / 60, f.dt);
+        }
+        const wl = s.world.map.waterLevel ?? -1e9;
+        this.wreckFx.update(f.dt, cam, _w.x, _w.z, (x, z) => Math.max(s.world.ctx.ground(x, z), wl));
+      }
       this.rivers?.update(f.t);
       this.grass?.update(f.t, cp);
       if (this.rig.mode === 'photo' && this.dofOn) this.photoFocus();
