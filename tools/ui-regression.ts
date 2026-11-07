@@ -272,9 +272,10 @@ await test('加载进度范围合法；关于页面标明真实素材许可', (u
 });
 
 await test('飞行记录：时间、次数、到过的地方都写对，能关掉', (ui) => {
-  ui.logbook({ seconds: 3725, landings: 12, softest: 0.31, photos: 4, maps: [{ name: '甲', been: 2, total: 5, rating: 'A' }, { name: '乙', been: 0, total: 3, rating: '' }] });
+  ui.logbook({ seconds: 3725, landings: 12, softest: 0.31, photos: 4, maps: [{ name: '甲', been: 2, total: 5, rating: 'A' }, { name: '乙', been: 0, total: 3, rating: '' }], medals: [{ name: '离地', how: '在空中待满一分钟', done: true, note: '' }, { name: '老手', how: '平安落地 25 次', done: false, note: '12 / 25' }] });
   const text = find('.modal').textContent ?? '';
   assert(text.includes('1 小时 2 分') && text.includes('12 次') && text.includes('0.31 m/s') && text.includes('4 张') && text.includes('到过的地方（2 / 8）'), `记录写错了：${text}`);
+  assert(text.includes('勋章（1 / 2）') && text.includes('12 / 25') && document.querySelectorAll('.medal.on').length === 1, `勋章写错了：${text}`);
   assert(ui.hasModal, '记录没打开');
   click('.modal [data-a="close"]');
   assert(!ui.hasModal, '记录关不掉');

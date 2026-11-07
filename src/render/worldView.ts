@@ -35,6 +35,7 @@ import { fogMaps, VFOG } from './volumetricFog';
 import { addWashWind, DownwashView } from './downwash';
 import { NightLights } from './nightLights';
 import { PadDetails } from './padDetails';
+import { PadLife } from './padLife';
 import { makeReflectField } from './reflectMap';
 import { GRASS_MID, GroundCover } from './groundCover';
 import { RiverView } from './riverView';
@@ -173,6 +174,7 @@ export class WorldView {
   private wash: DownwashView | null = null;
   private lamps: NightLights | null = null;
   private padDetails: PadDetails | null = null;
+  private padLife: PadLife | null = null;
   /** 着陆灯（夜晚才放进场景：多一盏灯所有材质都要重新编译） */
   private landing: THREE.SpotLight | null = null;
   /** 超仿真里自己的身体 */
@@ -606,6 +608,8 @@ export class WorldView {
       this.scene.add(this.lamps.group);
       this.padDetails = new PadDetails(map);
       this.scene.add(this.padDetails.group);
+      this.padLife = new PadLife(map);
+      this.scene.add(this.padLife.group);
       if (!real) {
         this.grass = new GroundCover(world, forestTex, field.color, GRASS_MID[this.settings.quality] ?? 0);
         this.scene.add(this.grass.group);
@@ -663,6 +667,7 @@ export class WorldView {
     rm(this.wreckFx?.mesh);
     rm(this.lamps?.group);
     rm(this.padDetails?.group);
+    rm(this.padLife?.group);
     rm(this.landing?.target);
     rm(this.landing ?? undefined);
     rm(this.rivers?.group);
@@ -690,6 +695,8 @@ export class WorldView {
     this.lamps = null;
     this.padDetails?.dispose();
     this.padDetails = null;
+    this.padLife?.dispose();
+    this.padLife = null;
     this.landing?.dispose();
     this.landing = null;
     this.rivers?.dispose();
@@ -1013,6 +1020,7 @@ export class WorldView {
       const nightLight = Math.max(lampK, Math.max(0, (w.overcast - 0.7) / 0.3) * 0.35);
       this.lamps?.update(nightLight);
       this.padDetails?.update(nightLight);
+      if (!f.replay) this.padLife?.update(s, f.t, f.dt);
       // 仪表背光：天越暗开得越亮
       CABIN_NIGHT.value = this.tod === 'night' ? 1 : this.tod === 'dusk' ? 0.32 : this.tod === 'dawn' ? 0.2 : Math.max(0, (w.overcast - 0.75) / 0.25) * 0.15;
       const sysNow = s?.sys;
