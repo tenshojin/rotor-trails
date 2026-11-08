@@ -293,22 +293,66 @@ def car(name, body_hex, van=False):
 
 
 def forklift(name):
-    """叉车：黄色车身、门架、货叉。"""
+    """平衡重式叉车（2.5 吨级）：黄色车身、后面圆弧的配重、座椅和方向盘、镂空的护顶架、
+    内外两节门架和液压缸、挡货架和 L 形货叉、带浅色轮毂的轮胎、灯。车头（货叉）朝 +X"""
     parts = []
     y = F('fork_yellow', 0xd8a51c, rough=0.42)
     d = F('truck_dark', 0x1e2024, rough=0.5)
-    g = F('lamp_grey', 0x70757a, rough=0.5, metal=0.5)
-    parts.append(K.box('body', (1.9, 1.15, 0.85), (-0.2, 0, 0.72), y, bevel=0.1))
-    parts.append(BK.bx('weight', (0.55, 1.15, 0.8), (-1.15, 0, 0.72), d, uv=False))
+    blk = F('fork_black', 0x151515, rough=0.85)
+    st = F('fork_steel', 0x8a8e92, rough=0.38, metal=0.7)
+    rim = F('fork_rim', 0xa8acb0, rough=0.4, metal=0.6)
+    lamp = F('car_lamp', 0xe8e4d8, rough=0.2)
+    amber = F('car_amber', 0xd8861c, rough=0.3)
+    red = F('tail_red', 0xa01810, rough=0.35)
+    # 车架、发动机罩（座椅底下）、前面的仪表台
+    parts.append(K.box('chassis', (1.75, 1.1, 0.5), (-0.22, 0, 0.55), y, bevel=0.07))
+    parts.append(K.box('hood', (0.95, 1.02, 0.24), (-0.5, 0, 0.92), y, bevel=0.06))
+    parts.append(K.box('dash', (0.26, 0.96, 0.38), (0.27, 0, 0.98), y, bevel=0.05))
+    # 配重：后面是圆弧
+    parts.append(BK.bx('cw', (0.42, 1.12, 0.82), (-0.92, 0, 0.71), d, uv=False))
+    parts.append(BK.cyl('cw_round', 0.46, 1.12, (-1.12, 0, 0.72), d, 18, rot=(math.pi / 2, 0, 0), uv=False))
     for sy in (-1, 1):
-        for x, z in ((0.5, 1.75), (-0.75, 1.75)):
-            parts.append(BK.bx(f'post{sy}{x}', (0.06, 0.06, 1.2), (x, sy * 0.48, z), d, uv=False))
-    parts.append(BK.bx('roof', (1.4, 1.06, 0.06), (-0.12, 0, 2.36), d, uv=False))
+        parts.append(BK.bx(f'tail{sy}', (0.04, 0.1, 0.08), (-1.58, sy * 0.38, 0.98), red, uv=False))
+        parts.append(BK.bx(f'step{sy}', (0.28, 0.16, 0.05), (0.12, sy * 0.52, 0.42), blk, uv=False))
+    # 座椅、方向盘
+    parts.append(K.box('seat', (0.44, 0.46, 0.12), (-0.42, 0, 1.11), blk, bevel=0.04))
+    parts.append(K.box('seatback', (0.09, 0.46, 0.44), (-0.66, 0, 1.36), blk, bevel=0.04))
+    parts.append(BK.stick('column', (0.2, 0, 1.0), (0.0, 0, 1.42), 0.03, d))
+    parts.append(K.torus('wheel', 0.16, 0.02, (-0.02, 0, 1.45), blk, 18, 6, rot=(0, -0.95, 0)))
+    # 护顶架：四根柱子、两根边梁、一排横条（镂空，看得见天）
     for sy in (-1, 1):
-        parts.append(BK.bx(f'mast{sy}', (0.1, 0.09, 2.5), (1.02, sy * 0.36, 1.3), g, uv=False))
-        parts.append(BK.bx(f'fork{sy}', (1.05, 0.11, 0.05), (1.58, sy * 0.3, 0.18), g, uv=False))
-        parts.append(K.cylinder(f'w{sy}', 0.33, 0.24, (0.55, sy * 0.52, 0.33), d, 14, rot=(math.pi / 2, 0, 0)))
-        parts.append(K.cylinder(f'wr{sy}', 0.28, 0.2, (-0.8, sy * 0.52, 0.28), d, 14, rot=(math.pi / 2, 0, 0)))
+        parts.append(BK.stick(f'gpf{sy}', (0.36, sy * 0.5, 1.02), (0.27, sy * 0.5, 2.16), 0.035, d))
+        parts.append(BK.stick(f'gpr{sy}', (-0.76, sy * 0.5, 1.02), (-0.72, sy * 0.5, 2.16), 0.035, d))
+        parts.append(BK.stick(f'grail{sy}', (-0.74, sy * 0.5, 2.17), (0.3, sy * 0.5, 2.17), 0.03, d))
+        parts.append(BK.bx(f'head{sy}', (0.07, 0.12, 0.1), (0.34, sy * 0.44, 2.05), lamp, uv=False))
+    for k in range(7):
+        x = -0.68 + k * 0.16
+        parts.append(BK.bx(f'slat{k}', (0.05, 1.02, 0.03), (x, 0, 2.18), d, uv=False))
+    parts.append(BK.cyl('beacon', 0.06, 0.1, (-0.62, 0, 2.25), amber, 10, uv=False))
+    # 门架：外门架、内门架、上下横梁、中间的液压缸、两条链条
+    for sy in (-1, 1):
+        parts.append(BK.bx(f'outer{sy}', (0.12, 0.08, 2.3), (0.72, sy * 0.34, 1.25), st, uv=False))
+        parts.append(BK.bx(f'inner{sy}', (0.09, 0.07, 2.18), (0.8, sy * 0.26, 1.21), st, uv=False))
+        parts.append(BK.bx(f'chain{sy}', (0.02, 0.03, 1.55), (0.87, sy * 0.12, 1.12), blk, uv=False))
+    parts.append(BK.bx('mast_lo', (0.11, 0.78, 0.1), (0.72, 0, 0.3), st, uv=False))
+    parts.append(BK.bx('mast_hi', (0.11, 0.78, 0.1), (0.72, 0, 2.36), st, uv=False))
+    parts.append(BK.cyl('lift', 0.055, 1.7, (0.66, 0, 1.05), rim, 10, uv=False))
+    # 叉架、挡货架（格子）、L 形货叉
+    parts.append(BK.bx('carriage', (0.06, 0.96, 0.34), (0.93, 0, 0.36), d, uv=False))
+    for sy in (-1, 1):
+        parts.append(BK.bx(f'lbr_side{sy}', (0.05, 0.05, 0.92), (0.95, sy * 0.46, 0.92), st, uv=False))
+    for k in range(3):
+        parts.append(BK.bx(f'lbr_bar{k}', (0.04, 0.94, 0.04), (0.95, 0, 0.62 + k * 0.3), st, uv=False))
+    for k in range(4):
+        parts.append(BK.bx(f'lbr_v{k}', (0.03, 0.03, 0.88), (0.95, -0.27 + k * 0.18, 0.92), st, uv=False))
+    for sy in (-1, 1):
+        parts.append(BK.bx(f'shank{sy}', (0.05, 0.1, 0.46), (0.98, sy * 0.28, 0.33), st, uv=False))
+        parts.append(BK.bx(f'tine{sy}', (1.05, 0.1, 0.045), (1.5, sy * 0.28, 0.12), st, uv=False))
+    # 轮子：前面驱动轮大、后面转向轮小；轮毂是浅色的
+    for sy in (-1, 1):
+        for x, r, w in ((0.42, 0.33, 0.27), (-0.86, 0.27, 0.22)):
+            parts.append(BK.cyl(f'tyre{sy}{x}', r, w, (x, sy * 0.55, r), blk, 16, rot=(math.pi / 2, 0, 0), uv=False))
+            parts.append(BK.cyl(f'rim{sy}{x}', r * 0.55, w + 0.01, (x, sy * 0.55, r), rim, 12, rot=(math.pi / 2, 0, 0), uv=False))
     return BK.model(name, parts)[0]
 
 

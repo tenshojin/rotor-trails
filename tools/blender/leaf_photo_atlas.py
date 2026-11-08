@@ -116,6 +116,24 @@ def scatter(sprigs, n, seed, size=(0.28, 0.38), spread=0.21, cut=0.1, toward=0.0
     return cell
 
 
+def coverage(cell):
+    return float(np.asarray(cell)[..., 3].mean() / 255.0)
+
+
+def fitted(make, n0, target):
+    """叶簇的疏密对齐原来那一格（叶子挡住的面积占几成，再允许密一成）：照片叶簇比程序画的实，
+    同样多的叶卡，树冠没了缝、透不过光，自己挡自己，大峡谷的矮松、刺柏成了一团团黑球"""
+    n = n0
+    cell = make(n)
+    for _ in range(4):
+        cov = coverage(cell)
+        if abs(cov - target) < target * 0.08:
+            break
+        n = max(3, round(n * (target / max(cov, 1e-3)) ** 1.15))
+        cell = make(n)
+    return cell, n
+
+
 def spray(sp, flip=False):
     """一整根枝横着放满一格（左边枝根）"""
     im = sp.transpose(Image.FLIP_LEFT_RIGHT) if flip else sp
@@ -171,17 +189,21 @@ def main():
 
     def put(col, row, cell, w=1, shine=True):
         ref = base.crop((col * C, row * C, (col + w) * C, (row + 1) * C))
+        if isinstance(cell, tuple):
+            make, n0 = cell
+            cell, n = fitted(make, n0, coverage(ref) * 1.1)
+            print(f'  格子 ({col},{row})：{n} 根小枝，遮挡 {coverage(cell):.3f}（原来 {coverage(ref):.3f}）')
         clear = Image.new('RGBA', (w * C, C), (0, 0, 0, 0))
         atlas.paste(clear, (col * C, row * C))
         atlas.alpha_composite(match(tame(cell) if shine else cell, ref), (col * C, row * C))
 
-    put(0, 0, scatter([S['broad']], 24, 1, size=(0.3, 0.42), spread=0.27))
-    put(1, 0, scatter([S['pine']], 14, 2, size=(0.34, 0.46), spread=0.24, cut=0.3))
+    put(0, 0, (lambda n: scatter([S['broad']], n, 1, size=(0.3, 0.42), spread=0.27), 24))
+    put(1, 0, (lambda n: scatter([S['pine']], n, 2, size=(0.34, 0.46), spread=0.24, cut=0.3), 14))
     put(2, 0, spray(S['spruce']))
-    put(3, 0, scatter([S['trop']], 17, 4, size=(0.34, 0.46), spread=0.25))
-    put(0, 1, scatter([S['birch']], 26, 5, size=(0.28, 0.4), spread=0.27))
-    put(1, 1, scatter([S['juniper']], 22, 6, size=(0.32, 0.44), spread=0.26))
-    put(2, 1, scatter([S['shrub']], 22, 7, size=(0.3, 0.42), spread=0.26, cut=0.2))
+    put(3, 0, (lambda n: scatter([S['trop']], n, 4, size=(0.34, 0.46), spread=0.25), 17))
+    put(0, 1, (lambda n: scatter([S['birch']], n, 5, size=(0.28, 0.4), spread=0.27), 26))
+    put(1, 1, (lambda n: scatter([S['juniper']], n, 6, size=(0.32, 0.44), spread=0.26), 22))
+    put(2, 1, (lambda n: scatter([S['shrub']], n, 7, size=(0.3, 0.42), spread=0.26, cut=0.2), 22))
     # 棕榈叶占两格宽
     palm = S['palm']
     s = min(2 * C * 0.98 / palm.width, C * 0.92 / palm.height)
@@ -189,9 +211,9 @@ def main():
     pc = Image.new('RGBA', (2 * C, C), (0, 0, 0, 0))
     pc.alpha_composite(pim, ((2 * C - pim.width) // 2, (C - pim.height) // 2))
     put(0, 2, pc, 2)
-    put(3, 3, scatter([S['pinyon']], 17, 9, size=(0.32, 0.44), spread=0.26))
-    put(0, 3, scatter([S['ujuni']], 22, 10, size=(0.3, 0.42), spread=0.26))
-    put(1, 3, scatter([S['scrub']], 22, 11, size=(0.3, 0.42), spread=0.26))
+    put(3, 3, (lambda n: scatter([S['pinyon']], n, 9, size=(0.32, 0.44), spread=0.26), 17))
+    put(0, 3, (lambda n: scatter([S['ujuni']], n, 10, size=(0.3, 0.42), spread=0.26), 22))
+    put(1, 3, (lambda n: scatter([S['scrub']], n, 11, size=(0.3, 0.42), spread=0.26), 22))
     atlas.save(OUT)
     print('WROTE', OUT, atlas.size)
 

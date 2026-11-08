@@ -20,7 +20,7 @@ MODELS = {
         ('ferry_jp', 10), ('boat_0', 8), ('car_white', 3), ('car_silver', 3), ('car_blue', 3), ('car_red', 3),
         ('van_white', 3), ('van_grey', 3), ('kei_truck', 3), ('bollard', 1), ('quay_seg', 3), ('pier_seg', 6),
         ('street_lamp', 3), ('light_mast', 3), ('fish_boxes', 3), ('net_a', 3), ('net_b', 3), ('torii', 8),
-        ('pallets_a', 3), ('pallets_b', 3), ('forklift', 4),
+        ('pallets_a', 3), ('pallets_b', 3), ('forklift', 8),
     ],
     'public/models/props_amazon.glb': [('river_boat', 8)],
     'public/models/props_training.glb': [('plane_fly', 8)],
