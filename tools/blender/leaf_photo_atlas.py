@@ -128,6 +128,27 @@ def spray(sp, flip=False):
     return cell
 
 
+def tame(cell, knee=1.2, keep=0.35):
+    """压掉照片里棚灯打出来的反光和发白的叶脉：亮度超过叶面平均 knee 倍的部分只留 keep，颜色往叶面平均色靠。
+    游戏里还会再打一次高光，照片自带的反光留着，整片雨林泛银白色，像花叶植物"""
+    a = np.asarray(cell).astype(np.float32)
+    w = a[..., 3] / 255.0
+    rgb = a[..., :3]
+    L = rgb @ np.array([0.299, 0.587, 0.114], np.float32)
+    m = (L * w).sum() / max(1e-3, w.sum())
+    mc = (rgb * w[..., None]).sum((0, 1)) / max(1e-3, w.sum())
+    top = m * knee
+    over = np.maximum(L - top, 0)
+    Lnew = np.minimum(L, top) + over * keep
+    k = np.where(L > 1e-3, Lnew / np.maximum(L, 1e-3), 1.0)
+    rgb = rgb * k[..., None]
+    # 压下来的那些地方，颜色也往叶面的平均色靠一点（白叶脉不再是白的）
+    t = np.clip(over / np.maximum(m, 1.0), 0, 1)[..., None] * 0.6
+    rgb = rgb * (1 - t) + (mc * (Lnew / max(m, 1.0))[..., None]) * t
+    a[..., :3] = rgb
+    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), 'RGBA')
+
+
 def match(cell, ref):
     """平均颜色对齐原来那一格（按透明度加权）"""
     a = np.asarray(cell).astype(np.float32)
@@ -148,11 +169,11 @@ def main():
     atlas = base.copy()
     S = {n: keyed(n) for n in ['broad', 'pine', 'spruce', 'trop', 'birch', 'juniper', 'shrub', 'palm', 'pinyon', 'ujuni', 'scrub']}
 
-    def put(col, row, cell, w=1):
+    def put(col, row, cell, w=1, shine=True):
         ref = base.crop((col * C, row * C, (col + w) * C, (row + 1) * C))
         clear = Image.new('RGBA', (w * C, C), (0, 0, 0, 0))
         atlas.paste(clear, (col * C, row * C))
-        atlas.alpha_composite(match(cell, ref), (col * C, row * C))
+        atlas.alpha_composite(match(tame(cell) if shine else cell, ref), (col * C, row * C))
 
     put(0, 0, scatter([S['broad']], 24, 1, size=(0.3, 0.42), spread=0.27))
     put(1, 0, scatter([S['pine']], 14, 2, size=(0.34, 0.46), spread=0.24, cut=0.3))

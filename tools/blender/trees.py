@@ -491,19 +491,22 @@ def juniper():
 
 
 def shrub():
-    for lod, (nc, cs) in enumerate([(24, 1.3), (8, 1.9)]):
+    """灌木：不是一个球。中间一团大的，周围几团小的高高低低地挤在一起，底下贴着地；
+    最细一级有几根从根上长出来的枝（从缝里看得见）"""
+    for lod, (nc, cs) in enumerate([(44, 0.95), (12, 1.6)]):
         rng = random.Random(19)
         mb = MB()
-        cc = Vector((0, 0, 0.9))
-        for p in crown_points(rng, nc, cc, 1.25, 0.85, (0.3, 1.0)):
-            out = (p - cc).normalized()
-            mb.card(p, out, cs, cs, S_SHRUB, rng.uniform(0, 6.28), cc - Vector((0, 0, 0.4)))
-        # 顶上盖一圈：随机撒的卡片在顶上留了个缺口，从空中看每丛灌木都是中间一个黑洞的圈
-        for i in range(6 if lod == 0 else 3):
-            a = 2 * math.pi * i / (6 if lod == 0 else 3) + 0.4
-            r = 0.1 if i == 0 else 0.5
-            p = cc + Vector((math.cos(a) * r, math.sin(a) * r, 0.72))
-            mb.card(p, (p - cc).normalized(), cs, cs, S_SHRUB, rng.uniform(0, 6.28), cc - Vector((0, 0, 0.4)))
+        cc = Vector((0, 0, 0.7))
+        lobes = [(Vector((0.05, -0.04, 0.78)), 0.95, 0.62)]
+        for i in range(4):
+            a = 2 * math.pi * i / 4 + rng.uniform(-0.5, 0.5)
+            d = rng.uniform(0.55, 0.85)
+            lobes.append((Vector((math.cos(a) * d, math.sin(a) * d, rng.uniform(0.42, 0.7))), rng.uniform(0.5, 0.75), rng.uniform(0.4, 0.58)))
+        if lod == 0:
+            for c, _, _ in lobes:
+                tip = c + Vector((rng.uniform(-0.2, 0.2), rng.uniform(-0.2, 0.2), 0.15))
+                mb.tube([(rng.uniform(-0.08, 0.08), rng.uniform(-0.08, 0.08), 0), c.lerp(Vector((0, 0, 0)), 0.5) + Vector((0, 0, 0.12)), tip], [0.035, 0.02, 0.008], 4, BARK)
+        lobed_cards(mb, rng, lobes, nc, cs, S_SHRUB, cc)
         add(mb.build(f'shrub_{lod}'))
     mb = MB()
     for i in range(3):
