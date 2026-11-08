@@ -85,6 +85,40 @@ function sparkNorm(noise: THREE.DataTexture): number {
   return 1 / (m3 * m3);
 }
 
+/** 白浪的门槛表：白浪场 = 0.6 × r + 0.4 × g（噪声贴图两个通道，双线性插值），覆盖 cover 的那部分就是分位数 1 - cover。
+ *  按贴图本身的分布算一次，覆盖比例才准 */
+let capTable: Array<[number, number]> | null = null;
+function capThresholds(noise: THREE.DataTexture): Array<[number, number]> {
+  if (capTable) return capTable;
+  const N = noise.image.width;
+  const d = noise.image.data as Uint8Array;
+  const ch = (x: number, y: number, c: number): number => d[((((y % N) + N) % N) * N + (((x % N) + N) % N)) * 4 + c] / 255;
+  const bil = (u: number, v: number, c: number): number => {
+    const x0 = Math.floor(u);
+    const y0 = Math.floor(v);
+    const fx = u - x0;
+    const fy = v - y0;
+    return (ch(x0, y0, c) * (1 - fx) + ch(x0 + 1, y0, c) * fx) * (1 - fy) + (ch(x0, y0 + 1, c) * (1 - fx) + ch(x0 + 1, y0 + 1, c) * fx) * fy;
+  };
+  let seed = 4242;
+  const rnd = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const M = 30000;
+  const vals = new Float32Array(M);
+  for (let k = 0; k < M; k++) vals[k] = 0.6 * bil(rnd() * N, rnd() * N, 0) + 0.4 * bil(rnd() * N, rnd() * N, 1);
+  vals.sort();
+  capTable = [];
+  for (let e = -4; e <= -0.5; e += 0.25) {
+    const cover = 10 ** e;
+    capTable.push([cover, vals[Math.min(M - 1, Math.floor((1 - cover) * M))]]);
+  }
+  return capTable;
+}
+
+/** 风速（m/s）→ 白浪覆盖海面的比例（Monahan & O'Muircheartaigh 1980：W = 3.84e-6 · U^3.41） */
+export function whitecapCover(windSpeed: number): number {
+  return Math.min(0.2, 3.84e-6 * Math.max(0, windSpeed) ** 3.41);
+}
+
 /** 各组波的坡度方差（1/2 · (振幅 · 波数)²）的总和：把“画出来的波有多大一部分”换算成比例 */
 const SLOPE_ALL = WL.reduce((s, w, i) => s + (AM[i] * 2 * Math.PI / w) ** 2, 0);
 
@@ -117,7 +151,11 @@ export class WaterView {
     rain: uniform(0),
     /** 旋翼下洗：x、z、强度（0..1）、桨盘半径 */
     wash: uniform(new THREE.Vector4(0, 0, 0, HELI.rotorRadius)),
+    /** 白浪：门槛（白浪场高于它的地方是白的）、覆盖比例（远处按平均算） */
+    capThr: uniform(1.0),
+    capCover: uniform(0),
   };
+  private readonly caps: Array<[number, number]>;
 
   constructor(map: MapDef, depthTex: THREE.Texture, reversedDepth: boolean, field: ReflectField | null, sky: SkyDome) {
     const level = map.waterLevel ?? 0;
@@ -130,6 +168,7 @@ export class WaterView {
     geo.rotateX(-Math.PI / 2);
     const muddy = map.id === 'amazon' ? 1 : 0;
     const noise = getNoiseTexture();
+    this.caps = capThresholds(noise);
     const U = this.u;
     const deep = new THREE.Color().setHex(map.biome.waterDeep);
     const shallow = new THREE.Color().setHex(map.biome.waterShallow);
@@ -255,7 +294,16 @@ export class WaterView {
       const lines = smoothstep(0.55, 0.95, sin(wDepth.mul(140.0).add(t.mul(1.6)).add(fn.mul(5.0))))
         .mul(float(1).sub(smoothstep(0.02, 0.14, wDepth)))
         .mul(fn);
-      const foam = clamp(clamp(band.add(lines.mul(0.8)), 0.0, 1.0).mul(inside).mul(1 - 0.6 * muddy).add(washFoam), 0.0, 1.0);
+      // 白浪：风大了浪头破碎，一块块白沫顺着风拉长，跟着浪往下风走，几秒钟就散了。
+      // 覆盖比例按风速（whitecapCover），门槛按噪声贴图的分布算好（capThresholds）；比像素还小的地方按平均亮度
+      const along = dot(p, wd);
+      const across = dot(p, vec2(wd.y.negate(), wd.x));
+      const cr = texture(noise, vec2(along.mul(0.022), across.mul(0.055)).sub(vec2(t.mul(0.09), 0.0))).r;
+      const cg = texture(noise, vec2(along.mul(0.061), across.mul(0.13)).add(vec2(0.37, 0.61)).sub(vec2(t.mul(0.19), t.mul(0.013)))).g;
+      const capField = cr.mul(0.6).add(cg.mul(0.4));
+      const capNear = smoothstep(U.capThr, U.capThr.add(0.035), capField);
+      const caps = mix(capNear, U.capCover.mul(0.85), smoothstep(0.35, 1.3, foot)).mul(1 - muddy);
+      const foam = clamp(clamp(band.add(lines.mul(0.8)), 0.0, 1.0).mul(inside).mul(1 - 0.6 * muddy).add(washFoam).add(caps.mul(0.9)), 0.0, 1.0);
       const col = mix(vec3(shallow.r, shallow.g, shallow.b), vec3(deep.r, deep.g, deep.b), smoothstep(0.0, 0.55, wDepth));
       const albedo = mix(col, vec3(0.93, 0.95, 0.96), foam.mul(0.8));
       // 原来的不透明度 0.5（岸边）→ 0.96（深水），透过的部分改为折射
@@ -318,6 +366,22 @@ export class WaterView {
     this.u.time.value = t;
     this.u.wind.value.set(windX, windZ);
     this.u.wave.value = Math.min(1, windSpeed / 14);
+    const cover = whitecapCover(windSpeed);
+    this.u.capCover.value = cover;
+    let thr = 1.0;
+    if (cover > this.caps[0][0]) {
+      thr = this.caps[this.caps.length - 1][1];
+      for (let i = 1; i < this.caps.length; i++) {
+        const [c1, t1] = this.caps[i];
+        if (cover <= c1) {
+          const [c0, t0] = this.caps[i - 1];
+          const k = (Math.log(cover) - Math.log(c0)) / (Math.log(c1) - Math.log(c0));
+          thr = t0 + (t1 - t0) * k;
+          break;
+        }
+      }
+    }
+    this.u.capThr.value = thr;
     this.u.rain.value = rain;
   }
 
