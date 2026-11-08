@@ -11,6 +11,7 @@ import { instanceModel, LodModel, type ModelLib } from './modelLib';
 import { refineRock } from './rockMesh';
 import { getRockReliefTexture, makeStrataTexture } from './terrainMacro';
 import { getNoiseTexture } from './textures';
+import { flagAspect, flagTexture, NEPAL_OUTLINE } from './flags';
 
 /** 三级细节模型的切换距离（米，再乘画质系数）：近景几何细节 → 中景贴图 → 远景体块 */
 const LOD_DIST: [number, number] = [110, 420];
@@ -153,6 +154,9 @@ export class PropsView {
   private flags: Sock[] = [];
   private glows: Glow[] = [];
   private flagMat: THREE.MeshStandardNodeMaterial;
+  /** 每种旗子一种材质（画好的图案贴图），共用 flagMat 的飘动 */
+  private flagMats = new Map<string, THREE.Material>();
+  private flagWave: THREE.Node | null = null;
   private readonly sockMat: THREE.MeshStandardMaterial;
   private prayerMat: THREE.Material | null = null;
   private fallMats: THREE.Material[] = [];
@@ -232,7 +236,8 @@ export class PropsView {
       // 旗面沿旗杆外侧（+X）起伏：越远离旗杆摆得越大；风小时下垂
       const fx = max(0.0, positionGeometry.x);
       const wave = sin(fx.mul(2.6).sub(FU.uTime.mul(FU.uWindAmt.mul(6.0).add(5.0))).add(positionGeometry.y.mul(0.8))).mul(fx).mul(FU.uWindAmt.mul(0.1).add(0.06));
-      this.flagMat.positionNode = positionLocal.add(vec3(0.0, fx.mul(float(1).sub(FU.uWindAmt)).mul(-0.35), wave));
+      this.flagWave = positionLocal.add(vec3(0.0, fx.mul(float(1).sub(FU.uWindAmt)).mul(-0.35), wave));
+      this.flagMat.positionNode = this.flagWave as THREE.Node<'vec3'>;
     }
     const glow = getGlowTexture();
     const prayers: typeof world.builder.anchors = [];
@@ -251,7 +256,8 @@ export class PropsView {
       } else if (a.type === 'flag') {
         const pivot = new THREE.Object3D();
         pivot.position.copy(pos);
-        pivot.add(new THREE.Mesh(this.makeFlagGeometry(String(a.p?.color ?? 'jp'), a.s), this.flagMat));
+        const kind = String(a.p?.color ?? 'jp');
+        pivot.add(new THREE.Mesh(this.makeFlagGeometry(kind, a.s), this.flagMaterial(kind)));
         this.group.add(pivot);
         this.flags.push({ pivot, pos, phase: Math.random() * 6 });
       } else if (a.type === 'waterfall') {
@@ -470,11 +476,25 @@ export class PropsView {
     return g;
   }
 
+  /** 这种旗子的材质：有画布就用画好的图案，没有（单元测试）就用顶点色的 flagMat */
+  private flagMaterial(kind: string): THREE.Material {
+    const have = this.flagMats.get(kind);
+    if (have) return have;
+    const tex = flagTexture(kind);
+    if (!tex) return this.flagMat;
+    const m = new THREE.MeshStandardNodeMaterial({ map: tex, roughness: 0.85, side: THREE.DoubleSide });
+    if (this.flagWave) m.positionNode = this.flagWave as THREE.Node<'vec3'>;
+    this.ownedTextures.push(tex);
+    this.flagMats.set(kind, m);
+    return m;
+  }
+
   private makeFlagGeometry(kind: string, s: number): THREE.BufferGeometry {
-    const w = 1.8 * s;
-    const h = 1.2 * s;
-    const g = new THREE.PlaneGeometry(w, h, 10, 4);
-    g.translate(w / 2, -h / 2, 0);
+    // 按旗子的真实比例；尼泊尔的旗子高比宽大
+    const w = 1.8 * s * (kind === 'np' ? 0.72 : 1);
+    const h = w / flagAspect(kind);
+    const g = kind === 'np' ? nepalGeometry(w, h) : new THREE.PlaneGeometry(w, h, 24, 12);
+    if (kind !== 'np') g.translate(w / 2, -h / 2, 0);
     const pos = g.getAttribute('position');
     const colors: number[] = [];
     for (let i = 0; i < pos.count; i++) {
@@ -560,6 +580,8 @@ export class PropsView {
     for (const g of this.geos) g.dispose();
     for (const m of Object.values(this.materials)) m.dispose();
     this.flagMat.dispose();
+    for (const m of this.flagMats.values()) m.dispose();
+    this.flagMats.clear();
     this.sockMat.dispose();
     this.prayerMat?.dispose();
     for (const m of this.fallMats) m.dispose();
@@ -568,4 +590,48 @@ export class PropsView {
     for (const texture of this.ownedTextures) texture.dispose();
     this.group.clear();
   }
+}
+
+
+/** 尼泊尔国旗的形状：上面的三角形、下面的四边形各铺一块双线性网格，斜边是直的（从方格里剪会是锯齿）。
+ *  旗杆在 x = 0，旗杆顶在 y = 0，往 -y 是往下；贴图坐标 u 沿宽、v 从下往上 */
+function nepalGeometry(w: number, h: number): THREE.BufferGeometry {
+  const H = 1.219;
+  const [p0, p1, p2, p3, p4] = NEPAL_OUTLINE;
+  // 两块：上 = (旗杆顶, 上尖, 上尖, 中间靠旗杆)，下 = (中间靠旗杆, 中间的凹角, 下尖, 旗杆底)
+  const quads: Array<[[number, number], [number, number], [number, number], [number, number]]> = [
+    [p0, p1, p1, [0, p2[1]]],
+    [[0, p2[1]], p2, p3, p4],
+  ];
+  const pos: number[] = [];
+  const uvs: number[] = [];
+  const idx: number[] = [];
+  const nu = 14;
+  const nv = 10;
+  for (const [a, b, c, d] of quads) {
+    const base = pos.length / 3;
+    for (let j = 0; j <= nv; j++) {
+      const t = j / nv;
+      for (let i = 0; i <= nu; i++) {
+        const s = i / nu;
+        // 上边 a→b，下边 d→c，双线性
+        const x = (a[0] + (b[0] - a[0]) * s) * (1 - t) + (d[0] + (c[0] - d[0]) * s) * t;
+        const y = (a[1] + (b[1] - a[1]) * s) * (1 - t) + (d[1] + (c[1] - d[1]) * s) * t;
+        pos.push(x * w, (-y / H) * h, 0);
+        uvs.push(x, 1 - y / H);
+      }
+    }
+    for (let j = 0; j < nv; j++) {
+      for (let i = 0; i < nu; i++) {
+        const k = base + j * (nu + 1) + i;
+        idx.push(k, k + nu + 1, k + 1, k + 1, k + nu + 1, k + nu + 2);
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
 }
