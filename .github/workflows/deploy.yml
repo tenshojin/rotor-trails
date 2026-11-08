@@ -35,7 +35,7 @@ jobs:
       - run: npm run build
       - name: 把第三方许可一起发布
         run: cp THIRD_PARTY_LICENSES.md dist/
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         if: github.event_name != 'pull_request'
         with:
           path: dist

@@ -66,7 +66,8 @@ describe('prop view resource ownership', () => {
     const materials = new Set<THREE.Material>();
     view.group.traverse((object) => {
       const mesh = object as THREE.Mesh;
-      if (mesh.isMesh && !(mesh as THREE.InstancedMesh).isInstancedMesh) {
+      // 模型实例的合批（BatchedMesh）单独检查：它的几何体是自己的，材质属于模型库
+      if (mesh.isMesh && !(mesh as THREE.InstancedMesh).isInstancedMesh && !(mesh as unknown as THREE.BatchedMesh).isBatchedMesh) {
         geometries.add(mesh.geometry);
         materials.add(mesh.material as THREE.Material);
       }
@@ -91,11 +92,14 @@ describe('prop view resource ownership', () => {
     const ownDisposed = watch(atlas);
     const shared = [detail, getGlowTexture(), getNoiseTexture(), getRockReliefTexture(), libraryGeometry, libraryMaterial];
     const sharedObservers = shared.map(watch);
-    const instance = view.group.children.find((object) => (object as THREE.InstancedMesh).isInstancedMesh) as THREE.InstancedMesh;
-    const instanceDisposed = watch(instance);
+    const batch = view.group.children.find((object) => (object as THREE.BatchedMesh).isBatchedMesh) as THREE.BatchedMesh;
+    expect(batch.material).toBe(libraryMaterial);
+    const batchDisposed = watch(batch);
+    const batchGeometryDisposed = watch(batch.geometry);
     view.dispose();
     expect(ownDisposed).toHaveBeenCalledOnce();
-    expect(instanceDisposed).toHaveBeenCalledOnce();
+    expect(batchDisposed).toHaveBeenCalledOnce();
+    expect(batchGeometryDisposed).toHaveBeenCalledOnce();
     expect(library.dispose).not.toHaveBeenCalled();
     for (const disposed of sharedObservers) expect(disposed).not.toHaveBeenCalled();
     shared.forEach((resource, i) => resource.removeEventListener('dispose', sharedObservers[i]));

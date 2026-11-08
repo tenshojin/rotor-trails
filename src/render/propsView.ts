@@ -7,7 +7,7 @@ import type { MatKey, ModelInstance } from '../world/propBuilder';
 import type { MapDef } from '../maps/types';
 import type { WorldData } from '../world/worldgen';
 import { addDetail, DETAIL } from './detailTextures';
-import { instanceModel, LodModel, type ModelLib } from './modelLib';
+import { PropBatches, type ModelLib } from './modelLib';
 import { refineRock } from './rockMesh';
 import { getRockReliefTexture, makeStrataTexture } from './terrainMacro';
 import { getNoiseTexture } from './textures';
@@ -174,9 +174,8 @@ export class PropsView {
   private readonly ownedTextures: THREE.Texture[] = [];
   private disposed = false;
   private readonly wind = new THREE.Vector3();
-  /** 模型实例（几何体与材质属于模型库，由模型库释放） */
-  private instanced: THREE.InstancedMesh[] = [];
-  private lods: LodModel[] = [];
+  /** 模型实例的合批（几何体与材质属于模型库，由模型库释放；合批自己的顶点缓冲在这里释放） */
+  private batches: PropBatches | null = null;
   /** 细节分级距离系数（随画质：低 0.7 … 极高 1.7） */
   lodScale = 1;
 
@@ -190,22 +189,10 @@ export class PropsView {
       arr.push(inst);
       byName.set(inst.name, arr);
     }
-    for (const [name, list] of byName) {
-      const t = lib!.templates;
-      if (t.has(`${name}@1`) && t.has(`${name}@2`)) {
-        // 三级细节：近景几何瓦与全部细节 → 中景贴图屋面 → 远景体块
-        const lod = new LodModel([t.get(name)!, t.get(`${name}@1`)!, t.get(`${name}@2`)!], list, LOD_DIST);
-        this.lods.push(lod);
-        for (const im of lod.meshes) {
-          this.instanced.push(im);
-          this.group.add(im);
-        }
-        continue;
-      }
-      for (const im of instanceModel(t.get(name)!, list)) {
-        this.instanced.push(im);
-        this.group.add(im);
-      }
+    // 同一种材质的子网格合成一批（三级细节：近景几何瓦与全部细节 → 中景贴图屋面 → 远景体块）
+    if (byName.size > 0) {
+      this.batches = new PropBatches(lib!.templates, byName, LOD_DIST);
+      for (const bm of this.batches.meshes) this.group.add(bm);
     }
     for (const [key, b] of world.builder.batches) {
       if (b.pos.length === 0) continue;
@@ -520,7 +507,7 @@ export class PropsView {
 
   /** windAt(x,y,z) 返回该处的空气速度（来自仿真风场）。 */
   update(t: number, camPos: THREE.Vector3, windAt: (p: THREE.Vector3, out: THREE.Vector3) => THREE.Vector3): void {
-    for (const l of this.lods) l.update(camPos, this.lodScale);
+    this.batches?.update(camPos, this.lodScale);
     const w = this.wind;
     this.tick++;
     for (let i = 0; i < this.socks.length; i++) {
@@ -566,7 +553,7 @@ export class PropsView {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    for (const im of this.instanced) im.dispose();
+    this.batches?.dispose();
     for (const g of this.geos) g.dispose();
     for (const m of Object.values(this.materials)) m.dispose();
     this.flagMat.dispose();

@@ -119,6 +119,7 @@ const _up = new THREE.Vector3(0, 1, 0);
  * 三级细节模型（模型库里同时有 name、name@1、name@2，例如日本民居）：按到相机的距离把每个实例分到一级，
  * 每级每个子网格一个实例化网格。距离跨过阈值（带 10% 滞后）时才重写实例矩阵。
  * 包围球按全部实例一次算好（是各级实际可见集合的超集），视锥剔除仍然有效。
+ * （地图上的静态建筑现在用下面的 PropBatches 合批；这个按模型分开的版本留着备用）
  */
 export class LodModel {
   readonly meshes: THREE.InstancedMesh[] = [];
@@ -196,6 +197,152 @@ export class LodModel {
         im.instanceMatrix.needsUpdate = true;
       }
     });
+  }
+}
+
+interface BatchPart {
+  geo: THREE.BufferGeometry;
+  mat: THREE.Material;
+  /** 子网格相对模型根节点的变换 */
+  local: THREE.Matrix4;
+  name: string;
+}
+
+function partsOf(template: THREE.Object3D): BatchPart[] {
+  const out: BatchPart[] = [];
+  const rootInv = template.matrixWorld.clone().invert();
+  template.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    out.push({ geo: mesh.geometry, mat: mesh.material as THREE.Material, local: rootInv.clone().multiply(mesh.matrixWorld), name: mesh.name });
+  });
+  return out;
+}
+
+/** 几何体的顶点属性格式：放进同一个 BatchedMesh 的几何体必须完全一样 */
+function attributeSignature(g: THREE.BufferGeometry): string {
+  const keys = Object.keys(g.attributes).sort();
+  return keys.map((k) => `${k}:${g.attributes[k].itemSize}:${g.attributes[k].normalized ? 1 : 0}`).join(',') + (g.index ? '|i' : '|n');
+}
+
+/**
+ * 静态模型（建筑、道具）合批：同一种材质、同样投不投影、同样进不进最近两层阴影的子网格，不管属于哪个模型，
+ * 都放进一个 BatchedMesh，一次提交。
+ * 以前每个模型的每个子网格一个实例化网格，日本港口一屏两百多个；three.js 每提交一个物体都有十几微秒的固定开销，
+ * 光这些每帧就要四五毫秒（主线程是瓶颈，显卡只用了一半）。合批以后几十个。
+ * 三级细节模型（name、name@1、name@2）按到相机的距离切换，每个实例只有一级可见（带 10% 滞后）；
+ * 投影规则和以前一样：近景只让大部件投影，中景墙体屋面投影，远景不投影；中景、远景只进外面两层阴影（图层 1）。
+ * 不做逐个实例的视锥剔除：以前每个实例化网格的包围球也盖着整张图上的同类实例，本来就剔不掉；
+ * 在 JS 里逐个算包围球反倒比画出来还贵。可见集合只在细节级别变化时重排一次。
+ */
+export class PropBatches {
+  readonly meshes: THREE.BatchedMesh[] = [];
+  /** 每个模型实例、每一级细节：[批次, 实例号] */
+  private slots: Array<Array<Array<[THREE.BatchedMesh, number]>>> = [];
+  private centers: THREE.Vector3[] = [];
+  private levels: number[] = [];
+  private cur: Int8Array;
+
+  /** dist：[近景→中景, 中景→远景] 的切换距离（米），乘以画质系数 */
+  constructor(templates: Map<string, THREE.Object3D>, byName: Map<string, ModelInstance[]>, private dist: [number, number]) {
+    type Place = { geo: THREE.BufferGeometry; m: THREE.Matrix4; inst: number; level: number };
+    const groups = new Map<string, { mat: THREE.Material; cast: boolean; far: boolean; places: Place[] }>();
+    const add = (p: BatchPart, cast: boolean, far: boolean, base: THREE.Matrix4, inst: number, level: number) => {
+      const key = `${p.mat.id}|${attributeSignature(p.geo)}|${cast ? 1 : 0}|${far ? 1 : 0}`;
+      let g = groups.get(key);
+      if (!g) groups.set(key, (g = { mat: p.mat, cast, far, places: [] }));
+      g.places.push({ geo: p.geo, m: new THREE.Matrix4().multiplyMatrices(base, p.local), inst, level });
+    };
+    for (const [name, list] of byName) {
+      const lod = templates.has(`${name}@1`) && templates.has(`${name}@2`);
+      const tpl = (lod ? [name, `${name}@1`, `${name}@2`] : [name]).map((n) => partsOf(templates.get(n)!));
+      for (const inst of list) {
+        const idx = this.centers.length;
+        _p.set(inst.pos[0], inst.pos[1], inst.pos[2]);
+        _q.setFromAxisAngle(_up, inst.rotY);
+        _s.set(inst.scale[0], inst.scale[1], inst.scale[2]);
+        const base = new THREE.Matrix4().compose(_p, _q, _s);
+        this.centers.push(new THREE.Vector3(inst.pos[0], inst.pos[1] + 3 * inst.scale[1], inst.pos[2]));
+        this.levels.push(tpl.length);
+        this.slots.push(tpl.map(() => []));
+        tpl.forEach((parts, level) => {
+          for (const p of parts) {
+            // 没有细节分级的模型：全部投影、进全部四层阴影（和以前一样）
+            const cast = !lod || (level === 0 ? LOD0_SHADOW.test(p.name) : level === 1 && LOD1_SHADOW.test(p.name));
+            add(p, cast, level > 0, base, idx, level);
+          }
+        });
+      }
+    }
+    for (const g of groups.values()) {
+      // 同一几何体的实例排在一起：绘制时连着的同一几何体合成一次实例化绘制
+      const geos = [...new Set(g.places.map((p) => p.geo))];
+      const order = new Map(geos.map((x, i) => [x, i]));
+      g.places.sort((a, b) => order.get(a.geo)! - order.get(b.geo)!);
+      let nv = 0;
+      let ni = 0;
+      for (const x of geos) {
+        nv += x.attributes.position.count;
+        ni += x.index ? x.index.count : 0;
+      }
+      const bm = new THREE.BatchedMesh(g.places.length, nv, ni, g.mat);
+      const ids = geos.map((x) => bm.addGeometry(x));
+      for (const p of g.places) {
+        const id = bm.addInstance(ids[order.get(p.geo)!]);
+        bm.setMatrixAt(id, p.m);
+        bm.setVisibleAt(id, false);
+        this.slots[p.inst][p.level].push([bm, id]);
+      }
+      bm.perObjectFrustumCulled = false;
+      bm.sortObjects = false;
+      bm.castShadow = g.cast;
+      bm.receiveShadow = true;
+      // 中景、远景的实例都在 110 m 以外，不可能落进最近两层阴影：放到图层 1（见 sunShadows.ts）
+      if (g.far) bm.layers.set(1);
+      bm.computeBoundingSphere();
+      bm.name = `${g.mat.name}${g.cast ? '' : ' (no shadow)'}${g.far ? ' (far)' : ''}`;
+      this.meshes.push(bm);
+    }
+    this.cur = new Int8Array(this.centers.length).fill(-1);
+    // 没有细节分级的模型一直可见
+    for (let i = 0; i < this.centers.length; i++) {
+      if (this.levels[i] !== 1) continue;
+      for (const [bm, id] of this.slots[i][0]) bm.setVisibleAt(id, true);
+      this.cur[i] = 0;
+    }
+  }
+
+  /** 每帧调用：k = 画质系数（越高越晚切到低一级）。 */
+  update(cam: THREE.Vector3, k = 1): void {
+    const d0 = this.dist[0] * k;
+    const d1 = this.dist[1] * k;
+    for (let i = 0; i < this.centers.length; i++) {
+      if (this.levels[i] === 1) continue;
+      const d = this.centers[i].distanceTo(cam);
+      let want = d < d0 ? 0 : d < d1 ? 1 : 2;
+      const c = this.cur[i];
+      // 滞后：离阈值 10% 以内保持原级，避免在边界来回切换
+      if (c >= 0 && want !== c) {
+        const edge = want > c ? (c === 0 ? d0 : d1) : want === 0 ? d0 : d1;
+        if (Math.abs(d - edge) < edge * 0.1) want = c;
+      }
+      if (want === c) continue;
+      if (c >= 0) for (const [bm, id] of this.slots[i][c]) bm.setVisibleAt(id, false);
+      for (const [bm, id] of this.slots[i][want]) bm.setVisibleAt(id, true);
+      this.cur[i] = want;
+    }
+  }
+
+  /** 当前各级细节的实例数（测试、调试用） */
+  levelCounts(): number[] {
+    const n = [0, 0, 0];
+    for (const c of this.cur) if (c >= 0) n[c]++;
+    return n;
+  }
+
+  dispose(): void {
+    for (const bm of this.meshes) bm.dispose();
+    this.meshes.length = 0;
   }
 }
 
