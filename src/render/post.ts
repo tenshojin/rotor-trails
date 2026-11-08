@@ -185,12 +185,60 @@ interface PostDebug {
   toneK?: number;
 }
 
+/**
+ * 场景通道在重建后期管线时复用（配置相同的话）：three.js 给每个渲染上下文都建一套物体的绘制数据（统一缓冲、绑定），
+ * 换一个新的场景通道，旧通道里那几百个物体的数据挂在物体上不会释放——以前每改一次动态模糊、景深（拍照模式）、
+ * 体积雾，统一缓冲就多 500 多个、JS 内存涨二三十兆，改二十次帧率掉 8%。
+ * 只有多渲染目标的格式（低画质 / 光线追踪）变了才换新的；渲染分辨率变了只改同一个通道的缩放。
+ */
+let sharedPass: { key: string; pass: ReturnType<typeof pass> } | null = null;
+
+function scenePassFor(scene: THREE.Scene, camera: THREE.PerspectiveCamera, cfg: PostConfig): { pass: ReturnType<typeof pass>; fresh: boolean } {
+  const low = cfg.quality === 'low' && !cfg.rayTracing;
+  const up = low ? 1 : (cfg.upscale ?? 1);
+  const key = `${scene.id}_${camera.id}_${low ? 'low' : cfg.rayTracing ? 'rt' : 'std'}`;
+  if (sharedPass && sharedPass.key === key) {
+    sharedPass.pass.setResolutionScale(up);
+    return { pass: sharedPass.pass, fresh: false };
+  }
+  sharedPass?.pass.dispose();
+  const scenePass = pass(scene, camera);
+  if (low) {
+    // 只有一个输出也显式设成多渲染目标：透明材质的 keepGBuffer 才能与它合并（否则会生成没有成员的结构体）
+    scenePass.setMRT(mrt({ output }));
+  } else {
+    // 多渲染目标：WebGPU 默认每像素最多 32 字节，所以金属度放进法线纹理的 A 通道、粗糙度放进漫反射纹理的 A 通道
+    const att: Record<string, THREE.Node> = { output, normal: cfg.rayTracing ? vec4(packNormalToRGB(normalView), metalness) : packNormalToRGB(normalView), velocity };
+    if (cfg.rayTracing) att.diffuse = vec4(diffuseColor.rgb, roughness);
+    const passMRT = mrt(att);
+    // 辅助通道跟随材质混合：不透明物体直接写入，透明物体（keepGBuffer 写 alpha = 0）保持原样
+    for (const k of ['normal', 'diffuse', 'velocity']) if (att[k]) passMRT.setBlendMode(k, new THREE.BlendMode(THREE.MaterialBlending));
+    scenePass.setMRT(passMRT);
+    // 法线、漫反射色用 8 位纹理（省带宽）
+    for (const k of ['normal', 'diffuse']) {
+      const t = att[k] ? scenePass.getTexture(k) : null;
+      if (t) t.type = THREE.UnsignedByteType;
+    }
+  }
+  // 时间超分：场景和后期都按较低的分辨率算，每帧的采样位置错开一点，累积几帧还原出全分辨率（three 的 TAAU，思路和 FSR2 一样）
+  scenePass.setResolutionScale(up);
+  sharedPass = { key, pass: scenePass };
+  return { pass: scenePass, fresh: true };
+}
+
+/** 世界视图整个释放时（退出）：连同复用的场景通道一起释放 */
+export function disposeSharedPass(): void {
+  sharedPass?.pass.dispose();
+  sharedPass = null;
+}
+
 export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, shadows: SunShadows, cfg: PostConfig): Post {
   fixInstancedVelocity();
   const dbg: PostDebug = (globalThis as { __postDebug?: PostDebug }).__postDebug ?? {};
   const pipeline = new THREE.RenderPipeline(renderer);
-  const scenePass = pass(scene, camera);
-  const disposers: Array<{ dispose(): void }> = [scenePass, pipeline];
+  // 场景通道不放进 disposers：下一次重建还要用（配置变了时由 scenePassFor 换掉旧的）
+  const { pass: scenePass } = scenePassFor(scene, camera, cfg);
+  const disposers: Array<{ dispose(): void }> = [pipeline];
   // convertToTexture creates its own render target for computed nodes. Effects
   // only dispose their internal targets, not this caller-owned input texture.
   const asTexture = (node: THREE.Node<'vec4'>): THREE.TextureNode => {
@@ -205,28 +253,12 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
     for (let i = disposers.length - 1; i >= 0; i--) disposers[i].dispose();
   };
   if (cfg.quality === 'low' && !cfg.rayTracing) {
-    // 只有一个输出也显式设成多渲染目标：透明材质的 keepGBuffer 才能与它合并（否则会生成没有成员的结构体）
-    scenePass.setMRT(mrt({ output }));
     // FXAA 要在色调映射与色彩空间转换之后做
     pipeline.outputColorTransform = false;
     pipeline.outputNode = fxaa(asTexture(grade(display(scenePass, dbg), dbg, float(1))));
     return { pipeline, fog: null, hdr: () => scenePass.getTexture('output'), dispose };
   }
-  // 多渲染目标：WebGPU 默认每像素最多 32 字节，所以金属度放进法线纹理的 A 通道、粗糙度放进漫反射纹理的 A 通道
-  const att: Record<string, THREE.Node> = { output, normal: cfg.rayTracing ? vec4(packNormalToRGB(normalView), metalness) : packNormalToRGB(normalView), velocity };
-  if (cfg.rayTracing) att.diffuse = vec4(diffuseColor.rgb, roughness);
-  const passMRT = mrt(att);
-  // 辅助通道跟随材质混合：不透明物体直接写入，透明物体（keepGBuffer 写 alpha = 0）保持原样
-  for (const k of ['normal', 'diffuse', 'velocity']) if (att[k]) passMRT.setBlendMode(k, new THREE.BlendMode(THREE.MaterialBlending));
-  scenePass.setMRT(passMRT);
-  // 法线、漫反射色用 8 位纹理（省带宽）
-  for (const k of ['normal', 'diffuse']) {
-    const t = att[k] ? scenePass.getTexture(k) : null;
-    if (t) t.type = THREE.UnsignedByteType;
-  }
-  // 时间超分：场景和后期都按较低的分辨率算，每帧的采样位置错开一点，累积几帧还原出全分辨率（three 的 TAAU，思路和 FSR2 一样）
   const up = cfg.upscale ?? 1;
-  if (up < 1) scenePass.setResolutionScale(up);
   const color = scenePass.getTextureNode('output');
   const depth = scenePass.getTextureNode('depth');
   const vel = scenePass.getTextureNode('velocity');

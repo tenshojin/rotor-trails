@@ -20,7 +20,7 @@ import { WreckFx } from './wreckFx';
 import { PropsView } from './propsView';
 import { CLOUD, SkyDome } from './sky';
 import { FOG, sceneFog, WIND } from './atmosphere';
-import { DOF, DOF_EYE, buildPost, protectTransparent, CONTACT, SCOTOPIC, type Post } from './post';
+import { DOF, DOF_EYE, buildPost, disposeSharedPass, protectTransparent, CONTACT, SCOTOPIC, type Post } from './post';
 import { markNearShadow, SunShadows } from './sunShadows';
 import type { MapDef } from '../maps/types';
 import { loadTerrainLayers, type TerrainLayers } from './terrainLayers';
@@ -1282,6 +1282,7 @@ export class WorldView {
     this.bolt?.dispose();
     this.eye.dispose();
     this.post?.dispose();
+    disposeSharedPass();
     disposeGi();
     this.sun.dispose();
     this.pmrem?.dispose();
