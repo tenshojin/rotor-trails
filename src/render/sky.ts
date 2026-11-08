@@ -64,23 +64,30 @@ export function cloudDensity(p: THREE.Node<'vec3'>, fineDetail = false): THREE.N
   // （云底就该是平的：真实的积云底在同一个凝结高度上。试过让云边的底往上收成圆角，云的下半截成了一团光滑的面团，更假）
   const prof = smoothstep(0.0, 0.07, hn).mul(float(1).sub(smoothstep(0.46, 1.0, hn)));
   // 三维 Perlin-Worley 团块（菜花状）：一大一小两个尺度混合
-  const uvw = vec3(q.x, p.y, q.y).div(CLOUD.size);
+  const uvw = vec3(q.x, p.y, q.y).div(CLOUD.size).toVar();
   const shape = texture3D(noise3, uvw).level(float(0));
   const big = texture3D(noise3, uvw.mul(0.29).add(0.13)).level(float(0));
   const d0 = mix(big.r, shape.r.mul(shape.a.mul(0.35).add(0.65)), 0.62).mul(prof);
   // 阈值：云量 0.3 时约三成天空有云，云量 1 时连成一片
   const th = mix(float(0.74), float(0.1), pow(cov, 1.3));
-  const base = clamp(d0.sub(th).div(float(1).sub(th)), 0.0, 1.0);
-  // 高频 Worley 侵蚀边缘（越靠云边侵蚀越多），底部的侵蚀更强，显出絮状；再叠一层更细的，云边才有“菜花”的小疙瘩
-  const det = texture3D(noise3, uvw.mul(4.3).add(0.21)).level(float(0));
-  let ero: THREE.Node<'float'> = mix(det.g, det.b, hn).mul(0.5);
-  if (fineDetail) {
-    // 细节只在视线方向上算：云边一小团一小团的疙瘩，飞近了云才不是一块糊的。往太阳方向的采样不用（看不出来，却是开销的大头）
-    const fine = texture3D(noise3, uvw.mul(13.7).add(0.57)).level(float(0));
-    const tiny = texture3D(noise3, uvw.mul(41.0).add(0.31)).level(float(0));
-    ero = ero.add(fine.g.mul(0.26)).add(tiny.g.mul(0.12));
-  } else ero = ero.add(0.14);
-  return clamp(base.mul(1.18).sub(ero.mul(float(1).sub(base.mul(0.8))).mul(0.72)), 0.0, 1.0).mul(1.6);
+  const base = clamp(d0.sub(th).div(float(1).sub(th)), 0.0, 1.0).toVar();
+  const hnV = hn.toVar();
+  const out = float(0).toVar();
+  // 侵蚀只会把密度往下减：形状这一步已经是 0（晴空）结果一定是 0，后面几张高频噪声就不用取了。
+  // 步进的采样点大多落在晴空里，这样省掉一大半贴图读取，画面完全不变
+  If(base.greaterThan(0.0), () => {
+    // 高频 Worley 侵蚀边缘（越靠云边侵蚀越多），底部的侵蚀更强，显出絮状；再叠一层更细的，云边才有“菜花”的小疙瘩
+    const det = texture3D(noise3, uvw.mul(4.3).add(0.21)).level(float(0));
+    let ero: THREE.Node<'float'> = mix(det.g, det.b, hnV).mul(0.5);
+    if (fineDetail) {
+      // 细节只在视线方向上算：云边一小团一小团的疙瘩，飞近了云才不是一块糊的。往太阳方向的采样不用（看不出来，却是开销的大头）
+      const fine = texture3D(noise3, uvw.mul(13.7).add(0.57)).level(float(0));
+      const tiny = texture3D(noise3, uvw.mul(41.0).add(0.31)).level(float(0));
+      ero = ero.add(fine.g.mul(0.26)).add(tiny.g.mul(0.12));
+    } else ero = ero.add(0.14);
+    out.assign(clamp(base.mul(1.18).sub(ero.mul(float(1).sub(base.mul(0.8))).mul(0.72)), 0.0, 1.0).mul(1.6));
+  });
+  return out;
 }
 
 /** 天空着色用的 uniform 节点（CPU 端每帧更新 .value） */
