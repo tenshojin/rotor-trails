@@ -95,108 +95,11 @@ def stilt_hut(name, wood):
 
 # ------------------------------------------------------------------ 客运木船（参照马瑙斯港的河船）
 def river_boat():
-    """船长 26 m（X，船头在 -X）、宽 7 m：白色木船体（蓝色腰线、红色水线以下），主甲板（货舱）、
-    二层客舱甲板（开敞、白色栏杆、吊床）、顶层甲板前部的驾驶室与弧形顶棚。"""
-    parts = []
-    # 船体：平面轮廓挤出（船头尖、船尾方）
-    hull_xy = [(-15.0, 0.0), (-13.6, -2.4), (-11.0, -3.5), (12.4, -3.5), (13.0, -3.0), (13.0, 3.0), (12.4, 3.5), (-11.0, 3.5), (-13.6, 2.4)]
-    parts.append(K.prism('hull_lo', hull_xy, -0.6, 0.05, RED))
-    parts.append(K.prism('hull_hi', hull_xy, 0.05, 1.45, WHITE))
-    stripe = [(x * 1.004, y * 1.012) for x, y in hull_xy]
-    parts.append(K.prism('stripe', stripe, 0.75, 1.0, BLUE))
-    deck = K.prism('deck', [(x * 0.99, y * 0.97) for x, y in hull_xy], 1.45, 1.52, M('rawplank'))
-    BK.uv_world(deck)
-    parts.append(deck)
-    # 舷边护木（沿船体轮廓一圈）
-    ring = [(x * 1.006, y * 1.02) for x, y in hull_xy]
-    for i in range(len(ring)):
-        a, b = ring[i], ring[(i + 1) % len(ring)]
-        parts.append(BK.stick('gunwale', (a[0], a[1], 1.58), (b[0], b[1], 1.58), 0.08, F('gunwale', 0x2a3a5a, rough=0.5), seg=6))
-    # 船舷挂的旧轮胎（防撞）
-    for x in range(-9, 12, 3):
-        for s in (-1, 1):
-            parts.append(K.torus('tyre', 0.38, 0.14, (x, s * 3.62, 0.85), RUBBER, 16, 8, rot=(math.pi / 2, 0, 0)))
-    # 主甲板：舱壁（中后部）+ 立柱
-    parts.append(BK.bx('cargo', (16.0, 6.0, 2.2), (2.5, 0, 1.5 + 1.1), WHITE, uv=False))
-    for x in range(-5, 11, 2):
-        for s in (-1, 1):
-            parts.append(BK.wbox('cargo_door', (x, s * 3.01, 2.4), '+Y' if s > 0 else '-Y', 0, 0, 0.0, 1.2, 0.03, 1.4, DARK))
-    for x in (-10.0, -8.0, -6.0):
-        for s in (-1, 1):
-            parts.append(BK.cyl('post0', 0.09, 2.2, (x, s * 3.0, 2.6), WHITE, 8, uv=False))
-    # 二层客舱甲板（开敞，四周白色栏杆，蓝色檐带）
-    z2 = 3.7
-    parts.append(BK.bx('deck2', (24.0, 7.2, 0.2), (-0.5, 0, z2), WHITE, uv=False))
-    parts.append(BK.bx('deck2_band', (24.1, 7.3, 0.18), (-0.5, 0, z2 - 0.14), BLUE, uv=False))
-    for x in range(-12, 12, 2):
-        for s in (-1, 1):
-            parts.append(BK.cyl('post2', 0.08, 2.1, (x + 0.5, s * 3.5, z2 + 1.05), WHITE, 8, uv=False))
-    for s in (-1, 1):
-        parts.append(BK.bx('rail2', (24.0, 0.08, 0.08), (-0.5, s * 3.52, z2 + 1.0), WHITE, uv=False))
-        parts.append(BK.bx('rail2_lo', (24.0, 0.05, 0.05), (-0.5, s * 3.52, z2 + 0.5), WHITE, uv=False))
-        for k in range(48):
-            x = -12.3 + k * 0.5
-            parts.append(BK.bx('baluster', (0.04, 0.04, 0.95), (x, s * 3.52, z2 + 0.52), WHITE, uv=False))
-    parts.append(BK.bx('cabin2', (12.0, 5.0, 2.0), (4.0, 0, z2 + 1.1), F('cabin_cream', 0xe8e2d0, rough=0.6), uv=False))
-    # 吊床（一排彩色）
-    for i, x in enumerate(range(-10, 0, 1)):
-        hm = HAMMOCK[i % 4]
-        for s in (-1, 1):
-            sw = K.sphere('hammock', 0.5, (x + 0.3, s * 1.6, z2 + 1.35), hm, 8, 5, scale=(0.35, 2.4, 0.3))
-            K.bake_transform(sw)
-            parts.append(sw)
-    # 顶层甲板：甲板面 + 前部驾驶室（圆弧前脸、一圈窗）+ 中部弧形顶棚 + 桅杆
-    z3 = 5.9
-    parts.append(BK.bx('deck3', (20.0, 6.8, 0.2), (-1.0, 0, z3), WHITE, uv=False))
-    parts.append(BK.bx('deck3_band', (20.1, 6.9, 0.16), (-1.0, 0, z3 - 0.12), BLUE, uv=False))
-    for x in range(-11, 9, 2):
-        for s in (-1, 1):
-            parts.append(BK.cyl('post3', 0.07, 1.0, (x, s * 3.3, z3 + 0.5), WHITE, 8, uv=False))
-    for s in (-1, 1):
-        parts.append(BK.bx('rail3', (20.0, 0.08, 0.08), (-1.0, s * 3.32, z3 + 1.0), WHITE, uv=False))
-    wh = K.cylinder('wheelhouse_front', 2.5, 2.2, (-8.5, 0, z3 + 1.2), WHITE, 24)
-    K.bake_transform(wh)
-    parts.append(wh)
-    parts.append(BK.bx('wheelhouse', (3.0, 5.0, 2.2), (-7.0, 0, z3 + 1.2), WHITE, uv=False))
-    wglass = K.cylinder('wh_glass', 2.52, 0.8, (-8.5, 0, z3 + 1.65), GLASS, 24)
-    K.bake_transform(wglass)
-    parts.append(wglass)
-    for s in (-1, 1):
-        parts.append(BK.bx('wh_side_glass', (2.6, 0.04, 0.8), (-7.0, s * 2.51, z3 + 1.65), GLASS, uv=False))
-    whr = K.cylinder('wh_roof', 2.8, 0.18, (-8.5, 0, z3 + 2.4), WHITE, 24)
-    K.bake_transform(whr)
-    parts.append(whr)
-    parts.append(BK.bx('wh_roof2', (3.4, 5.6, 0.18), (-7.0, 0, z3 + 2.4), WHITE, uv=False))
-    # 弧形顶棚（覆盖顶层甲板中后部）
-    n = 12
-    verts, faces = [], []
-    for i in range(n + 1):
-        a = math.pi * (0.1 + 0.8 * i / n)
-        y = -math.cos(a) * 3.5
-        z = z3 + 2.4 + math.sin(a) * 0.7
-        verts += [(-5.0, y, z), (8.5, y, z)]
-    for i in range(n):
-        faces.append((2 * i, 2 * i + 1, 2 * i + 3, 2 * i + 2))
-    canopy = K.mesh_obj('canopy', verts, faces, WHITE, smooth=40)
-    K.add_solidify(canopy, 0.08, 0)
-    parts.append(canopy)
-    for x in (-4.5, 0.0, 4.0, 8.0):
-        for s in (-1, 1):
-            parts.append(BK.cyl('cpost', 0.07, 2.2, (x, s * 3.3, z3 + 1.2), WHITE, 8, uv=False))
-    parts.append(BK.cyl('mast', 0.09, 4.5, (-7.5, 0, z3 + 2.5 + 2.25), WHITE, 8, uv=False))
-    parts.append(BK.bx('mast_x', (0.08, 1.6, 0.08), (-7.5, 0, z3 + 5.5), WHITE, uv=False))
-    parts.append(K.sphere('horn', 0.18, (-7.2, 0.6, z3 + 2.8), F('horn', 0xc0c4c8, rough=0.3, metal=0.8), 10, 6))
-    # 救生圈与船名牌
-    for x in (-4.0, 4.0):
-        for s in (-1, 1):
-            parts.append(K.torus('buoy', 0.32, 0.08, (x, s * 3.58, z2 + 0.75), F('buoy', 0xff6a1a, rough=0.5), 20, 8, rot=(math.pi / 2, 0, 0)))
-    for s in (-1, 1):
-        parts.append(BK.bx('nameboard', (3.2, 0.05, 0.5), (-9.5, s * 3.56, 1.12), F('nameboard', 0xf2f0e8, rough=0.5), uv=False))
-    root, _ = BK.model('river_boat', parts)
-    ROOTS.append(root)
+    """亚马孙河船：照 MOSS-Image 参考图重建的版本在 boats.py（木板船身、两层甲板、吊床、驾驶室），船头朝 -X"""
+    import boats
+    ROOTS.append(boats.river_boat('river_boat'))
 
 
-# ------------------------------------------------------------------ 独木舟
 def canoe(name, m):
     """长 6 m（Y）、宽 0.9 m、高 0.5 m 的独木舟：U 形截面沿长度渐收，两头微翘；座板两块、船桨一支。"""
     n, k = 16, 10

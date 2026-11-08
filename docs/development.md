@@ -119,15 +119,17 @@ python -I tools/real/trace_roofs.py ../rotor-trails-tiles/grandcanyon/hi tools/r
    座舱还要烘焙环境光遮蔽：`blender ... tools/blender/cockpit.py -- public/models/cockpit.glb art/out/cockpit_tex --bake`，然后运行 `tools/blender/ao_finish.py` 生成 `public/models/cockpit_ao.jpg`。
    飞行员：`python tools/blender/pilot_textures.py`（飞行服布纹上色、护膝板上的检查单），`python tools/blender/pilot_sdf.py art/out/pilot`（距离场雕刻身体、脸、手套），再 `blender ... tools/blender/pilot.py -- public/models/pilot.glb art/out/pilot [--preview 预览目录]`（头盔、护膝板、背心扣子在 `pilot_gear.py` 里用 Blender 建）。
    地勤和货箱：`python tools/blender/crew_sdf.py art/out/crew`，再 `blender ... tools/blender/crew.py -- public/models/crew.glb art/out/crew [--preview 预览目录]`。
+   船、车、飞机：先 `python tools/blender/boat_textures.py`（渔船、渡轮、河船的船身贴图：船名、锈迹、木板），再跑 `props_japan.py`、`props_fjord.py`、`props_amazon.py`、`props_training.py`。这几个脚本里的渔船、渡轮、河船在 `boats.py`（船体放样工具 `hullkit.py`），小汽车、轻卡、加油车在 `cars.py`，轻型飞机在 `planes.py`。
 
-### 人物模型：MOSS-Image 参考图 + Blender 建模
+### 人物和交通工具：MOSS-Image 参考图 + Blender 建模
 
-飞行员和地勤是先用本机的 MOSS-Image（`D:\ComfyUI\gen.py`，用法见那边的 `docs/默认用法.md`）生成设定图，再在 Blender 里照着建模的：
+飞行员、地勤，以及渔船、渡轮、河船、港区的车、训练场的小飞机和加油车，都是先用本机的 MOSS-Image（`D:\ComfyUI\gen.py`，用法见那边的 `docs/默认用法.md`）生成设定图，再在 Blender 里照着建模的：
 
 1. 生成参考图（存到 `art/src/ref/`，不进仓库）：
    - 飞行员三视图 `pilot/sheet_s11…s44.png`（1792×1024，种子 11/22/33/44），提示词要点：正面、左侧、背面三视图，A 字站姿，三十出头的东亚男性，白色飞行头盔（深色面罩、左侧麦克风），灰绿连体飞行服（斜拉链胸袋、大腿和小腿口袋），黑色网眼背心和胸袋，棕褐色皮手套，棕色系带靴，浅灰背景、均匀棚光
    - 细节：头盔四视图 `helmet_s5/s6`、面罩放下的脸 `face_s7/s8`、手套 `glove_s9`、护膝板 `knee_s10`
    - 地勤三视图 `crew/sheet_s21…s23.png`：藏青工作服、橙色反光背心（灰色反光条）、带帽檐的白色安全帽和耳罩、白棉手套、橙色指挥棒
+   - 交通工具 `vehicles/`（1792×1024）：近海渔船 `fish_s31/s32`、车客渡轮 `ferry_s33/s34`、轻卡 `kei_s35`、高顶轻型车 `car_s36/s37`、亚马孙河船 `river_s38/s39`、上单翼轻型飞机 `plane_s40`、机场加油车 `fuel_s41`；提示词要点是“设定图、侧面 / 四分之三 / 顶视、浅灰背景、无文字”
 2. 从参考图上取色（各脚本里的颜色都注明了来源），按三视图的比例和结构建模：软的东西（身体、衣服褶皱、背心、手套、脸）用 numpy 距离场雕刻（`pilot_sdf.py`、`crew_sdf.py`），要边缘干净的硬件（头盔外壳、面罩罩壳和滑轨、面罩、转轴、麦克风、下巴带、安全帽、耳罩、货箱）在 Blender 里用参数曲面和盒子建（`pilot_gear.py`、`crew.py`）。
 3. 预览：`--preview` 在 Blender 里渲染正面、四分之三侧面、全身和第一人称几张，和参考图并排对比。
 

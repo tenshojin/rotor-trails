@@ -173,71 +173,16 @@ def loft(name, secs, m, n=16):
 
 
 def plane(name='plane_a', prop=True):
-    """四座上单翼轻型飞机（虚构机型）：机头朝 +Y，机长约 8.2 m、翼展 11 m、高 2.7 m。
-    天上飞的那架不带桨叶（游戏里转起来的螺旋桨是一层圆盘）。"""
-    paint = F('plane_white', 0xe9e7e0, rough=0.62, metal=0.0)
-    stripe = F('plane_stripe', 0x1f4a72, rough=0.6)
-    tyre = F('tyre', 0x141414, rough=0.85)
-    parts = []
-    # 机身
-    body = [(4.0, 1.25, 0.08, 0.08), (3.72, 1.25, 0.32, 0.3), (3.3, 1.28, 0.5, 0.48), (2.5, 1.32, 0.56, 0.62), (1.5, 1.45, 0.58, 0.8), (0.2, 1.5, 0.58, 0.82), (-0.9, 1.56, 0.5, 0.66), (-2.1, 1.66, 0.32, 0.42), (-3.4, 1.8, 0.14, 0.2), (-4.2, 1.9, 0.06, 0.08)]
-    parts.append(loft('fuse', body, paint))
-    # 侧面的色带
-    parts.append(loft('band', [(3.2, 1.3, 0.51, 0.1), (1.4, 1.32, 0.59, 0.11), (-1.0, 1.42, 0.51, 0.1), (-3.4, 1.68, 0.15, 0.07)], stripe))
-    # 风挡和侧窗（比机身略宽的一层深色玻璃）
-    parts.append(loft('wind', [(2.1, 2.0, 0.2, 0.08), (1.75, 2.2, 0.45, 0.12), (1.25, 2.34, 0.57, 0.1), (0.1, 2.34, 0.585, 0.1), (-0.55, 2.2, 0.54, 0.1)], GLASS))
-    # 主翼（上单翼，略有上反）、翼撑
-    for sx in (-1, 1):
-        parts.append(BK.bx(f'wing{sx}', (5.3, 1.5, 0.13), (sx * 2.85, 0.85, 2.46), paint, uv=False, bevel=0.05))
-        parts.append(BK.bx(f'tip{sx}', (0.5, 1.5, 0.1), (sx * 5.7, 0.85, 2.5), stripe, uv=False, bevel=0.04))
-        parts.append(BK.stick(f'strut{sx}', (sx * 0.5, 0.75, 1.0), (sx * 2.7, 0.85, 2.4), 0.035, paint, seg=6))
-        # 主起落架
-        parts.append(BK.stick(f'leg{sx}', (sx * 0.45, 0.2, 0.85), (sx * 1.25, 0.2, 0.28), 0.04, STEEL, seg=6))
-        parts.append(BK.cyl(f'wheel{sx}', 0.26, 0.14, (sx * 1.25, 0.2, 0.26), tyre, verts=14, rot=(0, math.pi / 2, 0), uv=False))
-        parts.append(BK.cyl(f'pant{sx}', 0.1, 0.17, (sx * 1.25, 0.2, 0.26), STEEL, verts=10, rot=(0, math.pi / 2, 0), uv=False))
-    # 尾翼
-    parts.append(BK.bx('stab', (3.5, 0.95, 0.08), (0, -3.72, 1.94), paint, uv=False, bevel=0.03))
-    fin = [(-3.15, 1.95), (-4.25, 1.95), (-4.45, 3.05), (-3.8, 3.05)]
-    verts = [(0.05, y, z) for y, z in fin] + [(-0.05, y, z) for y, z in fin]
-    faces = [(0, 1, 2, 3), (7, 6, 5, 4), (0, 4, 5, 1), (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)]
-    me = bpy.data.meshes.new('fin')
-    me.from_pydata(verts, [], faces)
-    me.update()
-    ob = bpy.data.objects.new('fin', me)
-    bpy.context.scene.collection.objects.link(ob)
-    ob.data.materials.append(stripe)
-    parts.append(ob)
-    # 螺旋桨、桨毂、前轮
-    parts.append(K.sphere('spinner', 0.16, (0, 4.05, 1.25), paint, 12, 8, scale=(1, 1.4, 1)))
-    if prop:
-        parts.append(BK.bx('prop', (1.85, 0.04, 0.12), (0, 4.2, 1.25), IRON, rz=0.0, uv=False))
-    parts.append(BK.stick('nose_leg', (0, 2.9, 0.75), (0, 2.95, 0.24), 0.04, STEEL, seg=6))
-    parts.append(BK.cyl('nose', 0.2, 0.11, (0, 2.95, 0.22), tyre, verts=14, rot=(0, math.pi / 2, 0), uv=False))
-    root, _ = BK.model(name, parts)
-    ROOTS.append(root)
+    """四座上单翼轻型飞机：照 MOSS-Image 参考图重建的版本在 planes.py（放样机身、翼型机翼和尾翼、窗、起落架整流罩、注册号）"""
+    import planes
+    ROOTS.append(planes.plane(name, prop))
 
 
 # ------------------------------------------------------------------ 加油车
 def truck():
-    """机场加油车：驾驶室、罐体、后部的油管卷盘。车头朝 +Y，长约 7 m。"""
-    cab = F('truck_red', 0xa02a20, rough=0.38, metal=0.2)
-    tank = F('truck_tank', 0xd8d5cc, rough=0.32, metal=0.5)
-    tyre = F('tyre', 0x141414, rough=0.85)
-    parts = [BK.bx('chassis', (2.0, 6.8, 0.3), (0, 0, 0.82), IRON, uv=False)]
-    parts.append(BK.bx('cab', (2.2, 1.7, 1.6), (0, 2.55, 1.8), cab, uv=False, bevel=0.1))
-    parts.append(BK.bx('wind', (2.0, 0.05, 0.7), (0, 3.41, 2.2), GLASS, uv=False))
-    for sx in (-1, 1):
-        parts.append(BK.bx(f'win{sx}', (0.05, 1.0, 0.6), (sx * 1.11, 2.6, 2.2), GLASS, uv=False))
-    parts.append(BK.cyl('tank', 1.02, 4.5, (0, -0.85, 1.95), tank, verts=20, rot=(math.pi / 2, 0, 0), uv=False))
-    for y in (-2.7, -0.9, 0.9):
-        parts.append(BK.cyl(f'hoop{y}', 1.05, 0.08, (0, y, 1.95), IRON, verts=20, rot=(math.pi / 2, 0, 0), uv=False))
-    parts.append(BK.bx('box', (2.1, 0.5, 1.0), (0, -3.3, 1.45), STEEL, uv=False))
-    parts.append(BK.cyl('reel', 0.42, 0.5, (0, -3.62, 1.5), IRON, verts=14, rot=(0, math.pi / 2, 0), uv=False))
-    for y in (2.4, -1.5, -2.6):
-        for sx in (-1, 1):
-            parts.append(BK.cyl(f'w{y}{sx}', 0.5, 0.34, (sx * 1.02, y, 0.5), tyre, verts=16, rot=(0, math.pi / 2, 0), uv=False))
-    root, _ = BK.model('truck_fuel', parts)
-    ROOTS.append(root)
+    """机场加油车：照 MOSS-Image 参考图重建的版本在 cars.py（驾驶室、椭圆铝罐、控制柜、软管卷盘）"""
+    import cars
+    ROOTS.append(cars.fuel_truck('truck_fuel'))
 
 
 tower()

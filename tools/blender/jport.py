@@ -145,128 +145,9 @@ def _rail(parts, tag, pts, m, h=1.05, step=1.9):
 
 
 def ferry(name, hull=0x223c6e, band=0xb2261e):
-    """车客渡轮（小型近海渡轮）：船身下半截上色，白色的车辆甲板舱、两层客舱、圆头驾驶台、椭圆烟囱、
-    吊艇架、栏杆、尾部跳板。船头朝 +X。"""
-    parts = []
-    L, W = 46.0, 11.0
-    H = W / 2
-    white = F('ferry_white', 0xeceeec, rough=0.42)
-    side = F('ferry_hull', hull, rough=0.4)
-    red = F('ferry_band', band, rough=0.45)
-    anti = F('ferry_antifoul', 0x6e2a22, rough=0.6)
-    glass = F('glass_dark', 0x1c252d, rough=0.08, metal=0.5)
-    grey = F('ferry_grey', 0x6c7178, rough=0.55, metal=0.2)
-    deckc = F('ferry_deck', 0x7a7f7c, rough=0.75)
-    dark = F('ferry_dark', 0x14181c, rough=0.6)
-    black = F('ferry_black', 0x17181a, rough=0.5)
-    orange = F('lifeboat', 0xe8701e, rough=0.45)
-    # 船体：水线下防污漆、船身色、护舷、白色上半截，一条色带顺着船形走到船头
-    parts.append(hull_loft('hull_af', L, W, -1.6, 2.6, anti, z0=-1.6, z1=0.3))
-    parts.append(hull_loft('hull_lo', L, W, -1.6, 2.6, side, z0=0.3, z1=1.15))
-    parts.append(hull_loft('hull_up', L, W, -1.6, 2.6, white, z0=1.15))
-    parts.append(hull_loft('rub', L, W + 0.16, -1.6, 2.6, grey, z0=1.15, z1=1.3))
-    parts.append(hull_loft('band', L, W + 0.04, -1.6, 2.6, red, z0=1.8, z1=2.1))
-    # 船艏柱：放样的两舷在这里合拢，留着缝看得见里面
-    parts.append(BK.stick('stem_lo', (L / 2 + 0.02, 0, -1.4), (L / 2 + 0.02, 0, 1.15), 0.2, side, seg=8))
-    parts.append(BK.stick('stem_hi', (L / 2 + 0.02, 0, 1.15), (L / 2 + 0.02, 0, 4.1), 0.2, white, seg=8))
-    # 车辆甲板舱：圆头，两舷成排的开口
-    parts.append(_deck('casing', -22.0, 14.5, H - 0.3, 2.6, 5.4, white, 4.2))
-    parts.append(BK.bx('car_deck', (35.0, W - 0.9, 0.12), (-4.5, 0, 2.62), deckc, uv=False))
-    for sy in (-1, 1):
-        for i in range(9):
-            parts.append(BK.bx(f'port{sy}{i}', (2.6, 0.06, 1.25), (-19.5 + i * 3.6, sy * (H - 0.29), 4.05), dark, uv=False))
-    # 客舱甲板：比下面宽一圈，走得了人
-    parts.append(_deck('deck_a', -23.0, 15.4, H - 0.08, 5.4, 5.56, white, 4.6))
-    parts.append(_deck('deck_a_top', -22.9, 15.3, H - 0.16, 5.56, 5.58, deckc, 4.5))
-    parts.append(_deck('cabin', -14.0, 10.6, H - 1.3, 5.58, 7.85, white, 3.4))
-    parts.append(_deck('cabin_nose', 6.2, 10.63, H - 1.285, 6.3, 7.3, glass, 3.4))
-    for sy in (-1, 1):
-        for i in range(10):
-            parts.append(BK.bx(f'win{sy}{i}', (1.45, 0.06, 1.0), (-12.8 + i * 1.95, sy * (H - 1.29), 6.8), glass, uv=False))
-        parts.append(BK.bx(f'door{sy}', (1.0, 0.06, 2.0), (-13.3 + 20.2, sy * (H - 1.29), 6.6), grey, uv=False))
-    parts.append(BK.bx('cabin_back', (0.06, W - 3.0, 1.0), (-14.0, 0, 6.8), glass, uv=False))
-    # 上层：休息室和驾驶台
-    parts.append(_deck('deck_b', -15.0, 11.3, H - 1.0, 7.85, 8.0, white, 3.6))
-    parts.append(_deck('upper', -6.0, 7.4, H - 2.2, 8.0, 10.0, white, 2.6))
-    for sy in (-1, 1):
-        for i in range(5):
-            parts.append(BK.bx(f'uwin{sy}{i}', (1.5, 0.06, 0.95), (-4.8 + i * 2.05, sy * (H - 2.19), 9.05), glass, uv=False))
-    parts.append(_deck('bridge', 1.4, 8.2, H - 2.0, 10.0, 12.2, white, 2.3))
-    parts.append(_deck('bridge_glass', 4.5, 8.24, H - 1.97, 10.95, 11.9, glass, 2.3))
-    parts.append(_deck('bridge_roof', 0.9, 8.7, H - 1.7, 12.2, 12.36, white, 2.5))
-    # 驾驶台两边伸出去的翼台
-    parts.append(BK.bx('wing', (2.0, W - 0.3, 0.14), (5.2, 0, 10.05), white, uv=False))
-    for sy in (-1, 1):
-        parts.append(BK.bx(f'wing_side{sy}', (2.0, 0.06, 1.05), (5.2, sy * (H - 0.18), 10.6), white, uv=False))
-        parts.append(BK.bx(f'wing_end{sy}', (0.06, 2.6, 1.05), (6.2, sy * (H - 1.45), 10.6), white, uv=False))
-    # 烟囱：椭圆、往上收，一道色带，顶上是黑的
-    for nm, h, z, r, r2, m in (('funnel', 3.9, 9.95, 1.02, 0.9, white), ('funnel_band', 0.75, 10.75, 0.985, 0.95, red), ('funnel_top', 0.5, 11.68, 0.925, 0.9, black)):
-        ob = BK.cyl(nm, r + (0.02 if nm != 'funnel' else 0), h, (-9.5, 0, z), m, 18, r2=r2 + (0.02 if nm != 'funnel' else 0), uv=False)
-        K.map_verts(ob, lambda v: (-9.5 + (v[0] + 9.5) * 1.6, v[1], v[2]))
-        parts.append(ob)
-    # 桅杆、雷达、喇叭
-    parts.append(BK.cyl('mast', 0.11, 4.0, (3.0, 0, 14.3), white, 8, r2=0.05, uv=False))
-    parts.append(BK.bx('yard', (0.1, 2.6, 0.08), (3.0, 0, 15.2), white, uv=False))
-    parts.append(BK.cyl('radar_post', 0.14, 0.5, (5.8, 0, 12.6), grey, 8, uv=False))
-    parts.append(BK.bx('radar', (0.22, 2.0, 0.14), (5.8, 0, 12.95), grey, uv=False))
-    # 救生艇挂在吊艇架上，气胀救生筏的白罐子放在栏杆边
-    for sy in (-1, 1):
-        for x in (-12.0, -3.0):
-            parts.append(K.sphere(f'raft{sy}{x}', 0.75, (x, sy * (H - 0.75), 8.95), orange, 12, 8, (3.0, 1, 0.8)))
-            parts.append(K.box(f'raft_top{sy}{x}', (2.6, 1.0, 0.3), (x, sy * (H - 0.75), 9.45), white, bevel=0.1))
-            for dx in (-1.7, 1.7):
-                parts.append(K.tube_path(f'davit{sy}{x}{dx}', [(x + dx, sy * (H - 2.0), 8.0), (x + dx, sy * (H - 1.7), 9.7), (x + dx, sy * (H - 0.75), 10.1)], 0.06, grey, seg=5))
-        for x in (-18.0, -16.6):
-            parts.append(BK.cyl(f'can{sy}{x}', 0.34, 1.15, (x, sy * (H - 0.75), 5.95), white, 10, rot=(math.pi / 2, 0, 0), uv=False))
-    # 栏杆
-    for sy in (-1, 1):
-        _rail(parts, f'ra{sy}', [(-22.6, sy * (H - 0.22), 5.58), (11.6, sy * (H - 0.22), 5.58)], grey)
-        _rail(parts, f'rb{sy}', [(-14.6, sy * (H - 1.14), 8.0), (8.0, sy * (H - 1.14), 8.0)], grey)
-    _rail(parts, 'rc', [(-22.6, H - 0.22, 5.58), (-22.6, -H + 0.22, 5.58)], grey)
-    _rail(parts, 'rd', [(-14.6, H - 1.14, 8.0), (-14.6, -H + 1.14, 8.0)], grey)
-    # 前甲板：锚机、系缆桩，栏杆顺着船头收上去
-    # （甲板板子照着船头的宽度和舷弧收：方板子的角会戳到船体外面）
-    fv, ff = [], []
-    xs = [12.0 + i * 0.9 for i in range(13)]
-    for x in xs:
-        bow = max(0.0, ((x + L / 2) / L - 0.7) / 0.3)
-        hw = H * (1 - bow ** 1.9 * 0.97) - 0.04
-        z = 2.5 + 1.5 * bow ** 2
-        fv += [(x, -hw, z), (x, 0.0, z - 0.1), (x, hw, z)]
-    for i in range(len(xs) - 1):
-        for j in range(2):
-            a = i * 3 + j
-            ff.append((a, a + 3, a + 4, a + 1))
-    fore = K.mesh_obj('fore_deck', fv, ff, deckc, smooth=40)
-    K.fix_normals(fore)
-    parts.append(fore)
-    parts.append(BK.bx('windlass', (1.0, 2.4, 0.8), (17.0, 0, 3.4), grey, uv=False, bevel=0.06))
-    for sy in (-1, 1):
-        parts.append(BK.cyl(f'gypsy{sy}', 0.42, 0.4, (17.0, sy * 1.5, 3.45), black, 12, rot=(math.pi / 2, 0, 0), uv=False))
-        for x in (15.6, 19.4):
-            parts.append(BK.cyl(f'bitt{sy}{x}', 0.16, 0.6, (x, sy * 2.2, 3.3), black, 10, uv=False))
-        for x in (-20.0, -8.0):
-            parts.append(BK.cyl(f'abitt{sy}{x}', 0.16, 0.5, (x, sy * (H - 0.8), 5.82), black, 10, uv=False))
-        # 船头的栏杆：照着船体放样的宽度和舷弧走
-        pts = []
-        for x in (14.5, 16.5, 18.5, 20.5, 22.0):
-            t = (x + L / 2) / L
-            bow = max(0.0, (t - 0.7) / 0.3)
-            pts.append((x, sy * (H * (1 - bow ** 1.9 * 0.97) - 0.2), 2.6 + 1.5 * bow ** 2))
-        _rail(parts, f'rbow{sy}', pts, grey, step=1.4)
-        # 锚：贴在船头两舷
-        t = (18.5 + L / 2) / L
-        bow = (t - 0.7) / 0.3
-        hw = H * (1 - bow ** 1.9 * 0.97)
-        parts.append(BK.bx(f'anchor{sy}', (0.5, 0.14, 0.7), (18.5, sy * (hw + 0.02), 2.0), black, uv=False, rz=sy * -0.24))
-    # 尾部跳板：竖着收起来，有防滑筋和两边的吊杆
-    parts.append(K.box('ramp', (0.25, 6.5, 5.2), (-L / 2 - 0.1, 0, 4.9), grey, bevel=0.05))
-    for i in range(7):
-        parts.append(BK.bx(f'rib{i}', (0.08, 6.3, 0.09), (-L / 2 - 0.26, 0, 2.8 + i * 0.7), black, uv=False))
-    for sy in (-1, 1):
-        parts.append(BK.bx(f'ramp_post{sy}', (0.5, 0.5, 6.2), (-L / 2 + 0.5, sy * 3.7, 5.6), white, uv=False))
-        parts.append(BK.stick(f'ramp_arm{sy}', (-L / 2 + 0.6, sy * 3.7, 8.4), (-L / 2 - 0.12, sy * 3.1, 7.2), 0.09, grey, seg=6))
-    return BK.model(name, parts)[0]
+    """车客渡轮：照 MOSS-Image 参考图重建的版本在 boats.py（真正的船体型线、客舱一排窗、驾驶台、烟囱、救生艇、跳板、船名）"""
+    import boats
+    return boats.ferry(name, hull, band)
 
 
 def _tetra(name, m, s, rot, pos, parts):
@@ -355,20 +236,9 @@ def pier_seg(name, length=20.0, width=10.0):
 
 
 def kei_truck(name):
-    """轻型卡车（日本到处都是的白色小货车）。"""
-    parts = []
-    white = F('truck_white', 0xe8e8e4, rough=0.35)
-    dark = F('truck_dark', 0x1e2024, rough=0.5)
-    parts.append(K.box('cab', (1.3, 1.45, 1.3), (1.05, 0, 1.15), white, bevel=0.12))
-    parts.append(BK.bx('win', (1.32, 1.47, 0.5), (1.1, 0, 1.45), F('glass_dark', 0x1c252d, rough=0.08, metal=0.5), uv=False))
-    parts.append(BK.bx('bed', (2.0, 1.45, 0.12), (-0.6, 0, 0.72), white, uv=False))
-    for sy in (-1, 1):
-        parts.append(BK.bx(f'gate{sy}', (2.0, 0.05, 0.32), (-0.6, sy * 0.71, 0.94), white, uv=False))
-        for x in (1.05, -0.9):
-            parts.append(K.cylinder(f'wheel{sy}{x}', 0.28, 0.18, (x, sy * 0.66, 0.28), dark, 12, rot=(math.pi / 2, 0, 0)))
-    parts.append(BK.bx('tail', (0.05, 1.45, 0.32), (-1.6, 0, 0.94), white, uv=False))
-    parts.append(BK.bx('chassis', (3.2, 1.2, 0.2), (0.0, 0, 0.5), dark, uv=False))
-    return BK.model(name, parts)[0]
+    """轻卡：照 MOSS-Image 参考图重建的版本在 cars.py（平头驾驶室、三面栏板货台、黄牌）"""
+    import cars
+    return cars.kei_truck(name)
 
 
 def fish_boxes(name, seed=2):
@@ -410,28 +280,16 @@ def street_lamp(name):
 
 
 def car(name, body_hex, van=False):
-    """停在港区的小汽车（普通家用车 / 厢式小货车）。沿 +X 为车头。"""
-    parts = []
-    body = F(f'car_{body_hex:06x}', body_hex, rough=0.28, metal=0.25)
-    dark = F('truck_dark', 0x1e2024, rough=0.5)
-    glass = F('glass_dark', 0x1c252d, rough=0.08, metal=0.5)
-    L_, W_ = (3.9, 1.65) if van else (4.3, 1.72)
-    parts.append(K.box('lower', (L_, W_, 0.62), (0, 0, 0.62), body, bevel=0.1))
+    """港区的小汽车：照 MOSS-Image 参考图重建的版本在 cars.py（放样车身、车窗带、灯、保险杠、车牌、轮毂）。
+    白色和红色是方正的高顶轻型车（黄牌），银色是两厢车，蓝色是三厢轿车，van 是送货用的厢式车。"""
+    import cars
     if van:
-        parts.append(K.box('upper', (L_ - 0.5, W_ - 0.1, 0.92), (-0.2, 0, 1.36), body, bevel=0.12))
-        parts.append(BK.bx('glass', (L_ - 0.42, W_ - 0.06, 0.42), (-0.2, 0, 1.46), glass, uv=False))
-    else:
-        parts.append(K.box('upper', (2.25, W_ - 0.16, 0.56), (-0.25, 0, 1.18), body, bevel=0.14))
-        parts.append(BK.bx('glass', (2.33, W_ - 0.12, 0.34), (-0.25, 0, 1.2), glass, uv=False))
-    for sy in (-1, 1):
-        for x in (L_ * 0.31, -L_ * 0.31):
-            parts.append(K.cylinder(f'wheel{sy}{x}', 0.31, 0.2, (x, sy * (W_ / 2 - 0.08), 0.31), dark, 14, rot=(math.pi / 2, 0, 0)))
-    lamp = F('car_lamp', 0xe8e4d8, rough=0.2)
-    tail = F('car_tail', 0x8e1612, rough=0.3)
-    for sy in (-1, 1):
-        parts.append(BK.bx(f'hl{sy}', (0.04, 0.34, 0.14), (L_ / 2 + 0.01, sy * 0.56, 0.76), lamp, uv=False))
-        parts.append(BK.bx(f'tl{sy}', (0.04, 0.3, 0.16), (-L_ / 2 - 0.01, sy * 0.58, 0.76), tail, uv=False))
-    return BK.model(name, parts)[0]
+        return cars.light_van(name, body_hex)
+    if name in ('car_white', 'car_red'):
+        return cars.kei_wagon(name, body_hex)
+    if name == 'car_blue':
+        return cars.sedan(name, body_hex)
+    return cars.hatch(name, body_hex)
 
 
 def forklift(name):
