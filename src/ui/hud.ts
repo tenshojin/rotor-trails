@@ -31,6 +31,24 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent?:
   return e;
 }
 
+export interface Box {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * 标记旁边那行字放在哪：y 处压着面板或航点读数，就试另一边 alt；两边都压着就留在原处、淡一些。
+ * cx、half：字的中心和半宽；y 是字的基线（字高按 13 px 算）
+ */
+export function placeLabel(cx: number, half: number, y: number, alt: number | undefined, blockers: readonly Box[]): { y: number; dim: boolean } {
+  const hit = (yy: number): boolean => blockers.some((b) => cx - half < b.right && cx + half > b.left && yy - 13 < b.bottom && yy + 4 > b.top);
+  if (!hit(y)) return { y, dim: false };
+  if (alt !== undefined && !hit(alt)) return { y: alt, dim: false };
+  return { y, dim: true };
+}
+
 export class Hud {
   readonly root: HTMLDivElement;
   private overlay: HTMLCanvasElement;
@@ -77,6 +95,10 @@ export class Hud {
   private disposed = false;
   private toastTimers = new Map<HTMLElement, [ReturnType<typeof setTimeout>, ReturnType<typeof setTimeout>]>();
   private placeCard: HTMLElement | null = null;
+  /** 屏幕上被面板、航点读数占住的地方（半秒量一次）：标记的字落在上面就换到另一边，免得字压着字 */
+  private blockers: Box[] = [];
+  private blockT = -Infinity;
+  private blockEls: HTMLElement[] = [];
   private placeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(parent: HTMLElement) {
@@ -104,6 +126,7 @@ export class Hud {
     this.landCv = el('canvas', 'land-cv', this.landing);
     this.landCv.width = this.landCv.height = 200;
     this.landInfo = el('div', 'land-info', this.landing);
+    this.blockEls = [obj, this.buffs, this.flight, this.status, this.navBox, this.landing, this.forks];
     this.toasts = el('div', 'hud-toasts', this.root);
     this.toasts.setAttribute('role', 'status');
     this.toasts.setAttribute('aria-live', 'polite');
@@ -491,6 +514,7 @@ export class Hud {
     const H = window.innerHeight;
     g.clearRect(0, 0, W, H);
     if (s.state !== 'running' || this.free) return;
+    this.measureBlockers();
     const nav = s.nav.info;
     const p = this.proj;
     // 速度矢量（飞行轨迹标记）
@@ -528,7 +552,7 @@ export class Hud {
       g.beginPath();
       g.arc(p.x, p.y, 8, 0, Math.PI * 2);
       g.stroke();
-      g.fillText(`${pk.kind === 'boost' ? '动力' : pk.kind === 'shield' ? '护盾' : '维修'} ${Math.round(dist)} m`, p.x, p.y - 14);
+      this.overlayLabel(`${pk.kind === 'boost' ? '动力' : pk.kind === 'shield' ? '护盾' : '维修'} ${Math.round(dist)} m`, p.x, p.y - 14, W, p.y + 24);
     }
     if (nav.mode === 'complete') return;
     const count = nav.forks?.length ?? 1;
@@ -553,7 +577,7 @@ export class Hud {
         g.lineTo(p.x - 11, p.y);
         g.closePath();
         g.stroke();
-        this.overlayLabel(`${label} ${dist > 1000 ? (dist / 1000).toFixed(1) + ' km' : Math.round(dist) + ' m'}`, p.x, p.y - 18, W);
+        this.overlayLabel(`${label} ${dist > 1000 ? (dist / 1000).toFixed(1) + ' km' : Math.round(dist) + ' m'}`, p.x, p.y - 18, W, p.y + 28);
       } else {
         // 屏幕边缘箭头
         const cx = W / 2;
@@ -579,21 +603,40 @@ export class Hud {
         g.closePath();
         g.fill();
         g.restore();
-        this.overlayLabel(`${label} ${dist > 1000 ? (dist / 1000).toFixed(1) + ' km' : Math.round(dist) + ' m'}`, ex, ey + 26, W);
+        this.overlayLabel(`${label} ${dist > 1000 ? (dist / 1000).toFixed(1) + ' km' : Math.round(dist) + ' m'}`, ex, ey + 26, W, ey - 16);
       }
     }
   }
 
-  private overlayLabel(text: string, x: number, y: number, width: number): void {
+  /** 量一下面板、航点读数现在占着哪些地方（隐藏的、平稳飞行时收起来的面板不算） */
+  private measureBlockers(): void {
+    const now = performance.now();
+    if (now - this.blockT < 500 && now >= this.blockT) return;
+    this.blockT = now;
+    this.blockers.length = 0;
+    const r = this.root.classList;
+    if (r.contains('hud-off') || r.contains('hud-cine')) return;
+    const calm = r.contains('hud-calm');
+    for (const e of this.blockEls) {
+      if (e.classList.contains('hidden') || (calm && e.classList.contains('panel'))) continue;
+      const b = e.getBoundingClientRect();
+      if (b.width > 0 && b.height > 0) this.blockers.push({ left: b.left, top: b.top, right: b.right, bottom: b.bottom });
+    }
+  }
+
+  /** 标记旁边的字（带深色描边）：压着面板或航点读数时换到 alt 那一边，两边都压着就淡一些 */
+  private overlayLabel(text: string, x: number, y: number, width: number, alt?: number): void {
     const g = this.og;
     const half = Math.min(width / 2 - 12, g.measureText(text).width / 2);
     const cx = clamp(x, half + 12, width - half - 12);
+    const at = placeLabel(cx, half, y, alt, this.blockers);
     g.save();
+    if (at.dim) g.globalAlpha = 0.3;
     g.strokeStyle = 'rgba(2, 7, 12, 0.92)';
     g.lineWidth = 4;
     g.lineJoin = 'round';
-    g.strokeText(text, cx, y, width - 24);
-    g.fillText(text, cx, y, width - 24);
+    g.strokeText(text, cx, at.y, width - 24);
+    g.fillText(text, cx, at.y, width - 24);
     g.restore();
   }
 

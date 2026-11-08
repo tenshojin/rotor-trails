@@ -42,6 +42,19 @@ export interface WeatherPreset {
   schedule?: Array<{ afterObjective: number; to: string; duration: number }>;
 }
 
+/**
+ * 外界气温（℃）：标准大气按海拔递减（每 1000 m 降 6.5 ℃），下雨凉三度；下雪时贴着冰点
+ * （雪能落到地上，近地面的空气就在 0 ℃ 上下，雪越大越冷），高原上本来就更冷的不动。
+ * 仪表上的 OAT 和机载系统（排气温度、皮托管结冰、风挡起雾）用的都是这个数。
+ */
+export function outsideAirTemp(altitudeMSL: number, rain: number, snow: number): number {
+  const t = 15 - 0.0065 * altitudeMSL - 3 * rain;
+  const cap = 1 - 6 * snow;
+  if (snow <= 0 || t <= cap) return t;
+  // 天气慢慢转成下雪：雪量 0 → 0.15 之间从原来的气温滑到冰点附近，不会一下子跳过去
+  return t + (cap - t) * Math.min(1, snow / 0.15);
+}
+
 export function makeWeather(base: Partial<WeatherParams>): WeatherParams {
   return {
     rain: 0,

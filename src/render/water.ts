@@ -44,12 +44,11 @@ import {
   vec2,
   vec3,
   vec4,
-  viewportSharedTexture,
 } from 'three/tsl';
 import { HELI } from '../config/flight';
 import type { MapDef } from '../maps/types';
 import { FOG } from './atmosphere';
-import { sceneDepthNode, screenMirror } from './mirror';
+import { frameCopy, sceneDepthNode, screenMirror } from './mirror';
 import type { ReflectField } from './reflectMap';
 import type { SkyDome } from './sky';
 import { getNoiseTexture } from './textures';
@@ -114,6 +113,16 @@ function capThresholds(noise: THREE.DataTexture): Array<[number, number]> {
   return capTable;
 }
 
+/**
+ * 海面被吹皱的程度 0..1：2 m/s 以下是 0（远处的倒影像镜子），10 m/s 以上是 1；下雨时雨点也把水面打毛。
+ * 真实海面的坡度随风速变大（Cox-Munk：6 m/s 时坡度的均方根约 0.2），贴着海面看过去，倒影上下能散开十几度：
+ * 风一大，远处低矮的岛屿的倒影只剩一抹暗影，海面映的主要是天色；高崖下面的水照样是暗的（见 mirror.ts）。
+ */
+export function seaRoughness(windSpeed: number, rain: number): number {
+  const x = Math.min(1, Math.max(0, (windSpeed - 2) / 8));
+  return Math.max(x * x * (3 - 2 * x), 0.6 * Math.max(0, rain));
+}
+
 /** 风速（m/s）→ 白浪覆盖海面的比例（Monahan & O'Muircheartaigh 1980：W = 3.84e-6 · U^3.41） */
 export function whitecapCover(windSpeed: number): number {
   return Math.min(0.2, 3.84e-6 * Math.max(0, windSpeed) ** 3.41);
@@ -154,6 +163,8 @@ export class WaterView {
     /** 白浪：门槛（白浪场高于它的地方是白的）、覆盖比例（远处按平均算） */
     capThr: uniform(1.0),
     capCover: uniform(0),
+    /** 海面被吹皱的程度（seaRoughness） */
+    rough: uniform(0),
   };
   private readonly caps: Array<[number, number]>;
 
@@ -328,7 +339,7 @@ export class WaterView {
     this.material.roughnessNode = float(muddy ? 0.16 : 0.12).add(res.get('rough') as N<'float'>);
     // 折射：按波浪法线偏移屏幕坐标，取水下已画好的场景颜色（略带水色）
     const refrUV = screenUV.add(nW.xz.mul(0.03));
-    const refr = viewportSharedTexture(refrUV).rgb;
+    const refr = frameCopy().sample(refrUV).rgb;
     // 掠射处的海面：环境贴图模糊后混进了地平线以下的暗色，算出来偏黑；真实的远海反射的是地平线一带最亮的天空，
     // 越远越接近天色，海天之间才是一条柔和的过渡。按视线掠射的程度补上这部分反射（不看波浪法线，否则远处会闪）
     const flatNdv = clamp(cameraPosition.y.sub(positionWorld.y).div(length(positionWorld.sub(cameraPosition)).max(1.0)), 0.0, 1.0);
@@ -337,7 +348,10 @@ export class WaterView {
     const depthNode = sceneDepthNode(reversedDepth);
     // 比像素还细的波把倒影上下拉开：越远、风越大拉得越长（离得近时波浪本身就把倒影揉碎了）
     const spread = smoothstep(20.0, 1100.0, length(positionWorld.sub(cameraPosition))).mul(0.05).add(0.002).mul(this.u.wave.add(0.35));
-    const refl = screenMirror(nW, foamN, depthNode, this.ssr, field, spread, sky);
+    // 风把海面吹皱：远处的倒影上下散开，映进碰到的东西上面那一截（低矮的岛淡成天色，高崖还是暗的）。
+    // 2 m/s 以下照旧像镜子，4 m/s 混进一成多，6 m/s 一半，9 m/s 以上几乎全是（近处波浪本身已经把倒影揉碎了，只管 60 m 外）
+    const washout = this.u.rough.mul(smoothstep(60.0, 900.0, length(positionWorld.sub(cameraPosition)))).mul(0.85);
+    const refl = screenMirror(nW, foamN, depthNode, this.ssr, field, spread, sky, washout);
     const reflRgb = refl.get('rgb') as N<'vec3'>;
     const reflK = (refl.get('total') as N<'float'>).toVar();
     const hitK = refl.get('hit') as N<'float'>;
@@ -383,6 +397,7 @@ export class WaterView {
     }
     this.u.capThr.value = thr;
     this.u.rain.value = rain;
+    this.u.rough.value = seaRoughness(windSpeed, rain);
   }
 
   /** 旋翼下洗的中心与强度（0 = 不在水面上） */

@@ -15,7 +15,7 @@ import { Gear } from './gear';
 import { MissionRuntime, gradeLanding, type LandingMetrics, type MissionEvent, type MissionSnapshot } from './mission';
 import { Navigator, type NavSnapshot } from './nav';
 import { PhysicsWorld, initPhysics, type ContactReport } from './physics';
-import { WeatherState, type WeatherSnapshot } from './weather';
+import { WeatherState, outsideAirTemp, type WeatherSnapshot } from './weather';
 import { WindField, type WindInfo } from './wind';
 import { PlaneMover, type Mover } from './movers';
 import { obstacleTop } from './routeCheck';
@@ -271,7 +271,8 @@ export class GameSession {
 
   /** 外界气温（℃）：标准大气，雨天略低 */
   oat(): number {
-    return 15 - 0.0065 * this.altitudeMSL() - 3 * this.weather.current.rain - 8 * this.weather.current.snow;
+    const w = this.weather.current;
+    return outsideAirTemp(this.altitudeMSL(), w.rain, w.snow);
   }
 
   pad(id: string): PadDef | undefined {

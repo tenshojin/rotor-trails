@@ -223,6 +223,7 @@ export class App {
       this.ui = new UI(root);
       rollback.push(() => this.ui.dispose());
       this.ui.onClick = () => this.audio.click();
+      this.ui.keys = (a) => keyName(this.settings.bindings[a][0] ?? '');
       this.input = new Input(canvas, this.settings);
       rollback.push(() => this.input.dispose());
       this.input.onEdge = (a, fromPad) => this.onEdge(a, fromPad);
@@ -702,7 +703,7 @@ export class App {
       : cfg.assist === 'sim'
         ? pad
           ? `<br>冷舱启动：照左上角的检查单操作，右摇杆转头，屏幕中间的准星对准按钮按 <kbd>A</kbd>（<kbd>X</kbd> 往回拨）· <kbd>左摇杆</kbd> 杆 · <kbd>RT</kbd>/<kbd>LT</kbd> 总距 · <kbd>${k('trim')}</kbd> 配平`
-          : `<br>冷舱启动：照左上角的检查单操作，鼠标点按钮 · 鼠标移到屏幕边转头 · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 杆 · <kbd>${k('up')}</kbd>/<kbd>${k('down')}</kbd> 总距 · <kbd>C</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平`
+          : `<br>冷舱启动：照左上角的检查单操作，鼠标点按钮 · 鼠标移到屏幕边转头 · <kbd>${k('forward')}</kbd><kbd>${k('left')}</kbd><kbd>${k('back')}</kbd><kbd>${k('right')}</kbd> 杆 · <kbd>${k('up')}</kbd>/<kbd>${k('down')}</kbd> 总距 · <kbd>${k('boost')}</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平`
         : pad
           ? `<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>左摇杆</kbd> 飞行 · <kbd>右摇杆</kbd> 观察 · <kbd>${k('pause')}</kbd> 暂停`
           : `<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>${k('pause')}</kbd> 暂停`;
@@ -965,7 +966,13 @@ export class App {
     this.input.setFreeMouse(true);
     this.input.active = true;
     this.input.clear();
-    const keys = `按住鼠标转镜头 · ${k('forward')}${k('left')}${k('back')}${k('right')} 移动 · ${k('up')} / ${k('down')} 升降 · 按住 ${k('boost')} 走得快 · 滚轮变焦 · ${k('strafeLeft')} / ${k('strafeRight')} 倾斜 · ${k('hud')} 收起面板 · ${k('photo')} 存图 · ${k('pause')} 返回`;
+    // 提示按正在用的设备写：触屏上只能拖动转镜头（没有移动键），手柄的摇杆写成一个词，不然是一串“左摇杆上推左摇杆左推……”
+    const pad = this.input.device === 'pad';
+    const keys = this.touch && !pad
+      ? '拖动屏幕转镜头 · 下面调焦距、曝光、倾斜 · 点“存图”保存，“返回”回到暂停菜单'
+      : pad
+        ? `右摇杆转镜头 · 左摇杆移动 · ${k('up')} / ${k('down')} 升降 · 按住 ${k('boost')} 走得快 · ${k('strafeLeft')} / ${k('strafeRight')} 倾斜 · ${k('hud')} 收起面板 · ${k('photo')} 存图 · ${k('pause')} 返回`
+        : `按住鼠标转镜头 · ${k('forward')}${k('left')}${k('back')}${k('right')} 移动 · ${k('up')} / ${k('down')} 升降 · 按住 ${k('boost')} 走得快 · 滚轮变焦 · ${k('strafeLeft')} / ${k('strafeRight')} 倾斜 · ${k('hud')} 收起面板 · ${k('photo')} 存图 · ${k('pause')} 返回`;
     this.photoPanel = new PhotoPanel(this.root, rig.photoFov, keys, this.settings.quality !== 'low', {
       fov: (v) => {
         rig.photoFov = v;
@@ -1075,7 +1082,10 @@ export class App {
     this.input.active = true;
     this.input.clear();
     const k = (a: keyof Settings['bindings']): string => keyName(this.settings.bindings[a][0]);
-    const keys = `${k('pause')} 结束 · ${k('view')} 换镜头 · ${k('hud')} 收起面板 · ${k('photo')} 截图`;
+    // 触屏上没有收起面板、截图这些键，面板上的按钮就是全部操作
+    const keys = this.touch && this.input.device !== 'pad'
+      ? '拖动进度条看任意一刻 · 点“拍这一帧”进拍照模式'
+      : `${k('pause')} 结束 · ${k('view')} 换镜头 · ${k('hud')} 收起面板 · ${k('photo')} 截图`;
     const r: ReplayRun = {
       t: Math.max(0, this.tape.seconds - lead),
       seg: 0,
@@ -1827,6 +1837,7 @@ export class App {
       airspeed: tel.airspeed,
       groundSpeed: s.groundSpeed,
       altitudeMSL: s.altitudeMSL(),
+      oat: s.oat(),
       agl: s.agl,
       vs: s.body.vel.y,
       // 机体系偏航角速度（与飞行模型一致：-ωy 为向右）

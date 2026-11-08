@@ -3,8 +3,9 @@
 // 窗玻璃使用带雨滴/水流效果的材质。模型加载失败时座舱内部为空，游戏照常可玩。
 
 import * as THREE from 'three/webgpu';
-import { abs, atan, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, clamp, dot, float, materialColor, max, min, mix, modelWorldMatrix, modelWorldMatrixInverse, normalGeometry, normalize, normalWorld, positionGeometry, positionWorld, pow, reflect, select, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4, vertexColor, viewportSharedTexture } from 'three/tsl';
+import { abs, atan, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, clamp, dot, float, materialColor, max, min, mix, modelWorldMatrix, modelWorldMatrixInverse, normalGeometry, normalize, normalWorld, positionGeometry, positionWorld, pow, reflect, select, smoothstep, step, texture, uniform, uv, vec2, vec3, vec4, vertexColor } from 'three/tsl';
 import { FOG } from './atmosphere';
+import { frameCopy } from './mirror';
 import { VFOG } from './volumetricFog';
 import { loadGltf } from './gltf';
 import { STD_KEYS } from './modelLib';
@@ -576,7 +577,7 @@ export class Cockpit {
       .mul(float(1).sub(smoothstep(0.3, 0.52, positionGeometry.y)));
     const ndv = clamp(dot(nF, vL).negate(), 0.0, 1.0);
     const fres = float(0.05).add(float(0.95).mul(pow(float(1).sub(ndv), 5.0)));
-    const seen = viewportSharedTexture(clamp(uvq, 0.002, 0.998)).rgb;
+    const seen = frameCopy().sample(clamp(uvq, 0.002, 0.998)).rgb;
     // 玻璃按 alpha 混合：想叠加上 seen × 菲涅尔，发光项要除以 alpha
     mat.emissiveNode = glare.add(seen.mul(fres).mul(inside).mul(float(1).sub(GU.uOutside)).div(alpha)).add(outside);
     return mat;

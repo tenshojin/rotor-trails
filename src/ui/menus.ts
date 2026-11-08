@@ -4,7 +4,7 @@ import { ASSISTS, type AssistId } from '../config/flight';
 import { TIME_OF_DAY, type TimeOfDay } from '../render/timeOfDay';
 import type { MapDef } from '../maps/types';
 import type { MapRecord } from '../game/save';
-import { ACTION_LABEL, DEFAULT_BINDINGS, QUALITY, keyLabel, type Action, type Settings } from '../game/settings';
+import { ACTION_LABEL, DEFAULT_BINDINGS, QUALITY, keyLabel, keyName, type Action, type Settings } from '../game/settings';
 import type { ScoreResult } from '../sim/scoring';
 import type { LandingMetrics } from '../sim/mission';
 import type { Lesson } from '../game/tutorial';
@@ -29,19 +29,25 @@ const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), a[href], [tabindex="0"]';
 
-/** 等加载的时候看一句：这些东西不说的话没人知道 */
-const TIPS = [
-  '暂停菜单里有拍照模式：世界定格，机位随便放，焦距、曝光、虚化都能调。',
-  '休闲飞行里按 J 自动巡航，动任何飞行键就交回给你。',
-  '休闲飞行里按 V 能切到电影镜头：机位自己换，声音跟着距离走。',
-  '按 U 收起 HUD，看风景的时候画面更干净。',
-  '按 F 截图，不带 HUD，暂停的时候也能拍。',
-  '飞行也可以用手柄，按键表在操作说明里。',
-  '贴着山壁飞的时候听一听：旋翼声会从山壁上弹回来。',
-  '暂停菜单里可以换时段和天气，黄昏的大峡谷值得看一眼。',
-  '暂停菜单和结算页都能看回放：电影镜头把刚才飞的再放一遍，停在哪一帧都能拍。',
-  '休闲飞行飞到一个地方，屏幕上会写这是哪里；暂停菜单里看得到还有哪些地方没去过。',
-  '挪威的峡湾选夜晚，抬头看看天。',
+type Keys = (a: Action) => string;
+
+/**
+ * 等加载的时候看一句：这些东西不说的话没人知道。按键按玩家改过的键和正在用的设备写（拿着手柄就写手柄的键）；
+ * pc：手机、平板上没有这个键（屏幕上没有收起 HUD、截图的按钮），触屏上不抽这一句
+ */
+export const TIPS: ReadonlyArray<{ text: (k: Keys) => string; pc?: boolean }> = [
+  { text: () => '暂停菜单里有拍照模式：世界定格，机位随便放，焦距、曝光、虚化都能调。' },
+  { text: (k) => `休闲飞行里 <kbd>${k('cruise')}</kbd> 自动巡航，动任何飞行键就交回给你。` },
+  { text: (k) => `休闲飞行里 <kbd>${k('view')}</kbd> 能切到电影镜头：机位自己换，声音跟着距离走。` },
+  { text: (k) => `<kbd>${k('hud')}</kbd> 收起 HUD，看风景的时候画面更干净。`, pc: true },
+  { text: (k) => `<kbd>${k('photo')}</kbd> 截图，不带 HUD，暂停的时候也能拍。`, pc: true },
+  { text: () => '飞行也可以用手柄，按键表在操作说明里。', pc: true },
+  { text: () => '贴着山壁飞的时候听一听：旋翼声会从山壁上弹回来。' },
+  // （写“峡谷”不写“大峡谷”：私有试玩页里没有大峡谷那张图，赤岩峡谷的黄昏一样好看）
+  { text: () => '暂停菜单里可以换时段和天气，黄昏的峡谷值得看一眼。' },
+  { text: () => '暂停菜单和结算页都能看回放：电影镜头把刚才飞的再放一遍，停在哪一帧都能拍。' },
+  { text: () => '休闲飞行飞到一个地方，屏幕上会写这是哪里；暂停菜单里看得到还有哪些地方没去过。' },
+  { text: () => '挪威的峡湾选夜晚，抬头看看天。' },
 ];
 
 export class UI {
@@ -55,6 +61,8 @@ export class UI {
   onClick: (() => void) | null = null;
   /** 手机、平板：操作说明多一段摇杆 */
   touch = false;
+  /** 提示里按键的名字（App 换成按设置里的改键、正在用的设备写） */
+  keys: Keys = (a) => keyName(DEFAULT_BINDINGS[a][0] ?? '');
 
   constructor(parent: HTMLElement) {
     this.root = document.createElement('div');
@@ -288,13 +296,13 @@ export class UI {
         </div>
         <div class="brief-side">
           <div class="card"><h3 id="brief-weather">天气</h3><div class="opts" data-group="weather" role="group" aria-labelledby="brief-weather">${m.weathers
-            .map((w) => `<button type="button" class="opt-card ${w.id === weather ? 'sel' : ''}" data-a="weather" data-v="${w.id}" aria-pressed="${w.id === weather}"><b>${w.label}</b><span>${w.desc}</span></button>`)
+            .map((w) => `<button type="button" class="opt-card ${w.id === weather ? 'sel' : ''}" data-a="weather" data-v="${w.id}" aria-pressed="${w.id === weather}" title="${escapeHtml(w.desc)}"><b>${w.label}</b><span>${w.desc}</span></button>`)
             .join('')}</div></div>
           <div class="card"><h3 id="brief-time">时段</h3><div class="opts" data-group="time" role="group" aria-labelledby="brief-time">${(Object.keys(TIME_OF_DAY) as TimeOfDay[])
-            .map((k) => `<button type="button" class="opt-card ${k === time ? 'sel' : ''}" data-a="time" data-v="${k}" aria-pressed="${k === time}"><b>${TIME_OF_DAY[k].label}</b><span>${TIME_OF_DAY[k].desc}</span></button>`)
+            .map((k) => `<button type="button" class="opt-card ${k === time ? 'sel' : ''}" data-a="time" data-v="${k}" aria-pressed="${k === time}" title="${escapeHtml(TIME_OF_DAY[k].desc)}"><b>${TIME_OF_DAY[k].label}</b><span>${TIME_OF_DAY[k].desc}</span></button>`)
             .join('')}</div></div>
           <div class="card"><h3 id="brief-assist">飞行辅助</h3><div class="opts" data-group="assist" role="group" aria-labelledby="brief-assist">${(Object.keys(ASSISTS) as AssistId[])
-            .map((k) => `<button type="button" class="opt-card ${k === assist ? 'sel' : ''}" data-a="assist" data-v="${k}" aria-pressed="${k === assist}"><b>${ASSISTS[k].label}${k === m.recommendedAssist ? ' · 推荐' : ''}</b><span>${ASSISTS[k].desc}</span></button>`)
+            .map((k) => `<button type="button" class="opt-card ${k === assist ? 'sel' : ''}" data-a="assist" data-v="${k}" aria-pressed="${k === assist}" title="${escapeHtml(ASSISTS[k].desc)}"><b>${ASSISTS[k].label}${k === m.recommendedAssist ? ' · 推荐' : ''}</b><span>${ASSISTS[k].desc}</span></button>`)
             .join('')}</div></div>
           <button class="btn primary big" data-a="start">开始飞行</button>
         </div>
@@ -341,14 +349,14 @@ export class UI {
         </div>
         <div class="brief-side">
           <div class="card"><h3 id="brief-time">时段</h3><div class="opts" data-group="time" role="group" aria-labelledby="brief-time">${(Object.keys(TIME_OF_DAY) as TimeOfDay[])
-            .map((k) => `<button type="button" class="opt-card ${k === time ? 'sel' : ''}" data-a="time" data-v="${k}" aria-pressed="${k === time}"><b>${TIME_OF_DAY[k].label}</b><span>${TIME_OF_DAY[k].desc}</span></button>`)
+            .map((k) => `<button type="button" class="opt-card ${k === time ? 'sel' : ''}" data-a="time" data-v="${k}" aria-pressed="${k === time}" title="${escapeHtml(TIME_OF_DAY[k].desc)}"><b>${TIME_OF_DAY[k].label}</b><span>${TIME_OF_DAY[k].desc}</span></button>`)
             .join('')}</div></div>
           <div class="card"><h3 id="brief-weather">天气</h3><div class="opts" data-group="weather" role="group" aria-labelledby="brief-weather">${m.weathers
-            .map((w) => `<button type="button" class="opt-card ${w.id === weather ? 'sel' : ''}" data-a="weather" data-v="${w.id}" aria-pressed="${w.id === weather}"><b>${w.label}</b><span>${w.desc}</span></button>`)
+            .map((w) => `<button type="button" class="opt-card ${w.id === weather ? 'sel' : ''}" data-a="weather" data-v="${w.id}" aria-pressed="${w.id === weather}" title="${escapeHtml(w.desc)}"><b>${w.label}</b><span>${w.desc}</span></button>`)
             .join('')}</div></div>
           <div class="card"><h3 id="brief-sim">飞行方式</h3><div class="opts" data-group="sim" role="group" aria-labelledby="brief-sim">
-            <button type="button" class="opt-card ${sim ? '' : 'sel'}" data-a="sim" data-v="0" aria-pressed="${!sim}"><b>轻松</b><span>辅助全开，飞到哪儿算哪儿。</span></button>
-            <button type="button" class="opt-card ${sim ? 'sel' : ''}" data-a="sim" data-v="1" aria-pressed="${sim}"><b>超仿真</b><span>${ASSISTS.sim.desc}</span></button>
+            <button type="button" class="opt-card ${sim ? '' : 'sel'}" data-a="sim" data-v="0" aria-pressed="${!sim}" title="辅助全开，飞到哪儿算哪儿。"><b>轻松</b><span>辅助全开，飞到哪儿算哪儿。</span></button>
+            <button type="button" class="opt-card ${sim ? 'sel' : ''}" data-a="sim" data-v="1" aria-pressed="${sim}" title="${escapeHtml(ASSISTS.sim.desc)}"><b>超仿真</b><span>${ASSISTS.sim.desc}</span></button>
           </div></div>
           <button class="btn primary big" data-a="start">起飞</button>
         </div>
@@ -430,7 +438,7 @@ export class UI {
       el = this.show(
         h(`<div class="screen loading"${art}>
           <div class="load-name">${map ? `<h2>${map.name}</h2><span>${map.subtitle}</span>` : '<h2>正在准备地图</h2>'}</div>
-          <div class="load-foot"><div class="lbar" role="progressbar" aria-label="地图准备进度" aria-valuemin="0" aria-valuemax="100"><i></i></div><div class="llabel" role="status"></div>${map ? `<div class="ltip">${TIPS[Math.floor(Math.random() * TIPS.length)]}</div>` : ''}</div>
+          <div class="load-foot"><div class="lbar" role="progressbar" aria-label="地图准备进度" aria-valuemin="0" aria-valuemax="100"><i></i></div><div class="llabel" role="status"></div>${map ? `<div class="ltip">${this.pickTip()}</div>` : ''}</div>
         </div>`),
       );
     }
@@ -438,6 +446,12 @@ export class UI {
     (el.querySelector('.lbar i') as HTMLElement).style.width = `${percent}%`;
     el.querySelector('.lbar')?.setAttribute('aria-valuenow', String(percent));
     (el.querySelector('.llabel') as HTMLElement).textContent = label;
+  }
+
+  /** 抽一句加载提示：触屏上不抽要用键盘、手柄才有的键的那几句 */
+  pickTip(rand = Math.random()): string {
+    const pool = TIPS.filter((t) => !(this.touch && t.pc));
+    return pool[Math.min(pool.length - 1, Math.floor(rand * pool.length))].text(this.keys);
   }
 
   clickToStart(text: string, sub: string, on: () => void): void {

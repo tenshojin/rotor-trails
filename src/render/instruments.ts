@@ -17,6 +17,8 @@ export interface InstrumentData {
   airspeed: number; // m/s
   groundSpeed: number; // m/s
   altitudeMSL: number; // m
+  /** 外界气温（℃）：和机载系统用的同一个数（没有就按标准大气算） */
+  oat?: number;
   agl: number; // m
   vs: number; // m/s
   /** 机体偏航角速度（°/s，向右为正） */
@@ -183,7 +185,7 @@ export function drawVemdTop(g: CanvasRenderingContext2D, d: InstrumentData, W: n
   row('TRQ %', tq.toFixed(0), H * 0.14, d.torqueLimited);
   row('T4 °C', t4.toFixed(0), H * 0.38);
   row('N1 %', n1.toFixed(1), H * 0.62);
-  row('OAT', `${oat(d.altitudeMSL).toFixed(0)}°`, H * 0.84);
+  row('OAT', `${Math.round(d.oat ?? oat(d.altitudeMSL)) || 0}°`, H * 0.84);
 }
 
 // ---------------------------------------------------------------- 发动机参数显示器（下屏）：机体与任务状态

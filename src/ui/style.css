@@ -408,6 +408,45 @@ a {
   z-index: 3;
   box-shadow: 0 -14px 28px rgba(4, 8, 12, 0.85);
 }
+/* 矮一些的屏幕（笔记本浏览器常见 650～1000 px 高）：右栏排紧，天气、时段、辅助和开始按钮一屏放得下，
+   不然贴底的开始按钮正好盖住最下面的“飞行辅助”“飞行方式”。说明截成两行（再矮截成一行），鼠标停上去看全文 */
+@media (max-height: 1040px) and (min-width: 1101px) {
+  .brief-side {
+    gap: 10px;
+  }
+  .brief-side .card {
+    padding: 10px 16px;
+  }
+  .brief-side .card h3 {
+    margin-bottom: 6px;
+  }
+  .brief-side .opts {
+    gap: 6px;
+  }
+  .brief-side .opt-card {
+    padding: 6px 10px;
+  }
+  .brief-side .opt-card span {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+}
+@media (max-height: 800px) and (min-width: 1101px) {
+  .screen:has(> .brief) {
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+  .screen:has(> .brief) .screen-head {
+    margin-bottom: 10px;
+  }
+  .brief-side .opt-card span {
+    -webkit-line-clamp: 1;
+  }
+}
 .obj-list {
   margin: 0;
   padding-left: 20px;
@@ -2323,6 +2362,17 @@ canvas.gl.sim-cursor.sim-cursor-hot {
 /* 左上角是暂停、回正这一排触屏键（36 px 高）：任务面板放到它下面，不然键压在“当前任务”上 */
 .touch-device .hud-obj {
   top: calc(52px + env(safe-area-inset-top));
+}
+/* 平板：任务面板往下挪了 40 px，路线卡片跟着往下挪（不然卡片的左上角压在任务面板上），告警和提示再往下让。
+   手机的卡片在右上角，下面 max-height: 520px 里另有安排 */
+.touch-device .hud-forks {
+  top: calc(190px + env(safe-area-inset-top));
+}
+.touch-device .hud:has(.hud-forks:not(.hidden)) .hud-warn {
+  top: max(24%, calc(325px + env(safe-area-inset-top)));
+}
+.touch-device .hud:has(.hud-forks:not(.hidden)) .hud-toasts {
+  top: max(34%, calc(375px + env(safe-area-inset-top)));
 }
 @media (max-height: 520px) {
   .touch-device .hud-flight,
