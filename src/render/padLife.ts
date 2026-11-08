@@ -1,15 +1,19 @@
 // 停机坪上的人和货：每块坪有一个地勤，你朝他飞过来他举手引导，旋翼的风打过来他弯下腰；送到的物资堆在坪边上。
 // 一张图十几块坪：身体、两条手臂、货箱各一次实例绘制。只有画面，不碰物理。
+// 模型是 tools/blender/crew_sdf.py + crew.py 照 MOSS-Image 生成的设定图（art/src/ref/crew/）建的 models/crew.glb：
+// 藏青工装、橙色反光背心、带帽檐的安全帽和耳罩、白手套、指挥棒；货箱是钉木条的箱子。颜色都在顶点色里，四个网格共用一种材质。
+// 加载完之前先用下面几个简单几何体顶着。
 
 import * as THREE from 'three/webgpu';
 import type { MapDef, PadDef } from '../maps/types';
 import { padWorld } from '../maps/padLayout';
 import type { GameSession } from '../sim/session';
 import { markNearShadow } from './sunShadows';
+import { loadGltf } from './gltf';
 
 /** 肩膀离脚多高、左右多宽（米） */
 const SHOULDER = 1.42;
-const SHOULDER_W = 0.21;
+const SHOULDER_W = 0.205;
 
 const VEST = [0.95, 0.44, 0.06];
 const STRIPE = [0.86, 0.86, 0.78];
@@ -134,7 +138,10 @@ export class PadLife {
   private readonly armR: THREE.InstancedMesh;
   private readonly crates: THREE.InstancedMesh;
   private readonly mat = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
-  private readonly geos: THREE.BufferGeometry[];
+  private geos: THREE.BufferGeometry[];
+  /** 货箱多高：第三个箱子摞在前两个上面 */
+  private crateH = 0.94;
+  private disposed = false;
   /** 哪些坪上堆着货（坪的编号 → 第几批） */
   private stock = '';
 
@@ -146,11 +153,13 @@ export class PadLife {
       this.crew.push({ pad, x, y, z, yaw: 0, wave: 0, duck: 0, phase: x * 0.37 });
     }
     const n = Math.max(1, this.crew.length);
-    this.geos = [bodyGeometry(), armGeometry(), crateGeometry()];
+    const arm = armGeometry();
+    this.geos = [bodyGeometry(), arm, crateGeometry()];
     this.body = new THREE.InstancedMesh(this.geos[0], this.mat, n);
-    this.armL = new THREE.InstancedMesh(this.geos[1], this.mat, n);
-    this.armR = new THREE.InstancedMesh(this.geos[1], this.mat, n);
+    this.armL = new THREE.InstancedMesh(arm, this.mat, n);
+    this.armR = new THREE.InstancedMesh(arm, this.mat, n);
     this.crates = new THREE.InstancedMesh(this.geos[2], this.mat, n * 4);
+    void this.load();
     for (const m of [this.body, this.armL, this.armR, this.crates]) {
       m.frustumCulled = false;
       m.castShadow = true;
@@ -163,6 +172,38 @@ export class PadLife {
     markNearShadow(this.group);
   }
 
+  /** 换成 Blender 建的模型。失败了就继续用简单几何体，不影响别的 */
+  private async load(): Promise<void> {
+    try {
+      const gltf = await loadGltf('models/crew.glb');
+      const pick = (name: string): THREE.BufferGeometry | null => {
+        const o = gltf.scene.getObjectByName(name) as THREE.Mesh | undefined;
+        return o?.isMesh ? o.geometry : null;
+      };
+      const body = pick('crew_body');
+      const armR = pick('crew_arm_R');
+      const armL = pick('crew_arm_L');
+      const crate = pick('crate');
+      // glb 里的材质不用：四个网格共用 this.mat（顶点色）
+      gltf.scene.traverse((o) => ((o as THREE.Mesh).material as THREE.Material | undefined)?.dispose?.());
+      if (!body || !armR || !armL || !crate || this.disposed) {
+        for (const g of [body, armR, armL, crate]) g?.dispose();
+        return;
+      }
+      for (const g of this.geos) g.dispose();
+      this.geos = [body, armR, armL, crate];
+      this.body.geometry = body;
+      this.armR.geometry = armR;
+      this.armL.geometry = armL;
+      this.crates.geometry = crate;
+      crate.computeBoundingBox();
+      this.crateH = crate.boundingBox!.max.y;
+      if (this.stock) this.stack();
+    } catch (e) {
+      console.warn('地勤模型加载失败，用简单几何体代替：', e);
+    }
+  }
+
   /** 这块坪上堆一批货：卸一次堆一批 */
   private stack(): void {
     let i = 0;
@@ -171,7 +212,7 @@ export class PadLife {
       const pad = this.crew.find((c) => c.pad.id === id)?.pad;
       if (!pad || i + 3 > this.crates.instanceMatrix.count) continue;
       const e = pad.size * 0.42;
-      for (const [dx, dy, dz, r] of [[0, 0, 0, 0.1], [1.2, 0, 0.1, -0.08], [0.55, 0.94, 0.04, 0.3]]) {
+      for (const [dx, dy, dz, r] of [[0, 0, 0, 0.1], [1.2, 0, 0.1, -0.08], [0.55, this.crateH, 0.04, 0.3]]) {
         const [x, y, z] = padWorld(pad, -e + dx, 0.02 + dy, e - 0.8 + dz);
         _m.compose(_p.set(x, y, z), _q.setFromAxisAngle(_y, (pad.rotY ?? 0) + r), _s.set(1, 1, 1));
         this.crates.setMatrixAt(i++, _m);
@@ -231,6 +272,7 @@ export class PadLife {
   }
 
   dispose(): void {
+    this.disposed = true;
     for (const m of [this.body, this.armL, this.armR, this.crates]) m.dispose();
     for (const g of this.geos) g.dispose();
     this.mat.dispose();

@@ -15,6 +15,7 @@ from mathutils import Vector
 
 sys.path.insert(0, os.path.dirname(__file__))
 import bkit as K  # noqa: E402
+import pilot_gear as PG  # noqa: E402
 
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 OUT_GLB = argv[0] if argv else 'public/models/pilot.glb'
@@ -26,19 +27,34 @@ K.reset()
 tx = 'art/out/tex/'
 fabric = dict(normal=tx + 'suit_nor_gl_1024.jpg', rough_tex=tx + 'suit_rough_1024.jpg', normal_strength=0.8)
 leather = dict(normal=tx + 'grain_nor_gl_1024.jpg', rough_tex=tx + 'leather_rough_1024.jpg', normal_strength=0.55)
+# 颜色照 MOSS-Image 生成的设定图（art/src/ref/pilot/sheet_s11.png、sheet_s33.png、helmet_s5.png）取的色。
+# 名字以 plh_ 开头的材质只在头上：第一人称时摄像机在头里面，游戏里按这个前缀把它们藏起来。
 M = {
-    # 飞行服：灰绿色阻燃布
-    'suit': K.material('pl_suit', 0x808080, rough=1.0, tex=tx + 'suit_diffuse_1024.jpg', **fabric),
-    # 手套：手背是浅色织物，手心是软皮。颜色在顶点色里（分界线是渐变的，减面也不会变成锯齿）
-    'glove': K.material('pl_glove', 0x808080, rough=0.72, normal=tx + 'grain_nor_gl_1024.jpg', normal_strength=0.4),
-    'helmet': K.material('pl_helmet', 0xc7c9c6, rough=0.34, coat=0.4),
-    'visor': K.material('pl_visor', 0x0d0f12, rough=0.08),
-    'boot': K.material('pl_boot', 0x1b1a1a, rough=0.5, **leather),
-    'sole': K.material('pl_sole', 0x0e0e0f, rough=0.85),
-    'strap': K.material('pl_strap', 0x3f3e39, rough=0.85),
+    # 飞行服：灰绿色阻燃布（pilot_textures.py 把布纹重新上色）
+    'suit': K.material('pl_suit', 0xffffff, rough=1.0, tex=tx + 'pilot_suit_diffuse_1024.jpg', **fabric),
+    # 手套：手背棕褐色阻燃布，手心深棕软皮。颜色在顶点色里（分界线是渐变的，减面也不会变成锯齿）
+    'glove': K.material('pl_glove', 0x808080, rough=0.52, normal=tx + 'grain_nor_gl_1024.jpg', normal_strength=0.75),
+    # 黑色网眼背心和胸袋
+    'vest': K.material('pl_vest', 0x808080, rough=0.82, tex=tx + 'seatmesh_diffuse_1024.jpg', normal=tx + 'seatmesh_nor_gl_1024.jpg', normal_strength=0.9),
+    # 领口里的 T 恤
+    'tee': K.material('pl_tee', 0x34373a, rough=0.95, normal=tx + 'suit_nor_gl_1024.jpg', normal_strength=0.4),
+    'boot': K.material('pl_boot', 0x5a3424, rough=0.38, **leather),
+    'sole': K.material('pl_sole', 0x15120f, rough=0.85),
+    'strap': K.material('pl_strap', 0x1d1e20, rough=0.85),
     'metal': K.material('pl_metal', 0x9a9ea3, rough=0.32, metal=1.0),
     'watch': K.material('pl_watch', 0x101012, rough=0.35),
     'dial': K.material('pl_dial', 0x24282c, rough=0.25),
+    # 护膝板：黑色硬板，上面夹一张检查单
+    'pl_kneeboard': K.material('pl_kneeboard', 0x18191b, rough=0.6),
+    'pl_paper': K.material('pl_paper', 0xffffff, rough=0.9, tex=tx + 'kneeboard_paper.png'),
+    # 头上的：脸（颜色在顶点色里）、白色亮面头盔、黑色罩壳、烟色面罩、橡胶包边、麦克风海绵
+    'skin': K.material('plh_skin', 0xffffff, rough=0.52),
+    'plh_shell': K.material('plh_shell', 0xedeeec, rough=0.20, coat=0.6),
+    'plh_black': K.material('plh_black', 0x18181a, rough=0.48),
+    'plh_visor': K.material('plh_visor', 0x060708, rough=0.04, coat=1.0),
+    'plh_rubber': K.material('plh_rubber', 0x111111, rough=0.85),
+    'plh_foam': K.material('plh_foam', 0x141414, rough=1.0),
+    'plh_metal': K.material('plh_metal', 0x9a9ea3, rough=0.3, metal=1.0),
 }
 
 with open(os.path.join(SRC, 'skeleton.json'), encoding='utf-8') as f:
@@ -63,7 +79,7 @@ for name, b in SK.items():
 bpy.ops.object.mode_set(mode='OBJECT')
 rig.select_set(False)
 
-TARGET = {'hand': 16000, 'arm': 26000, 'torso': 20000, 'leg': 26000, 'boot': 6000, 'head': 3500}
+TARGET = {'hand': 16000, 'arm': 26000, 'torso': 42000, 'leg': 28000, 'boot': 7000, 'head': 16000}
 
 
 def use_vertex_color(mat):
@@ -76,6 +92,7 @@ def use_vertex_color(mat):
 
 
 use_vertex_color(M['glove'])
+use_vertex_color(M['skin'])
 
 
 def load_part(name):
@@ -158,7 +175,7 @@ def strip(name, pts, width, thick, mat, bone):
 
 X0 = 0.45
 for sx, nm in ((1, 'R'), (-1, 'L')):
-    pts = K.round_path([(X0 + sx * 0.082, 0.81, 0.272), (X0 + sx * 0.086, 0.90, 0.272), (X0 + sx * 0.088, 0.985, 0.222), (X0 + sx * 0.086, 1.040, 0.10), (X0 + sx * 0.070, 1.048, -0.05), (X0 + sx * 0.030, 1.070, -0.195)], 0.05, 5)
+    pts = K.round_path([(X0 + sx * 0.082, 0.81, 0.284), (X0 + sx * 0.086, 0.90, 0.286), (X0 + sx * 0.088, 0.995, 0.236), (X0 + sx * 0.086, 1.058, 0.10), (X0 + sx * 0.070, 1.066, -0.05), (X0 + sx * 0.030, 1.080, -0.195)], 0.05, 5)
     PARTS.append(strip(f'sh_{nm}', pts, 0.048, 0.0035, 'strap', 'spine'))
     lp = K.round_path([(X0 + sx * 0.190, 0.985, -0.262), (X0 + sx * 0.155, 1.058, -0.238), (X0 + sx * 0.075, 1.086, -0.222), (X0 + sx * 0.030, 1.090, -0.212)], 0.04, 4)
     PARTS.append(strip(f'lap_{nm}', lp, 0.048, 0.0035, 'strap', 'pelvis'))
@@ -210,6 +227,14 @@ bm.free()
 K.fix_normals(band)
 PARTS.append(skin_all(band, 'fore_L'))
 
+# 头盔（在 Blender 里建）跟着头；护膝板跟着右大腿；背心和腰带的扣子跟着上身
+for ob in PG.build_helmet(M):
+    PARTS.append(skin_all(ob, 'head'))
+for ob in PG.build_kneeboard(M, SK['thigh_R']['head'], SK['thigh_R']['tail']):
+    PARTS.append(skin_all(ob, 'thigh_R'))
+for ob in PG.build_vest_hardware(M):
+    PARTS.append(skin_all(ob, 'spine'))
+
 for ob in PARTS:
     if ob.data.uv_layers.get('UVMap') is None:
         K.uv_box(ob, 1 / 0.15)
@@ -222,11 +247,22 @@ if PREVIEW:
     if COCKPIT:
         bpy.ops.import_scene.gltf(filepath=os.path.abspath(COCKPIT))
     K.world_sky(1.0, sun_dir=(0.55, -0.35, 0.75), sun_strength=4.5)
+    # 第一人称的几张：和游戏里一样，头上的东西不显示（摄像机在头里面）
+    headobs = [o for o in PARTS if o.data.materials and o.data.materials[0].name.startswith('plh_')]
+    for o in headobs:
+        o.hide_render = True
     eye = Vector((0.45, 1.0, 0.42))
     K.render(os.path.join(PREVIEW, 'p_eye.png'), K.camera('c1', eye, eye + Vector((-0.08, 0.62, -0.78)), fov_deg=78), (1280, 720), samples=48)
     K.render(os.path.join(PREVIEW, 'p_hand.png'), K.camera('c2', (0.82, 1.15, 0.25), (0.45, 1.30, -0.12), fov_deg=38), (1000, 750), samples=48, exposure=0.5)
     K.render(os.path.join(PREVIEW, 'p_left.png'), K.camera('c3', (-0.25, 1.05, 0.12), (0.26, 1.15, -0.32), fov_deg=38), (1000, 750), samples=48, exposure=0.5)
+    for o in headobs:
+        o.hide_render = False
     K.render(os.path.join(PREVIEW, 'p_side.png'), K.camera('c4', (2.1, 1.05, 0.05), (0.45, 1.1, -0.2), fov_deg=45), (1000, 750), samples=32, exposure=0.8)
+    # 从外面看：脸和头盔的正面、四分之三侧面，全身
+    hc = PG.HEAD_C
+    K.render(os.path.join(PREVIEW, 'p_face.png'), K.camera('c5', hc + Vector((-0.10, 0.62, 0.02)), hc + Vector((0, 0.04, -0.03)), fov_deg=30), (900, 900), samples=64)
+    K.render(os.path.join(PREVIEW, 'p_face34.png'), K.camera('c6', hc + Vector((-0.46, 0.44, 0.08)), hc + Vector((0, 0.03, -0.03)), fov_deg=30), (900, 900), samples=64)
+    K.render(os.path.join(PREVIEW, 'p_body.png'), K.camera('c7', (-0.45, 2.7, 0.35), (0.45, 1.05, -0.08), fov_deg=40), (1000, 1000), samples=48)
 
 objs = [rig] + PARTS
 K.export_glb(OUT_GLB, objs, qpos=14, qnorm=10)

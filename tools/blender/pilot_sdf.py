@@ -261,6 +261,8 @@ def frame(x, up_hint):
 
 SEAT_X = 0.45
 EYE = V(SEAT_X, 1.00, 0.42)
+# 头的中心（头盔、脸都按它摆；pilot.py 里的头盔用同一个点）
+HEAD_C = V(SEAT_X, 0.945, 0.415)
 # 肩、髋
 SHOULDER = {'R': V(0.650, 0.905, 0.165), 'L': V(0.250, 0.905, 0.165)}
 HIP = {'R': V(0.540, 0.965, -0.235), 'L': V(0.360, 0.965, -0.235)}
@@ -301,6 +303,8 @@ def skeleton():
     chest = V(SEAT_X, 0.905, 0.135)
     add('pelvis', None, pelvis, pelvis + V(0, -0.01, 0.12))
     add('spine', 'pelvis', pelvis + V(0, -0.01, 0.12), chest)
+    # 头：脖子根到头的中心。脸和头盔都挂在这根骨头上，游戏里可以让飞行员转头
+    add('head', 'spine', V(SEAT_X, 0.915, 0.250), HEAD_C)
     for s in 'RL':
         sh = SHOULDER[s]
         w = wrist_of(s)
@@ -363,11 +367,11 @@ def glove_colors(v):
     segs = []
     for nm, f in HAND_R.items():
         p = finger_joints(f)
-        segs += [(p[i], p[i + 1], f['r'][i], i == 2, None) for i in range(3)]
+        segs += [(p[i], p[i + 1], f['r'][i], i, None) for i in range(3)]
     t = thumb_joints()
     pad = unit(V(0.30, -0.62, 0.72))
-    segs += [(t[i], t[i + 1], THUMB['r'][i], i == 2, pad) for i in range(3)]
-    for a, b_, r, tip, pd in segs:
+    segs += [(t[i], t[i + 1], THUMB['r'][i], i, pad) for i in range(3)]
+    for a, b_, r, seg_i, pd in segs:
         ab = b_ - a
         L2 = ab @ ab
         tt = np.clip(((v - a) @ ab) / L2, 0, 1)
@@ -377,18 +381,30 @@ def glove_colors(v):
         want = pd if pd is not None else V(0, -1, 0)
         pal = unit(want - d * (want @ d))
         s = sstep(-0.42, 0.28, (off @ pal) / r)
-        if tip:
+        # 设定图里的手套：指尖和中节一整圈都是深棕皮，手背的布只到第一节
+        if seg_i == 2:
+            s = np.maximum(s, sstep(0.05, 0.25, tt))
+        elif seg_i == 1:
+            s = np.maximum(s, sstep(0.45, 0.80, tt))
+        if seg_i == 2:
             # 指尖一圈都是皮
             s = np.maximum(s, sstep(0.45, 0.72, tt))
         m = dist < best
         near = dist < r * 1.9
         side = np.where(m & near, s, side)
         best = np.where(m, dist, best)
-    back = V(0.310, 0.300, 0.235)
-    leather = V(0.215, 0.145, 0.085)
-    strap = V(0.115, 0.110, 0.092)
-    cuff = V(0.255, 0.245, 0.195)
+    # 颜色取自 MOSS-Image 生成的手套参考图（art/src/ref/pilot/glove_s9.png）：整只驼色软皮，手心稍深，
+    # 比皮肤更黄、更饱和（皮肤 G/R 约 0.56，这里 0.48），第一人称里一眼看得出是手套
+    back = V(0.342, 0.155, 0.055)
+    leather = V(0.290, 0.128, 0.044)
+    # 腕带上的魔术贴：灰褐色的毛面
+    strap = V(0.120, 0.094, 0.070)
+    cuff = V(0.310, 0.140, 0.050)
     c = back[None] * (1 - side[:, None]) + leather[None] * side[:, None]
+    # 手背和手心的接缝（手指两侧）、指根那道横缝：深一点的缝线
+    seam = np.exp(-(((side - 0.5) / 0.10) ** 2))
+    knuckle = np.exp(-(((v[:, 0] - 0.074) / 0.0026) ** 2)) * (v[:, 1] > 0.004)
+    c = c * (1 - 0.42 * np.maximum(seam, knuckle)[:, None])
     # 手背指根的护垫和掌心的磨损：颜色深一点
     k = sstep(-0.004, -0.010, v[:, 0] - 0.0)
     c = c * (1 - k[:, None]) + cuff[None] * k[:, None]
@@ -415,8 +431,28 @@ def build_hand(side, b):
         pts = finger_joints(f)
         fd = None
         for i in range(3):
-            c = d_cone(g, pts[i], pts[i + 1], f['r'][i], f['r'][i + 1])
+            # 皮手套比手指粗一圈
+            c = d_cone(g, pts[i], pts[i + 1], f['r'][i] * 1.07, f['r'][i + 1] * 1.07)
             fd = c if fd is None else smin(fd, c, 0.0016)
+        # 手指两侧凸起的缝线（皮手套的指缝）
+        for i in (0, 1):
+            ax_ = unit(pts[i + 1] - pts[i])
+            for sz in (-1, 1):
+                off = V(0, 0, sz * f['r'][i] * 0.97)
+                fd = smin(fd, d_cone(g, pts[i] + off + ax_ * 0.002, pts[i + 1] + off * 0.98 - ax_ * 0.001, 0.0011, 0.0010), 0.0012)
+            # 手指背面两道顺着手指的缝（参考图 glove_s9 手背上最显眼的就是这个）
+            up_ = unit(V(0, 1, 0) - ax_ * ax_[1])
+            for sz in (-1, 1):
+                off = (up_ * 0.80 + V(0, 0, sz * 0.60)) * f['r'][i] * 1.05
+                fd = smin(fd, d_cone(g, pts[i] + off + ax_ * 0.003, pts[i + 1] + off - ax_ * 0.002, 0.0010, 0.0009), 0.0010)
+        # 手套在指关节背面堆起的几道皱褶
+        for i in (1, 2):
+            ax_ = unit(pts[i + 1] - pts[i - 1])
+            up_ = unit(V(0, 1, 0) - ax_ * ax_[1])
+            for k, off in enumerate((-0.0042, 0.0, 0.0042)):
+                cc = pts[i] + ax_ * off + up_ * f['r'][i] * 0.92
+                # 横跨手指的一道细棱：手掌坐标里手指的左右方向就是 z
+                fd = smin(fd, d_ellipsoid(g, cc, V(0.0016, 0.0016, f['r'][i] * 0.85)), 0.0015)
         # 指关节处微微鼓起
         for i in (1, 2):
             fd = smin(fd, d_ellipsoid(g, pts[i], V(f['r'][i] * 1.08, f['r'][i] * 1.08, f['r'][i] * 1.1)), 0.002)
@@ -429,18 +465,17 @@ def build_hand(side, b):
         c = d_cone(g, t[i], t[i + 1], THUMB['r'][i], THUMB['r'][i + 1])
         td = c if td is None else smin(td, c, 0.003)
     d = smin(d, td, 0.010)
-    # 掌骨在手背上的起伏
+    # 手背是一整块皮，看不到掌骨的起伏；指根关节处一块加厚的护垫
     for nm, f in HAND_R.items():
-        d = smin(d, d_cone(g, V(0.03, 0.009, f['mcp'][2] * 0.6), f['mcp'] + V(-0.002, 0.008, 0), 0.0045, 0.0062), 0.006)
-        # 指根关节的护垫（手套上一块加厚）
         d = smin(d, d_ellipsoid(g, f['mcp'] + V(0.002, 0.0095, 0), V(0.0115, 0.0052, 0.0098)), 0.0032)
     # 手套的袖筒：比手腕大一圈，往后张开
     cuffy = (g.y + 0.001) * 1.42
     cz = g.z
     r = np.sqrt(cuffy ** 2 + cz ** 2)
-    xx = np.clip((-0.012 - g.x) / 0.030, 0, 1)
-    cuff = (r - (0.0315 + 0.0030 * xx)) * 0.72
-    cuff = np.maximum(cuff, np.maximum(g.x + 0.006, -(g.x + 0.042)))
+    # 护腕比手腕大一圈、往后张开，盖过袖口
+    xx = np.clip((-0.012 - g.x) / 0.045, 0, 1)
+    cuff = (r - (0.0335 + 0.0045 * xx)) * 0.72
+    cuff = np.maximum(cuff, np.maximum(g.x + 0.006, -(g.x + 0.058)))
     d = smin(d, cuff, 0.006)
     # 魔术贴腕带：绕手腕一圈的带子 + 手背上一块搭扣
     strap = (np.abs(g.x + 0.016) - 0.0115)
@@ -480,7 +515,8 @@ def build_arm(side, b):
     hi = np.maximum(np.maximum(s, e), w) + 0.09
     g = Grid(lo, hi, h)
     up = d_cone(g, s, e, 0.058, 0.046)
-    fo = d_cone(g, e, w - unit(w - e) * 0.006, 0.0465, 0.0365)
+    # 袖口停在手腕后面 3 厘米：露出手套的护腕和魔术贴
+    fo = d_cone(g, e, w - unit(w - e) * 0.048, 0.0465, 0.0380)
     d = smin(up, fo, 0.016)
     # 肩头：圆一点，和上身接上
     d = smin(d, d_ellipsoid(g, s + V(0, 0, 0.004), V(0.066, 0.066, 0.058)), 0.02)
@@ -505,14 +541,41 @@ def build_arm(side, b):
 
 
 # ------------------------------------------------------------------ 上身
-def build_torso(b):
-    h = 0.0042
-    g = Grid((SEAT_X - 0.33, 0.70, -0.42), (SEAT_X + 0.33, 1.20, 0.30), h)
-    # 一叠椭圆：每个高度上的中心和半宽、半厚
+def mx(*a):
+    """好几个距离场取最大（交集）；形状不同的数组会自动广播"""
+    out = a[0]
+    for x in a[1:]:
+        out = np.maximum(out, x)
+    return out
+
+
+def mn(*a):
+    out = a[0]
+    for x in a[1:]:
+        out = np.minimum(out, x)
+    return out
+
+
+def seg_dist2(px, py, p0, p1):
+    """平面上点到线段的距离（拉链、缝线用）"""
+    ax_, ay_ = p0
+    vx, vy = p1[0] - ax_, p1[1] - ay_
+    t = np.clip(((px - ax_) * vx + (py - ay_) * vy) / (vx * vx + vy * vy), 0, 1)
+    return np.sqrt((px - ax_ - t * vx) ** 2 + (py - ay_ - t * vy) ** 2)
+
+
+def sample_at(F, lo, h, v):
+    """格点上的距离场在顶点处的值（三线性插值）"""
+    coords = ((v - np.asarray(lo)) / h).T
+    return ndimage.map_coordinates(F, coords, order=1, mode='nearest')
+
+
+def torso_base(g):
+    """上身的形状（不含衣服细节）：一叠椭圆 + 斜方肌、胸肌。设定图里是宽肩、厚胸的身材"""
     zs = np.array([-0.40, -0.30, -0.20, -0.08, 0.05, 0.14, 0.205, 0.26])
     cy = np.array([0.965, 0.955, 0.935, 0.925, 0.915, 0.905, 0.900, 0.910])
-    ra = np.array([0.150, 0.185, 0.182, 0.158, 0.178, 0.192, 0.165, 0.070])
-    rb = np.array([0.100, 0.130, 0.128, 0.112, 0.128, 0.122, 0.100, 0.062])
+    ra = np.array([0.150, 0.182, 0.174, 0.156, 0.180, 0.198, 0.170, 0.068])
+    rb = np.array([0.100, 0.128, 0.125, 0.110, 0.128, 0.124, 0.102, 0.060])
     z = g.z.astype(np.float64)
     c = np.interp(z, zs, cy)
     a = np.interp(z, zs, ra)
@@ -523,31 +586,80 @@ def build_torso(b):
     d = (k - 1) * np.minimum(a, bb)
     d = smax(d, (g.z - 0.27), 0.03)
     d = smax(d, (-0.40 - g.z), 0.02)
-    d = d.astype(F32)
-    # 衣服：胸前的褶皱、腰带下的堆积
-    tz = (z - (-0.40)) / 0.67
+    for s in (-1, 1):
+        # 斜方肌：脖子根斜着下到肩头
+        d = smin(d, d_cone(g, V(SEAT_X + s * 0.035, 0.902, 0.245), V(SEAT_X + s * 0.175, 0.900, 0.178), 0.046, 0.050), 0.035)
+        # 胸肌：胸口宽一点、厚一点
+        d = smin(d, d_ellipsoid(g, V(SEAT_X + s * 0.078, 0.972, 0.098), V(0.082, 0.050, 0.062)), 0.035)
+    return d.astype(F32), c, dx, dy, z
+
+
+def build_torso(b):
+    """上身：飞行服（衣领、拉链、斜拉链胸袋）+ 黑色网眼背心（两个胸袋、肩带）+ 腰带。
+    样子照 MOSS-Image 生成的设定图（art/src/ref/pilot/sheet_s11.png、sheet_s33.png）"""
+    h = 0.0034
+    g = Grid((SEAT_X - 0.33, 0.70, -0.42), (SEAT_X + 0.33, 1.20, 0.33), h)
+    body, c, dx, dy, z = torso_base(g)
     th = np.arctan2(dx, dy)
-    F = d - folds(tz, th, 7, 0.0130, [(0.30, 0.17, 0.0), (0.62, 0.22, 0.6), (0.62, 0.22, -0.6)]) - lumps(g.shape, 9.0, 0.0030)
-    # 拉链：中线上一道细棱，两边压进去一点
-    zip_ = np.exp(-((dx / 0.0035) ** 2)) * (dy > 0)
-    gut = np.exp(-((dx / 0.012) ** 2)) * (dy > 0)
-    F = F - 0.0016 * zip_ + 0.0012 * gut
-    # 胸前两个口袋
-    for sx in (-1, 1):
-        px = dx * sx
-        m = np.clip((px - 0.040) / 0.004, 0, 1) * np.clip((0.135 - px) / 0.004, 0, 1) * np.clip((g.z - 0.015) / 0.004, 0, 1) * np.clip((0.125 - g.z) / 0.004, 0, 1) * (dy > 0)
-        F = F - 0.0032 * m
-        # 袋盖
-        m2 = np.clip((px - 0.036) / 0.003, 0, 1) * np.clip((0.139 - px) / 0.003, 0, 1) * np.clip((g.z - 0.098) / 0.003, 0, 1) * np.clip((0.132 - g.z) / 0.003, 0, 1) * (dy > 0)
-        F = F - 0.0022 * m2
-    # 腰带
-    belt = np.exp(-(((z + 0.135) / 0.020) ** 2))
-    F = F - (0.0030 * belt).astype(F32)
-    v, q = surface_nets(F.astype(F32), g.lo, h)
+    tz = (z - (-0.40)) / 0.67
+    front = dy > 0
+    adx = np.abs(dx)
+    # ---- 飞行服
+    suit = body - folds(tz, th, 7, 0.0115, [(0.30, 0.17, 0.0), (0.62, 0.22, 0.6), (0.62, 0.22, -0.6)]) - lumps(g.shape, 9.0, 0.0026)
+    # 拉链：中线上一道细棱，两边压进去一点（从衣领的 V 口一直往下）
+    zip_ = np.exp(-((dx / 0.0032) ** 2)) * front * (z < 0.232)
+    gut = np.exp(-((dx / 0.011) ** 2)) * front * (z < 0.232)
+    suit = suit - 0.0017 * zip_ + 0.0011 * gut
+    for s in (-1, 1):
+        # 胸前的斜拉链口袋：拉链从领口外侧斜着往下，下面一块补片
+        p0, p1 = (s * 0.040, 0.168), (s * 0.140, 0.080)
+        dseg = seg_dist2(dx, z, p0, p1)
+        suit = suit - 0.0017 * np.exp(-((dseg / 0.0024) ** 2)) * front
+        below = (z < 0.168 + (dx * s - 0.040) * (0.080 - 0.168) / 0.100) & (z > 0.035) & (dx * s > 0.036) & (dx * s < 0.150)
+        suit = suit - 0.0010 * below * front
+    # 腰上的松紧：飞行服自带的布腰带
+    suit = suit - 0.0024 * np.exp(-(((z + 0.150) / 0.016) ** 2))
+    suit = suit.astype(F32)
+    # ---- 衣领：脖子根一圈立着的领子，前面开 V 口；里面露一圈灰色 T 恤
+    gy = g.y - 0.918
+    rr = np.sqrt(dx ** 2 + (gy * 1.05) ** 2)
+    thn = np.arctan2(dx, gy)
+    zc = 0.262 - 0.024 * np.cos(thn)
+    # 领子往外翻一点（越往上越大）
+    rcol = 0.074 + 0.10 * np.clip(g.z - zc + 0.024, 0, 0.05)
+    collar = mx(np.abs(rr - rcol) - 0.0058, np.abs(g.z - zc - 0.004) - 0.026, (np.cos(thn) - 0.82) * 0.05).astype(F32)
+    tee = mx(np.abs(rr - 0.0615) - 0.0042, np.abs(g.z - (zc - 0.010)) - 0.013, -(np.cos(thn) - 0.30) * 0.05).astype(F32)
+    # ---- 背心：贴着衣服外面 1 厘米的一层壳，只留背心的范围（前片、后片、腋下、肩带）
+    shell = np.abs(body - 0.012) - 0.0048
+    r_front = mx(0.068 - adx, adx - 0.190, z - 0.142, -0.135 - z, -(dy + 0.03))
+    r_back = mx(adx - 0.172, z - 0.222, -0.135 - z, dy - 0.01)
+    r_side = mx(-0.135 - z, z - 0.03, 0.068 - adx)
+    r_strap = mx(0.058 - adx, adx - 0.122, 0.10 - z)
+    vest = smax(shell, mn(r_front, r_back, r_side, r_strap), 0.003)
+    I3 = np.eye(3)
+    for s in (-1, 1):
+        # 胸袋：贴在背心前片上，跟着身体侧面转 32°；上面一块袋盖
+        ang = s * math.radians(32)
+        R = rot_z(-ang)
+        n = V(math.sin(ang), math.cos(ang), 0)
+        base = V(SEAT_X + s * 0.112, 1.0082, -0.02)
+        pc = base + n * 0.040
+        vest = np.minimum(vest, d_box(g, pc, V(0.040, 0.022, 0.060), R, 0.008))
+        vest = np.minimum(vest, d_box(g, pc + n * 0.002 + V(0, 0, 0.050), V(0.043, 0.024, 0.014), R, 0.006))
+    vest = vest.astype(F32)
+    # ---- 腰带：背心下沿外面一圈尼龙织带
+    belt = mx(np.abs(body - 0.0158) - 0.0042, np.abs(z + 0.112) - 0.021).astype(F32)
+    parts = [suit, vest, belt, tee, collar]
+    F = mn(*parts)
+    v, q = surface_nets(F, g.lo, h)
     v = smooth_mesh(v, q, 2, 0.5)
+    # 分区：顶点离哪一层最近就是哪种材质（衣领算飞行服）
+    vals = np.stack([sample_at(p, g.lo, h, v) for p in parts], 1)
+    zone = np.argmin(np.abs(vals), 1).astype(np.int32)
+    zone[zone == 4] = 0
     names = ['pelvis', 'spine']
     idx, wt = weights_for(v, b, names, power=3.0, floor=0.03)
-    return dict(v=v, q=q, zone=np.zeros(len(v), np.int32), bones=names, idx=idx, wt=wt, mats=['suit'])
+    return dict(v=v, q=q, zone=zone, bones=names, idx=idx, wt=wt, mats=['suit', 'vest', 'strap', 'tee'])
 
 
 # ------------------------------------------------------------------ 腿和靴子
@@ -576,6 +688,16 @@ def build_leg(side, b):
     F = F - panel(t1, a1, 0.30, 0.42, -0.80, 0.80, 0.0030)
     # 小腿外侧的长条口袋
     F = F - panel(t2, a2, 0.18, 0.62, -0.46, 0.46, 0.0040)
+    # 大腿正面的斜拉链口袋（设定图 s33）：坐着的时候在大腿上面，低头看得到；小腿口袋上一道竖拉链
+    top = -math.pi / 2 if side == 'R' else math.pi / 2
+    Lth = float(np.linalg.norm(kn - hip))
+    Lsh = float(np.linalg.norm(an - kn))
+    dz1 = seg_dist2(t1 * Lth, a1 * 0.075, (0.07 * Lth, (top - 0.62) * 0.075), (0.40 * Lth, (top + 0.28) * 0.075))
+    F = F - 0.0017 * np.exp(-((dz1 / 0.0026) ** 2)) * (t1 > 0) * (t1 < 1)
+    dz2 = seg_dist2(t2 * Lsh, a2 * 0.05, (0.22 * Lsh, 0.0), (0.58 * Lsh, 0.0))
+    F = F - 0.0014 * np.exp(-((dz2 / 0.0022) ** 2)) * (t2 > 0) * (t2 < 1)
+    # 脚踝的松紧收口（盖在靴筒上）
+    F = F - 0.0030 * np.exp(-(((t2 - 0.93) / 0.03) ** 2)) * (t2 < 1.1)
     v, q = surface_nets(F, g.lo, h)
     v = smooth_mesh(v, q, 2, 0.5)
     names = [f'thigh_{side}', f'shin_{side}', 'pelvis', f'foot_{side}']
@@ -629,25 +751,62 @@ def build_boot(side, b):
 
 # ------------------------------------------------------------------ 头盔（只有外面的镜头看得到）
 def build_head(b):
-    h = 0.0036
-    c = V(SEAT_X, 0.945, 0.415)
-    g = Grid(c - 0.17, c + 0.17, h)
-    shell = d_ellipsoid(g, c + V(0, -0.012, 0.018), V(0.112, 0.133, 0.122))
-    # 下巴和耳罩
-    d = smin(shell, d_ellipsoid(g, c + V(0, 0.016, -0.095), V(0.075, 0.085, 0.060)), 0.02)
-    for sx in (-1, 1):
-        d = smin(d, d_ellipsoid(g, c + V(sx * 0.098, -0.012, -0.032), V(0.030, 0.056, 0.060)), 0.012)
-    d = smin(d, d_cone(g, c + V(0, -0.02, -0.11), c + V(0, -0.03, -0.17), 0.058, 0.062), 0.02)
-    # 面窗：前面切一个斜面，里面放一块深色的护目镜
-    open_ = d_ellipsoid(g, c + V(0, 0.126, -0.030), V(0.093, 0.056, 0.070))
-    d = smax(d, -open_, 0.010)
-    F = np.minimum(d, d_ellipsoid(g, c + V(0, 0.056, 0.0), V(0.092, 0.082, 0.078)))
-    v, q = surface_nets(F, g.lo, h)
-    v = smooth_mesh(v, q, 2, 0.5)
-    n = (v - c)
-    zone = ((n[:, 1] > 0.06) & (n[:, 2] > -0.1) & (np.abs(n[:, 0]) < 0.092) & (n[:, 2] < 0.075)).astype(np.int32)
-    names = ['spine']
-    return dict(v=v, q=q, zone=zone, bones=names, idx=np.zeros((len(v), 1), np.int32), wt=np.ones((len(v), 1), np.float32), mats=['helmet', 'visor'])
+    """脸和脖子（头盔在 pilot.py 里用 Blender 建）。照 MOSS-Image 的特写（art/src/ref/pilot/face_s7.png）：
+    方下巴、高颧骨、挺直的鼻梁，下巴和上唇一层短胡茬。面罩放下来盖到鼻梁中间，眼睛只做了闭着的眼皮。"""
+    h = 0.0015
+    c = HEAD_C
+    g = Grid(c + V(-0.092, -0.07, -0.235), c + V(0.092, 0.13, 0.115), h)
+
+    def L(x, y, z):
+        return c + V(x, y, z)
+
+    I3 = np.eye(3)
+    d = d_ellipsoid(g, L(0, -0.005, 0.012), V(0.073, 0.096, 0.102))
+    # 下颌：宽、方
+    d = smin(d, d_ellipsoid(g, L(0, 0.032, -0.056), V(0.062, 0.066, 0.056)), 0.03)
+    for s in (-1, 1):
+        d = smin(d, d_ellipsoid(g, L(s * 0.050, 0.012, -0.072), V(0.020, 0.032, 0.024)), 0.022)
+        # 颧骨
+        d = smin(d, d_ellipsoid(g, L(s * 0.049, 0.058, -0.004), V(0.023, 0.020, 0.016)), 0.020)
+    # 下巴
+    d = smin(d, d_ellipsoid(g, L(0, 0.080, -0.097), V(0.025, 0.021, 0.022)), 0.016)
+    # 眉弓
+    d = smin(d, d_ellipsoid(g, L(0, 0.084, 0.032), V(0.058, 0.014, 0.013)), 0.012)
+    # 鼻子：鼻梁、鼻头、鼻翼，两个鼻孔
+    d = smin(d, d_cone(g, L(0, 0.090, 0.018), L(0, 0.109, -0.022), 0.0085, 0.0115), 0.008)
+    d = smin(d, d_ellipsoid(g, L(0, 0.1085, -0.026), V(0.013, 0.012, 0.011)), 0.006)
+    for s in (-1, 1):
+        d = smin(d, d_ellipsoid(g, L(s * 0.0145, 0.0975, -0.031), V(0.0085, 0.0085, 0.0075)), 0.005)
+        d = smax(d, -d_ellipsoid(g, L(s * 0.0075, 0.1035, -0.0365), V(0.0042, 0.0050, 0.0028)), 0.0015)
+        # 眼窝和闭着的眼皮（面罩后面）
+        d = smax(d, -d_ellipsoid(g, L(s * 0.031, 0.086, 0.011), V(0.017, 0.010, 0.0095)), 0.006)
+        d = smin(d, d_ellipsoid(g, L(s * 0.031, 0.079, 0.011), V(0.0135, 0.009, 0.009)), 0.003)
+    # 嘴唇、人中、嘴缝
+    d = smin(d, d_ellipsoid(g, L(0, 0.0945, -0.0505), V(0.0245, 0.0085, 0.0062)), 0.004)
+    d = smin(d, d_ellipsoid(g, L(0, 0.0915, -0.0615), V(0.0215, 0.0090, 0.0072)), 0.004)
+    d = smax(d, -d_ellipsoid(g, L(0, 0.1025, -0.0435), V(0.0042, 0.0028, 0.0055)), 0.002)
+    d = smax(d, -d_box(g, L(0, 0.103, -0.0558), V(0.0235, 0.012, 0.0007), I3, 0.0005), 0.0008)
+    # 脖子和喉结
+    d = smin(d, d_cone(g, L(0, -0.006, -0.06), L(0, -0.028, -0.225), 0.054, 0.059), 0.03)
+    d = smin(d, d_ellipsoid(g, L(0, 0.038, -0.140), V(0.011, 0.011, 0.016)), 0.012)
+    v, q = surface_nets(d.astype(F32), g.lo, h)
+    v = smooth_mesh(v, q, 3, 0.45)
+    # 皮肤的颜色（顶点色）：底色、嘴唇、胡茬
+    p = v - c
+    skin = V(0.540, 0.296, 0.188)
+    lips = V(0.393, 0.150, 0.120)
+    stub = V(0.200, 0.140, 0.125)
+    lipm = np.exp(-((p[:, 0] / 0.022) ** 4) - (((p[:, 2] + 0.056) / 0.011) ** 2)) * (p[:, 1] > 0.08)
+    beard = (sstep(-0.035, -0.052, p[:, 2]) * sstep(0.035, 0.065, p[:, 1]) + np.exp(-((p[:, 0] / 0.02) ** 2) - (((p[:, 2] + 0.044) / 0.006) ** 2)) * (p[:, 1] > 0.09))
+    beard = np.clip(beard, 0, 1) * (1 - lipm) * sstep(-0.140, -0.112, p[:, 2]) * 0.42
+    col = skin[None] * (1 - beard[:, None]) + stub[None] * beard[:, None]
+    col = col * (1 - lipm[:, None]) + lips[None] * lipm[:, None]
+    # 脖子下半截跟着上身走，脸跟着头
+    names = ['head', 'spine']
+    t = np.clip((p[:, 2] + 0.205) / 0.07, 0, 1)
+    idx = np.tile(np.array([[0, 1]], np.int32), (len(v), 1))
+    wt = np.stack([t, 1 - t], 1).astype(np.float32)
+    return dict(v=v, q=q, zone=np.zeros(len(v), np.int32), bones=names, idx=idx, wt=wt, mats=['skin'], col=col.astype(np.float32))
 
 
 def main():

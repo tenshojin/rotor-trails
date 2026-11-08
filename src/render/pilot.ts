@@ -73,6 +73,11 @@ export interface PilotInputs {
   eye: THREE.Vector3;
   /** 刚动了总距键：手要回到杆上 */
   collectiveKey: boolean;
+  /** 机身的偏航角速度（rad/s，绕 +y，往左转为正）：外面看得到飞行员往转弯那边看 */
+  turn?: number;
+  /** 下降速度（m/s，往下为正）和离地高度：低空往下落的时候低头看地 */
+  sink?: number;
+  agl?: number;
 }
 
 export class PilotBody {
@@ -81,6 +86,10 @@ export class PilotBody {
   loaded = false;
   /** 探身的程度 0..1：相机也跟着往前一点 */
   lean = 0;
+  /** 头转了多少（rad）：只有外面的镜头看得到 */
+  private headYaw = 0;
+  private headPitch = 0;
+  private clock = 0;
   private bones = new Map<string, THREE.Bone>();
   private rest = new Map<string, Rest>();
   private arms: Partial<Record<'R' | 'L', Arm>> = {};
@@ -137,7 +146,8 @@ export class PilotBody {
           made.set(src, nm);
         }
         m.material = nm;
-        if (src.name === 'pl_helmet' || src.name === 'pl_visor') this.head.push(m);
+        // 头上的零件（材质名以 plh_ 开头：头盔、面罩、脸……）：第一人称时摄像机在头里面，要藏起来
+        if (src.name.startsWith('plh_') || src.name === 'pl_helmet' || src.name === 'pl_visor') this.head.push(m);
       }
     });
     this.arms.R = this.buildArm('R');
@@ -195,6 +205,30 @@ export class PilotBody {
       fingerNow: copyPose(POSES.grip),
       tip,
     };
+  }
+
+  /**
+   * 转头（绕脖子根）：往转弯的那一边看，低空往下落时低头看地，平时隔一阵左右看一眼。
+   * 世界朝向 = 转头 × 上身 × 头相对上身的静止姿态；骨头的局部朝向 = 上身⁻¹ × 世界朝向。
+   */
+  private turnHead(p: PilotInputs, spineQ: THREE.Quaternion): void {
+    const hb = this.bones.get('head');
+    const rh = this.rest.get('head');
+    const rs = this.rest.get('spine');
+    if (!hb || !rh || !rs) return;
+    const dt = p.dt;
+    this.clock += dt;
+    const t = this.clock;
+    const glance = 0.38 * Math.sin(t * 0.23) * Math.max(0, Math.sin(t * 0.051)) ** 3;
+    const yawWant = Math.max(-0.75, Math.min(0.75, (p.turn ?? 0) * 0.65 + glance));
+    const low = (p.agl ?? 99) < 45 && (p.sink ?? 0) > 0.8;
+    const pitchWant = low ? -0.32 : -0.04 + 0.05 * Math.sin(t * 0.17);
+    this.headYaw += (yawWant - this.headYaw) * (1 - Math.exp(-dt * 2.2));
+    this.headPitch += (pitchWant - this.headPitch) * (1 - Math.exp(-dt * 1.6));
+    const rel = _hq.copy(rs.world).invert().multiply(rh.world);
+    const look = _q2.setFromEuler(_eHead.set(this.headPitch, this.headYaw, 0, 'YXZ'));
+    const world = look.multiply(spineQ).multiply(rel);
+    hb.quaternion.copy(spineQ).invert().multiply(world);
   }
 
   /** 外面的镜头才看得到头盔：第一人称时摄像机就在头里面 */
@@ -325,6 +359,7 @@ export class PilotBody {
     spine.quaternion.copy(this.rest.get('pelvis') ? _q3.copy(this.rest.get('pelvis')!.world).invert() : _q3.identity()).multiply(spineQ);
     const lean = _sq2.setFromAxisAngle(_vx, -this.lean * 0.5);
     const shoulderAt = (name: string, out: THREE.Vector3) => out.copy(this.rest.get(name)!.pos).sub(rs.pos).applyQuaternion(lean).add(rs.pos);
+    this.turnHead(p, spineQ);
 
     // ---------- 右手：一直握着周期变距杆 ----------
     const sR = shoulderAt('upper_R', _sR);
@@ -416,6 +451,7 @@ export class PilotBody {
 }
 
 const _vx = new THREE.Vector3(1, 0, 0);
+const _eHead = new THREE.Euler();
 const _elbow = new THREE.Vector3();
 const _uq = new THREE.Quaternion();
 const _fq = new THREE.Quaternion();

@@ -925,7 +925,7 @@ export class WorldView {
         this.pilot.root.visible = seated && !this.hideHeli;
         if (seated) {
           this.pilot.setView(cockpitView);
-          this.pilot.update({ dt: f.dt, cyclic: this.cockpit.stick('cyclic'), collective: this.cockpit.stick('collective'), pedal: tel.pedal, eye: _eye.set(eyeX, EYE.y, EYE.z), collectiveKey: s.input.vertical !== 0 });
+          this.pilot.update({ dt: f.dt, cyclic: this.cockpit.stick('cyclic'), collective: this.cockpit.stick('collective'), pedal: tel.pedal, eye: _eye.set(eyeX, EYE.y, EYE.z), collectiveKey: s.input.vertical !== 0, turn: s.body.angVel.y, sink: -s.body.vel.y, agl: s.agl });
           this.rig.lean = sys ? this.pilot.lean : 0;
         } else this.rig.lean = 0;
       }

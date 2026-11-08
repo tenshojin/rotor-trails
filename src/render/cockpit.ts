@@ -388,8 +388,8 @@ export class Cockpit {
   bodyMaterial(src: THREE.MeshStandardMaterial): THREE.MeshStandardNodeMaterial {
     const m = this.interiorMaterial(src, null);
     m.vertexColors = src.vertexColors;
-    // 手套的颜色在顶点色里：补光也要乘上它，不然白得发亮
-    if (src.vertexColors) m.emissiveNode = vertexColor().rgb.mul(CABIN_FILL).mul(0.65);
+    // 手套、脸的颜色在顶点色里：补光也要乘上它，不然白得发亮。脸只从外面看，补光少一半，鼻梁和下巴才有明暗
+    if (src.vertexColors) m.emissiveNode = vertexColor().rgb.mul(CABIN_FILL).mul(src.name === 'plh_skin' ? 0.3 : 0.65);
     this.mats.add(m);
     return m;
   }

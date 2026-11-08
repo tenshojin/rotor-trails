@@ -12,6 +12,10 @@ Rotor Trails 的游戏代码、地形高度、仪表画面与音效由本项目�
 
 直升机机身上的文字（注册号、ROTOR TRAILS、各处标牌）是用 [Inter](https://rsms.me/inter/) 排好烧进涂装贴图的，游戏不带字体文件。Inter 由 The Inter Project Authors 制作，以 SIL Open Font License 1.1 授权，这里用的是 Blender 自带的那一份。
 
+## AI 生成的参考图（不随游戏分发）
+
+飞行员和地勤的设定图是在本机用 [MOSS-Image](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT)（OpenMOSS，模型权重以 Apache License 2.0 发布）生成的，只用来对照建模和取色，**不包含在仓库和网站中**。模型是在 Blender 里照着设定图重新建的，没有使用生成图的像素。护膝板上的检查单是用 Windows 自带的 Noto Sans SC（SIL Open Font License 1.1）画进贴图的，游戏不带字体文件。
+
 ## 建模参照照片（不随游戏分发）
 
 以下照片只在建模时用来对照比例与细节，**不包含在仓库和网站中**：
