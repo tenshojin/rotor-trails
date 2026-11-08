@@ -7,6 +7,9 @@ import * as THREE from 'three/webgpu';
 import { float, Fn, mix, normalize, step, texture, uniform, uv, vec2, vec4 } from 'three/tsl';
 
 const SCALE = 0.5;
+/** 云最多算这么多个像素：大屏幕（外接 4K、2560 宽）按比例再缩小一点。云是软的、又有时间累积，看不出来，
+ * 光线步进的开销却和像素数成正比（2560×1440 下关掉体积云能多 40% 帧率） */
+const PIXEL_BUDGET = 520_000;
 /** 历史帧的权重：越大越干净，但相机快速移动时云的更新越慢 */
 const HISTORY = 0.9;
 
@@ -62,8 +65,9 @@ export class CloudPass {
 
   render(r: THREE.WebGPURenderer, cam: THREE.PerspectiveCamera): void {
     r.getSize(_size);
-    const w = Math.max(1, Math.round(_size.x * SCALE));
-    const h = Math.max(1, Math.round(_size.y * SCALE));
+    const k = Math.min(SCALE, Math.sqrt(PIXEL_BUDGET / Math.max(1, _size.x * _size.y)));
+    const w = Math.max(1, Math.round(_size.x * k));
+    const h = Math.max(1, Math.round(_size.y * k));
     if (this.rts[0].width !== w || this.rts[0].height !== h) {
       this.rts[0].setSize(w, h);
       this.rts[1].setSize(w, h);

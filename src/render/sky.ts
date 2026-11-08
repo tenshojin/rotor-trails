@@ -61,6 +61,7 @@ export function cloudDensity(p: THREE.Node<'vec3'>, fineDetail = false): THREE.N
   const tall = smoothstep(0.46, 0.6, field);
   const hn = clamp(p.y.sub(CLOUD.base).div(span.mul(mix(0.62, 1.0, tall))), 0.0, 1.0);
   // 积云的高度轮廓：底部平整（很快变浓），中段鼓起来，到顶才收成圆的。收得太早一朵云就是压扁的一张饼
+  // （云底就该是平的：真实的积云底在同一个凝结高度上。试过让云边的底往上收成圆角，云的下半截成了一团光滑的面团，更假）
   const prof = smoothstep(0.0, 0.07, hn).mul(float(1).sub(smoothstep(0.46, 1.0, hn)));
   // 三维 Perlin-Worley 团块（菜花状）：一大一小两个尺度混合
   const uvw = vec3(q.x, p.y, q.y).div(CLOUD.size);
@@ -332,8 +333,10 @@ function auroraGlow(d: THREE.Node<'vec3'>, noise: THREE.Texture, t: THREE.Node<'
  * 体积积云：在 [cloudBase, cloudTop] 的云层里沿视线步进（步长由近到远逐渐变大）。
  * 每个有云的采样点向太阳方向步进 4 次，算出阳光穿过云体的光学厚度：
  * 直射部分按比尔-朗伯衰减，相函数取前向 + 后向两个 HG 的混合（逆光银边）；
- * 云的反照率接近 1，多次散射的光能钻到很深的地方——用二流近似 T ≈ 1 / (1 + 0.11 τ) 单独算这一部分，
+ * 云的反照率接近 1，多次散射的光能钻到很深的地方——用二流近似 T ≈ 1 / (1 + 0.13 τ) 单独算这一部分，
  * 云的背光面才是柔和的灰白，而不是一块平的深色。“粉末”效应让朝阳面的薄边略暗、显出体积感。
+ * 小积云的光学厚度只有十几到几十：多次散射是云的亮度的大头，阳光有三四成能从云底透出来，
+ * 云底是浅灰（对照真实照片）；多次散射算少了，云底就是一块深灰的扁圆盘，从低处往远处看像一个个飞碟。
  * 返回 vec4(散射光, 透过率)。
  */
 function volumetricClouds(U: SkyU) {
@@ -355,7 +358,8 @@ function volumetricClouds(U: SkyU) {
       // 每像素每帧不同的起点抖动（由时间累积抹平）
       const jit = interleavedGradientNoise(screenCoordinate.add(U.frame.mul(5.588238)));
       const cosT = dot(d, U.sunDir);
-      const phase = min(mix(hg(cosT, 0.62), hg(cosT, -0.25), 0.28).mul(1.6), 2.4);
+      // 后向的那个瓣只占一小份：迎着太阳的那面亮，主要靠下面的多次散射，而不是假的“反光”
+      const phase = min(mix(hg(cosT, 0.62), hg(cosT, -0.25), 0.15).mul(1.6), 2.4);
       // 太阳高的时候阳光接近白色（云不该是奶油色），太阳低时才保留暖色
       const sunCol = U.sunColor as unknown as THREE.Node<'vec3'>;
       // （月光下的云比天亮不了太多：亮成白棉花就像贴上去的）
@@ -379,16 +383,16 @@ function volumetricClouds(U: SkyU) {
           });
           const tau = od.mul(SIGMA);
           const tSun = exp(tau.mul(-0.9));
-          const tMs = float(1).div(tau.mul(0.16).add(1.0));
+          const tMs = float(1).div(tau.mul(0.13).add(1.0));
           const powder = float(1).sub(exp(den.mul(-SIGMA * 2.0 * 220.0)));
           const hn = clamp(p.y.sub(U.cloudBase).div(U.cloudTop.sub(U.cloudBase)), 0.0, 1.0);
           // 云底朝下，看到的是地面不是天：比云顶暗得多。一朵云才有底，才是立着的
-          const amb0 = mix(U.ambBottom as unknown as THREE.Node<'vec3'>, U.ambTop as unknown as THREE.Node<'vec3'>, smoothstep(0.0, 0.5, hn)).mul(mix(float(0.3), float(0.62), smoothstep(0.0, 0.3, hn)));
+          const amb0 = mix(U.ambBottom as unknown as THREE.Node<'vec3'>, U.ambTop as unknown as THREE.Node<'vec3'>, smoothstep(0.0, 0.5, hn)).mul(mix(float(0.45), float(0.62), smoothstep(0.0, 0.3, hn)));
           const amb = mix(amb0, vec3(dot(amb0, vec3(0.3, 0.55, 0.15))), 0.45);
           // 阴天时云层就是天空：亮度要和灰色的天顶、地平线一致，否则厚云会把整个世界（和环境贴图）压成一片黑
           const nightK = mix(vec3(1.0), vec3(NIGHT_TINT.r, NIGHT_TINT.g, NIGHT_TINT.b), U.night);
           const ovc = mix(U.ovHorizon as unknown as THREE.Node<'vec3'>, U.ovZenith as unknown as THREE.Node<'vec3'>, hn).mul(U.overcast.mul(1.05)).mul(nightK);
-          const S = sunC.mul(tSun.mul(phase).mul(mix(float(1), powder, 0.5)).add(tMs.mul(0.22))).add(amb).add(ovc);
+          const S = sunC.mul(tSun.mul(phase).mul(mix(float(1), powder, 0.5)).add(tMs.mul(0.5))).add(amb).add(ovc);
           const a = exp(den.mul(-SIGMA).mul(dt));
           acc.addAssign(S.mul(trans).mul(float(1).sub(a)));
           trans.mulAssign(a);
@@ -644,7 +648,7 @@ export class SkyDome {
     // 体积云：环境光取天顶与地平线颜色，风把云整体吹走（米），帧序号用于步进抖动
     u.ambTop.value.copy(C.zenith).multiplyScalar(1.1);
     // 云底：天空散射光被云体挡住大半，呈平整的灰色底部
-    u.ambBottom.value.copy(C.horizon).lerp(C.ground, 0.45).multiplyScalar(0.5);
+    u.ambBottom.value.copy(C.horizon).lerp(C.ground, 0.45).multiplyScalar(0.7);
     u.windM.value.x -= windX * dt;
     u.windM.value.y -= windZ * dt;
     u.frame.value = (u.frame.value + 1) % 64;
