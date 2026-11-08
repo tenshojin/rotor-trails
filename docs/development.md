@@ -161,6 +161,17 @@ python -I tools/real/trace_roofs.py ../rotor-trails-tiles/grandcanyon/hi tools/r
 
 也可以把 `npm run build` 生成的 `dist/` 目录上传到任意静态网站托管服务；不能直接双击打开 `dist/index.html`（浏览器不允许从本地文件加载模块）。
 
+## 私有试玩页（claude.ai Artifact）
+
+除了 GitHub Pages，还有一份只有所有者能打开的试玩页（claude.ai Artifact「Rotor Trails · 旋翼航迹」）。**每次推送上线后都要同步更新它。**
+
+1. `npm run build`
+2. `node tools/artifact-page.mjs tmp/artifact/index.html > tmp/artifact-files.json`：生成完整的 HTML 页面和附属文件清单（`tmp/` 不进仓库）。模型（.glb）转成 base64 文本 `<名字>.glb.txt`（Artifact 不托管 .glb），页面里设 `window.__modelExt = '.txt'`，由 `src/render/gltf.ts` 解码。
+3. 发布（每次最多 64 MiB、256 个文件，单个文件不超过 20 MiB）：先发 `models/` 下的文件（约 53 MiB），再发其余文件和 `index.html`，同一次里把旧版本留下、这次没有的文件删掉。
+4. 上线前可以在本机按发布后的目录结构摆好（`tmp/artifact-test/`），用 `.claude/launch.json` 里的 `rotor-artifact-test`（端口 4180）跑一遍。
+
+限制：Artifact 只能加载自己的文件，访问别的网站会被拦；大峡谷的中圈影像一个文件 21 MB，超过单个文件的上限，30 厘米影像又放在另一个仓库的网站上，所以试玩页不发布 `real/`，页面里设 `window.__artifact = true`，游戏在这里不列出真实地形的地图。
+
 ## 目录结构
 
 ```

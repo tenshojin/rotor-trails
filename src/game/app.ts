@@ -42,6 +42,9 @@ import { isTimeOfDay, type TimeOfDay } from '../render/timeOfDay';
 import { waitForOperation } from './pending';
 import { InstrumentLists } from './instrumentLists';
 
+/** claude.ai 的私有试玩页（Artifact）放不下大峡谷的数据（单个文件超过 20 MiB），那里不列出真实地形的地图（见 tools/artifact-page.mjs） */
+const PLAYABLE_REAL_MAPS = (globalThis as { __artifact?: boolean }).__artifact ? [] : REAL_MAPS;
+
 type State = 'boot' | 'menu' | 'loading' | 'ready' | 'playing' | 'paused' | 'failed' | 'result' | 'disposed';
 
 /** 正在放回放：放完把这些写回去，物理接着从原来的地方走 */
@@ -349,7 +352,7 @@ export class App {
       this.save.save();
     }
     const params = new URLSearchParams(location.search);
-    const auto = [...MAPS, ...REAL_MAPS].find((m) => m.id === params.get('map'));
+    const auto = [...MAPS, ...PLAYABLE_REAL_MAPS].find((m) => m.id === params.get('map'));
     if (!auto) {
       // 菜单背景：训练场的黄昏
       this.view.setTimeOfDay('dusk');
@@ -487,7 +490,7 @@ export class App {
       const n = this.save.data.visited[m.id]?.length ?? 0;
       return n === 0 ? `${total} 个地方等你去` : n >= total ? `${total} 个地方都到过了` : `到过 ${n} / ${total} 个地方`;
     };
-    this.ui.mapSelect([...REAL_MAPS, ...list], {}, { pick: (m) => this.freeBrief(m), back: () => this.mainMenu() }, true, seen);
+    this.ui.mapSelect([...PLAYABLE_REAL_MAPS, ...list], {}, { pick: (m) => this.freeBrief(m), back: () => this.mainMenu() }, true, seen);
   }
 
   freeBrief(m: MapDef): void {
