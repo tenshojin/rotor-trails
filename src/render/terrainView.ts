@@ -1,5 +1,9 @@
 // 地形渲染：按块（64 格）分级 LOD，近处使用与碰撞完全一致的全分辨率三角网格；
 // 着色器见 terrainShader.ts（照片材质 8 层混合，按坡度/高度/掩码）。
+// 地形块合成三批（BatchedMesh）提交：以前每块一个网格，一张图 256 块，three.js 每提交一个物体都有固定开销，
+// 主线程每帧光地形就要一两毫秒。三批：近景（LOD0，进最近两层和第三层阴影）、中景（LOD1，只进第三层阴影）、
+// 远景（LOD2/3，不投影）。每批按槽位预留顶点（一个槽位放一块地形一个细节级别的几何），块换级时写进新一级的空槽位；
+// 每块仍单独做视锥剔除，近处的块由近到远画（地形着色器重，少画被挡住的像素）。
 
 import * as THREE from 'three/webgpu';
 import type { BiomeDef, MapDef } from '../maps/types';
@@ -13,6 +17,67 @@ import { getRockReliefTexture, makeStrataTexture } from './terrainMacro';
 
 const CH = 64;
 const LOD_STEPS = [1, 2, 4, 8];
+/** 槽位按极高画质（细节系数 2.6）的切换距离留：换到哪一档画质都够用 */
+const MAX_LOD_SCALE = 2.6;
+
+/** 一块 n×n 格的地形（带四条裙边）的顶点数、索引数 */
+const chunkVerts = (n: number) => (n + 1) * (n + 1) + 4 * (n + 1);
+const chunkIndices = (n: number) => n * n * 6 + 4 * n * 6;
+
+interface Slot {
+  batch: ChunkBatch;
+  geo: number;
+  inst: number;
+}
+
+/** 一批地形块：count 个槽位，每个槽位预留一块地形的顶点和索引，一个实例 */
+class ChunkBatch {
+  readonly mesh: THREE.BatchedMesh;
+  private readonly free: Slot[] = [];
+
+  constructor(material: THREE.Material, count: number, verts: number, indices: number, cast: boolean, layers: number) {
+    const m = new THREE.BatchedMesh(count, count * verts, count * indices, material);
+    m.perObjectFrustumCulled = true;
+    m.sortObjects = true;
+    // 整批的包围球会随槽位里的块变，不用它：每块自己剔除
+    m.frustumCulled = false;
+    m.castShadow = cast;
+    m.receiveShadow = true;
+    m.layers.mask = layers;
+    m.matrixAutoUpdate = false;
+    // 占位几何（只为了按格式开出槽位）：三个点，属性与地形块一致
+    const ph = new THREE.BufferGeometry();
+    ph.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+    ph.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
+    ph.setIndex(new THREE.BufferAttribute(new Uint16Array([0, 1, 2]), 1));
+    for (let i = 0; i < count; i++) {
+      const geo = m.addGeometry(ph, verts, indices);
+      const inst = m.addInstance(geo);
+      m.setVisibleAt(inst, false);
+      this.free.push({ batch: this, geo, inst });
+    }
+    ph.dispose();
+    this.mesh = m;
+  }
+
+  /** 把一块地形的几何放进一个空槽位；槽位用完了返回 null（这块先留在原来的级别） */
+  take(g: THREE.BufferGeometry): Slot | null {
+    const s = this.free.pop();
+    if (!s) return null;
+    this.mesh.setGeometryAt(s.geo, g);
+    this.mesh.setVisibleAt(s.inst, true);
+    return s;
+  }
+
+  release(s: Slot): void {
+    this.mesh.setVisibleAt(s.inst, false);
+    this.free.push(s);
+  }
+
+  get freeCount(): number {
+    return this.free.length;
+  }
+}
 
 export type { TerrainUniforms };
 
@@ -80,7 +145,8 @@ export function makeTerrainUniforms(map: MapDef, hf: Heightfield, surfaceTex: TH
 interface Chunk {
   cx: number;
   cz: number;
-  mesh: THREE.Mesh;
+  /** 当前所在的槽位（哪一批、哪个实例） */
+  slot: Slot | null;
   lod: number;
   center: THREE.Vector3;
   minY: number;
@@ -95,6 +161,8 @@ export class TerrainView {
   private cache = new Map<string, THREE.BufferGeometry>();
   private indexByLod: THREE.BufferAttribute[] = [];
   private nChunks: number;
+  /** 近景、中景、远景三批（下标 = 细节级别，LOD3 和 LOD2 同一批） */
+  private batches: ChunkBatch[] = [];
   lodScale = 1;
   shadowRange = 300;
   private far: THREE.Mesh | null = null;
@@ -104,6 +172,23 @@ export class TerrainView {
     this.material = makeTerrainMaterial(uniforms);
     this.nChunks = Math.round((hf.res - 1) / CH);
     for (let l = 0; l < LOD_STEPS.length; l++) this.indexByLod.push(this.buildIndex(CH / LOD_STEPS[l]));
+    // 各批的槽位数：相机在任何位置时，这一级（加 10% 滞后）范围里最多有几块
+    const cs = CH * hf.cell;
+    const total = this.nChunks * this.nChunks;
+    const within = (r: number) => {
+      const k = Math.ceil(r / cs) + 1;
+      let n = 0;
+      for (let i = -k; i <= k; i++) for (let j = -k; j <= k; j++) if (Math.hypot(Math.max(0, Math.abs(i) - 1), Math.max(0, Math.abs(j) - 1)) * cs < r) n++;
+      return Math.min(total, n + 4);
+    };
+    const t0 = 360 * MAX_LOD_SCALE * 1.1;
+    const near = (1 << 2) | (1 << TERRAIN_SHADOW_LAYER);
+    this.batches = [
+      new ChunkBatch(this.material, within(t0), chunkVerts(CH), chunkIndices(CH), true, near),
+      new ChunkBatch(this.material, within(t0 * 2.4), chunkVerts(CH / 2), chunkIndices(CH / 2), true, 1 << TERRAIN_SHADOW_LAYER),
+      new ChunkBatch(this.material, total, chunkVerts(CH / 4), chunkIndices(CH / 4), false, 1 << 1),
+    ];
+    for (const b of this.batches) this.group.add(b.mesh);
     for (let cz = 0; cz < this.nChunks; cz++) {
       for (let cx = 0; cx < this.nChunks; cx++) {
         let minY = Infinity;
@@ -115,12 +200,9 @@ export class TerrainView {
             if (h > maxY) maxY = h;
           }
         const center = new THREE.Vector3(-hf.half + (cx + 0.5) * CH * hf.cell, (minY + maxY) / 2, -hf.half + (cz + 0.5) * CH * hf.cell);
-        const mesh = new THREE.Mesh(this.geometry(cx, cz, 3), this.material);
-        mesh.receiveShadow = true;
-        mesh.castShadow = false;
-        mesh.matrixAutoUpdate = false;
-        this.group.add(mesh);
-        this.chunks.push({ cx, cz, mesh, lod: 3, center, minY, maxY });
+        // 一开始都是最粗的一级（远景批），update 里按距离换细
+        const slot = this.batches[2].take(this.geometry(cx, cz, 3));
+        this.chunks.push({ cx, cz, slot, lod: 3, center, minY, maxY });
       }
     }
     this.far = this.buildFar(map);
@@ -137,7 +219,7 @@ export class TerrainView {
     const previous = this.material;
     this.material = next;
     this.uniforms.layers = layers;
-    for (const chunk of this.chunks) chunk.mesh.material = next;
+    for (const b of this.batches) b.mesh.material = next;
     if (this.far) this.far.material = next;
     previous.dispose();
   }
@@ -253,13 +335,16 @@ export class TerrainView {
           if (builds >= 3) continue;
           builds++;
         }
-        c.mesh.geometry = this.geometry(c.cx, c.cz, want);
+        // 换到新一级那一批的空槽位（槽位按最远的切换距离留够了；万一用完，这块先留在原来的级别）
+        const slot = this.batches[Math.min(2, want)].take(this.geometry(c.cx, c.cz, want));
+        if (!slot) continue;
+        if (c.slot) c.slot.batch.release(c.slot);
+        c.slot = slot;
         c.lod = want;
       }
-      c.mesh.castShadow = d < this.shadowRange && c.lod <= 1;
+      // 投影：LOD0 进最近两层和第三层阴影，LOD1 只进第三层，LOD2/3 不投影（三批各自的图层，见构造函数）。
       // 地形只进前三层阴影：最远一层里只有镜头附近的地形块投影，影子落到一两公里外的山坡上是一条条古怪的直线。
-      // 山的大影子由山影贴图负责（见 sunMap.ts）。
-      c.mesh.layers.mask = c.lod >= 2 ? 1 << 1 : c.lod === 1 ? 1 << TERRAIN_SHADOW_LAYER : (1 << 2) | (1 << TERRAIN_SHADOW_LAYER);
+      // 山的大影子由山影贴图负责（见 sunMap.ts）。阴影范围外的块由阴影相机的视锥剔掉。
     }
     // 回收：远处的高精度块
     if (this.cache.size > 900) {
@@ -348,7 +433,8 @@ export class TerrainView {
   dispose(): void {
     for (const g of this.cache.values()) g.dispose();
     this.cache.clear();
-    for (const c of this.chunks) c.mesh.geometry = new THREE.BufferGeometry();
+    for (const b of this.batches) b.mesh.dispose();
+    for (const c of this.chunks) c.slot = null;
     this.far?.geometry.dispose();
     this.material.dispose();
   }
