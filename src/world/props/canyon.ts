@@ -25,7 +25,7 @@ export const canyonProps: Record<string, PropFn> = {
     B.cyl(-15, 7, 2, 0.12, 0.08, 14, 0xd0d0d0, 6, { mat: 'metal' });
     B.anchor('blink', -15, 14.3, 2, 0, { color: 'red', period: 2 });
     B.anchor('flag', 6, 6.5, -9, 0, { color: 'us' });
-    B.cyl(6, 3.3, -9, 0.06, 0.05, 6.6, 0xdddddd, 6, { solid: false });
+    B.cyl(6, 3.3, -9, 0.06, 0.05, 6.6, 0xdddddd, 6, {});
     B.endModel();
     B.footprint(18);
   },

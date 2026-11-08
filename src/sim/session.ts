@@ -17,6 +17,7 @@ import { Navigator, type NavSnapshot } from './nav';
 import { PhysicsWorld, initPhysics, type ContactReport } from './physics';
 import { WeatherState, type WeatherSnapshot } from './weather';
 import { WindField, type WindInfo } from './wind';
+import { PlaneMover, type Mover } from './movers';
 import { obstacleTop } from './routeCheck';
 import { Heightfield } from './terrain';
 import type RAPIER from '@dimforge/rapier3d-compat';
@@ -108,6 +109,8 @@ const _tq = new Vector3();
 const _up = new Vector3();
 const _hub = new Vector3();
 const _tmp = new Vector3();
+const _mp = new Vector3();
+const _mq = new Quaternion();
 
 export class GameSession {
   readonly world: WorldData;
@@ -160,6 +163,8 @@ export class GameSession {
   private treeProxies = new Map<number, RAPIER.Collider[]>();
   private ringTrees: RingTree[] = [];
   private ringProxies = new Map<string, RAPIER.Collider[]>();
+  /** 会动的东西在物理里的身体（小飞机下雨不飞时碰撞箱关着） */
+  private readonly movers: Array<{ m: Mover; body: RAPIER.RigidBody; on: boolean }> = [];
   private massApplied = 0;
   private lastStatus: DamageStatus = 'normal';
   private msgT: Record<string, number> = {};
@@ -208,6 +213,12 @@ export class GameSession {
         else if (c.kind === 'cyl') P.addCylinder(c.c[0], c.c[1], c.c[2], c.hh, c.r, c.tag);
         else if (c.kind === 'ball') P.addBall(c.c[0], c.c[1], c.c[2], c.r, c.tag);
         else P.addCapsule(c.c[0], c.c[1], c.c[2], c.hh, c.r, c.tag);
+      }
+      // 船、车、小飞机：撞得上（以前只是画面）
+      for (const m of world.movers ?? []) {
+        if (!m.shapes.length) continue;
+        m.pose(0, _mp, _mq);
+        this.movers.push({ m, body: P.addMover(m.shapes, { kind: 'structure', id: m.kind }, _mp, _mq), on: true });
       }
       // 推进一步让静态碰撞体进入宽相位结构，保证第一帧的射线查询（离地高度、起落架）有效
       P.world.step();
@@ -497,6 +508,19 @@ export class GameSession {
     }
 
     // ---------- 物理推进（唯一的位置积分） ----------
+    // 会动的东西摆到这一步结束时的位置（运动学刚体：推得动直升机，直升机推不动它）
+    if (this.movers.length) {
+      const flies = PlaneMover.flies(this.weather.current);
+      for (const v of this.movers) {
+        const on = v.m.kind !== 'plane' || flies;
+        if (on !== v.on) {
+          this.phys.setMoverEnabled(v.body, on);
+          v.on = on;
+        }
+        v.m.pose(this.t + dt, _mp, _mq);
+        this.phys.moveMover(v.body, _mp, _mq);
+      }
+    }
     this.phys.step(_f, _tq, gearForces, this.contacts);
     this.phys.readBody(b);
     this.t += dt;

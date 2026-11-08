@@ -52,6 +52,7 @@ import { Birds } from './birds';
 import { Vessels } from './vessels';
 import { RoadCars } from './roadCars';
 import { Traffic } from './traffic';
+import { PlaneMover, type CarMover, type VesselMover } from '../sim/movers';
 import { vistasOf } from '../sim/cruise';
 import { WaterView } from './water';
 import { CloudLayer, Lightning, LightningBolt, RainFx, SNOW } from './weatherFx';
@@ -595,16 +596,21 @@ export class WorldView {
         this.birds = new Birds(map.birds, anchors, (x, z) => Math.max(world.ctx.ground(x, z), map.waterLevel ?? -1e9), map.seed);
         this.scene.add(this.birds.group);
       }
-      if (map.vessels && this.modelLib && map.waterLevel !== null) {
-        this.vessels = new Vessels(map.vessels, this.modelLib, (x, z) => world.terrain.heightAt(x, z), map.waterLevel, map.size / 2 - 200, map.seed);
+      // 船、路上的车、绕场的小飞机：位置来自 world.movers（和物理里撞得上的是同一份）
+      const movers = world.movers ?? [];
+      const ships = movers.filter((m): m is VesselMover => m.kind === 'vessel');
+      const cars = movers.filter((m): m is CarMover => m.kind === 'car');
+      const plane = movers.find((m): m is PlaneMover => m.kind === 'plane');
+      if (ships.length && this.modelLib) {
+        this.vessels = new Vessels(ships, this.modelLib);
         this.scene.add(this.vessels.group);
       }
-      if (map.roadCars && this.modelLib) {
-        this.roadCars = new RoadCars(map.roadCars, this.modelLib, world.ctx.ground);
+      if (cars.length && this.modelLib) {
+        this.roadCars = new RoadCars(cars, this.modelLib);
         this.scene.add(this.roadCars.group);
       }
-      if (map.traffic && this.modelLib) {
-        this.traffic = new Traffic(map.traffic, this.modelLib);
+      if (plane && this.modelLib) {
+        this.traffic = new Traffic(plane, this.modelLib);
         this.scene.add(this.traffic.group);
       }
       if (real && scatterTex && this.terrain instanceof RealTerrain) {
@@ -1098,9 +1104,11 @@ export class WorldView {
       if (this.rig.mode === 'photo' && this.dofOn) this.photoFocus();
       // （夜里和大雨的时候鸟都回去了）
       this.birds?.update(f.dt, f.t, s ? _pos : null, this.tod !== 'night' && w.rain + w.snow < 0.45);
-      this.vessels?.update(f.dt, f.t, this.sky?.night ?? 0);
-      this.traffic?.update(f.dt, this.sky?.night ?? 0, w.rain + w.snow < 0.3 && w.visibility > 2500, cam.position);
-      this.roadCars?.update(f.dt, this.sky?.night ?? 0);
+      // （和物理同一个钟：飞行中用模拟时间，撞上的就是看到的那个位置；主菜单里没有模拟，用画面的钟）
+      const T = s ? s.t : f.t;
+      this.vessels?.update(T, this.sky?.night ?? 0);
+      this.traffic?.update(T, f.dt, this.sky?.night ?? 0, PlaneMover.flies(w), cam.position);
+      this.roadCars?.update(T, this.sky?.night ?? 0);
       this.scatter?.update(cp);
       if (s) this.scatter?.probe(this.renderer, s.body.pos as unknown as THREE.Vector3, f.t, (list) => s.setRingTrees(list));
       if (this.buildings && this.sky) this.buildings.night.value = this.sky.night;

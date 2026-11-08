@@ -373,13 +373,13 @@ export const japanProps: Record<string, PropFn> = {
         for (const sz of [-w / 2 + 0.3, w / 2 - 0.3]) {
           B.box(x, deck + 0.2, sz, sl, 0.14, 0.14, 0x44382e, { mat: 'std', solid: false });
           for (const dx of [-sl / 4, sl / 4]) {
-            B.cyl(x + dx, deck / 2 - 3, sz, 0.26, 0.3, deck + 6.6, 0x3a3028, 8, { solid: false });
+            B.cyl(x + dx, deck / 2 - 3, sz, 0.26, 0.3, deck + 6.6, 0x3a3028, 8, {});
             B.box(x + dx, deck + 0.5, sz, 0.12, 1, 0.12, 0x44382e, { mat: 'std', solid: false });
           }
         }
       } else {
         B.box(x, deck - 0.4, 0, sl, 0.8, w, 0x8a857c, { mat: 'rough' });
-        for (const sz of [-w / 2 + 0.6, w / 2 - 0.6]) B.cyl(x, deck / 2 - 3, sz, 0.35, 0.35, deck + 6, 0x5a5550, 6, { solid: false });
+        for (const sz of [-w / 2 + 0.6, w / 2 - 0.6]) B.cyl(x, deck / 2 - 3, sz, 0.35, 0.35, deck + 6, 0x5a5550, 6, {});
       }
       B.endModel();
     }
@@ -470,10 +470,11 @@ export const japanProps: Record<string, PropFn> = {
     B.beginModel('pallets_a', -96, 0, 110, 0.1).endModel();
     B.beginModel('pallets_b', -96, 0, 124, -0.2).endModel();
     B.beginModel('pallets_a', -30, 0, 34, 1.5).endModel();
-    B.beginModel('pallets_b', -30, 0, -80, 0.4).endModel();
-    B.beginModel('forklift', -24, 0, -60, 2.2).endModel();
-    // 高杆灯
-    for (const [x, z] of [[-62, -130], [-62, 0], [-62, 150], [-120, -60], [-120, 70], [-178, 30]]) B.beginModel('light_mast', x, 0, z).endModel();
+    // （叉车和托盘放在停机坪起飞扇区的北边：起飞往东南爬升，旁边不能有东西）
+    B.beginModel('pallets_b', -34, 0, 22, 0.4).endModel();
+    B.beginModel('forklift', -26, 0, 44, 2.2).endModel();
+    // 高杆灯（25 米高，撞得上）：港口直升机坪往东南起飞，那个方向上不立灯杆
+    for (const [x, z] of [[-62, -220], [-62, 0], [-62, 150], [-178, -110], [-120, 70], [-178, 30]]) B.beginModel('light_mast', x, 0, z).endModel();
     // 系船柱
     for (let z = -296; z < 310; z += 18) B.beginModel('bollard', -1.3, 0, z).endModel();
     // 候船楼：门前是一块铺装和三根旗杆
@@ -490,7 +491,7 @@ export const japanProps: Record<string, PropFn> = {
     B.box(-l / 2 - 1.2, 0.9, 0, 2.6, 1.6, w * 0.7, hull, { solid: false }, 0);
     B.box(l * 0.15, 2.6, 0, l * 0.3, 1.8, w * 0.75, 0xf2f2f2, {});
     B.box(l * 0.15, 3.0, 0, l * 0.3 + 0.1, 0.6, w * 0.76, 0x2a3440, { mat: 'glass', solid: false });
-    B.cyl(l * 0.15, 5.0, 0, 0.1, 0.08, 3, 0xdddddd, 6, { solid: false });
+    B.cyl(l * 0.15, 5.0, 0, 0.1, 0.08, 3, 0xdddddd, 6, {});
     B.endModel();
     B.footprint(l / 2);
   },
@@ -587,7 +588,7 @@ export const japanProps: Record<string, PropFn> = {
       // 出檐：一块薄板形的碰撞体（直升机撞到屋檐会受损）
       B.colliderBox(0, (L.ze + L.zIn) / 2, 0, L.X1, (L.zIn - L.ze) / 2 + 0.15, L.X1);
     }
-    B.cyl(0, PAGODA_TOP + 4.6, 0, 0.25, 0.12, 9, 0xb8a050, 6, { mat: 'metal', solid: false });
+    B.cyl(0, PAGODA_TOP + 4.6, 0, 0.25, 0.12, 9, 0xb8a050, 6, { mat: 'metal' });
     B.endModel();
     B.addColliderCyl(0, PAGODA_TOP + 4.6, 0, 4.6, 0.6);
     B.footprint(9);
@@ -759,11 +760,11 @@ function toriiGeom(B: PropBuilder): void {
   const h = 13;
   B.beginModel('torii');
   for (const sx of [-4.2, 4.2]) B.cyl(sx, h / 2 - 1.5, 0, 0.55, 0.6, h + 3, red, 12, {});
-  B.box(0, h - 2.2, 0, 11, 0.7, 0.8, red, { solid: false });
+  B.box(0, h - 2.2, 0, 11, 0.7, 0.8, red, {});
   B.box(0, h + 0.1, 0, 14.5, 0.9, 1.4, 0x222222, {});
-  B.box(-7.1, h + 0.5, 0, 1.4, 0.5, 1.4, 0x222222, { solid: false }, 0);
-  B.box(7.1, h + 0.5, 0, 1.4, 0.5, 1.4, 0x222222, { solid: false }, 0);
-  B.box(0, h - 0.6, 0, 13.4, 0.6, 1.0, red, { solid: false });
-  B.box(0, h - 1.4, 0, 1.0, 1.3, 0.3, 0x333333, { solid: false });
+  B.box(-7.1, h + 0.5, 0, 1.4, 0.5, 1.4, 0x222222, {}, 0);
+  B.box(7.1, h + 0.5, 0, 1.4, 0.5, 1.4, 0x222222, {}, 0);
+  B.box(0, h - 0.6, 0, 13.4, 0.6, 1.0, red, {});
+  B.box(0, h - 1.4, 0, 1.0, 1.3, 0.3, 0x333333, {});
   B.endModel();
 }

@@ -151,13 +151,13 @@ export function buildPad(B: PropBuilder, pad: PadDef, ctx: PropCtx): void {
     B.box(wsx, -0.08, wsz, 0.7, 0.12, 0.7, C.darkSteel, { mat: 'metal', solid: false });
   }
   const pole = 6;
-  B.cyl(wsx, baseY + pole / 2, wsz, 0.08, 0.06, pole, C.white, 6, { mat: 'metal', solid: false });
+  B.cyl(wsx, baseY + pole / 2, wsz, 0.08, 0.06, pole, C.white, 6, { mat: 'metal' });
   B.anchor('windsock', wsx, baseY + pole, wsz);
 }
 
 export const commonProps: Record<string, PropFn> = {
   windsock(B) {
-    B.cyl(0, 3, 0, 0.08, 0.06, 6, C.white, 6, { mat: 'metal', solid: false });
+    B.cyl(0, 3, 0, 0.08, 0.06, 6, C.white, 6, { mat: 'metal' });
     B.anchor('windsock', 0, 6, 0);
   },
   hangar(B, d) {
@@ -282,12 +282,12 @@ export const commonProps: Record<string, PropFn> = {
   },
   flagpole(B, d) {
     const h = Number(d.p?.h ?? 9);
-    B.cyl(0, h / 2, 0, 0.1, 0.07, h, C.white, 6, { mat: 'metal', solid: false });
+    B.cyl(0, h / 2, 0, 0.1, 0.07, h, C.white, 6, { mat: 'metal' });
     B.anchor('flag', 0, h - 0.2, 0, 0, { color: String(d.p?.color ?? 'jp') });
   },
   lamp(B) {
-    B.cyl(0, 3, 0, 0.1, 0.08, 6, C.darkSteel, 6, { mat: 'metal', solid: false });
-    B.box(0, 6.1, 0.3, 0.3, 0.2, 0.7, C.lamp, { mat: 'emit', solid: false });
+    B.cyl(0, 3, 0, 0.1, 0.08, 6, C.darkSteel, 6, { mat: 'metal' });
+    B.box(0, 6.1, 0.3, 0.3, 0.2, 0.7, C.lamp, { mat: 'emit' });
   },
   rock(B, d, rng) {
     const r = Number(d.p?.r ?? 4);

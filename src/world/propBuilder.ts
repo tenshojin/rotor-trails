@@ -3,6 +3,7 @@
 
 import type { ColliderTag } from '../sim/physics';
 import type { V3 } from '../maps/types';
+import { MODEL_SHAPES } from './modelShapes';
 
 export type MatKey = 'pad' | 'std' | 'rough' | 'metal' | 'glass' | 'emit' | 'cloth' | 'rock' | 'wire' | 'stone';
 
@@ -57,6 +58,8 @@ export class PropBuilder {
   readonly models: ModelInstance[] = [];
   /** 当前模型标签：beginModel 与 endModel 之间生成的几何体归入“模型名|材质|分块”批次，作为模型缺失时的后备 */
   private modelTag = '';
+  /** beginModel 时已有几个碰撞体：endModel 时一个没多，说明这个模型只有画面，要用模型自己的碰撞箱 */
+  private modelColliders = 0;
   private tx = 0;
   private ty = 0;
   private tz = 0;
@@ -106,10 +109,31 @@ export class PropBuilder {
     const s = this.sc;
     this.models.push({ name, pos: this.w(lx, ly, lz), rotY: this.rot + ry, scale: [sx * s, sy * s, sz * s] });
     this.modelTag = name;
+    this.modelColliders = this.colliders.length;
     return this;
   }
 
   endModel(): this {
+    // 只放了 Blender 模型、中间没有生成任何碰撞体（路灯、停着的车、鸟居、码头……）：用模型自己的碰撞箱，
+    // 不然飞机直接穿过去（见 tools/blender/collision_shapes.py）
+    const m = this.modelTag ? this.models[this.models.length - 1] : undefined;
+    const shapes = m && this.colliders.length === this.modelColliders ? MODEL_SHAPES[m.name] : undefined;
+    if (m && shapes) {
+      const c = Math.cos(m.rotY);
+      const s = Math.sin(m.rotY);
+      const [sx, sy, sz] = m.scale;
+      for (const b of shapes) {
+        const x = b[0] * sx;
+        const z = b[2] * sz;
+        this.colliders.push({
+          kind: 'box',
+          c: [m.pos[0] + x * c + z * s, m.pos[1] + b[1] * sy, m.pos[2] - x * s + z * c],
+          h: [b[3] * Math.abs(sx), b[4] * Math.abs(sy), b[5] * Math.abs(sz)],
+          rotY: m.rotY,
+          tag: { ...this.defaultTag, id: m.name },
+        });
+      }
+    }
     this.modelTag = '';
     return this;
   }

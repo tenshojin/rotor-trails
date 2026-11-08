@@ -23,7 +23,7 @@ export const amazonProps: Record<string, PropFn> = {
       [-w / 2 + 0.4, l / 2 - 0.4],
       [w / 2 - 0.4, l / 2 - 0.4],
     ] as Array<[number, number]>)
-      B.cyl(x, stilt / 2 - 1, z, 0.18, 0.2, stilt + 2, 0x4a3420, 6, { solid: false });
+      B.cyl(x, stilt / 2 - 1, z, 0.18, 0.2, stilt + 2, 0x4a3420, 6, {});
     B.box(0, stilt + 0.1, 0, w + 1.2, 0.25, l + 1.2, wood, {});
     B.box(0, stilt + 1.5, 0, w, 2.6, l, wood, { jitter: 0.1 });
     B.gable(0, stilt + 2.8, 0, l, w, 2.4, 0.9, rng.pick(THATCH), { jitter: 0.12 }, Math.PI / 2);
@@ -108,7 +108,7 @@ export const amazonProps: Record<string, PropFn> = {
     B.at(sx, wl + 0.75, sz, rot, 1);
     B.box(6, 0, 0, 14, 0.16, 2.2, 0x7a5636, { solid: false, jitter: 0.14 });
     for (let x = 0; x <= 13; x += 3.25)
-      for (const side of [-1, 1]) B.cyl(x, -1.7, side * 1.0, 0.11, 0.11, 3.6, 0x4a3420, 6, { solid: false });
+      for (const side of [-1, 1]) B.cyl(x, -1.7, side * 1.0, 0.11, 0.11, 3.6, 0x4a3420, 6, {});
     // 系在栈桥旁的独木舟（船身沿栈桥方向）
     B.beginModel('canoe_wood', 8, -0.86, 2.2, Math.PI / 2 + 0.06);
     B.box(8, -0.61, 2.2, 6, 0.5, 0.9, 0x7a5636, { solid: false }, 0.06);
@@ -125,7 +125,7 @@ export const amazonProps: Record<string, PropFn> = {
     const len = Number(d.p?.len ?? 30);
     const w = Number(d.p?.w ?? 4);
     B.box(len / 2, 0.5, 0, len, 0.4, w, 0x7a5636, { jitter: 0.1 });
-    for (let x = 3; x < len; x += 6) B.cyl(x, -1.2, w / 2 - 0.3, 0.2, 0.2, 3.5, 0x4a3420, 6, { solid: false });
+    for (let x = 3; x < len; x += 6) B.cyl(x, -1.2, w / 2 - 0.3, 0.2, 0.2, 3.5, 0x4a3420, 6, {});
   },
   riverBoat(B) {
     // 客运木船（Blender 模型参照马瑙斯港的河船）：船体 + 两层开敞甲板 + 船头一侧的驾驶室与桅杆
@@ -138,7 +138,7 @@ export const amazonProps: Record<string, PropFn> = {
     B.box(-0.5, 3.7, 0, 24, 4.4, w, 0xf2efe8, {});
     B.box(-0.5, 3.4, 0, 24.1, 0.8, w + 0.1, 0x22303c, { mat: 'glass', solid: false });
     B.box(-7.5, 7.1, 0, 5, 2.4, w - 2, 0xf2efe8, {});
-    B.cyl(-7.5, 10.6, 0, 0.08, 0.06, 4.5, 0xdddddd, 6, { solid: false });
+    B.cyl(-7.5, 10.6, 0, 0.08, 0.06, 4.5, 0xdddddd, 6, {});
     B.endModel();
     B.anchor('blink', -7.5, 13.0, 0, 0, { color: 'red', period: 1.5 });
     B.footprint(15);
@@ -146,7 +146,7 @@ export const amazonProps: Record<string, PropFn> = {
   canoe(B, _d, rng) {
     const c = rng.pick([0x7a5636, 0x5a3e24, 0x2a5a8a]);
     B.beginModel(c === 0x2a5a8a ? 'canoe_blue' : 'canoe_wood');
-    B.box(0, 0.25, 0, 0.9, 0.5, 6, c, { solid: false });
+    B.box(0, 0.25, 0, 0.9, 0.5, 6, c, {});
     B.endModel();
     B.footprint(3);
   },

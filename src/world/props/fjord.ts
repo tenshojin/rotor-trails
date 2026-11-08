@@ -66,7 +66,7 @@ function flagpole(B: PropBuilder, ctx: PropCtx, x: number, z: number): void {
   const y = ctx.terrain.heightAt(x, z);
   if (ctx.waterLevel !== null && y < ctx.waterLevel + 0.5) return;
   B.at(x, y, z, 0, 1);
-  B.cyl(0, 4.5, 0, 0.09, 0.055, 9, 0xf2f2f0, 6, { mat: 'metal', solid: false });
+  B.cyl(0, 4.5, 0, 0.09, 0.055, 9, 0xf2f2f0, 6, { mat: 'metal' });
   B.sphere(0, 9.05, 0, 0.12, 0xe8c040, { seg: 6, solid: false });
   B.anchor('flag', 0, 8.75, 0, 0, { color: 'no' });
 }
@@ -227,7 +227,7 @@ export const fjordProps: Record<string, PropFn> = {
         const a1 = ((k + 1) / seg) * Math.PI * 2;
         B.beam([cx + Math.cos(a0) * r, 0.25, cz + Math.sin(a0) * r], [cx + Math.cos(a1) * r, 0.25, cz + Math.sin(a1) * r], 0.45, 0x2a2a2a, { solid: false });
       }
-      B.cyl(cx, 3, cz, 0.08, 0.06, 6, 0x888888, 6, { solid: false });
+      B.cyl(cx, 3, cz, 0.08, 0.06, 6, 0x888888, 6, {});
       B.box(cx, 0.4, cz, 1.6, 0.4, 1.6, 0xe8a020, { solid: false });
     }
     B.box(-r * 3.4, 1.2, 0, 8, 2.4, 5, 0xd8d8d0, { mat: 'metal' });

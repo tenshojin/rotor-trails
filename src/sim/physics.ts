@@ -6,6 +6,7 @@ import { Quaternion, Vector3 } from 'three';
 import { HELI } from '../config/flight';
 import type { Heightfield } from './terrain';
 import type { BodyState } from './flight';
+import type { ShapeBox } from '../world/modelShapes';
 
 export type SurfaceKind = 'terrain' | 'water' | 'structure' | 'tree' | 'rock' | 'pad' | 'boundary';
 export type HeliPart = 'cabin' | 'boom' | 'skid' | 'rotor' | 'tailRotor';
@@ -167,6 +168,31 @@ export class PhysicsWorld {
     const c = this.world.createCollider(desc, parent);
     this.tags.set(c.handle, tag);
     return c;
+  }
+
+  // ---------------- 会动的东西 ----------------
+
+  /** 船、车、小飞机：运动学刚体（位置由我们每步给，撞上去它不让开），碰撞箱是模型自己的几个盒子 */
+  addMover(shapes: readonly ShapeBox[], tag: ColliderTag, pos: Vector3, quat: Quaternion): RAPIER.RigidBody {
+    this.assertActive();
+    const body = this.world.createRigidBody(
+      RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(pos.x, pos.y, pos.z).setRotation({ x: quat.x, y: quat.y, z: quat.z, w: quat.w }),
+    );
+    for (const b of shapes) this.addCollider(RAPIER.ColliderDesc.cuboid(b[3], b[4], b[5]).setTranslation(b[0], b[1], b[2]).setFriction(0.8).setRestitution(0.05), tag, body);
+    return body;
+  }
+
+  /** 下一步结束时它该在哪 */
+  moveMover(body: RAPIER.RigidBody, pos: Vector3, quat: Quaternion): void {
+    if (this.disposed) return;
+    body.setNextKinematicTranslation({ x: pos.x, y: pos.y, z: pos.z });
+    body.setNextKinematicRotation({ x: quat.x, y: quat.y, z: quat.z, w: quat.w });
+  }
+
+  /** 不在场（小飞机下雨不飞）：碰撞箱关掉 */
+  setMoverEnabled(body: RAPIER.RigidBody, on: boolean): void {
+    if (this.disposed) return;
+    for (let i = 0; i < body.numColliders(); i++) body.collider(i).setEnabled(on);
   }
 
   // ---------------- 直升机 ----------------

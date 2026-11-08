@@ -9,6 +9,7 @@ import { bridgeDeckY, buildingFrame, loadRealData, loadRealTrees, outerForest, t
 import { erode } from './erosion';
 import { dissect } from './fluvial';
 import { PropBuilder, type ColliderSpec } from './propBuilder';
+import { makeMovers, type Mover } from '../sim/movers';
 import { carveRiver, settleRiver } from './river';
 import { applyRockForm } from './rockForm';
 import { buildPad, type PropCtx } from './props/common';
@@ -28,6 +29,8 @@ export interface WorldData {
   trees: TreeSet;
   pads: Map<string, PadDef>;
   ctx: PropCtx;
+  /** 会动的东西（船、路上的车、绕场的小飞机）：位置只看时间，物理和画面共用 */
+  movers: Mover[];
 }
 
 export type ProgressFn = (p: number, label: string) => void;
@@ -158,7 +161,8 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
   const trees = realTrees ? outerForest(map, terrain, realTrees, map.flightSize ?? map.size) : scatterTrees(map, terrain, hb.surface, B.footprints, flow);
   // 画面用的最细一层换成压平停机坪之后的高度，和物理碰撞面是同一份数据
   const realView = real && { ...real, levels: [{ ...real.levels[0], data: terrain.data }, ...real.levels.slice(1)] };
-  const world: WorldData = { map, terrain, surface: hb.surface, flow, builder: B, colliders: B.colliders, trees, pads, ctx, real: realView };
+  const movers = makeMovers(map, (x, z) => terrain.heightAt(x, z), ctx.ground);
+  const world: WorldData = { map, terrain, surface: hb.surface, flow, builder: B, colliders: B.colliders, trees, pads, ctx, real: realView, movers };
   resolveAutoAltitudes(world);
   attachPickupsToNodes(world);
   progress?.(0.8, '完成');

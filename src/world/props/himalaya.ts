@@ -142,8 +142,8 @@ export const himalayaProps: Record<string, PropFn> = {
     const x2 = Number(d.p?.x2 ?? 30);
     const z2 = Number(d.p?.z2 ?? 0);
     const h = Number(d.p?.h ?? 5);
-    B.cyl(0, h / 2, 0, 0.08, 0.06, h, 0x6a5a4a, 6, { solid: false });
-    B.cyl(x2, h / 2, z2, 0.08, 0.06, h, 0x6a5a4a, 6, { solid: false });
+    B.cyl(0, h / 2, 0, 0.08, 0.06, h, 0x6a5a4a, 6, {});
+    B.cyl(x2, h / 2, z2, 0.08, 0.06, h, 0x6a5a4a, 6, {});
     prayerLine(B, [0, h, 0], [x2, h, z2]);
   },
   monastery(B, _d, rng, ctx) {
