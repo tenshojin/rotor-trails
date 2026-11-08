@@ -12,6 +12,7 @@ import { refineRock } from './rockMesh';
 import { getRockReliefTexture, makeStrataTexture } from './terrainMacro';
 import { getNoiseTexture } from './textures';
 import { flagAspect, flagTexture, NEPAL_OUTLINE } from './flags';
+import { Windsock, windsockHardware } from './windsock';
 
 /** 三级细节模型的切换距离（米，再乘画质系数）：近景几何细节 → 中景贴图 → 远景体块 */
 const LOD_DIST: [number, number] = [110, 420];
@@ -137,6 +138,8 @@ interface Sock {
   pivot: THREE.Object3D;
   pos: THREE.Vector3;
   phase: number;
+  /** 风向袋的软布（旗子没有） */
+  ws?: Windsock;
 }
 
 interface Glow {
@@ -158,6 +161,8 @@ export class PropsView {
   private flagMats = new Map<string, THREE.Material>();
   private flagWave: THREE.Node | null = null;
   private readonly sockMat: THREE.MeshStandardMaterial;
+  private readonly sockHwMat: THREE.MeshStandardMaterial;
+  private tick = 0;
   private prayerMat: THREE.Material | null = null;
   private fallMats: THREE.Material[] = [];
   private fallMist: THREE.Sprite[] = [];
@@ -228,8 +233,9 @@ export class PropsView {
       this.group.add(m);
     }
     // 动态对象
-    const sockGeo = this.makeSockGeometry();
-    const sockMat = this.sockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide });
+    this.sockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, side: THREE.DoubleSide });
+    this.sockHwMat = new THREE.MeshStandardMaterial({ color: 0x5c6064, roughness: 0.45, metalness: 0.7 });
+    let sockHw: THREE.BufferGeometry | null = null;
     this.flagMat = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide });
     const FU = this.flagUniforms;
     {
@@ -244,13 +250,11 @@ export class PropsView {
     for (const a of world.builder.anchors) {
       const pos = new THREE.Vector3(...a.pos);
       if (a.type === 'windsock') {
-        const pivot = new THREE.Object3D();
-        pivot.position.copy(pos);
-        const m = new THREE.Mesh(sockGeo, sockMat);
-        m.castShadow = true;
-        pivot.add(m);
-        this.group.add(pivot);
-        this.socks.push({ pivot, pos, phase: Math.random() * 6 });
+        if (!sockHw) this.geos.push((sockHw = windsockHardware()));
+        const ws = new Windsock(this.sockMat, this.sockHwMat, sockHw);
+        ws.pivot.position.copy(pos);
+        this.group.add(ws.pivot);
+        this.socks.push({ pivot: ws.pivot, pos, phase: Math.random() * 6, ws });
       } else if (a.type === 'prayer') {
         prayers.push(a);
       } else if (a.type === 'flag') {
@@ -458,23 +462,6 @@ export class PropsView {
     this.group.add(m);
   }
 
-  private makeSockGeometry(): THREE.BufferGeometry {
-    // 沿 +X 的锥形风袋，红白条纹
-    const g = new THREE.CylinderGeometry(0.22, 0.45, 2.6, 10, 5, true);
-    g.rotateZ(Math.PI / 2);
-    g.translate(1.35, 0, 0);
-    const pos = g.getAttribute('position');
-    const colors: number[] = [];
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const band = Math.floor((x / 2.6) * 5);
-      const red = band % 2 === 0;
-      colors.push(red ? 0.85 : 0.95, red ? 0.25 : 0.95, red ? 0.12 : 0.95);
-    }
-    g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    this.geos.push(g);
-    return g;
-  }
 
   /** 这种旗子的材质：有画布就用画好的图案，没有（单元测试）就用顶点色的 flagMat */
   private flagMaterial(kind: string): THREE.Material {
@@ -535,14 +522,17 @@ export class PropsView {
   update(t: number, camPos: THREE.Vector3, windAt: (p: THREE.Vector3, out: THREE.Vector3) => THREE.Vector3): void {
     for (const l of this.lods) l.update(camPos, this.lodScale);
     const w = this.wind;
-    for (const s of this.socks) {
-      if (s.pos.distanceToSquared(camPos) > 2500 * 2500) continue;
+    this.tick++;
+    for (let i = 0; i < this.socks.length; i++) {
+      const s = this.socks[i];
+      const d2 = s.pos.distanceToSquared(camPos);
+      if (d2 > 2500 * 2500) continue;
       windAt(s.pos, w);
       const spd = Math.hypot(w.x, w.z);
       const yaw = Math.atan2(-w.z, w.x);
-      s.pivot.rotation.set(0, 0, 0);
-      s.pivot.rotation.y = yaw + Math.sin(t * 2.3 + s.phase) * 0.06 * Math.min(1, spd / 6);
-      s.pivot.rotation.z = -(1 - Math.min(1, spd / 11)) * 1.25 + Math.sin(t * 5.1 + s.phase) * 0.03 * Math.min(1, spd / 5);
+      // 转轴只转方向；布袋自己按风速鼓起来或者耷拉下来（远处的隔几帧才算一次）
+      s.pivot.rotation.set(0, yaw + Math.sin(t * 2.3 + s.phase) * 0.06 * Math.min(1, spd / 6), 0);
+      if (s.ws && (d2 < 700 * 700 || (this.tick + i) % 20 === 0)) s.ws.shape(spd, t, s.phase);
     }
     let windAmt = 0;
     let n = 0;
@@ -583,6 +573,8 @@ export class PropsView {
     for (const m of this.flagMats.values()) m.dispose();
     this.flagMats.clear();
     this.sockMat.dispose();
+    this.sockHwMat.dispose();
+    for (const s of this.socks) s.ws?.dispose();
     this.prayerMat?.dispose();
     for (const m of this.fallMats) m.dispose();
     for (const s of this.fallMist) (s.material as THREE.Material).dispose();

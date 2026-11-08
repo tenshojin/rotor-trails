@@ -72,9 +72,9 @@ describe('prop view resource ownership', () => {
       }
       if ((object as THREE.Sprite).isSprite) materials.add((object as THREE.Sprite).material);
     });
-    // Three socks share one geometry/material; each flag has its own geometry.
-    expect(geometries.size).toBe(3);
-    expect(materials.size).toBe(4);
+    // 三个风向袋：布各一份（会变形），钢圈支架共用一份；布和支架各一种材质。每面旗子一份几何体。
+    expect(geometries.size).toBe(6);
+    expect(materials.size).toBe(5);
     const observers = [...geometries, ...materials].map(watch);
     view.dispose();
     view.dispose();

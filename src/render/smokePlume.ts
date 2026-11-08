@@ -1,5 +1,7 @@
 // 任务目标的烟幕：一串面向镜头的烟团，一次实例绘制。
 //   · 同一时刻放出的烟团摆动同相，连起来是一条弯弯曲曲、往下风方向散开的烟柱；
+//   · 风越大烟升得越慢、横着飘得越快（放出来时按当时的风定下每团升多快）：没风是一根直柱，
+//     9 m/s 的海风里贴着树梢斜着拖出去，和真的烟罐一样能看出风向；
 //   · 每团按半球法线受光：朝太阳的一面亮、背面暗，逆光时薄的地方透亮，和场景同一个太阳和天光；
 //   · 用场景深度做软边：烟穿过树冠、贴着地面时不会切出一条硬边；
 //   · 镜头靠近或者钻进烟里时淡出（否则一大片烟糊在座舱上）。
@@ -28,6 +30,9 @@ interface Puff {
   /** 放出来的时刻（决定摆动的相位）和随机数 */
   t0: number;
   seed: number;
+  /** 升得多快（放出来时的风越大越慢）、散得多开（风越大湍流越强，烟团越大） */
+  rs: number;
+  sp: number;
   /** 这一帧的位置和离镜头的距离 */
   px: number;
   py: number;
@@ -60,7 +65,7 @@ export class SmokePlume {
   private seed = 1;
 
   constructor(reversedDepth: boolean) {
-    for (let i = 0; i < CAP; i++) this.puffs.push({ live: false, age: 0, x: 0, y: 0, z: 0, t0: 0, seed: 0, px: 0, py: 0, pz: 0, dist: 0 });
+    for (let i = 0; i < CAP; i++) this.puffs.push({ live: false, age: 0, x: 0, y: 0, z: 0, t0: 0, seed: 0, rs: 1, sp: 1, px: 0, py: 0, pz: 0, dist: 0 });
     const g = new THREE.InstancedBufferGeometry();
     const plane = new THREE.PlaneGeometry(1, 1);
     g.setAttribute('position', plane.getAttribute('position'));
@@ -94,7 +99,8 @@ export class SmokePlume {
     const sun = (VFOG.sun as unknown as THREE.Node<'vec3'>).mul(terrainSun(positionWorld)).mul(1 / Math.PI);
     const look = normalize(positionWorld.sub(cameraPosition));
     const through = pow(max(dot(look, FOG.sunDir), 0.0), 6.0).mul(float(1).sub(body).mul(0.8).add(0.2));
-    const albedo = mix(vec3(0.8, 0.38, 0.15), vec3(0.74, 0.7, 0.66), smoothstep(0.02, 0.3, k));
+    // 信号烟是橙色的，飘远了变淡（偏暖的灰），不是马上变成灰烟
+    const albedo = mix(vec3(0.8, 0.38, 0.15), vec3(0.78, 0.66, 0.58), smoothstep(0.03, 0.5, k));
     const sky = FOG.color.mul(nrm.y.mul(0.22).add(0.62));
     // 团与团之间的缝里阳光进不去：朝着光的时候烟才有层次，不是一条平的色带
     const fold = smoothstep(0.1, 0.75, shape).mul(0.5).add(0.5);
@@ -119,7 +125,7 @@ export class SmokePlume {
     return this.seed / 2147483647;
   }
 
-  private spawn(x: number, y: number, z: number, age: number): Puff {
+  private spawn(x: number, y: number, z: number, age: number, u: number): Puff {
     let p = this.puffs.find((q) => !q.live);
     if (!p) {
       p = this.puffs[0];
@@ -132,6 +138,8 @@ export class SmokePlume {
     p.z = z;
     p.t0 = this.time - age;
     p.seed = this.rnd();
+    p.rs = SmokePlume.riseScale(u);
+    p.sp = SmokePlume.spread(u);
     return p;
   }
 
@@ -139,14 +147,30 @@ export class SmokePlume {
     return 0.9 + 0.95 * a ** 0.92 * (0.85 + 0.3 * seed);
   }
 
-  /** 水平飘动的速度比例：贴地时风小，越高越顺风 */
-  private static blow(a: number): number {
-    return 0.22 + 0.62 * Math.min(1, a / 10);
+  /** 水平飘动的速度比例：刚出罐口贴着地风小一点，几秒后就跟着风走 */
+  static blow(a: number): number {
+    return 0.35 + 0.5 * Math.min(1, a / 6);
+  }
+
+  /** 风速 u（m/s）下烟升得多快（没风 = 1）：风把烟柱压弯 */
+  static riseScale(u: number): number {
+    return 1 / (1 + u / 10);
+  }
+
+  /** 风速 u 下烟团放大多少：烟柱被拉长了，靠湍流散开补上，不然一团团摊开、看得见缝 */
+  static spread(u: number): number {
+    return 1 + 0.04 * Math.min(u, 14);
+  }
+
+  /** 放出来 a 秒的烟团升了多高（rs = riseScale） */
+  static rise(a: number, rs: number): number {
+    return rs * (3.2 * a + 26 * (1 - Math.exp(-a / 4.5)));
   }
 
   /** src：烟罐的位置（null = 不再放烟，已有的烟继续飘散）；wx、wz：风（m/s）；flare：烟罐口的火光 0..1 */
   update(dt: number, src: THREE.Vector3 | null, wx: number, wz: number, cam: THREE.Camera, flare: number): void {
     this.time += dt;
+    const u = Math.hypot(wx, wz);
     for (const p of this.puffs) {
       if (!p.live) continue;
       p.age += dt;
@@ -168,13 +192,13 @@ export class SmokePlume {
           const a = (i + 0.5) / RATE;
           let drift = 0;
           for (let s = 0; s < a; s += 0.5) drift += SmokePlume.blow(s) * 0.5;
-          this.spawn(src.x + wx * drift, src.y, src.z + wz * drift, a);
+          this.spawn(src.x + wx * drift, src.y, src.z + wz * drift, a, u);
         }
       }
       this.acc += dt * RATE;
       while (this.acc >= 1) {
         this.acc -= 1;
-        this.spawn(src.x, src.y, src.z, this.acc / RATE);
+        this.spawn(src.x, src.y, src.z, this.acc / RATE, u);
       }
     }
     // 从远到近画
@@ -187,9 +211,9 @@ export class SmokePlume {
       const amp = 0.5 + a * 0.72;
       const ph = p.t0 * 0.85;
       // 烟柱的走向 + 每团自己的偏移（外轮廓才是一个个鼓包，不是一根光滑的管子）
-      const r = SmokePlume.radius(a, p.seed);
+      const r = SmokePlume.radius(a, p.seed) * p.sp;
       p.px = p.x + amp * (Math.sin(ph + a * 0.21) + 0.5 * Math.sin(ph * 2.3 + a * 0.47 + 1.7)) + Math.sin(p.seed * 91.7) * r * 0.42;
-      p.py = p.y + 3.2 * a + 26 * (1 - Math.exp(-a / 4.5)) + Math.sin(p.seed * 33.1) * r * 0.3;
+      p.py = p.y + SmokePlume.rise(a, p.rs) + Math.sin(p.seed * 33.1) * r * 0.3;
       p.pz = p.z + amp * (Math.cos(ph * 0.8 + a * 0.19 + 2.1) + 0.5 * Math.sin(ph * 1.9 + a * 0.41)) + Math.cos(p.seed * 57.3) * r * 0.42;
       p.dist = (p.px - cp.x) ** 2 + (p.py - cp.y) ** 2 + (p.pz - cp.z) ** 2;
       o.push(p);
@@ -205,11 +229,13 @@ export class SmokePlume {
       A[i * 4 + 1] = p.py;
       A[i * 4 + 2] = p.pz;
       // 烟一阵浓一阵淡；飘高以后只留一部分团、每团实一点：层数太多只剩一片均匀的颜色
-      const thin = k > 0.1 && p.seed > 0.5 ? 0 : 1;
+      // 风大时烟柱拉长，少丢一些团，不然稀稀拉拉
+      const thin = k > 0.1 && p.seed > 0.5 + 0.035 * Math.min(u, 12) ? 0 : 1;
       const pulse = 0.72 + 0.28 * Math.sin(p.t0 * 1.7);
-      A[i * 4 + 3] = SmokePlume.radius(p.age, p.seed) * (thin ? 1 : 0);
+      A[i * 4 + 3] = SmokePlume.radius(p.age, p.seed) * p.sp * (thin ? 1 : 0);
       B[i * 4] = k;
-      B[i * 4 + 1] = Math.min(1, p.age / 0.35) * (1 - k) ** 1.5 * 0.72 * pulse;
+      // 风大时烟柱被拉长、层数少，每团浓一点补回来
+      B[i * 4 + 1] = Math.min(1, Math.min(1, p.age / 0.35) * (1 - k) ** 1.5 * 0.72 * pulse * (1 + 0.035 * Math.min(u, 12)));
       B[i * 4 + 2] = p.seed * 6.283 + p.age * (p.seed - 0.5) * 0.12;
       B[i * 4 + 3] = p.seed;
     });
