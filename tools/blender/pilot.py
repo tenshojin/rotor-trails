@@ -1,3 +1,4 @@
+# 【目前游戏里不用】2026-11-08 用户要求人物模型先全部撤下（之后另想办法），public/models 里已经没有这个模型；脚本留作参考。
 # 飞行员的身体：把 pilot_sdf.py 雕好的网格减面、绑骨骼、上材质，导出 public/models/pilot.glb。
 # 运行：blender -b --factory-startup --python tools/blender/pilot.py -- public/models/pilot.glb art/out/pilot [--preview 预览目录 驾驶舱.glb]
 #

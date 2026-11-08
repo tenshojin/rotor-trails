@@ -1,3 +1,4 @@
+# 【目前游戏里不用】2026-11-08 用户要求人物模型先全部撤下（之后另想办法），public/models 里已经没有这个模型；脚本留作参考。
 # 飞行员的身体：用有符号距离场“雕刻”，再抽成网格。
 # 手指、手掌、袖口、衣褶、拉链和口袋都写成距离函数，比方块拼起来自然得多，也不需要任何外部模型。
 # 运行：D:/ComfyUI/venv/Scripts/python.exe tools/blender/pilot_sdf.py art/out/pilot

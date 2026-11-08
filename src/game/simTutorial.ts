@@ -1,6 +1,6 @@
 // 超仿真教学：从冷舱到关车，再到发动机空中停车。和基础教学一样一步只教一件事、每一步都看真实状态。
 // 不一样的地方：这里没有悬停辅助，HUD 是收起来的，要看的数字写在教学卡片上；要动的控件外面亮一圈，
-// 手是真的伸过去按的。第 4 课专门讲为什么飞机总想往右转（见 docs/design.md“反扭矩”）。
+// 第 4 课专门讲为什么飞机总想往右转（见 docs/design.md“反扭矩”）。
 
 import { ENGINE } from '../sim/systems';
 import type { GameSession } from '../sim/session';
@@ -63,7 +63,7 @@ export const SIM_LESSONS: Lesson[] = [
         id: 'simPoint',
         title: '指一指',
         text: () => '把鼠标<b>指向</b>亮着光圈的 <b>BATT</b> 开关，不要点。名字、说明和当前状态会显示出来。',
-        why: () => '指着只是在看，手不会动。点下去手才伸过去按。',
+        why: () => '指着只是在看名称和读数，点下去才会按。',
         control: 'rk_batt',
         check: (_s, st, dt, c) => hold(st, dt, c.hover === 'rk_batt', 0.5),
         stuck: () => '光圈在仪表板下方。把鼠标移到屏幕下边缘低头找。',
@@ -87,7 +87,7 @@ export const SIM_LESSONS: Lesson[] = [
         id: 'simBatt',
         title: '接通电瓶',
         text: () => '点一下 <b>BATT</b>。整架飞机的电都从这里来。',
-        why: () => '仪表和告警灯会亮起来。手是真的伸过去的，要等手指碰到开关才翻过去。',
+        why: () => '仪表和告警灯会亮起来。',
         control: 'rk_batt',
         check: (s) => (on(s, 'batt') ? 1 : 0),
       },

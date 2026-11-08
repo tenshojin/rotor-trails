@@ -1,3 +1,4 @@
+# 【目前游戏里不用】2026-11-08 用户要求人物模型先全部撤下（之后另想办法），游戏只加载 crate.py 导出的货箱；这个脚本留作参考。
 # 停机坪地勤和货箱：把 crew_sdf.py 雕好的身体、手臂减面，加上安全帽和耳罩，再做一个木货箱，导出 public/models/crew.glb。
 # 运行：blender -b --factory-startup --python tools/blender/crew.py -- public/models/crew.glb art/out/crew [--preview 预览目录]
 # 样子照 MOSS-Image 生成的设定图 art/src/ref/crew/sheet_s21.png。
@@ -159,45 +160,9 @@ crew_body = K.join([body, vest, hat], 'crew_body')
 arm_R.name = 'crew_arm_R'
 arm_L.name = 'crew_arm_L'
 
-# ------------------------------------------------------------------ 木货箱
-rng = random.Random(7)
-wood = [lin(0.70 + rng.uniform(-0.05, 0.05), 0.54 + rng.uniform(-0.04, 0.04), 0.34 + rng.uniform(-0.03, 0.03)) for _ in range(40)]
-dark = lin(0.46, 0.34, 0.20)
-
-
-def board(name, size, center, rgba):
-    bm = bmesh.new()
-    bmesh.ops.create_cube(bm, size=1.0)
-    for v in bm.verts:
-        v.co = Vector((v.co.x * size[0], v.co.y * size[1], v.co.z * size[2])) + Vector(center)
-    ob = mesh_from_bm(name, bm, rgba)
-    ob.data.polygons.foreach_set('use_smooth', [False] * len(ob.data.polygons))
-    return ob
-
-
-crate_parts = []
-W, H = 1.0, 0.86
-# 托盘：三根垫木 + 底板
-for i, x in enumerate((-0.44, 0.0, 0.44)):
-    crate_parts.append(board(f'skid{i}', (0.09, 1.08, 0.10), (x, 0, 0.05), dark))
-crate_parts.append(board('deck', (1.08, 1.08, 0.025), (0, 0, 0.112), wood[0]))
-# 四面：横着的木板，板和板之间留一道缝
-n = 6
-ph = (H - 0.02) / n
-k = 1
-for i in range(n):
-    z = 0.125 + ph * (i + 0.5)
-    for (sx, sy, nx, ny) in ((W, 0.022, 0, 1), (W, 0.022, 0, -1), (0.022, W, 1, 0), (0.022, W, -1, 0)):
-        crate_parts.append(board(f'plank{k}', (sx, sy, ph - 0.012), (nx * (W / 2), ny * (W / 2), z), wood[k % len(wood)]))
-        k += 1
-# 竖着的护角和中间一道斜撑
-for sx in (-1, 1):
-    for sy in (-1, 1):
-        crate_parts.append(board(f'corner{sx}{sy}', (0.07, 0.07, H), (sx * (W / 2 + 0.005), sy * (W / 2 + 0.005), 0.125 + H / 2), dark))
-# 盖子
-for i in range(5):
-    crate_parts.append(board(f'lid{i}', (W + 0.04, (W + 0.04) / 5 - 0.01, 0.025), (0, -W / 2 + (i + 0.5) * W / 5, 0.125 + H + 0.012), wood[(i * 7) % len(wood)]))
-crate = K.join(crate_parts, 'crate')
+# ------------------------------------------------------------------ 木货箱（和游戏里用的 crate.glb 同一个）
+import crate as CR  # noqa: E402
+crate = CR.build_crate(MAT)
 
 for ob in (crew_body, arm_R, arm_L, crate):
     K.uv_box(ob, 1 / 0.5)

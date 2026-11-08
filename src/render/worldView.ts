@@ -953,12 +953,6 @@ export class WorldView {
       this.cockpit.glassUniforms.uOutside.value = 1;
       this.cockpit.root.visible = this.heli.extLoaded && this.cockpit.loaded;
       this.heli.update(f.t, f.dt, 1);
-      // 主菜单：旋翼转着，座位上坐着飞行员，手在杆上，偶尔左右看一眼
-      if (this.pilot?.loaded) {
-        this.pilot.root.visible = this.cockpit.root.visible;
-        this.pilot.setView(false);
-        this.pilot.update({ dt: f.dt, cyclic: this.cockpit.stick('cyclic'), collective: this.cockpit.stick('collective'), pedal: 0, eye: _eye.set(EYE.x, EYE.y, EYE.z), collectiveKey: false, turn: 0, sink: 0, agl: 2 });
-      }
     }
     cam.updateMatrixWorld();
     const cp = cam.position;

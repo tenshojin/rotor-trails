@@ -1,3 +1,4 @@
+# 【目前游戏里不用】2026-11-08 用户要求人物模型先全部撤下（之后另想办法），public/models 里已经没有这个模型；脚本留作参考。
 # 飞行员身上的硬东西：头盔（外壳、面罩罩壳、面罩、包边、麦克风、下巴带）、护膝板、背心的扣子。
 # 软的（脸、衣服、背心）在 pilot_sdf.py 里用距离场雕；这些要边缘干净的零件直接在 Blender 里建。
 # 样子照 MOSS-Image 生成的参考图：art/src/ref/pilot/helmet_s5.png、face_s7.png、sheet_s11.png、knee_s10.png。

@@ -363,8 +363,6 @@ export class App {
       const pad = w.pads.get(w.map.spawn.padId)!;
       this.view.heli.root.position.set(pad.pos[0], pad.pos[1] + 1.32, pad.pos[2]);
       this.view.heli.root.quaternion.identity();
-      // 旋翼在转，驾驶舱里要坐着人
-      void this.view.ensurePilot?.();
     }
     this.last = performance.now();
     this.frameId = requestAnimationFrame(this.frame);
@@ -621,9 +619,8 @@ export class App {
       this.world = w;
     }
     this.ui.loading('初始化物理', 0.98, cfg.map);
-    // 超仿真要等身体到了才开始；别的模式只有从外面看才用得到，飞起来再到也行
-    if (cfg.assist === 'sim') await this.view.ensurePilot();
-    else void this.view.ensurePilot?.();
+    // 人物模型先全部撤下（2026-11-08 用户：“还是把人物相关建模先全部去掉吧，这个我之后再想办法”）：
+    // 不加载飞行员。超仿真里点控件就直接生效（useControl 在没有飞行员时不等手伸过去）
     this.eyeDof = cfg.assist === 'sim' && !cfg.tutorial;
     this.view.setDof?.(this.eyeDof);
     const session = await GameSession.create(this.world, cfg.weather, cfg.assist, cfg.free === true);

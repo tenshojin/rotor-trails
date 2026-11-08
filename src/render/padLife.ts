@@ -1,26 +1,14 @@
-// 停机坪上的人和货：每块坪有一个地勤，你朝他飞过来他举手引导，旋翼的风打过来他弯下腰；送到的物资堆在坪边上。
-// 一张图十几块坪：身体、两条手臂、货箱各一次实例绘制。只有画面，不碰物理。
-// 模型是 tools/blender/crew_sdf.py + crew.py 照 MOSS-Image 生成的设定图（art/src/ref/crew/）建的 models/crew.glb：
-// 藏青工装、橙色反光背心、带帽檐的安全帽和耳罩、白手套、指挥棒；货箱是钉木条的箱子。颜色都在顶点色里，四个网格共用一种材质。
-// 加载完之前先用下面几个简单几何体顶着。
+// 停机坪上的货：卸一次货，坪边上堆一批木箱。只有画面，不碰物理，一张图所有的货箱一次实例绘制。
+// 以前每块坪还站着一个地勤；2026-11-08 用户要求人物模型先全部撤下（“这个我之后再想办法”），这里只剩货箱。
+// 货箱是 tools/blender/crate.py 建的 models/crate.glb（钉木条的箱子：托盘、横板、护角、盖子，颜色在顶点色里），
+// 加载完之前先用下面的简单几何体顶着。
 
 import * as THREE from 'three/webgpu';
-import type { MapDef, PadDef } from '../maps/types';
+import type { MapDef } from '../maps/types';
 import { padWorld } from '../maps/padLayout';
 import type { GameSession } from '../sim/session';
 import { markNearShadow } from './sunShadows';
 import { loadGltf } from './gltf';
-
-/** 肩膀离脚多高、左右多宽（米） */
-const SHOULDER = 1.42;
-const SHOULDER_W = 0.205;
-
-const VEST = [0.95, 0.44, 0.06];
-const STRIPE = [0.86, 0.86, 0.78];
-const TROUSERS = [0.06, 0.07, 0.1];
-const SKIN = [0.62, 0.43, 0.32];
-const HELMET = [0.82, 0.82, 0.78];
-const BOOT = [0.05, 0.045, 0.04];
 
 function paint(g: THREE.BufferGeometry, c: number[]): THREE.BufferGeometry {
   const n = g.getAttribute('position').count;
@@ -36,8 +24,7 @@ function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
   const col: number[] = [];
   const idx: number[] = [];
   let base = 0;
-  for (const part of parts) {
-    const g = part.index ? part : part;
+  for (const g of parts) {
     const p = g.getAttribute('position');
     const n = g.getAttribute('normal');
     const c = g.getAttribute('color');
@@ -61,37 +48,8 @@ function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
 }
 
 const box = (w: number, h: number, d: number, x: number, y: number, z: number, c: number[]): THREE.BufferGeometry => paint(new THREE.BoxGeometry(w, h, d).translate(x, y, z), c);
-const cap = (r: number, l: number, x: number, y: number, z: number, c: number[]): THREE.BufferGeometry => paint(new THREE.CapsuleGeometry(r, l, 3, 8).translate(x, y, z), c);
 
-/** 脚在原点，脸朝 -z */
-function bodyGeometry(): THREE.BufferGeometry {
-  return merge([
-    box(0.13, 0.08, 0.27, -0.1, 0.04, -0.035, BOOT),
-    box(0.13, 0.08, 0.27, 0.1, 0.04, -0.035, BOOT),
-    cap(0.082, 0.66, -0.1, 0.46, 0, TROUSERS),
-    cap(0.082, 0.66, 0.1, 0.46, 0, TROUSERS),
-    box(0.33, 0.14, 0.19, 0, 0.9, 0, TROUSERS),
-    cap(0.165, 0.34, 0, 1.17, 0, VEST),
-    box(0.345, 0.05, 0.3, 0, 1.1, 0, STRIPE),
-    box(0.345, 0.05, 0.3, 0, 1.28, 0, STRIPE),
-    paint(new THREE.SphereGeometry(0.105, 10, 8).translate(0, 1.6, 0), SKIN),
-    paint(new THREE.SphereGeometry(0.122, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55).translate(0, 1.62, 0), HELMET),
-    box(0.24, 0.014, 0.1, 0, 1.635, -0.1, HELMET),
-    // 耳罩：停机坪上吵
-    box(0.26, 0.09, 0.06, 0, 1.59, 0, TROUSERS),
-  ]);
-}
-
-/** 肩膀在原点，手臂朝下；手里拿着引导棒 */
-function armGeometry(): THREE.BufferGeometry {
-  return merge([
-    cap(0.055, 0.56, 0, -0.33, 0, VEST),
-    box(0.08, 0.05, 0.1, 0, -0.14, 0, STRIPE),
-    paint(new THREE.SphereGeometry(0.052, 8, 6).translate(0, -0.66, 0), SKIN),
-    paint(new THREE.CylinderGeometry(0.022, 0.022, 0.42, 6).translate(0, -0.88, 0), [1, 0.34, 0.05]),
-  ]);
-}
-
+/** 模型没到之前的简单货箱 */
 function crateGeometry(): THREE.BufferGeometry {
   const wood = [0.42, 0.29, 0.16];
   const dark = [0.26, 0.17, 0.09];
@@ -103,42 +61,19 @@ function crateGeometry(): THREE.BufferGeometry {
   ]);
 }
 
-interface Crew {
-  pad: PadDef;
-  x: number;
-  y: number;
-  z: number;
-  yaw: number;
-  /** 手举得多高 0..1、弯腰的程度 0..1 */
-  wave: number;
-  duck: number;
-  phase: number;
-}
-
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
-const _qa = new THREE.Quaternion();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3(1, 1, 1);
-const _o = new THREE.Vector3();
-const _x = new THREE.Vector3(1, 0, 0);
 const _y = new THREE.Vector3(0, 1, 0);
-const _z = new THREE.Vector3(0, 0, 1);
 const HIDE = new THREE.Matrix4().makeScale(0, 0, 0);
-
-function damp(a: number, b: number, k: number, dt: number): number {
-  return b + (a - b) * Math.exp(-k * dt);
-}
 
 export class PadLife {
   readonly group = new THREE.Group();
-  private readonly crew: Crew[] = [];
-  private readonly body: THREE.InstancedMesh;
-  private readonly armL: THREE.InstancedMesh;
-  private readonly armR: THREE.InstancedMesh;
+  private readonly pads: MapDef['pads'];
   private readonly crates: THREE.InstancedMesh;
   private readonly mat = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
-  private geos: THREE.BufferGeometry[];
+  private geo: THREE.BufferGeometry;
   /** 货箱多高：第三个箱子摞在前两个上面 */
   private crateH = 0.94;
   private disposed = false;
@@ -146,61 +81,40 @@ export class PadLife {
   private stock = '';
 
   constructor(map: MapDef) {
-    for (const pad of map.pads) {
-      // 站在坪的一角：旋翼打不到，降落时看得见
-      const e = pad.size * 0.44;
-      const [x, y, z] = padWorld(pad, e, 0.02, -e);
-      this.crew.push({ pad, x, y, z, yaw: 0, wave: 0, duck: 0, phase: x * 0.37 });
-    }
-    const n = Math.max(1, this.crew.length);
-    const arm = armGeometry();
-    this.geos = [bodyGeometry(), arm, crateGeometry()];
-    this.body = new THREE.InstancedMesh(this.geos[0], this.mat, n);
-    this.armL = new THREE.InstancedMesh(arm, this.mat, n);
-    this.armR = new THREE.InstancedMesh(arm, this.mat, n);
-    this.crates = new THREE.InstancedMesh(this.geos[2], this.mat, n * 4);
-    void this.load();
-    for (const m of [this.body, this.armL, this.armR, this.crates]) {
-      m.frustumCulled = false;
-      m.castShadow = true;
-      m.receiveShadow = true;
-      this.group.add(m);
-    }
+    this.pads = map.pads;
+    const n = Math.max(1, map.pads.length);
+    this.geo = crateGeometry();
+    this.crates = new THREE.InstancedMesh(this.geo, this.mat, n * 4);
+    this.crates.frustumCulled = false;
+    this.crates.castShadow = true;
+    this.crates.receiveShadow = true;
+    this.group.add(this.crates);
     for (let i = 0; i < n * 4; i++) this.crates.setMatrixAt(i, HIDE);
     this.crates.count = 0;
-    this.group.name = 'Pad crew';
+    this.group.name = 'Pad cargo';
     markNearShadow(this.group);
+    void this.load();
   }
 
-  /** 换成 Blender 建的模型。失败了就继续用简单几何体，不影响别的 */
+  /** 换成 Blender 建的货箱。失败了就继续用简单几何体，不影响别的 */
   private async load(): Promise<void> {
     try {
-      const gltf = await loadGltf('models/crew.glb');
-      const pick = (name: string): THREE.BufferGeometry | null => {
-        const o = gltf.scene.getObjectByName(name) as THREE.Mesh | undefined;
-        return o?.isMesh ? o.geometry : null;
-      };
-      const body = pick('crew_body');
-      const armR = pick('crew_arm_R');
-      const armL = pick('crew_arm_L');
-      const crate = pick('crate');
-      // glb 里的材质不用：四个网格共用 this.mat（顶点色）
-      gltf.scene.traverse((o) => ((o as THREE.Mesh).material as THREE.Material | undefined)?.dispose?.());
-      if (!body || !armR || !armL || !crate || this.disposed) {
-        for (const g of [body, armR, armL, crate]) g?.dispose();
+      const gltf = await loadGltf('models/crate.glb');
+      const o = gltf.scene.getObjectByName('crate') as THREE.Mesh | undefined;
+      // glb 里的材质不用：货箱用 this.mat（顶点色）
+      gltf.scene.traverse((x) => ((x as THREE.Mesh).material as THREE.Material | undefined)?.dispose?.());
+      if (!o?.isMesh || this.disposed) {
+        o?.geometry?.dispose();
         return;
       }
-      for (const g of this.geos) g.dispose();
-      this.geos = [body, armR, armL, crate];
-      this.body.geometry = body;
-      this.armR.geometry = armR;
-      this.armL.geometry = armL;
-      this.crates.geometry = crate;
-      crate.computeBoundingBox();
-      this.crateH = crate.boundingBox!.max.y;
+      this.geo.dispose();
+      this.geo = o.geometry;
+      this.crates.geometry = this.geo;
+      this.geo.computeBoundingBox();
+      this.crateH = this.geo.boundingBox!.max.y;
       if (this.stock) this.stack();
     } catch (e) {
-      console.warn('地勤模型加载失败，用简单几何体代替：', e);
+      console.warn('货箱模型加载失败，用简单几何体代替：', e);
     }
   }
 
@@ -209,7 +123,7 @@ export class PadLife {
     let i = 0;
     const done = this.stock ? this.stock.split(',') : [];
     for (const id of done) {
-      const pad = this.crew.find((c) => c.pad.id === id)?.pad;
+      const pad = this.pads.find((p) => p.id === id);
       if (!pad || i + 3 > this.crates.instanceMatrix.count) continue;
       const e = pad.size * 0.42;
       for (const [dx, dy, dz, r] of [[0, 0, 0, 0.1], [1.2, 0, 0.1, -0.08], [0.55, this.crateH, 0.04, 0.3]]) {
@@ -222,59 +136,22 @@ export class PadLife {
     this.crates.instanceMatrix.needsUpdate = true;
   }
 
-  update(s: GameSession | null, t: number, dt: number): void {
-    const target = s?.mission.current()?.def;
-    const aim = target?.kind === 'land' ? target.padId : null;
-    const hx = s?.body.pos.x ?? 1e9;
-    const hy = s?.body.pos.y ?? 1e9;
-    const hz = s?.body.pos.z ?? 1e9;
-    if (s) {
-      const done = [...s.mission.main, ...s.mission.optional]
-        .filter((o) => o.status === 'done' && o.def.kind === 'land' && o.def.cargo === 'unload')
-        .map((o) => (o.def as { padId: string }).padId)
-        .join(',');
-      if (done !== this.stock) {
-        this.stock = done;
-        this.stack();
-      }
+  update(s: GameSession | null, _t: number, _dt: number): void {
+    if (!s) return;
+    const done = [...s.mission.main, ...s.mission.optional]
+      .filter((o) => o.status === 'done' && o.def.kind === 'land' && o.def.cargo === 'unload')
+      .map((o) => (o.def as { padId: string }).padId)
+      .join(',');
+    if (done !== this.stock) {
+      this.stock = done;
+      this.stack();
     }
-    this.crew.forEach((c, i) => {
-      const dx = hx - c.x;
-      const dz = hz - c.z;
-      const d = Math.hypot(dx, dz);
-      const low = hy - c.y;
-      // 看着飞机。太远了就看着坪中间
-      const look = d < 500 ? Math.atan2(-dx, -dz) : Math.atan2(c.x - c.pad.pos[0], c.z - c.pad.pos[2]);
-      let turn = look - c.yaw;
-      turn = Math.atan2(Math.sin(turn), Math.cos(turn));
-      c.yaw += turn * (1 - Math.exp(-2.2 * dt));
-      c.wave = damp(c.wave, c.pad.id === aim && d < 320 && low > 3 ? 1 : 0, 3, dt);
-      // 飞机压过来，风打在身上：弯腰、背过一点
-      const wash = d < 34 && low < 24 && low > 0.5 ? 1 - d / 34 : 0;
-      c.duck = damp(c.duck, Math.min(1, wash * 1.6), 3, dt);
-      const lean = c.duck * 0.42;
-      _q.setFromAxisAngle(_y, c.yaw).multiply(_qa.setFromAxisAngle(_x, -lean));
-      const crouch = 1 - c.duck * 0.1;
-      _m.compose(_p.set(c.x, c.y, c.z), _q, _s.set(1, crouch, 1));
-      this.body.setMatrixAt(i, _m);
-      // 肩膀：先转到身体的朝向，再绕肩膀抬手。两只手一起在头顶上摆
-      const beat = Math.sin(t * 4.2 + c.phase) * 0.32;
-      const up = c.wave * (2.7 + beat);
-      const down = (1 - c.wave) * (0.05 + 0.03 * Math.sin(t * 0.9 + c.phase));
-      for (const [mesh, side] of [[this.armL, -1], [this.armR, 1]] as const) {
-        _o.set(side * SHOULDER_W, SHOULDER * crouch, 0).applyQuaternion(_q);
-        _qa.setFromAxisAngle(_z, side * (up + down));
-        _m.compose(_p.set(c.x + _o.x, c.y + _o.y, c.z + _o.z), _qa.premultiply(_q), _s.set(1, 1, 1));
-        mesh.setMatrixAt(i, _m);
-      }
-    });
-    for (const m of [this.body, this.armL, this.armR]) m.instanceMatrix.needsUpdate = true;
   }
 
   dispose(): void {
     this.disposed = true;
-    for (const m of [this.body, this.armL, this.armR, this.crates]) m.dispose();
-    for (const g of this.geos) g.dispose();
+    this.crates.dispose();
+    this.geo.dispose();
     this.mat.dispose();
   }
 }
