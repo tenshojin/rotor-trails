@@ -218,6 +218,10 @@ export const fjordProps: Record<string, PropFn> = {
     // 鲑鱼养殖网箱：水面上一圈圈浮环
     const n = Number(d.p?.n ?? 4);
     const r = Number(d.p?.r ?? 14);
+    // Blender 模型（props_fjord.py 的 fish_farm：双圈浮管、立柱扶手、锥形防鸟网、系泊浮球、饲料驳船和喂料软管）
+    // 按 n = 4、r = 14 的布局做；其他布局只画下面的程序几何体
+    const model = n === 4 && Math.abs(r - 14) < 1e-6;
+    if (model) B.beginModel('fish_farm');
     for (let i = 0; i < n; i++) {
       const cx = (i % 2) * (r * 2.4) - r * 1.2;
       const cz = Math.floor(i / 2) * (r * 2.4) - r * 1.2;
@@ -230,7 +234,11 @@ export const fjordProps: Record<string, PropFn> = {
       B.cyl(cx, 3, cz, 0.08, 0.06, 6, 0x888888, 6, {});
       B.box(cx, 0.4, cz, 1.6, 0.4, 1.6, 0xe8a020, { solid: false });
     }
-    B.box(-r * 3.4, 1.2, 0, 8, 2.4, 5, 0xd8d8d0, { mat: 'metal' });
+    // 饲料驳船：船体 24 × 10 m（干舷 1 m）+ 后半部两层上层建筑（也是碰撞体）
+    B.box(-r * 3.4, -0.2, 0, 24, 2.4, 10, 0x3e444a, { mat: 'metal' });
+    B.box(-r * 3.4 - 6.1, 2.4, 0, 11, 2.8, 9, 0xe4e6e4, {});
+    B.box(-r * 3.4 - 7.1, 5.1, 0, 7, 2.6, 7.5, 0xe4e6e4, {});
+    if (model) B.endModel();
     B.footprint(r * 3);
   },
   waterfall(B, d) {

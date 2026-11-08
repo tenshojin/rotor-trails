@@ -264,6 +264,103 @@ def stave_church():
     ROOTS.append(root)
 
 
+# ------------------------------------------------------------------ 鲑鱼养殖场
+def fish_farm():
+    """挪威峡湾的鲑鱼养殖场：2 × 2 四个网箱 + 饲料驳船。布局与 src/world/props/fjord.ts 的 fishFarm（n = 4、r = 14）一致：
+    网箱圆心在 (±16.8, ±16.8)，驳船中心 x = -47.6（游戏局部；Blender 的 Y = -z）。原点 = 水面。
+    网箱：两圈黑色 HDPE 浮管（半径 14.0 / 14.9）每 10° 一个支架连着，内圈上一圈立柱和扶手（网挂在扶手上），
+    中间一根 6 m 的杆撑起锥形防鸟网（一根根细绳拉到扶手），网箱四周橙色系泊浮球。
+    驳船：钢船体 24 × 10 m、干舷 1 m，后半部两层上层建筑（上层是控制室，一圈窗），前甲板四个料仓舱盖、一台折叠吊机，
+    桅杆上有雷达和天线；黑色喂料软管漂在水面上，从驳船连到每个网箱。"""
+    hdpe = F('hdpe_black', 0x141516, rough=0.55)
+    buoy = F('buoy_orange', 0xd8501e, rough=0.45)
+    line = F('birdnet_line', 0x45494c, rough=0.8)
+    float_y = F('float_yellow', 0xd9a521, rough=0.5)
+    parts = []
+    R0, R1 = 14.0, 14.9
+    for cx, cz in ((-16.8, -16.8), (16.8, -16.8), (-16.8, 16.8), (16.8, 16.8)):
+        bx_, by_ = cx, -cz
+        for R in (R0, R1):
+            parts.append(K.torus('collar', R, 0.22, (bx_, by_, 0.06), hdpe, seg=72, seg2=8))
+        parts.append(K.torus('handrail', R0, 0.055, (bx_, by_, 1.05), hdpe, seg=72, seg2=6))
+        for k in range(36):
+            a = 2 * math.pi * k / 36
+            ca, sa = math.cos(a), math.sin(a)
+            # 支架（两圈浮管之间的横板）+ 内圈上的立柱
+            mid = (bx_ + ca * (R0 + R1) / 2, by_ + sa * (R0 + R1) / 2, 0.24)
+            parts.append(BK.bx('bracket', (R1 - R0 + 0.5, 0.14, 0.08), mid, hdpe, rz=a, uv=False))
+            parts.append(BK.stick('stanchion', (bx_ + ca * R0, by_ + sa * R0, 0.2), (bx_ + ca * R0, by_ + sa * R0, 1.05), 0.05, hdpe, seg=6))
+        # 中间的杆和浮子、锥形防鸟网的绳
+        parts.append(BK.cyl('pole_float', 0.75, 0.45, (bx_, by_, 0.12), float_y, 16, uv=False))
+        parts.append(BK.stick('pole', (bx_, by_, 0.3), (bx_, by_, 6.0), 0.07, F('pole_grey', 0x9aa0a4, rough=0.5, metal=0.5), seg=8))
+        # 防鸟网是很细的网，这里只画撑起它的几根主绳（细，颜色浅一点，远看是一层淡淡的锥）
+        for k in range(20):
+            a = 2 * math.pi * (k + 0.5) / 20
+            parts.append(BK.stick('birdnet', (bx_, by_, 5.95), (bx_ + math.cos(a) * R0, by_ + math.sin(a) * R0, 1.08), 0.0065, line, seg=3))
+        for k in range(4):
+            a = math.pi / 4 + k * math.pi / 2
+            parts.append(K.sphere('buoy', 0.45, (bx_ + math.cos(a) * (R1 + 2.2), by_ + math.sin(a) * (R1 + 2.2), 0.15), buoy, seg=14, rings=8))
+    # 饲料驳船
+    BX = -47.6
+    hull = F('barge_hull', 0x3e444a, rough=0.6, metal=0.3)
+    white = F('barge_white', 0xe4e6e4, rough=0.55)
+    glass = F('glass_dark', 0x1c252d, rough=0.08, metal=0.5)
+    yellow = F('crane_yellow', 0xd8a82a, rough=0.5, metal=0.3)
+    parts.append(BK.bx('hull', (24.0, 10.0, 2.4), (BX, 0, -0.2), hull, bevel=0.25, uv=False))
+    parts.append(BK.bx('waterline', (24.1, 10.1, 0.35), (BX, 0, 0.05), F('hull_red', 0x7a2a22, rough=0.6), uv=False))
+    parts.append(BK.bx('deck', (23.6, 9.6, 0.06), (BX, 0, 1.0), F('deck_grey', 0x6b7076, rough=0.7), uv=False))
+    # 栏杆
+    rail = F('rail_grey', 0xb8bcc0, rough=0.4, metal=0.6)
+    for sx, sy, ex, ey in ((-11.8, -4.8, 11.8, -4.8), (-11.8, 4.8, 11.8, 4.8), (11.8, -4.8, 11.8, 4.8)):
+        a, b = Vector((BX + sx, sy, 2.05)), Vector((BX + ex, ey, 2.05))
+        parts.append(BK.stick('rail', a, b, 0.03, rail, seg=5))
+        n = int((b - a).length / 1.5)
+        for i in range(n + 1):
+            p = a.lerp(b, i / n)
+            parts.append(BK.stick('rail_post', (p.x, p.y, 1.03), (p.x, p.y, 2.05), 0.025, rail, seg=4))
+    # 上层建筑（后半部）：下层机房 / 生活区，上层控制室一圈窗
+    sx0 = BX - 6.1
+    parts.append(BK.bx('house_lo', (11.0, 9.0, 2.8), (sx0, 0, 2.4), white, uv=False))
+    for y in (-4.51, 4.51):
+        for k in range(5):
+            parts.append(BK.bx('win_lo', (1.1, 0.04, 0.8), (sx0 - 4 + 2 * k, y, 2.7), glass, uv=False))
+    parts.append(BK.bx('house_hi', (7.0, 7.5, 2.6), (sx0 - 1.0, 0, 5.1), white, uv=False))
+    parts.append(BK.bx('win_band', (7.06, 7.56, 1.1), (sx0 - 1.0, 0, 5.35), glass, uv=False))
+    parts.append(BK.bx('roof', (7.6, 8.1, 0.18), (sx0 - 1.0, 0, 6.49), F('roof_grey', 0x8a9096, rough=0.6), uv=False))
+    # 桅杆只挂灯和两根鞭状天线；雷达在顶棚前沿的小底座上（横在桅杆中间远看像十字架）
+    parts.append(BK.stick('mast', (sx0 - 3.2, 0, 6.5), (sx0 - 3.2, 0, 10.0), 0.07, rail, seg=6))
+    parts.append(K.sphere('mast_light', 0.12, (sx0 - 3.2, 0, 10.05), F('lamp_white', 0xf4f2e8, rough=0.3), seg=8, rings=5))
+    for dy in (-0.35, 0.35):
+        parts.append(BK.stick('whip', (sx0 - 3.2, dy, 8.6), (sx0 - 3.2, dy * 1.4, 12.2), 0.015, rail, seg=4))
+    parts.append(BK.bx('mast_arm', (0.1, 0.9, 0.08), (sx0 - 3.2, 0, 8.6), rail, uv=False))
+    parts.append(BK.cyl('radar_base', 0.22, 0.5, (sx0 + 1.4, 0, 6.83), white, 10, uv=False))
+    parts.append(BK.bx('radar', (0.35, 1.9, 0.14), (sx0 + 1.4, 0, 7.15), F('radar_white', 0xf0f0ec, rough=0.4), uv=False))
+    # 前甲板：四个料仓舱盖、折叠吊机
+    for i, (dx, dy) in enumerate(((2.0, -2.2), (2.0, 2.2), (6.0, -2.2), (6.0, 2.2))):
+        parts.append(BK.cyl('silo_hatch', 1.1, 0.5, (BX + dx, dy, 1.27), F('hatch_grey', 0x9aa1a8, rough=0.5, metal=0.4), 20, uv=False))
+    parts.append(BK.cyl('crane_base', 0.45, 1.6, (BX + 9.8, -3.4, 1.8), yellow, 12, uv=False))
+    parts.append(BK.stick('crane_boom', (BX + 9.8, -3.4, 2.7), (BX + 4.0, -3.6, 3.4), 0.22, yellow, seg=6))
+    parts.append(BK.stick('crane_jib', (BX + 4.0, -3.6, 3.4), (BX + 7.5, -3.8, 2.4), 0.16, yellow, seg=6))
+    # 喂料软管：漂在水面上，从驳船前端连到每个网箱
+    for cx, cz in ((-16.8, -16.8), (16.8, -16.8), (-16.8, 16.8), (16.8, 16.8)):
+        c = Vector((cx, -cz, 0.0))
+        start = Vector((BX + 12.2, (-1 if cz < 0 else 1) * (1.5 if cx < 0 else 3.5), 0.12))
+        d = (start - c)
+        d.z = 0
+        end = c + d.normalized() * (R1 + 0.25)
+        end.z = 0.12
+        mid = start.lerp(end, 0.5) + Vector((0, (1 if cz < 0 else -1) * 2.0, -0.03))
+        pts = []
+        for i in range(13):
+            t = i / 12
+            p = start * (1 - t) ** 2 + mid * 2 * t * (1 - t) + end * t * t
+            pts.append(p)
+        parts.append(K.tube_path('feed_hose', pts, 0.09, hdpe, seg=6))
+    root, _ = BK.model('fish_farm', parts)
+    ROOTS.append(root)
+
+
+fish_farm()
 for wall in WALLS:
     for roof in ('tile', 'turf'):
         nhouse(f'nhouse_{wall}_{roof}', wall, roof)
