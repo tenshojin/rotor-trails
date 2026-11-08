@@ -1213,7 +1213,8 @@ export class WorldView {
     DOF.focus.value = 1 / (d0 + (1 / want - d0) * k);
   }
 
-  /** 超仿真要用的身体：第一次用时才下载模型 */
+  /** 超仿真要用的身体：第一次用时才下载模型。
+   *  【目前没有地方调用】2026-11-08 人物模型先全部撤下，pilot.glb 已删除，等人物模型回来时再接上 */
   ensurePilot(): Promise<void> {
     if (!this.pilot) {
       this.pilot = new PilotBody((m) => this.cockpit.bodyMaterial(m));
