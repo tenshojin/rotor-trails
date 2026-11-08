@@ -40,7 +40,7 @@ export const ACTION_LABEL: Record<Action, string> = {
   boost: '使用动力增强',
   center: '视角回正',
   pause: '暂停',
-  view: '切换座舱/追尾视角',
+  view: '切换视角：座舱 / 追尾 / 电影镜头（休闲模式）',
   nav: '切换导航目标 / 分岔推荐路线',
   mapRange: '切换地图范围',
   hud: 'HUD 显示（自动 / 完整 / 隐藏）',

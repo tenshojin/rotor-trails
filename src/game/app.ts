@@ -41,6 +41,7 @@ import { SIM_LESSONS } from './simTutorial';
 import { isTimeOfDay, type TimeOfDay } from '../render/timeOfDay';
 import { waitForOperation } from './pending';
 import { InstrumentLists } from './instrumentLists';
+import { nextView } from './views';
 
 /** claude.ai 的私有试玩页（Artifact）放不下大峡谷的数据（单个文件超过 20 MiB），那里不列出真实地形的地图（见 tools/artifact-page.mjs） */
 const PLAYABLE_REAL_MAPS = (globalThis as { __artifact?: boolean }).__artifact ? [] : REAL_MAPS;
@@ -171,6 +172,8 @@ export class App {
   private tutorialHtml = '';
   private readonly tutorialCtx: TutorialCtx = { yaw: 0, pitch: 0, held: (a) => this.input.is(a), dragLook: false };
   private controlHintHtml = '';
+  /** 上次提示“任务里只用座舱视角”的时间（连按不叠一串提示） */
+  private viewLockToastT = -1e9;
   private frames = 0;
   private fpsT = 0;
   private lowFps = 0;
@@ -556,7 +559,7 @@ export class App {
         ? `<kbd>${k('down')}</kbd> 下降 · <kbd>${k('boost')}</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平 · <kbd>${k('hover')}</kbd> 增稳 · <kbd>${k('hud')}</kbd> 显示 HUD · <kbd>${k('pause')}</kbd> 暂停`
         : this.run?.free
         ? `<kbd>${k('cruise')}</kbd> 自动巡航 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('hud')}</kbd> 显示仪表 · <kbd>${k('photo')}</kbd> 截图 · <kbd>${k('pause')}</kbd> 换时段、天气、景点`
-        : `<kbd>${k('hover')}</kbd> 悬停 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('nav')}</kbd> 导航 · <kbd>${k('pause')}</kbd> 暂停`
+        : `<kbd>${k('hover')}</kbd> 悬停 · <kbd>${k('nav')}</kbd> 导航 · <kbd>${k('pause')}</kbd> 暂停`
       : '';
     if (html === this.controlHintHtml) return;
     this.controlHintHtml = html;
@@ -1411,9 +1414,17 @@ export class App {
     else if (a === 'center') this.view.rig.center();
     else if (a === 'cruise') this.toggleCruise();
     else if (a === 'view') {
-      // 休闲模式多一个电影镜头
+      // 只有休闲飞行能换镜头（座舱、追尾、电影镜头）；任务和训练固定座舱视角，见 views.ts
       const rig = this.view.rig;
-      const next = rig.mode === 'cockpit' ? 'chase' : rig.mode === 'chase' && this.run?.free ? 'cinema' : 'cockpit';
+      const next = nextView(rig.mode, this.run?.free === true);
+      if (!next) {
+        const now = performance.now();
+        if (now - this.viewLockToastT > 2500) {
+          this.viewLockToastT = now;
+          this.hud.toast('任务和训练只用座舱视角，休闲飞行可以换镜头', 'info', 2200);
+        }
+        return;
+      }
       rig.setMode(next);
       this.hud.setCinema?.(next === 'cinema');
       if (next === 'cinema') this.hud.toast('电影镜头', 'info', 1500);

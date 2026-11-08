@@ -2320,6 +2320,10 @@ canvas.gl.sim-cursor.sim-cursor-hot {
 .touch-device .hud-hint {
   display: none;
 }
+/* 左上角是暂停、回正这一排触屏键（36 px 高）：任务面板放到它下面，不然键压在“当前任务”上 */
+.touch-device .hud-obj {
+  top: calc(52px + env(safe-area-inset-top));
+}
 @media (max-height: 520px) {
   .touch-device .hud-flight,
   .touch-device .hud-status {

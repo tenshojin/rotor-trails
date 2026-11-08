@@ -46,6 +46,7 @@ export class TouchControls {
   private readonly left: Stick;
   private readonly right: Stick;
   private readonly cruiseBtn: HTMLElement;
+  private readonly viewBtn: HTMLElement;
   private readonly lookLayer: HTMLElement;
   private lookId: number | null = null;
   private lookX = 0;
@@ -71,6 +72,7 @@ export class TouchControls {
     parent.appendChild(root);
     this.lookLayer = root.querySelector('.t-look') as HTMLElement;
     this.cruiseBtn = root.querySelector('[data-k="cruise"]') as HTMLElement;
+    this.viewBtn = root.querySelector('[data-k="view"]') as HTMLElement;
     this.left = this.stick('.t-left');
     this.right = this.stick('.t-right');
     this.lookLayer.addEventListener('pointerdown', this.lookStart);
@@ -174,9 +176,10 @@ export class TouchControls {
     if (m === 'off') this.lookId = null;
   }
 
-  /** 休闲飞行才有自动巡航 */
+  /** 休闲飞行才有自动巡航和切换视角（任务和训练固定座舱视角，见 game/views.ts） */
   setFree(on: boolean): void {
     this.cruiseBtn.classList.toggle('hidden', !on);
+    this.viewBtn.classList.toggle('hidden', !on);
   }
 
   dispose(): void {

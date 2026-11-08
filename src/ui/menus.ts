@@ -559,7 +559,7 @@ export class UI {
           <tr><td>${k('boost')}</td><td>使用已获得的动力增强</td></tr>
           <tr><td>${this.touch ? '拖动屏幕' : '鼠标'}</td><td>观察四周（不控制飞机方向）</td></tr>
           <tr><td>${k('center')}</td><td>视角回正</td></tr>
-          <tr><td>${k('view')}</td><td>切换座舱/追尾视角</td></tr>
+          <tr><td>${k('view')}</td><td>切换座舱 / 追尾 / 电影镜头（休闲飞行；任务和训练固定座舱视角）</td></tr>
           <tr><td>${k('nav')}</td><td>切换导航目标（主线/可选任务）；分岔处切换推荐路线</td></tr>
           <tr><td>${k('mapRange')}</td><td>切换座舱地图显示范围</td></tr>
           <tr><td>${k('hud')}</td><td>HUD 显示：自动（平稳飞行时收起）/ 完整 / 隐藏（想看风景、截图的时候）</td></tr>
@@ -570,7 +570,7 @@ export class UI {
           <tr><td>左边按住</td><td>出现左摇杆：上下爬升、下降，左右转向</td></tr>
           <tr><td>右边按住</td><td>出现右摇杆：上下前进、后退，左右平移</td></tr>
           <tr><td>中间拖动</td><td>转头看四周</td></tr>
-          <tr><td>上面两边的键</td><td>暂停、切换视角、视角回正、悬停、动力增强、自动巡航</td></tr></table>
+          <tr><td>上面两边的键</td><td>暂停、切换视角（休闲飞行）、视角回正、悬停、动力增强、自动巡航（休闲飞行）</td></tr></table>
           <p class="muted">超仿真要用鼠标按开关，只能在电脑上玩。</p></div>` : ''}
         <div><h3>手柄（Xbox / PS 布局）</h3><table class="keys">
           <tr><td>左摇杆</td><td>前后 = 机头俯仰，左右 = 转向</td></tr>
@@ -578,7 +578,7 @@ export class UI {
           <tr><td>LT / RT</td><td>下降 / 爬升（按得越深越快）</td></tr>
           <tr><td>LB / RB</td><td>向左 / 右平移</td></tr>
           <tr><td>A / B</td><td>悬停辅助 / 动力增强</td></tr>
-          <tr><td>X / Y</td><td>切换视角 / 视角回正</td></tr>
+          <tr><td>X / Y</td><td>切换视角（休闲飞行） / 视角回正</td></tr>
           <tr><td>十字键</td><td>上 导航目标，下 HUD，左右 地图范围</td></tr>
           <tr><td>菜单键 / 视图键</td><td>暂停 / 自动巡航</td></tr>
           <tr><td>按下右摇杆</td><td>截图</td></tr>
