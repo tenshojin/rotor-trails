@@ -114,11 +114,12 @@ python -I tools/real/trace_roofs.py ../rotor-trails-tiles/grandcanyon/hi tools/r
 
 1. `node tools/fetch_assets.mjs`：按 [tools/assets/sources.json](../tools/assets/sources.json) 下载 Poly Haven 材质与参照照片到 `art/src/`（不进仓库）
 2. `python tools/prep_textures.py <材质id>:1024 …`、`python tools/prep_terrain.py`、`python tools/prep_detail.py`：缩放、转换贴图
-3. `python tools/blender/tex_variants.py`、`python tools/blender/jtex.py`、`python tools/blender/leaf_atlas.py art/out/trees`、`python tools/blender/cockpit_textures.py art/out/cockpit_tex`：颜色变体、木瓦、日式瓦格子 / 花岗岩、叶片图集、仪表盘面
+3. `python tools/blender/tex_variants.py`、`python tools/blender/jtex.py`、`python tools/blender/leaf_atlas.py art/out/trees`（程序画的图集），再 `python -I tools/blender/leaf_photo_atlas.py art/src/ref/leaves art/out/trees/leaves.png`（换成照片叶簇，见下面“树叶照片”）、`python tools/blender/cockpit_textures.py art/out/cockpit_tex`：颜色变体、木瓦、日式瓦格子 / 花岗岩、叶片图集、仪表盘面
 4. `blender -b --factory-startup --python tools/blender/<脚本>.py -- public/models/<文件>.glb [--preview 预览目录]`：脚本有 `cockpit.py`（另需贴图目录与 `--bake`）、`heli_ext.py`、`trees.py`、`props_japan.py`、`props_fjord.py`、`props_himalaya.py`、`props_amazon.py`、`props_canyon.py`，用法写在各脚本开头
    座舱还要烘焙环境光遮蔽：`blender ... tools/blender/cockpit.py -- public/models/cockpit.glb art/out/cockpit_tex --bake`，然后运行 `tools/blender/ao_finish.py` 生成 `public/models/cockpit_ao.jpg`。
    货箱：`blender ... tools/blender/crate.py -- public/models/crate.glb`。
    碰撞箱：改了模型（尤其是会动的船、车、飞机，和只放模型不带碰撞体的道具）以后跑 `blender -b --factory-startup --python tools/blender/collision_shapes.py -- src/world/modelShapes.ts`，要加模型就写进脚本里的 `MODELS`；`npx vitest run --config vitest.tools.config.ts tools/uncollided.tool.ts --silent=false` 列出每张图还摸不到的模型（码头、栈桥、鸟居是误报：碰撞面不在模型原点上）。
+   树叶照片（`art/src/ref/leaves/`，不进仓库）：`python D:\ComfyUI\gen.py image "<描述>. Botanical flat lay photograph, top-down view, isolated on a pure white background, soft even diffuse studio light, no shadows, sharp focus, high detail, natural colors" --size 1024x1024 --seed <种子> --force --out art/src/ref/leaves/<名字>.png`。名字、种子、描述：broad 101 日本常绿橡树小枝（九片有光泽的椭圆叶）、pine 102 黑松短枝（成对的长针叶放射状）、spruce 103 挪威云杉枝梢（横放）、trop 104 热带雨林小枝（六片大叶、滴水尖）、birch 105 白桦小枝（十片锯齿三角叶）、juniper 106 刺柏小枝、shrub 107 冬青小枝、palm 108 椰子叶（1792×1024，横放、叶柄在左）、pinyon 109 矮松小枝、ujuni 110 犹他刺柏小枝（带浅蓝浆果）、scrub 111 山艾小枝。
    飞行员和地勤：**目前游戏里没有**（2026-11-08 用户要求人物模型先全部撤下，之后另想办法）。脚本还在（`pilot_textures.py`、`pilot_sdf.py`、`pilot_gear.py`、`pilot.py`；`crew_sdf.py`、`crew.py`），代码里的 `PilotBody` 也在，只是不再加载。
    船、车、飞机：先 `python tools/blender/boat_textures.py`（渔船、渡轮、河船的船身贴图：船名、锈迹、木板），再跑 `props_japan.py`、`props_fjord.py`、`props_amazon.py`、`props_training.py`。这几个脚本里的渔船、渡轮、河船在 `boats.py`（船体放样工具 `hullkit.py`），小汽车、轻卡、加油车在 `cars.py`，轻型飞机在 `planes.py`。
 

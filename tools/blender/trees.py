@@ -224,6 +224,13 @@ def leafy_tree(name, lod, rng, trunk_h, trunk_r, cy, rx, ry, rect, n_cards, card
     rs = [trunk_r * (1.15 - 0.75 * i / (len(tp) - 1)) for i in range(len(tp))]
     rs[0] = trunk_r * 1.35
     mb.tube(tp, rs, seg, bark, uv_rect=bark_rect)
+    if lod == 0:
+        # 根部：几条板根从树干上斜着扎进土里，树不是一根插在地上的棍子
+        for k in range(5):
+            a = 2 * math.pi * k / 5 + rng.uniform(-0.35, 0.35)
+            d = Vector((math.cos(a), math.sin(a), 0))
+            mb.tube([d * trunk_r * 0.5 + Vector((0, 0, trunk_r * 1.7)), d * trunk_r * 1.6 + Vector((0, 0, trunk_r * 0.5)), d * trunk_r * 2.9 + Vector((0, 0, -0.12))],
+                    [trunk_r * 0.42, trunk_r * 0.26, trunk_r * 0.1], 6, bark, uv_rect=bark_rect)
     if lod < 2:
         # 分了团的树：主枝伸到每一团里去
         tips = [c for c, _, _ in lobes[1:]] if lobes else crown_points(rng, n_branch, cc, rx * 0.75, ry * 0.6, (0.6, 1.0))
@@ -234,10 +241,15 @@ def leafy_tree(name, lod, rng, trunk_h, trunk_r, cy, rx, ry, rect, n_cards, card
             br = [trunk_r * 0.45 * (1 - 0.75 * i / (len(bp) - 1)) for i in range(len(bp))]
             mb.tube(bp, br, 7 if lod == 0 else 4, bark, uv_rect=bark_rect)
             if lod == 0:
-                for _ in range(2):
+                # 侧枝，侧枝的梢上再分几根细枝伸进叶子里：从树冠的缝里看得见枝条，不是一团叶子挂在一根棍子上
+                for _ in range(3):
                     s0 = bp[rng.randint(1, len(bp) - 2)]
                     s1 = s0 + (tip - base).normalized() * rx * 0.35 + Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(0, 0.8))) * rx * 0.25
-                    mb.tube([s0, s1], [br[1] * 0.6, br[1] * 0.2], 5, bark, uv_rect=bark_rect)
+                    mid = s0.lerp(s1, 0.5) + Vector((0, 0, rx * 0.04))
+                    mb.tube([s0, mid, s1], [br[1] * 0.6, br[1] * 0.38, br[1] * 0.2], 5, bark, uv_rect=bark_rect)
+                    for _ in range(2):
+                        t1 = s1 + ((s1 - s0).normalized() + Vector((rng.uniform(-0.9, 0.9), rng.uniform(-0.9, 0.9), rng.uniform(-0.2, 0.7)))).normalized() * rx * rng.uniform(0.14, 0.22)
+                        mb.tube([s1, t1], [br[1] * 0.18, br[1] * 0.05], 4, bark, uv_rect=bark_rect)
     if lobes:
         lobed_cards(mb, rng, lobes, n_cards, card_size, rect, cc)
     for p in [] if lobes else crown_points(rng, n_cards, cc, rx, ry, flat_top=flat_top):
@@ -314,7 +326,7 @@ def add(obj):
 def broadleaf():
     # 主干不高就分枝，树冠宽：不是一根棍子顶一个球
     cy, rx, ry = 7.6, 4.8, 4.0
-    for lod, (nc, cs, nb) in enumerate([(100, 2.1, 6), (32, 3.4, 3)]):
+    for lod, (nc, cs, nb) in enumerate([(165, 1.65, 6), (32, 3.4, 3)]):
         add(leafy_tree(f'broadleaf_{lod}', lod, random.Random(11), 4.6, 0.34, cy, rx, ry, S_BROAD, nc, cs, nb, 12 if lod == 0 else 6, lobes=lobes_of(111, (0, 0, cy), rx, ry, 7)))
     add(mass_tree('broadleaf_2', 4.6, 0.34, cy, 4.5, 3.8, bumpy=0.11))
 
@@ -322,21 +334,21 @@ def broadleaf():
 def birch():
     # 白桦：细高，窄长的树冠从很低的地方就开始
     cy, rx, ry = 9.0, 3.0, 5.0
-    for lod, (nc, cs, nb) in enumerate([(100, 1.8, 5), (32, 2.9, 3)]):
+    for lod, (nc, cs, nb) in enumerate([(165, 1.42, 5), (32, 2.9, 3)]):
         add(leafy_tree(f'birch_{lod}', lod, random.Random(12), 6.0, 0.21, cy, rx, ry, S_BIRCH, nc, cs, nb, 10 if lod == 0 else 5, bark=BIRCHB, bark_rect=S_BIRCHBARK, lobes=lobes_of(112, (0, 0, cy), rx, ry, 6, tall=0.55)))
     add(mass_tree('birch_2', 6.0, 0.21, cy, 2.8, 4.7, bark=BIRCHB, bark_rect=S_BIRCHBARK, bumpy=0.1))
 
 
 def canopy():
     """雨林林冠树：树冠比碰撞体宽（半径 12.5 m），相邻树冠连成一片；树干周围有林下层。"""
-    for lod, (nc, cs, nb) in enumerate([(160, 4.3, 7), (44, 6.8, 4)]):
+    for lod, (nc, cs, nb) in enumerate([(250, 3.45, 7), (44, 6.8, 4)]):
         add(leafy_tree(f'canopy_{lod}', lod, random.Random(13), 20, 0.7, 23.5, 12.5, 5.5, S_TROP, nc, cs, nb, 12 if lod == 0 else 6, flat_top=0.35,
                        extra=understory(lod, 5 if lod == 0 else 3, (4.5, 6.5), (6, 15), 16 if lod == 0 else 6, 3.0 if lod == 0 else 5.0)))
     add(mass_tree('canopy_2', 20, 0.7, 23.5, 12, 5.2, under=(10.5, 9, 7)))
 
 
 def emergent():
-    for lod, (nc, cs, nb) in enumerate([(150, 4.6, 8), (42, 7.0, 4)]):
+    for lod, (nc, cs, nb) in enumerate([(235, 3.7, 8), (42, 7.0, 4)]):
         add(leafy_tree(f'emergent_{lod}', lod, random.Random(14), 40, 1.3, 45, 13, 5, S_TROP, nc, cs, nb, 14 if lod == 0 else 6, flat_top=0.5,
                        extra=understory(lod, 5 if lod == 0 else 3, (4.5, 6.5), (7, 17), 16 if lod == 0 else 6, 3.2 if lod == 0 else 5.0)))
     add(mass_tree('emergent_2', 40, 1.3, 45, 12.5, 4.5, under=(11, 9, 7.5)))

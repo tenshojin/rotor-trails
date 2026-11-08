@@ -5,6 +5,7 @@
 import * as THREE from 'three/webgpu';
 import {
   abs,
+  attribute,
   cameraPosition,
   cameraViewMatrix,
   dFdx,
@@ -310,26 +311,74 @@ function makeWindUniforms() {
 type WindUniforms = ReturnType<typeof makeWindUniforms>;
 
 /**
- * 风摆（顶点位移，实例化变换之后、世界坐标里）：越高摆得越多（与高度平方成正比），
- * 两个频率叠加；叶片另有沿法线的细碎抖动。相位取顶点的世界坐标，一棵树的不同枝叶略有先后。
+ * 每个顶点的风参数（加载模型时算一次，同一种树的三级细节用同一套）：aWind = (相对高度 u，枝的相位，离树干多远 0..1，树高 H 米)。
+ * 相位沿着绕树干的角度和高度连续变化（不按块切：一张叶卡跨过分界会被扯开）
+ */
+export function addWindAttributes(lods: THREE.BufferGeometry[][]): void {
+  let H = 0.5;
+  let R = 0.3;
+  for (const g of lods[0] ?? []) {
+    const p = g.getAttribute('position');
+    for (let i = 0; i < p.count; i++) {
+      H = Math.max(H, p.getY(i));
+      R = Math.max(R, Math.hypot(p.getX(i), p.getZ(i)));
+    }
+  }
+  for (const level of lods)
+    for (const g of level) {
+      if (g.getAttribute('aWind')) continue;
+      const p = g.getAttribute('position');
+      const a = new Float32Array(p.count * 4);
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i);
+        const y = p.getY(i);
+        const z = p.getZ(i);
+        const u = Math.min(1, Math.max(0, y / H));
+        const r = Math.min(1, Math.hypot(x, z) / R);
+        a[i * 4] = u;
+        a[i * 4 + 1] = Math.atan2(z, x) * 3 + u * 6 + r * 2;
+        a[i * 4 + 2] = r;
+        a[i * 4 + 3] = H;
+      }
+      g.setAttribute('aWind', new THREE.BufferAttribute(a, 4));
+    }
+}
+
+/**
+ * 风摆（顶点位移，实例化变换之后、世界坐标里），参照真树：
+ *   · 整棵树像一根悬臂梁：根部不动，越往上弯得越多（挠度约和相对高度的平方成正比），弯的时候树梢往下沉一点、长度不变；
+ *     摆动频率是这种树的固有频率：40 米的大树一秒摆不到一下（约 0.2 Hz），小树、灌木快得多；大树相对弯得少；
+ *   · 树冠外沿的枝条各摆各的（相位沿着绕树干的角度变），比树干快；
+ *   · 叶子 2~4 Hz 的细碎抖动，幅度很小；
+ *   · 阵风扫过来一下弯下去再弹回来（gustAt），平时只是轻轻地晃；
+ *   · 旋翼下洗：树冠被压弯（有上限，不会整棵推出去四五米），里面的枝叶乱抖。
  */
 function windPosition(U: WindUniforms, leaf: boolean): THREE.Node<'vec3'> {
+  const W = attribute('aWind', 'vec4');
+  const u = W.x;
+  const phB = W.y;
+  const rB = W.z;
+  const H = max(W.w, 0.5).toVar();
+  const t = U.uTime;
   const hgt = max(0.0, positionGeometry.y);
-  // 摆幅不按高度的平方算：那样几米高的灌木几乎不动。这里矮的植物也看得出在摇，高树也不会甩得太夸张
-  const bend = pow(hgt, 0.8).mul(0.12).toVar();
-  const ph = positionLocal.x.mul(0.071).add(positionLocal.z.mul(0.053));
-  const osc = sin(U.uTime.mul(1.6).add(ph)).mul(0.6).add(sin(U.uTime.mul(3.7).add(ph.mul(2.3))).mul(0.25)).toVar();
-  // 阵风扫到这里时一下弯下去、再弹回来；平时只是轻轻地晃
+  const ph = positionLocal.x.mul(0.071).add(positionLocal.z.mul(0.053)).toVar();
+  // 固有频率（弧度/秒）：10 米高约 0.55 Hz，越高越慢
+  const om = pow(float(10).div(H), 0.6).mul(3.45).clamp(1.1, 6.5).toVar();
   const gust = gustAt(positionLocal.xz).toVar();
   const amp = (WIND.k as unknown as THREE.Node<'float'>).mul(gust.mul(1.25).add(0.3)).mul(U.uGust.mul(0.6).add(1.0)).toVar();
   const down = WIND.dir as unknown as THREE.Node<'vec2'>;
-  const lean = down.mul(amp.mul(osc.mul(0.42).add(0.72)));
+  const tr = sin(t.mul(om).add(ph)).mul(0.34).add(sin(t.mul(om.mul(2.71)).add(ph.mul(1.9))).mul(0.1));
+  const lean = down.mul(amp.mul(tr.add(0.68)));
   // 顺风摆的同时横着也晃一点，树梢走的是一个小椭圆
-  const side = vec2(down.y.negate(), down.x).mul(amp.mul(0.34).mul(sin(U.uTime.mul(1.13).add(ph.mul(1.7)))));
-  const wv = lean.add(side);
-  let p: THREE.Node<'vec3'> = positionLocal.add(vec3(wv.x, 0.0, wv.y).mul(bend));
-  // 旋翼下洗：桨盘下面是一根往下冲的气柱，打到地面后贴着地向四周散开，能吹到两三个旋翼直径以外。
-  // 靠近的树被压得向外弯，一阵一阵地回弹；矮的灌木也一样东倒西歪
+  const side = vec2(down.y.negate(), down.x).mul(amp.mul(0.22).mul(sin(t.mul(om.mul(0.87)).add(ph.mul(1.7)).add(1.3))));
+  const reach = u.mul(u).mul(pow(H, 0.75)).mul(0.1);
+  const sway = lean.add(side).mul(reach);
+  let d: THREE.Node<'vec3'> = vec3(sway.x, 0.0, sway.y);
+  // 枝条：越靠树冠外沿摆得越多，上下、顺风两个方向
+  const br = sin(t.mul(om.mul(2.4)).add(phB).add(ph)).mul(0.55).add(sin(t.mul(om.mul(3.9)).add(phB.mul(1.37))).mul(0.25));
+  const twig = rB.mul(rB).mul(amp).mul(br).mul(pow(H, 0.5).mul(0.03).add(0.05));
+  d = d.add(vec3(down.x.mul(0.55), 0.45, down.y.mul(0.55)).mul(twig));
+  // 旋翼下洗：桨盘下面是一根往下冲的气柱，打到地面后贴着地向四周散开，能吹到两三个旋翼直径以外
   const R = HELI.rotorRadius;
   const dv = positionLocal.xz.sub(WASH.xy);
   const dr = length(dv).max(0.01).toVar();
@@ -337,16 +386,22 @@ function windPosition(U: WindUniforms, leaf: boolean): THREE.Node<'vec3'> {
   const column = float(1).sub(smoothstep(R * 1.1, R * 2.6, dr)).mul(float(1).sub(smoothstep(R * 2.5, R * 9.0, below))).mul(smoothstep(-R, 0.0, below)).toVar();
   const sheet = float(1).sub(smoothstep(R * 2.0, R * 7.5, dr)).mul(WASH.z);
   const washK = max(column, sheet).mul(WASH.w).toVar();
-  // 气流是一阵一阵往外跑的，里面还夹着急促的抖动
-  const press = sin(U.uTime.mul(8.6).sub(dr.mul(0.4)).add(ph)).mul(0.34).add(sin(U.uTime.mul(21.0).add(ph.mul(3.3)).add(hgt.mul(0.6))).mul(0.16)).add(0.78);
-  const tall = min(pow(hgt, 0.9).mul(0.44), 4.6);
+  // 气流一阵一阵往外跑，里面夹着急促的抖动
+  const press = sin(t.mul(7.4).sub(dr.mul(0.4)).add(ph)).mul(0.3).add(sin(t.mul(17.0).add(ph.mul(3.3)).add(hgt.mul(0.6))).mul(0.12)).add(0.72);
+  const push = min(u.mul(u).mul(pow(H, 0.8)).mul(0.26), 1.8).mul(washK).mul(press);
   const radial = smoothstep(0.0, R * 0.5, dr);
-  p = p.add(vec3(dv.x.div(dr).mul(radial), column.mul(-0.7).sub(0.12), dv.y.div(dr).mul(radial)).mul(washK.mul(press).mul(tall)));
+  d = d.add(vec3(dv.x.div(dr).mul(radial), column.mul(-0.35).sub(0.08), dv.y.div(dr).mul(radial)).mul(push));
+  d = d.add(vec3(sin(t.mul(23.0).add(phB.mul(2.1))), sin(t.mul(19.0).add(phB)), sin(t.mul(21.0).add(phB.mul(1.7)).add(1.1))).mul(washK.mul(rB).mul(0.18)));
+  // 弯的时候长度不变：横着挪出去多少，就往下沉一点
+  const sink = d.x.mul(d.x).add(d.z.mul(d.z)).div(max(hgt, 0.6).mul(2.0));
+  let p: THREE.Node<'vec3'> = positionLocal.add(d).sub(vec3(0.0, sink, 0.0));
   if (leaf) {
-    // 叶子的抖动：阵风来的时候抖得厉害，旋翼底下更是抖成一片
-    const flutter = sin(U.uTime.mul(5.3).add(dot(positionGeometry, vec3(2.1, 1.7, 2.9))).add(ph)).mul(0.05).mul(amp.mul(3.0).add(0.25).add(washK.mul(3.5)));
-    const whip = sin(U.uTime.mul(27.0).add(dot(positionGeometry, vec3(3.1, 2.3, 2.7))).add(ph)).mul(washK).mul(0.2);
-    p = p.add(normalLocal.mul(flutter.add(whip)));
+    // 叶子：2~4 Hz 的细碎抖动，阵风来的时候抖得厉害，旋翼底下抖成一片
+    const k = dot(positionGeometry, vec3(2.1, 1.7, 2.9)).mul(2.0);
+    const f1 = sin(t.mul(14.5).add(k).add(ph)).mul(amp.mul(0.035).add(0.012));
+    const f2 = sin(t.mul(23.0).add(k.mul(1.3)).add(phB)).mul(amp.mul(0.012));
+    const whip = sin(t.mul(31.0).add(k.mul(1.6)).add(ph)).mul(washK).mul(0.12);
+    p = p.add(normalLocal.mul(f1.add(f2).add(whip)));
   }
   return p;
 }
@@ -488,9 +543,10 @@ export class TreeView {
         return;
       }
       const lods = lib?.get(type);
+      if (lods) addWindAttributes(lods.map((parts) => parts.map((p) => p.geometry)));
       const geoSets = lods
         ? lods.map((parts, l) => parts.map((p) => ({ g: p.geometry, mat: this.materialFor(p.source, l === 2, false, type === 'shrub' || type === 'scrub'), tint: p.source.name.includes('leaves') })))
-        : buildTree(type).map((g) => {
+        : ((gs) => (addWindAttributes(gs.map((g) => [g])), gs))(buildTree(type)).map((g) => {
             this.ownGeometry.push(g);
             return [{ g, mat: this.materialFor(null, false, type === 'boulder'), tint: true }];
           });
