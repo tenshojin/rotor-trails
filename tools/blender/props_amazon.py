@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import bkit as K  # noqa: E402
 import bldkit as BK  # noqa: E402
 import common_props as CP  # noqa: E402
+import tents as T  # noqa: E402
 
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 OUT = argv[0] if argv else 'public/models/props_amazon.glb'
@@ -193,6 +194,9 @@ river_boat()
 canoe('canoe_wood', M('rawplank'))
 canoe('canoe_blue', F('canoe_blue', 0x2a5a8a, rough=0.6))
 canopy_tower()
+# 科考营地的帆布屋脊帐篷（颜色与 src/world/props/amazon.ts 的 tent 一致）
+for k, c in enumerate((0x515c46, 0x7d6e50, 0x4b5a63, 0x724c34)):
+    ROOTS.append(T.ridge_tent(f'tent_ridge_{k}', c))
 
 for r in ROOTS:
     r.location = (0, 0, 0)

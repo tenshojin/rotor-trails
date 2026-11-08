@@ -34,7 +34,11 @@ export const amazonProps: Record<string, PropFn> = {
   },
   tent(B, _d, rng) {
     // 科考队的帆布帐篷：日晒雨淋过的军绿、卡其、灰蓝、铁锈色，不是鲜亮的色块
-    const c = rng.pick([0x515c46, 0x7d6e50, 0x4b5a63, 0x724c34]);
+    const cols = [0x515c46, 0x7d6e50, 0x4b5a63, 0x724c34];
+    const k = rng.pick([0, 1, 2, 3]);
+    const c = cols[k];
+    // Blender 模型（tools/blender/tents.py：布面下垂、接缝、卷起的门帘、拉绳和木桩）；下面的程序几何体是模型缺失时的后备
+    B.beginModel(`tent_ridge_${k}`);
     B.gable(0, 0, 0, 4.5, 3.2, 2.2, 0.1, c, { mat: 'cloth' }, 0);
     // 门帘、脊杆、两头的支杆、防风绳
     B.box(2.26, 0.72, 0, 0.03, 1.44, 0.82, 0x24261f, { mat: 'cloth', solid: false });
@@ -44,6 +48,11 @@ export const amazonProps: Record<string, PropFn> = {
       B.beam([x * 2.6, 2.25, 0], [x * 4.1, 0.03, 0], 0.012, 0xa8a08a, { solid: false });
       for (const z of [-1, 1]) B.beam([x * 1.9, 0.42, z * 1.62], [x * 2.5, 0.03, z * 2.8], 0.012, 0xa8a08a, { solid: false });
     }
+    // 碰撞：三个盒子叠出三角形的截面（帐篷是空壳，模型自己的体素碰撞箱填不实）
+    B.colliderBox(0, 0.3, 0, 2.25, 0.3, 1.5);
+    B.colliderBox(0, 0.95, 0, 2.25, 0.35, 1.1);
+    B.colliderBox(0, 1.65, 0, 2.25, 0.35, 0.5);
+    B.endModel();
     B.footprint(3);
   },
   camp(B, d, rng, ctx) {

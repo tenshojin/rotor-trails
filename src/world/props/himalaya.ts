@@ -182,7 +182,10 @@ export const himalayaProps: Record<string, PropFn> = {
       // 帐篷跟随地面（取四角最低点，避免悬空）
       const foot = Math.min(ctx.terrain.heightAt(x + 1.5, z), ctx.terrain.heightAt(x - 1.5, z), ctx.terrain.heightAt(x, z + 1.5), ctx.terrain.heightAt(x, z - 1.5));
       B.at(x, foot, z, a, 1);
-      const c = rng.pick(cols);
+      const k = rng.pick([0, 1, 2, 3]);
+      const c = cols[k];
+      // Blender 模型（tools/blender/tents.py：三根杆撑起、布绷紧往里收、前厅、防雪裙、拉绳和地钉）；下面的程序几何体是后备
+      B.beginModel(`tent_dome_${k}`);
       B.sphere(0, 0.05, 0, 1.75, c, { sy: 0.68, seg: 14, mat: 'cloth', solid: false });
       // 门厅和交叉的帐杆
       B.sphere(1.45, 0.02, 0, 1.0, c, { sy: 0.6, seg: 10, mat: 'cloth', solid: false });
@@ -196,6 +199,11 @@ export const himalayaProps: Record<string, PropFn> = {
       }
       // 防风绳
       for (const [gx, gz] of [[3.1, 1.3], [3.1, -1.3], [-2.9, 1.5], [-2.9, -1.5]]) B.beam([gx * 0.5, 1.0, gz * 0.5], [gx, 0.02, gz], 0.012, 0xc8c4b8, { solid: false, mat: 'metal' });
+      // 碰撞：帐体（扁盒 + 顶上的球）和前厅（帐篷是空壳，模型自己的体素碰撞箱填不实）
+      B.colliderBox(0, 0.45, 0, 1.1, 0.45, 1.0);
+      B.addColliderBall(0, 0.55, 0, 0.75);
+      B.colliderBox(1.35, 0.3, 0, 0.45, 0.3, 0.55);
+      B.endModel();
     }
     B.footprint(20);
   },

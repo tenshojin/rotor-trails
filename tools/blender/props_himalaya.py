@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import bkit as K  # noqa: E402
 import bldkit as BK  # noqa: E402
 import common_props as CP  # noqa: E402
+import tents as T  # noqa: E402
 
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 OUT = argv[0] if argv else 'public/models/props_himalaya.glb'
@@ -256,6 +257,9 @@ stone_house('stone_house_d', 'white', 'corr_blue')
 chorten()
 monastery()
 mani_wall()
+# 冰川营地的高山圆顶帐篷（颜色与 src/world/props/himalaya.ts 的 tentCamp 一致）
+for k, c in enumerate((0xb9622f, 0xc9a43e, 0x3f6688, 0xa64a3a)):
+    ROOTS.append(T.dome_tent(f'tent_dome_{k}', c))
 
 for r in ROOTS:
     r.location = (0, 0, 0)
