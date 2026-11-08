@@ -88,12 +88,15 @@ function makeMaterials(detail: THREE.DataArrayTexture | null, map: MapDef, owned
   const metal = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.6 });
   // 片石砌体（地基、田埂石墙）：颜色由顶点色决定，石缝与起伏来自照片细节
   const stone = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.97, metalness: 0 });
+  // 干砌石墙（田埂、院墙）：不用灰浆，石缝是黑的阴影（照片纹理是灰浆砌的，缝是浅色的，叠在墙上像抹灰）
+  const drystone = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.96, metalness: 0 });
   if (detail) {
     // 照片细节：墙面灰泥、混凝土、波纹铁皮（不再是纯色块）
     addDetail(std, detail, DETAIL.plaster, 0.8);
     addDetail(rough, detail, DETAIL.concrete, 1.0);
     addDetail(metal, detail, DETAIL.corrugated, 1.0);
     addDetail(stone, detail, DETAIL.stone, 1.0);
+    addDetail(drystone, detail, DETAIL.drystone, 1.0);
   }
   // 停机坪：一块块的板、风吹日晒的污渍、滑橇和轮胎磨出来的黑印，标线也跟着旧
   const pad = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
@@ -109,7 +112,7 @@ function makeMaterials(detail: THREE.DataArrayTexture | null, map: MapDef, owned
     pad.colorNode = vec4(vec3(k), 1.0);
   }
   // 雨天的湿润效果（颜色变深、变光滑；朝上的面最明显）
-  for (const m of [std, rough, metal, stone, rock, pad]) {
+  for (const m of [std, rough, metal, stone, drystone, rock, pad]) {
     m.colorNode = wetColor((m.colorNode as THREE.Node<'vec4'> | null) ?? vec4(1, 1, 1, 1));
     m.roughnessNode = wetRough(float(m.roughness));
   }
@@ -131,6 +134,7 @@ function makeMaterials(detail: THREE.DataArrayTexture | null, map: MapDef, owned
     wire: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.2 }),
     rock,
     stone,
+    drystone,
   };
 }
 

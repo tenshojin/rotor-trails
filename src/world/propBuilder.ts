@@ -5,7 +5,7 @@ import type { ColliderTag } from '../sim/physics';
 import type { V3 } from '../maps/types';
 import { MODEL_SHAPES } from './modelShapes';
 
-export type MatKey = 'pad' | 'std' | 'rough' | 'metal' | 'glass' | 'emit' | 'cloth' | 'rock' | 'wire' | 'stone';
+export type MatKey = 'pad' | 'std' | 'rough' | 'metal' | 'glass' | 'emit' | 'cloth' | 'rock' | 'wire' | 'stone' | 'drystone';
 
 export type ColliderSpec =
   | { kind: 'box'; c: V3; h: V3; rotY: number; tag: ColliderTag }

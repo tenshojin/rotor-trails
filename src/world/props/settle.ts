@@ -215,10 +215,13 @@ function shade(hex: number, k: number): number {
  * 底部埋进土里，顶面略窄、高度沿墙缓慢起伏，相邻两段在接头处等高），坡地上不会变成一级级的台阶。
  * 水里、太陡的地方、已有建筑的占地里跳过；gaps：在这些世界坐标附近留出缺口（门洞、路口）。
  */
-export function dryWall(B: PropBuilder, ctx: PropCtx, pts: Array<[number, number]>, h: number, thick: number, color: number, gaps: Array<[number, number]> = [], mat: MatKey = 'stone'): void {
+export function dryWall(B: PropBuilder, ctx: PropCtx, pts: Array<[number, number]>, h: number, thick: number, color: number, gaps: Array<[number, number]> = [], mat: MatKey = 'drystone'): void {
   B.at(0, 0, 0, 0, 1);
   const T = ctx.terrain;
-  const topAt = (x: number, z: number) => h * (0.82 + 0.36 * hash01(Math.round(x * 4) / 4, Math.round(z * 4) / 4, 1));
+  // 墙顶：缓慢起伏（按世界坐标取的平滑噪声，相邻两段在接头处等高）+ 一块块压顶石的小起伏
+  const topAt = (x: number, z: number) => h * (0.86 + 0.28 * vnoise(x, z, 1.7, 1)) + 0.05 * (hash01(Math.round(x * 3) / 3, Math.round(z * 3) / 3, 7) - 0.5);
+  // 墙面微微鼓凸、收分（干砌墙是一块块垒起来的，不是一堵平的棱柱）
+  const bulge = (x: number, z: number, k: number) => 1 + 0.12 * (vnoise(x, z, 0.9, k) - 0.5);
   for (let s = 0; s + 1 < pts.length; s++) {
     const [ax, az] = pts[s];
     const [bx, bz] = pts[s + 1];
@@ -245,29 +248,57 @@ export function dryWall(B: PropBuilder, ctx: PropCtx, pts: Array<[number, number
       if (T.slopeAt(mx, mz) > 0.12) continue;
       const t = (thick / 2) * (0.92 + 0.16 * hash01(mx, mz, 2));
       const tt = t * 0.72;
-      const y0b = g0 - 0.35;
-      const y1b = g1 - 0.35;
-      const y0t = g0 + topAt(x0, z0);
-      const y1t = g1 + topAt(x1, z1);
+      // 每段再分成 0.35 m 左右的小段：墙顶跟着噪声起伏，两侧鼓凸，每小段颜色略有不同（一块块石头）
+      const m = 6;
       const P = (x: number, y: number, z: number, side: number, w: number): number[] => [x + nx * w * side, y, z + nz * w * side];
-      const a0L = P(x0, y0b, z0, 1, t);
-      const a0R = P(x0, y0b, z0, -1, t);
-      const a1L = P(x1, y1b, z1, 1, t);
-      const a1R = P(x1, y1b, z1, -1, t);
-      const a0Lt = P(x0, y0t, z0, 1, tt);
-      const a0Rt = P(x0, y0t, z0, -1, tt);
-      const a1Lt = P(x1, y1t, z1, 1, tt);
-      const a1Rt = P(x1, y1t, z1, -1, tt);
-      const tris: number[] = [];
-      const quad = (A: number[], C: number[], D: number[], E: number[]) => tris.push(...A, ...C, ...D, ...A, ...D, ...E);
-      quad(a0L, a1L, a1Lt, a0Lt); // 左侧面
-      quad(a1R, a0R, a0Rt, a1Rt); // 右侧面
-      quad(a0Lt, a1Lt, a1Rt, a0Rt); // 顶面
-      quad(a0R, a0L, a0Lt, a0Rt); // 起点端面
-      quad(a1L, a1R, a1Rt, a1Lt); // 终点端面
-      B.mesh(tris, shade(color, 0.88 + 0.24 * hash01(mx, mz, 4)), mat, 0);
+      const at = (j: number) => {
+        const x = x0 + (x1 - x0) * (j / m);
+        const z = z0 + (z1 - z0) * (j / m);
+        const g = T.heightAt(x, z);
+        const yb = g - 0.35;
+        const yt = g + topAt(x, z);
+        const wb = t * bulge(x, z, 3);
+        const wt = tt * bulge(x, z, 5);
+        return { L: P(x, yb, z, 1, wb), R: P(x, yb, z, -1, wb), Lt: P(x, yt, z, 1, wt), Rt: P(x, yt, z, -1, wt) };
+      };
+      let a = at(0);
+      for (let j = 0; j < m; j++) {
+        const b = at(j + 1);
+        const tris: number[] = [];
+        const quad = (A: number[], C: number[], D: number[], E: number[]) => tris.push(...A, ...C, ...D, ...A, ...D, ...E);
+        quad(a.L, b.L, b.Lt, a.Lt); // 左侧面
+        quad(b.R, a.R, a.Rt, b.Rt); // 右侧面
+        quad(a.Lt, b.Lt, b.Rt, a.Rt); // 顶面
+        if (j === 0) quad(a.R, a.L, a.Lt, a.Rt); // 起点端面
+        if (j === m - 1) quad(b.L, b.R, b.Rt, b.Lt); // 终点端面
+        const cx = (x0 + x1) / 2 + (x1 - x0) * ((j + 0.5) / m - 0.5);
+        const cz = (z0 + z1) / 2 + (z1 - z0) * ((j + 0.5) / m - 0.5);
+        B.mesh(tris, shade(color, 0.84 + 0.3 * hash01(cx, cz, 4)), mat, 0);
+        a = b;
+      }
+      // 碰撞：每段一个顺着墙向的盒子（落在墙上不会穿过去）
+      const yb = Math.min(g0, g1) - 0.35;
+      const yt = Math.max(g0, g1) + h * 1.1;
+      B.colliderBox(mx, (yb + yt) / 2, mz, L / n / 2, (yt - yb) / 2, t, Math.atan2(-uz, ux));
     }
   }
+}
+
+/** 世界坐标上的平滑值噪声（0..1）：网格边长 cell 米，双线性插值 */
+function vnoise(x: number, z: number, cell: number, k: number): number {
+  const fx = x / cell;
+  const fz = z / cell;
+  const ix = Math.floor(fx);
+  const iz = Math.floor(fz);
+  const tx = fx - ix;
+  const tz = fz - iz;
+  const sx = tx * tx * (3 - 2 * tx);
+  const sz = tz * tz * (3 - 2 * tz);
+  const h00 = hash01(ix, iz, k);
+  const h10 = hash01(ix + 1, iz, k);
+  const h01 = hash01(ix, iz + 1, k);
+  const h11 = hash01(ix + 1, iz + 1, k);
+  return (h00 * (1 - sx) + h10 * sx) * (1 - sz) + (h01 * (1 - sx) + h11 * sx) * sz;
 }
 
 /** 立柱横杆栅栏（牧场、菜园）：世界坐标折线，立柱间距 spacing，两道横杆跟随地面 */

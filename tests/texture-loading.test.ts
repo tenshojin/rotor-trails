@@ -91,10 +91,11 @@ describe('texture load recovery', () => {
     expect(await loadDetailTextures()).toBeNull();
     fetchMock.mockResolvedValue({ ok: true, blob: async () => new Blob() });
     const atlas = await loadDetailTextures();
-    expect(atlas?.image.depth).toBe(5);
+    // 六层：灰泥、混凝土、波纹铁皮、木板、片石墙、干砌石墙
+    expect(atlas?.image.depth).toBe(6);
     expect(await loadDetailTextures()).toBe(atlas);
-    expect(fetchMock).toHaveBeenCalledTimes(10);
-    expect(close).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(12);
+    expect(close).toHaveBeenCalledTimes(6);
     atlas?.dispose();
   });
 });
