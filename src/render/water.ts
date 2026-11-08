@@ -62,6 +62,29 @@ const AN = [0.05, 0.47, -0.38, 0.83, -0.71, 0.29, -1.05, 1.18];
 const AM = [0.42, 0.27, 0.17, 0.1, 0.065, 0.04, 0.028, 0.02];
 const WaterOut = struct({ albedo: 'vec3', transmit: 'float', nrm: 'vec3', rough: 'float', foam: 'float', glint: 'float' });
 
+/** 碎金颗粒的归一化：噪声贴图 a 通道双线性插值后 x³ 的均值（两层相乘再三次方，乘上 1 / 它的平方，平均亮度不变） */
+function sparkNorm(noise: THREE.DataTexture): number {
+  const N = noise.image.width;
+  const d = noise.image.data as Uint8Array;
+  const a = (x: number, y: number): number => d[((((y % N) + N) % N) * N + (((x % N) + N) % N)) * 4 + 3] / 255;
+  let seed = 12345;
+  const rnd = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const M = 20000;
+  let s = 0;
+  for (let k = 0; k < M; k++) {
+    const u = rnd() * N - 0.5;
+    const v = rnd() * N - 0.5;
+    const x0 = Math.floor(u);
+    const y0 = Math.floor(v);
+    const fx = u - x0;
+    const fy = v - y0;
+    const val = (a(x0, y0) * (1 - fx) + a(x0 + 1, y0) * fx) * (1 - fy) + (a(x0, y0 + 1) * (1 - fx) + a(x0 + 1, y0 + 1) * fx) * fy;
+    s += val ** 3;
+  }
+  const m3 = s / M;
+  return 1 / (m3 * m3);
+}
+
 /** 各组波的坡度方差（1/2 · (振幅 · 波数)²）的总和：把“画出来的波有多大一部分”换算成比例 */
 const SLOPE_ALL = WL.reduce((s, w, i) => s + (AM[i] * 2 * Math.PI / w) ** 2, 0);
 
@@ -143,9 +166,11 @@ export class WaterView {
       // 浪是一群一群来的：这一片有、那一片没有。几列正弦波老老实实叠在一起，从高处看太阳的反光是一张方格布
       const grpA = texture(noise, p.mul(0.0057).add(wd.mul(t).mul(0.011)));
       const grpB = texture(noise, p.mul(0.0131).add(0.37).sub(wd.mul(t).mul(0.017)));
-      const groups: Array<N<'float'>> = [grpA.r, grpA.g, grpB.r, grpB.g, grpA.a].map((v) => smoothstep(0.24, 0.76, v).mul(1.7));
+      // （浪群的起伏：0.55~1.45 倍。以前是 0~1.7 倍，近处逆光的碎金被切成一团团棉花似的白斑，远处又是一条平的光带）
+      const groups: Array<N<'float'>> = [grpA.r, grpA.g, grpB.r, grpB.g, grpA.a].map((v) => smoothstep(0.24, 0.76, v).mul(0.9).add(0.55));
       for (let i = 0; i < 8; i++) {
-        const fade = float(1).sub(smoothstep(WL[i] * 0.06, WL[i] * 0.16, foot));
+        // （淡出区间放宽到 4 倍像素尺寸：远近之间看不出哪一圈突然少了一层浪）
+        const fade = float(1).sub(smoothstep(WL[i] * 0.05, WL[i] * 0.2, foot));
         const c = Math.cos(AN[i]);
         const s = Math.sin(AN[i]);
         const d = vec2(wd.x.mul(c).sub(wd.y.mul(s)), wd.x.mul(s).add(wd.y.mul(c)));
@@ -156,8 +181,15 @@ export class WaterView {
         drawn.addAssign(fade.mul(fade).mul((AM[i] * k) ** 2 / SLOPE_ALL));
       }
       g.mulAssign(amp);
-      // 近处的滚动噪声细节与雨点涟漪（远处细节小于像素时只会闪烁，按距离与像素尺寸淡出）
-      const det = float(1).sub(smoothstep(60.0, 700.0, wDist)).mul(float(1).sub(smoothstep(0.08, 0.3, foot)));
+      // 海面坡度的方差（Cox-Munk，每个方向）：大浪、细纹、比像素还细的毛细波加起来就是这么多。
+      // 哪一层因为太远、比像素还细而淡掉，它那份就挪进粗糙度和碎金的统计里——远近总的起伏是同一个量，
+      // 不会近处一片细纹、过了某一圈突然变成一面镜子
+      const s2 = U.wave.mul(14.0 * 0.00512).add(0.003).mul(0.5).mul(1 - 0.65 * muddy).mul(paw.mul(0.5).add(0.5)).toVar();
+      // 两层滚动噪声细纹（特征 0.1~0.9 米、0.04~0.3 米），按一个像素盖住多大淡出；远处再收一点防闪
+      const far = float(1).sub(smoothstep(300.0, 3000.0, wDist));
+      const det1 = float(1).sub(smoothstep(0.05, 0.45, foot)).mul(far).toVar();
+      const det2 = float(1).sub(smoothstep(0.02, 0.16, foot)).mul(far).toVar();
+      const det = det1;
       const noiseGrad = (uv: N<'vec2'>, e: number) => {
         const hx = texture(noise, uv.add(vec2(e, 0))).g.sub(texture(noise, uv.sub(vec2(e, 0))).g);
         const hy = texture(noise, uv.add(vec2(0, e))).g.sub(texture(noise, uv.sub(vec2(0, e))).g);
@@ -165,30 +197,43 @@ export class WaterView {
       };
       const o1 = wd.mul(t).mul(0.9);
       const o2 = vec2(wd.y.negate(), wd.x).mul(t).mul(0.5);
-      const g1 = noiseGrad(p.add(o1.mul(3.0)).mul(0.035), 0.004).mul(0.035);
-      const g2 = noiseGrad(p.sub(o2.mul(2.0)).mul(0.11).add(0.31), 0.004).mul(0.11);
-      g.addAssign(g1.mul(0.9).add(g2.mul(0.45)).mul(U.wave.add(0.5)).mul(det));
+      // （噪声贴图 g 通道的 uv 坡度均方根约 10：除掉它，两层都是“均方根 1”，再按海面的坡度方差定幅度。
+      // 以前直接乘 0.9、0.45，近处坡度均方根有 0.25~0.4，比真实海面粗糙两三倍）
+      const g1 = noiseGrad(p.add(o1.mul(3.0)).mul(0.035), 0.004).mul(0.1);
+      const g2 = noiseGrad(p.sub(o2.mul(2.0)).mul(0.11).add(0.31), 0.004).mul(0.1);
+      const sd = s2.sqrt();
+      g.addAssign(g1.mul(det1.mul(0.5)).add(g2.mul(det2.mul(0.35))).mul(sd));
       g.addAssign(noiseGrad(p.mul(0.7).add(vec2(t.mul(0.37), t.mul(-0.53))), 0.01).mul(0.12).mul(U.rain).mul(det));
       // 太阳的碎金。Hh：把太阳反射进眼睛的小波面的法线，need：那个小波面的坡度
       const Vv = normalize(cameraPosition.sub(positionWorld)).toVar();
       const Hh = normalize(Vv.add(FOG.sunDir)).toVar();
       const need = vec2(Hh.x.negate(), Hh.z.negate()).div(max(Hh.y, 0.05));
-      // 风速 → 海面波面坡度的方差（Cox-Munk，每个方向一半）
-      const s2 = U.wave.mul(14.0 * 0.00512).add(0.003).mul(0.5).mul(1 - 0.65 * muddy).mul(paw.mul(0.5).add(0.5)).toVar();
       // 细到只剩闪烁的小波：两层反向滚动的噪声，一明一灭
       const micro = vec2(
         texture(noise, p.mul(0.019).add(wd.mul(t).mul(0.021))).a.sub(texture(noise, p.mul(0.027).sub(wd.mul(t).mul(0.033)).add(0.4)).a),
         texture(noise, p.mul(0.023).add(vec2(wd.y, wd.x).mul(t).mul(0.026)).add(0.7)).a.sub(texture(noise, p.mul(0.031).sub(vec2(wd.y, wd.x).mul(t).mul(0.037)).add(0.2)).a),
-      ).mul(float(1).sub(smoothstep(0.06, 0.5, foot)).mul(0.62)).mul(s2.sqrt().mul(3.0));
-      const dS = need.sub(g).sub(micro);
+      ).mul(float(1).sub(smoothstep(0.05, 0.6, foot)).mul(0.62)).mul(sd.mul(1.6));
+      const microK = float(1).sub(smoothstep(0.05, 0.6, foot));
+      const dS = need.sub(g.mul(0.85)).sub(micro);
       // （像素覆盖的范围再大，坡度的方差也就是海面本身那么大：不封顶的话几十公里外的海面朝哪个方向都反光，
       // 海天线上是一条发亮的带子）
-      const sg = max(s2.mul(float(1).sub(drawn.mul(amp.mul(amp).min(1.0)))), 0.0009).add(min(foot.mul(foot).mul(0.0002), 0.01)).toVar();
+      // 已经画出来的部分：大浪（8 组波的坡度方差 × 画出来的比例）、两层细纹、闪烁的小波；剩下的按概率算。
+      // 总量守恒：近处画出来的多、剩下的少，远处反过来，平均亮度和光带的宽度一路接得上
+      const waveVar = drawn.mul(amp.mul(amp)).mul(SLOPE_ALL * 0.5 * 0.72);
+      const shown = waveVar.add(s2.mul(det1.mul(det1).mul(0.25).add(det2.mul(det2).mul(0.12)).add(microK.mul(microK).mul(0.17))));
+      const sg = max(s2.sub(shown), max(s2.mul(0.45), 0.0009)).add(min(foot.mul(foot).mul(0.0002), 0.01)).toVar();
       const VoH = clamp(dot(Vv, Hh), 0.0, 1.0);
       const fG = float(0.02).add(float(0.98).mul(pow(float(1).sub(VoH), 5.0)));
       const P = exp(dot(dS, dS).div(sg.mul(-2.0))).div(sg.mul(2 * Math.PI));
       const cB = Hh.y.mul(Hh.y);
-      const glint = min(fG.mul(P).div(max(Vv.y, 0.04).mul(cB).mul(cB).mul(4.0)), 42.0).mul(FOG.glint).toVar();
+      // 碎金的颗粒：一个像素里的小波面是有限的几个，近处看是一粒粒很亮的闪光、中间露出暗的水；越远一个像素里的小波面越多，
+      // 平均成一条光带。两层白噪声相乘再三次方（均值正好是 1/16，乘回来平均亮度不变），按像素大小淡出——远近接得上
+      // （颗粒约半米：低空一两个像素大。总用最清楚的一级贴图采样，远处不会被平均成一片灰；颗粒按像素大小慢慢淡出）
+      const spA = texture(noise, p.mul(0.0078).add(wd.mul(t).mul(0.0026)).add(vec2(0.37, 0.11))).level(float(0)).a;
+      const spB = texture(noise, p.mul(0.0109).sub(vec2(wd.y, wd.x).mul(t).mul(0.0036)).add(vec2(0.13, 0.71))).level(float(0)).a;
+      const spark = pow(spA.mul(spB), 3.0).mul(sparkNorm(noise));
+      const sparkK = float(1).sub(smoothstep(0.12, 1.4, foot)).mul(0.9);
+      const glint = min(fG.mul(P).div(max(Vv.y, 0.04).mul(cB).mul(cB).mul(4.0)), 42.0).mul(mix(float(1), spark, sparkK)).mul(FOG.glint).toVar();
       // 旋翼下洗：桨盘正下方的水面被压平，四周是一圈向外跑的急促碎浪和白沫
       const washFoam = float(0).toVar();
       If(U.wash.z.greaterThan(0.01), () => {
@@ -218,7 +263,8 @@ export class WaterView {
       const transmit = float(1).sub(opacity).mul(float(1).sub(foam));
       // 粗糙度随距离变大：远处的小波浪细到像素以下，看到的是无数小镜面的平均——天空的倒影是一片柔和的渐变，
       // 只有太阳方向有一条宽宽的闪光带，而不是像镜子一样映出一块块云
-      const rough = smoothstep(40.0, 1400.0, wDist).mul(U.wave.mul(0.16).add(0.24)).add(foam.mul(0.6)).add(U.rain.mul(0.06));
+      // 近处也有比法线更细的毛细波：细纹画出来的时候粗糙度留四成，细纹淡掉多少就补多少，远处再按距离加满
+      const rough = max(float(1).sub(det1.mul(0.6)), smoothstep(40.0, 1400.0, wDist)).mul(U.wave.mul(0.16).add(0.24)).add(foam.mul(0.6)).add(U.rain.mul(0.06));
       return WaterOut(albedo.mul(opacity), transmit, nW, rough, foam, glint.mul(float(1).sub(foam)));
     });
     const res = result();
