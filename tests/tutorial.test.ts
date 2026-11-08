@@ -236,6 +236,24 @@ describe('教学状态与提示', () => {
     expect(t.html()).toContain('<kbd>回车</kbd> 跳过这一步');
   });
 
+  it('用手柄时：说明页写“按 A 继续”，按 A（click）就翻页；转头那一步写右摇杆，提示里是手柄的键', () => {
+    const s = session();
+    const t = new Tutorial(defaultSettings());
+    t.start(s);
+    const pad: TutorialCtx = { ...ctx(), pad: true };
+    expect(t.step?.manual).toBe(true);
+    expect(t.html(pad)).toContain('按 <kbd>A</kbd> 继续');
+    expect(t.html(pad)).not.toContain('点击鼠标');
+    const first = t.index;
+    t.click(s);
+    expect(t.index).toBe(first + 1);
+    jump(t, s, 'look');
+    expect(t.html(pad)).toContain('推右摇杆');
+    expect(t.html(pad)).toContain('可在暂停菜单跳过这一步');
+    // 同一步换成键盘鼠标，文字马上跟着换（缓存里带着用的是什么）
+    expect(t.html(ctx())).toContain('移动鼠标');
+  });
+
   it('卡住一阵之后给提示', () => {
     const s = session();
     const t = new Tutorial(defaultSettings());

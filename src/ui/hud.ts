@@ -289,7 +289,7 @@ export class Hud {
     // 手上没有补给时不占地方
     this.buffs.classList.toggle('hidden', !(b.boostActive || b.boostCharges > 0 || b.shieldActive));
     setMarkup(this.buffs,
-      slot('boost', '动力增强', b.boostActive || b.boostCharges > 0, b.boostActive ? `生效 ${b.boostTime.toFixed(1)} s` : b.boostCharges > 0 ? `已储备 · ${set.bindings.boost.map(keyName).join(' / ')} 使用` : '未持有', b.boostActive ? b.boostTime / BUFFS.boost.duration : b.boostCharges > 0 ? 1 : 0) +
+      slot('boost', '动力增强', b.boostActive || b.boostCharges > 0, b.boostActive ? `生效 ${b.boostTime.toFixed(1)} s` : b.boostCharges > 0 ? `已储备 · ${[...new Set(set.bindings.boost.map(keyName))].join(' / ')} 使用` : '未持有', b.boostActive ? b.boostTime / BUFFS.boost.duration : b.boostCharges > 0 ? 1 : 0) +
       slot('shield', '免伤护盾', b.shieldActive, b.shieldActive ? `剩余 ${b.shieldTime.toFixed(1)} s` : '未激活', b.shieldTime / BUFFS.shield.maxDuration));
     // 任务
     const cur = s.mission.current();
@@ -342,7 +342,7 @@ export class Hud {
     if (nav.forks) {
       this.forks.classList.remove('hidden');
       setMarkup(this.forks,
-        `<div class="hud-label">路线选择（飞向其中一条即可；${set.bindings.nav.map(keyName).join(' / ')} 键切换推荐）</div>` +
+        `<div class="hud-label">路线选择（飞向其中一条即可<span class="fork-key">；按 ${[...new Set(set.bindings.nav.map(keyName))].join(' / ')} 切换推荐</span>）</div>` +
         nav.forks
           .map((f) => {
             const r = headingDelta(wrap360(tel.heading * RAD), f.bearing);

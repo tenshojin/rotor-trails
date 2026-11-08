@@ -2338,6 +2338,89 @@ canvas.gl.sim-cursor.sim-cursor-hot {
     width: min(300px, 38vw);
     transform: translateX(-50%);
   }
+  /* 路线卡片放到右上角那排键下面，竖着排，只留路线名和距离：放在中间会和下面的着陆辅助、摇杆叠在一起 */
+  .touch-device .hud-forks {
+    top: calc(52px + env(safe-area-inset-top));
+    left: auto;
+    right: calc(10px + env(safe-area-inset-right));
+    transform: none;
+    width: 210px;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 5px;
+  }
+  .touch-device .hud-forks .hud-label {
+    text-align: right;
+    letter-spacing: 0.04em;
+  }
+  .touch-device .fork {
+    width: 100%;
+    padding: 4px 10px;
+  }
+  .touch-device .fork span {
+    display: none;
+  }
+  /* 卡片不在屏幕中间了，告警和提示不用再往下让 */
+  .touch-device .hud:has(.hud-forks:not(.hidden)) .hud-warn {
+    top: 24%;
+  }
+  .touch-device .hud:has(.hud-forks:not(.hidden)) .hud-toasts {
+    top: 34%;
+  }
+  /* 着陆辅助缩小一圈放到下面正中，两边是摇杆；教降落时教学卡片在左下角，着陆辅助还在右下角 */
+  .touch-device .hud-landing {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    bottom: calc(6px + env(safe-area-inset-bottom));
+    width: 300px;
+    grid-template-columns: 84px minmax(0, 1fr);
+    padding: 6px 8px;
+  }
+  .touch-device .hud.hud-tut .hud-landing {
+    left: auto;
+    right: calc(10px + env(safe-area-inset-right));
+    transform: none;
+  }
+  .touch-device .land-cv {
+    width: 84px;
+    height: 84px;
+  }
+  .touch-device .land-info div {
+    font-size: 11px;
+  }
+}
+/* 超仿真用手柄：屏幕中间的准星（右摇杆转头对准开关，A / X 拨动） */
+.pad-reticle {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 11;
+}
+.pad-reticle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2px;
+  height: 2px;
+  margin: -1px 0 0 -1px;
+  background: #fff;
+}
+.pad-reticle.on {
+  display: block;
+}
+/* 手机上没有切换推荐路线的键 */
+.touch-device .fork-key {
+  display: none;
 }
 /* 超仿真要用鼠标按开关：手机上不给选 */
 .touch-device .course-tabs,

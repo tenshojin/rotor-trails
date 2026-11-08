@@ -313,7 +313,52 @@ export function useTouchNames(on: boolean): void {
   touchNames = on;
 }
 
+/** 正在用手柄时，提示里写手柄上的键（Xbox 的叫法，PS 手柄同样的位置）。按动作找，改过键也对得上 */
+const PAD_NAMES: Partial<Record<Action, string>> = {
+  forward: '左摇杆上推',
+  back: '左摇杆下拉',
+  left: '左摇杆左推',
+  right: '左摇杆右推',
+  up: 'RT',
+  down: 'LT',
+  strafeLeft: 'LB',
+  strafeRight: 'RB',
+  hover: 'A',
+  boost: 'B',
+  view: 'X',
+  center: 'Y',
+  pause: '菜单键',
+  cruise: '视图键',
+  nav: '十字键上',
+  hud: '十字键下',
+  mapRange: '十字键左右',
+  photo: '按下右摇杆',
+  trim: '按下左摇杆',
+  lookLeft: '右摇杆',
+  lookRight: '右摇杆',
+  lookUp: '右摇杆',
+  lookDown: '右摇杆',
+};
+let padBindings: (() => Record<Action, string[]>) | null = null;
+/** 玩家拿起手柄时传入当前键位（按代码找到动作），放下手柄、碰键盘鼠标时传 null */
+export function usePadNames(bindings: (() => Record<Action, string[]>) | null): void {
+  padBindings = bindings;
+}
+export function padNamesOn(): boolean {
+  return padBindings !== null;
+}
+
+/** 提示里写的按键名：用手柄时是手柄上的键，触屏上是屏幕按键，否则是键盘键名 */
 export function keyName(code: string): string {
+  if (padBindings) {
+    const b = padBindings();
+    for (const a of Object.keys(b) as Action[]) if (b[a].includes(code) && PAD_NAMES[a]) return PAD_NAMES[a]!;
+  }
+  return keyLabel(code);
+}
+
+/** 键盘（触屏上是屏幕按键）的名字，不随手柄切换：改键页、操作说明里的键盘表用它 */
+export function keyLabel(code: string): string {
   if (touchNames && TOUCH_NAMES[code]) return TOUCH_NAMES[code];
   if (KEY_NAMES[code]) return KEY_NAMES[code];
   if (code.startsWith('Key')) return code.slice(3);

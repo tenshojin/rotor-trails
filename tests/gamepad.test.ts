@@ -134,4 +134,50 @@ describe('手柄', () => {
     vi.stubGlobal('navigator', {});
     expect(() => new PadReader().poll(0.016, false, () => {}, () => {})).not.toThrow();
   });
+
+  it('按下左摇杆是配平（超仿真）', () => {
+    const p = fake();
+    plug(p);
+    const r = new PadReader();
+    const got: PadEdge[] = [];
+    press(p, 10);
+    r.poll(0.016, false, (a) => got.push(a), () => {});
+    expect(got).toEqual(['trim']);
+  });
+
+  it('玩家动了手柄才算在用：按键、推杆算，摇杆静止时漂一点不算', () => {
+    const p = fake();
+    plug(p);
+    const r = new PadReader();
+    p.axes = [0.2, -0.15, 0, 0.1];
+    r.poll(0.016, false, () => {}, () => {});
+    expect(r.used).toBe(false);
+    p.axes = [0, -0.8, 0, 0];
+    r.poll(0.016, false, () => {}, () => {});
+    expect(r.used).toBe(true);
+    p.axes = [0, 0, 0, 0];
+    press(p, 0);
+    r.poll(0.016, false, () => {}, () => {});
+    expect(r.used).toBe(true);
+    expect(r.down(0)).toBe(true);
+    press(p, 0, 0);
+    r.poll(0.016, false, () => {}, () => {});
+    expect(r.used).toBe(false);
+    expect(r.down(0)).toBe(false);
+  });
+
+  it('接上、断开各通知一次', () => {
+    const p = fake();
+    plug(p);
+    const r = new PadReader();
+    const events: string[] = [];
+    r.onConnection = (on, name) => events.push(`${on}:${name}`);
+    r.poll(0.016, false, () => {}, () => {});
+    r.poll(0.016, false, () => {}, () => {});
+    plug(null);
+    r.poll(0.016, false, () => {}, () => {});
+    r.poll(0.016, false, () => {}, () => {});
+    expect(events).toEqual(['true:pad', 'false:pad']);
+    expect(r.used).toBe(false);
+  });
 });

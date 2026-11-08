@@ -21,7 +21,7 @@ import { generateWorld, type WorldData } from '../world/worldgen';
 import type { AssistId } from '../config/flight';
 import { Input } from './input';
 import { SaveStore, type StorageLike } from './save';
-import { keyName, QUALITY, useTouchNames, type Settings } from './settings';
+import { keyName, QUALITY, usePadNames, useTouchNames, type Settings } from './settings';
 import { TouchControls, touchOnly } from '../ui/touchControls';
 import { clamp, damp } from '../core/math';
 import { PHOTO_FOV } from '../render/cameraRig';
@@ -183,6 +183,12 @@ export class App {
   private autoStart = false;
   private autoT = 0;
   private dragAcc = 0;
+  /** 超仿真用手柄：屏幕中间的准星对着的控件（A 往前拨、X 往回拨） */
+  private padSpot: Spot | null = null;
+  /** 手柄按住 A / X 转旋钮：按了多久、下一下还差多久 */
+  private padHoldT = 0;
+  private padRepeatT = 0;
+  private padReticle: HTMLDivElement | null = null;
   /** 点了、手还没碰到的控件 */
   private readonly presses = new PressQueue<Spot>();
   /** 灯测试按一下也要亮一会儿 */
@@ -219,8 +225,10 @@ export class App {
       this.ui.onClick = () => this.audio.click();
       this.input = new Input(canvas, this.settings);
       rollback.push(() => this.input.dispose());
-      this.input.onEdge = (a) => this.onEdge(a);
+      this.input.onEdge = (a, fromPad) => this.onEdge(a, fromPad);
       this.input.onPadNav = (d) => padNavigate(this.root, d);
+      this.input.onDevice = (d) => this.onDevice(d);
+      this.input.onPadConnection = (connected) => this.onPadConnection(connected);
       if (touchOnly()) this.setupTouch(rollback);
       this.input.onLockChange = (locked) => {
         if (!locked && this.state === 'playing' && !this.input.lockFailed) this.pause();
@@ -323,6 +331,8 @@ export class App {
     if (this.frameId !== null) cancelAnimationFrame(this.frameId);
     this.frameId = null;
     this.input.onEdge = this.input.onLockChange = this.input.onPadNav = null;
+    this.input.onDevice = this.input.onPadConnection = null;
+    usePadNames(null);
     this.replay?.panel.dispose();
     this.replay = null;
     this.view.onThunder = null;
@@ -556,7 +566,9 @@ export class App {
     const k = (a: keyof Settings['bindings']) => keyName(this.settings.bindings[a][0]);
     const html = this.settings.hints && !this.tutorial && this.state === 'playing'
       ? this.input.sim
-        ? `<kbd>${k('down')}</kbd> 下降 · <kbd>${k('boost')}</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平 · <kbd>${k('hover')}</kbd> 增稳 · <kbd>${k('hud')}</kbd> 显示 HUD · <kbd>${k('pause')}</kbd> 暂停`
+        ? this.input.device === 'pad'
+          ? `准星对准开关 <kbd>A</kbd> 往前拨、<kbd>X</kbd> 往回拨，按住转旋钮 · <kbd>${k('trim')}</kbd> 配平 · <kbd>${k('hud')}</kbd> 显示 HUD · <kbd>${k('pause')}</kbd> 暂停`
+          : `<kbd>${k('down')}</kbd> 下降 · <kbd>${k('boost')}</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平 · <kbd>${k('hover')}</kbd> 增稳 · <kbd>${k('hud')}</kbd> 显示 HUD · <kbd>${k('pause')}</kbd> 暂停`
         : this.run?.free
         ? `<kbd>${k('cruise')}</kbd> 自动巡航 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('hud')}</kbd> 显示仪表 · <kbd>${k('photo')}</kbd> 截图 · <kbd>${k('pause')}</kbd> 换时段、天气、景点`
         : `<kbd>${k('hover')}</kbd> 悬停 · <kbd>${k('nav')}</kbd> 导航 · <kbd>${k('pause')}</kbd> 暂停`
@@ -564,6 +576,24 @@ export class App {
     if (html === this.controlHintHtml) return;
     this.controlHintHtml = html;
     this.hud.setHint(html);
+  }
+
+  /** 拿起手柄、碰到键盘鼠标：提示里的按键名跟着换（教学、提示条、路线说明都走 keyName） */
+  private onDevice(d: 'keyboard' | 'pad'): void {
+    usePadNames(d === 'pad' ? () => this.settings.bindings : null);
+    this.root.classList.toggle('pad-active', d === 'pad');
+    this.controlHintHtml = '';
+    this.refreshControlHint();
+  }
+
+  /** 手柄接上、断开。飞着的时候用的就是手柄却断了（没电、线松了）：先暂停，别让飞机自己掉下去 */
+  private onPadConnection(connected: boolean): void {
+    if (this.state !== 'playing') return;
+    if (connected) this.hud.toast('手柄已连接', 'info', 2200);
+    else if (this.input.device === 'pad') {
+      this.hud.toast('手柄断开了，已暂停', 'warn', 4000);
+      this.pause();
+    } else this.hud.toast('手柄断开了', 'info', 2200);
   }
 
   async startRun(cfg: RunConfig): Promise<void> {
@@ -666,7 +696,16 @@ export class App {
     this.hud.show(true);
     this.applySim(cfg.assist === 'sim');
     const k = (a: keyof Settings['bindings']) => keyName(this.settings.bindings[a][0]);
-    const controls = !this.settings.hints ? '' : cfg.assist === 'sim' ? `<br>冷舱启动：照左上角的检查单操作，鼠标点按钮 · 鼠标移到屏幕边转头 · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 杆 · <kbd>${k('up')}</kbd>/<kbd>${k('down')}</kbd> 总距 · <kbd>C</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平` : `<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>${k('pause')}</kbd> 暂停`;
+    const pad = this.input.device === 'pad';
+    const controls = !this.settings.hints
+      ? ''
+      : cfg.assist === 'sim'
+        ? pad
+          ? `<br>冷舱启动：照左上角的检查单操作，右摇杆转头，屏幕中间的准星对准按钮按 <kbd>A</kbd>（<kbd>X</kbd> 往回拨）· <kbd>左摇杆</kbd> 杆 · <kbd>RT</kbd>/<kbd>LT</kbd> 总距 · <kbd>${k('trim')}</kbd> 配平`
+          : `<br>冷舱启动：照左上角的检查单操作，鼠标点按钮 · 鼠标移到屏幕边转头 · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 杆 · <kbd>${k('up')}</kbd>/<kbd>${k('down')}</kbd> 总距 · <kbd>C</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平`
+        : pad
+          ? `<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>左摇杆</kbd> 飞行 · <kbd>右摇杆</kbd> 观察 · <kbd>${k('pause')}</kbd> 暂停`
+          : `<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>${k('pause')}</kbd> 暂停`;
     this.ui.clickToStart(
       this.tutorial ? `第 ${(cfg.lesson ?? 0) + 1} 课 · ${this.tutorial.lessons[cfg.lesson ?? 0].title}` : cfg.free ? `休闲飞行 · ${cfg.map.name}` : cfg.map.name,
       cfg.tutorial ? '跟着屏幕下方的提示做，每次只学一个动作。' : cfg.free ? `没有任务，没有计时。想去哪儿就去哪儿，懒得飞就按 <kbd>${k('cruise')}</kbd> 让它自己飞。` : `${this.session.mission.current()?.def.title ?? ''}${controls}`,
@@ -1253,11 +1292,18 @@ export class App {
     const I = this.input;
     const v = this.view;
     if (!sys) return;
-    const [ex, ey] = I.edgeLook(dt);
-    if (ex || ey) v.rig.look(ex, ey);
+    // 用手柄时看屏幕中间的准星（右摇杆转头对准，A 往前拨、X 往回拨，见 onEdge）；鼠标停在屏幕边上也不转头
+    const padAim = I.device === 'pad';
+    if (!padAim) {
+      const [ex, ey] = I.edgeLook(dt);
+      if (ex || ey) v.rig.look(ex, ey);
+    }
     // 鼠标指着只是在看：显示名称和读数，手不动。点下去手才抬起来
-    const spot = I.mouseInside ? v.pickControl(I.mouseX, I.mouseY) : null;
-    v.focusAt(I.mouseX, I.mouseY, spot, dt);
+    const mx = padAim ? 0 : I.mouseX;
+    const my = padAim ? 0 : I.mouseY;
+    const spot = padAim || I.mouseInside ? v.pickControl(mx, my) : null;
+    this.padSpot = padAim ? spot : null;
+    v.focusAt(mx, my, spot, dt);
     const tut = this.tutorial;
     this.tutorialCtx.hover = spot?.id ?? null;
     for (const c of I.takeClicks()) {
@@ -1279,6 +1325,18 @@ export class App {
         this.useControl(s, spot, n);
       }
     }
+    // 手柄按住 A / X 转旋钮：按住 0.35 秒以后连续转
+    const hold = padAim && spot?.def.type === 'dial' ? (I.pad.down(0) ? 1 : I.pad.down(2) ? -1 : 0) : 0;
+    if (hold && spot) {
+      this.padHoldT += dt;
+      if (this.padHoldT > 0.35) {
+        this.padRepeatT -= dt;
+        if (this.padRepeatT <= 0) {
+          this.padRepeatT = 0.07;
+          this.useControl(s, spot, hold);
+        }
+      }
+    } else this.padHoldT = this.padRepeatT = 0;
     const hand = v.pilot;
     this.presses.step(
       dt,
@@ -1311,7 +1369,7 @@ export class App {
     if (spot) {
       const r = this.rect ?? (this.rect = this.canvas.getBoundingClientRect());
       const env = this.readEnv(s);
-      this.simPanel?.tooltip(spot.def.name, spot.def.label, readout(spot.def, sys, env), r.left + ((I.mouseX + 1) / 2) * r.width, r.top + ((I.mouseY + 1) / 2) * r.height, blocked(spot.def, sys));
+      this.simPanel?.tooltip(spot.def.name, spot.def.label, readout(spot.def, sys, env), r.left + ((mx + 1) / 2) * r.width, r.top + ((my + 1) / 2) * r.height, blocked(spot.def, sys));
       this.canvas.classList.toggle('sim-cursor-hot', spot.def.type !== 'info');
     } else {
       this.simPanel?.hideTooltip();
@@ -1331,7 +1389,7 @@ export class App {
     const dy = q.behind ? 0 : q.y < h ? -1 : q.y > innerHeight - h ? 1 : 0;
     if (!dx && !dy) return '';
     const way = `${dx < 0 ? '左' : dx > 0 ? '右' : ''}${dy < 0 ? '上' : dy > 0 ? '下' : ''}`;
-    return `光圈在视野外：把鼠标移到屏幕${way}边，往${way}看。`;
+    return this.input.device === 'pad' ? `光圈在视野外：推右摇杆往${way}看。` : `光圈在视野外：把鼠标移到屏幕${way}边，往${way}看。`;
   }
 
   private readEnv(s: GameSession): ReadEnv {
@@ -1363,7 +1421,7 @@ export class App {
     if (moved) this.audio.control(spot.def.sound);
   }
 
-  private onEdge(a: 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim' | 'photo'): void {
+  private onEdge(a: 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim' | 'photo', fromPad = false): void {
     const s = this.session;
     if (this.photoPanel) {
       if (a === 'pause') this.closePhoto();
@@ -1393,6 +1451,17 @@ export class App {
       return;
     }
     if (this.state !== 'playing' || !s) return;
+    // 教学的说明页：手柄的 A 也算“看完了”（不然只用手柄的玩家第一页就翻不过去）
+    if (fromPad && a === 'hover' && this.tutorial?.step?.manual) {
+      this.tutorial.click(s);
+      return;
+    }
+    // 超仿真用手柄：准星对着开关时 A 往前拨、X 往回拨（旋钮按住连续转，见 simControls）
+    if (fromPad && s.sys && this.padSpot && (a === 'hover' || a === 'view')) {
+      if (!this.tutorial?.step?.manual) this.useControl(s, this.padSpot, a === 'hover' ? 1 : -1);
+      this.padHoldT = 0;
+      return;
+    }
     if (a === 'trim') {
       if (s.sys) {
         s.flight.setTrim();
@@ -1480,6 +1549,7 @@ export class App {
   };
 
   private tick(now: number): void {
+    if (this.state !== 'playing') this.padReticle?.classList.remove('on');
     const elapsed = (now - this.last) / 1000;
     this.last = now;
     const frameSeconds = Number.isFinite(elapsed) && elapsed > 0 ? elapsed : 0;
@@ -1640,6 +1710,19 @@ export class App {
     const [dx, dy] = I.takeLook(dt);
     if (dx || dy) this.view.rig.look(dx, dy);
     if (I.sim) this.simControls(s, dt);
+    else this.padSpot = null;
+    this.tutorialCtx.pad = I.device === 'pad';
+    this.showReticle(I.sim && I.device === 'pad');
+  }
+
+  /** 超仿真用手柄时屏幕中间的准星 */
+  private showReticle(on: boolean): void {
+    if (on && !this.padReticle) {
+      this.padReticle = document.createElement('div');
+      this.padReticle.className = 'pad-reticle';
+      this.root.appendChild(this.padReticle);
+    }
+    this.padReticle?.classList.toggle('on', on && this.state === 'playing');
   }
 
   /** 手机、平板：屏幕上的摇杆，超仿真藏起来（要用鼠标按开关），第一次点屏幕时进全屏、锁横屏 */

@@ -38,7 +38,13 @@ export class Input {
   private dragging = false;
   lookDX = 0;
   lookDY = 0;
-  onEdge: ((a: EdgeAction) => void) | null = null;
+  /** 按了一下（fromPad：手柄上按的，超仿真的准星、教学的说明页按这个分开处理） */
+  onEdge: ((a: EdgeAction, fromPad?: boolean) => void) | null = null;
+  /** 玩家现在用的是键盘鼠标还是手柄：最后动的那个（提示里的键名跟着换） */
+  device: 'keyboard' | 'pad' = 'keyboard';
+  onDevice: ((d: 'keyboard' | 'pad') => void) | null = null;
+  /** 手柄接上（true）或断开（false） */
+  onPadConnection: ((connected: boolean, name: string) => void) | null = null;
   /** 手柄：摇杆和扳机是模拟量，和键盘谁动用谁 */
   readonly pad = new PadReader();
   /** 手柄在菜单里按了一下 */
@@ -71,6 +77,11 @@ export class Input {
     this.canvas = canvas;
     this.settings = settings;
     this.rebuild();
+    this.pad.onConnection = (connected, name) => {
+      // （先告诉 App：它要看断开之前玩家是不是在用手柄）
+      this.onPadConnection?.(connected, name);
+      if (!connected) this.setDevice('keyboard');
+    };
     window.addEventListener('keydown', this.onKeyDown, { capture: true });
     window.addEventListener('keyup', this.onKeyUp, { capture: true });
     window.addEventListener('blur', this.onBlur);
@@ -170,8 +181,15 @@ export class Input {
   /** 每帧读一次手柄。飞行中按键走 onEdge，菜单里走 onPadNav */
   pollPad(dt: number): void {
     this.pad.poll(dt, !this.active, (a: PadEdge) => {
-      if (this.active || a === 'pause') this.onEdge?.(a);
+      if (this.active || a === 'pause') this.onEdge?.(a, true);
     }, (d) => this.onPadNav?.(d));
+    if (this.pad.used) this.setDevice('pad');
+  }
+
+  private setDevice(d: 'keyboard' | 'pad'): void {
+    if (d === this.device) return;
+    this.device = d;
+    this.onDevice?.(d);
   }
 
   /** 取出这一帧的点击 */
@@ -235,6 +253,7 @@ export class Input {
   };
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    this.setDevice('keyboard');
     if (this.capture) {
       e.preventDefault();
       e.stopPropagation();
@@ -278,6 +297,8 @@ export class Input {
   }
 
   private onMouseMove = (e: MouseEvent): void => {
+    // （手一碰鼠标就是在用键盘鼠标；只差一两个像素的抖动不算）
+    if (Math.abs(e.movementX) + Math.abs(e.movementY) > 2) this.setDevice('keyboard');
     if (!this.active) return;
     if (this.simMode && !this.freeMouse) {
       this.pointerAt(e);
@@ -304,6 +325,7 @@ export class Input {
   };
 
   private onMouseDown = (e: MouseEvent): void => {
+    this.setDevice('keyboard');
     if (!this.active) return;
     // （超仿真里进拍照模式也是这样：这时候鼠标不是手）
     if (this.freeMouse) {

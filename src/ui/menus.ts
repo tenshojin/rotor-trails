@@ -4,7 +4,7 @@ import { ASSISTS, type AssistId } from '../config/flight';
 import { TIME_OF_DAY, type TimeOfDay } from '../render/timeOfDay';
 import type { MapDef } from '../maps/types';
 import type { MapRecord } from '../game/save';
-import { ACTION_LABEL, DEFAULT_BINDINGS, QUALITY, keyName, type Action, type Settings } from '../game/settings';
+import { ACTION_LABEL, DEFAULT_BINDINGS, QUALITY, keyLabel, type Action, type Settings } from '../game/settings';
 import type { ScoreResult } from '../sim/scoring';
 import type { LandingMetrics } from '../sim/mission';
 import type { Lesson } from '../game/tutorial';
@@ -96,7 +96,8 @@ export class UI {
     this.root.appendChild(el);
     el.tabIndex = -1;
     // （主按钮优先：按文档顺序的话休闲飞行的暂停菜单一进来焦点在第一个时段上，手柄的 A 和回车都按错）
-    (el.querySelector<HTMLElement>('.primary') ?? el.querySelector<HTMLElement>('button:not([disabled]), [tabindex="0"]') ?? el).focus({ preventScroll: true });
+    // （选图界面没有主按钮：先落在第一张地图上，不然焦点在“返回”上，手柄一按 A 就退回去了）
+    (el.querySelector<HTMLElement>('.primary') ?? el.querySelector<HTMLElement>('.map-card:not([disabled])') ?? el.querySelector<HTMLElement>('button:not([disabled]), [tabindex="0"]') ?? el).focus({ preventScroll: true });
     return el;
   }
 
@@ -544,7 +545,7 @@ export class UI {
   }
 
   help(bindings: Settings['bindings']): void {
-    const k = (a: Action) => [...new Set(bindings[a].map(keyName))].join(' / ');
+    const k = (a: Action) => [...new Set(bindings[a].map(keyLabel))].join(' / ');
     const el = this.openModal(
       h(`<div class="modal"><div class="card wide"><div class="screen-head"><h2>操作说明</h2><button class="btn ghost" data-a="close">关闭</button></div>
       <div class="help-grid">
@@ -581,9 +582,11 @@ export class UI {
           <tr><td>X / Y</td><td>切换视角（休闲飞行） / 视角回正</td></tr>
           <tr><td>十字键</td><td>上 导航目标，下 HUD，左右 地图范围</td></tr>
           <tr><td>菜单键 / 视图键</td><td>暂停 / 自动巡航</td></tr>
-          <tr><td>按下右摇杆</td><td>截图</td></tr>
-          <tr><td>菜单里</td><td>十字键或左摇杆走，A 确认，B 返回</td></tr></table>
-          <p class="muted">超仿真的开关要用鼠标按。</p></div>
+          <tr><td>按下右摇杆 / 左摇杆</td><td>截图 / 配平（超仿真）</td></tr>
+          <tr><td>菜单里</td><td>十字键或左摇杆走，A 确认，B 返回</td></tr>
+          <tr><td>教学</td><td>说明页按 A 继续</td></tr>
+          <tr><td>超仿真</td><td>屏幕中间有准星：右摇杆转头对准开关，A 往前拨、X 往回拨，按住 A / X 转旋钮</td></tr></table>
+          <p class="muted">拿起手柄，提示里的按键就换成手柄上的；飞行中手柄断开会自动暂停。</p></div>
         <div><h3>飞行要点</h3><ul class="tips">
           <li>直升机有真实的重量和惯性：加速、减速、转弯都需要时间和空间，<b>高速时请提前减速</b>。</li>
           <li>升力来自旋翼，机身倾斜时升力方向也随之倾斜；急转弯需要更多动力，动力不足时会掉高度。</li>
@@ -667,7 +670,7 @@ export class UI {
       body.setAttribute('aria-labelledby', `settings-${tab}`);
       if (tab === 'controls') {
         const rows = (Object.keys(ACTION_LABEL) as Action[])
-          .map((a) => `<div class="bind-row"><span>${ACTION_LABEL[a]}</span><div>${s.bindings[a].map((c, i) => `<button class="key" data-a="rebind" data-act="${a}" data-i="${i}" aria-label="${ACTION_LABEL[a]}：${escapeHtml(keyName(c))}，点击改键">${escapeHtml(keyName(c))}</button>`).join('')}${s.bindings[a].length < 3 ? `<button class="key add" data-a="rebind" data-act="${a}" data-i="${s.bindings[a].length}" aria-label="为${ACTION_LABEL[a]}添加备用按键" title="添加备用按键">＋</button>` : ''}</div></div>`)
+          .map((a) => `<div class="bind-row"><span>${ACTION_LABEL[a]}</span><div>${s.bindings[a].map((c, i) => `<button class="key" data-a="rebind" data-act="${a}" data-i="${i}" aria-label="${ACTION_LABEL[a]}：${escapeHtml(keyLabel(c))}，点击改键">${escapeHtml(keyLabel(c))}</button>`).join('')}${s.bindings[a].length < 3 ? `<button class="key add" data-a="rebind" data-act="${a}" data-i="${s.bindings[a].length}" aria-label="为${ACTION_LABEL[a]}添加备用按键" title="添加备用按键">＋</button>` : ''}</div></div>`)
           .join('');
         body.innerHTML =
           range('mouseSensitivity', '鼠标灵敏度', 0.1, 4, 0.05, (v) => v.toFixed(2)) +
@@ -766,14 +769,14 @@ export class UI {
           if (code === 'Escape') {
             bindingNotice = '已取消改键，原按键保留。';
           } else if (conflict) {
-            bindingNotice = `${keyName(code)} 已用于“${ACTION_LABEL[conflict]}”，请先修改该动作，或选用其他按键。原按键保留。`;
+            bindingNotice = `${keyLabel(code)} 已用于“${ACTION_LABEL[conflict]}”，请先修改该动作，或选用其他按键。原按键保留。`;
           } else if (/^(Control|Alt|Meta)/.test(code) || ['Tab', 'F5', 'F11', 'F12'].includes(code)) {
-            bindingNotice = `${keyName(code)} 是浏览器或菜单快捷键，请选用字母、数字、方向键或 Shift。原按键保留。`;
+            bindingNotice = `${keyLabel(code)} 是浏览器或菜单快捷键，请选用字母、数字、方向键或 Shift。原按键保留。`;
           } else {
             const list = s.bindings[act].filter((_, j) => j !== i);
             list.splice(Math.min(i, list.length), 0, code);
             s.bindings[act] = Array.from(new Set(list)).slice(0, 3);
-            bindingNotice = `“${ACTION_LABEL[act]}”已设为 ${s.bindings[act].map(keyName).join(' / ')}。`;
+            bindingNotice = `“${ACTION_LABEL[act]}”已设为 ${s.bindings[act].map(keyLabel).join(' / ')}。`;
             on.change(structuredClone(s));
           }
           render();

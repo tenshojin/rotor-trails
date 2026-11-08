@@ -26,6 +26,8 @@ export interface TutorialCtx {
   dragLook: boolean;
   /** 手机、平板：手指在屏幕上拖 */
   touch?: boolean;
+  /** 正在用手柄：右摇杆转头，A 翻说明页 */
+  pad?: boolean;
   /** 超仿真：鼠标指着哪个控件 */
   hover?: string | null;
 }
@@ -128,7 +130,7 @@ export const LESSONS: Lesson[] = [
       {
         id: 'look',
         title: '转头看看',
-        text: (_, c) => `${c.touch ? '手指在屏幕中间拖动' : c.dragLook ? '按住鼠标左键拖动' : '移动鼠标'}，向<b>左</b>看，再向<b>右</b>看。`,
+        text: (_, c) => `${c.touch ? '手指在屏幕中间拖动' : c.pad ? '推右摇杆' : c.dragLook ? '按住鼠标左键拖动' : '移动鼠标'}，向<b>左</b>看，再向<b>右</b>看。`,
         why: () => '这个动作只管你的视线，不管飞机。飞行中随时可以转头看风景。',
         check: (_s, st, _dt, c) => {
           st.a = Math.max(st.a, c.yaw);
@@ -673,7 +675,7 @@ export class Tutorial {
     const percent = Math.round(this.progress * 100);
     const heldBits = (step.keys ?? []).map((a) => (ctx.held(a) ? 1 : 0)).join('');
     const flashing = this.flash > 0;
-    const key = `${this.index}:${percent}:${heldBits}:${flashing}:${ctx.dragLook}:${this.note}:${this.liveText}:${this.lookHint}`;
+    const key = `${this.index}:${percent}:${heldBits}:${flashing}:${ctx.dragLook}:${ctx.pad}:${this.note}:${this.liveText}:${this.lookHint}`;
     if (this.htmlKey === key) return this.cachedHtml;
     this.htmlKey = key;
     const k = this.keyFn;
@@ -684,8 +686,8 @@ export class Tutorial {
     const enterBound = Object.values(this.settings.bindings).some((codes) => codes.includes('Enter'));
     const pause = `<kbd>${k('pause')}</kbd> 暂停`;
     const foot = step.manual
-      ? `${ctx.touch ? '点一下屏幕' : enterBound ? '点击鼠标' : '按 <kbd>回车</kbd> 或点击鼠标'}继续 · ${pause}`
-      : `${ctx.touch || enterBound ? '可在暂停菜单跳过这一步' : '<kbd>回车</kbd> 跳过这一步'} · ${pause}`;
+      ? `${ctx.touch ? '点一下屏幕' : ctx.pad ? '按 <kbd>A</kbd> ' : enterBound ? '点击鼠标' : '按 <kbd>回车</kbd> 或点击鼠标'}继续 · ${pause}`
+      : `${ctx.touch || ctx.pad || enterBound ? '可在暂停菜单跳过这一步' : '<kbd>回车</kbd> 跳过这一步'} · ${pause}`;
     const big = (step.keys ?? []).map((a) => `<kbd class="big ${ctx.held(a) ? 'on' : ''}">${k(a)}</kbd>`).join('');
     this.cachedHtml =
       `<div class="tut-head"><span class="tut-lesson">第 ${l + 1} 课 · ${this.lessons[l].title}</span><span class="tut-dots">${dots}</span></div>` +
