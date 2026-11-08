@@ -7,6 +7,7 @@ import { positionWorld, shadow as shadowNode, uniform } from 'three/tsl';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
 import { cloudShadow } from './cloudShadowMap';
 import { terrainSun } from './sunMap';
+import { SHADOW_PROXY_FAR, SHADOW_PROXY_NEAR } from './shadowProxy';
 
 /** 能进入最近两层阴影的物体带的图层（默认物体由 markNearShadow 统一加上） */
 export const NEAR_SHADOW_LAYER = 2;
@@ -161,10 +162,14 @@ export class SunShadows {
         // 最近两层（4 m、40 m）只画图层 2（NEAR_SHADOW_LAYER，近处物体都带）；外面两层画图层 0 与 1。
         // 图层 1 上“只在远处”的物体（中景 / 远景模型、远处地形块）因此只进外面两层。
         // （阴影相机若只开图层 0，three.js 会让它继承主相机的全部图层，所以近处用单独的图层 2）
-        if (i < 2) c.shadow!.camera.layers.set(NEAR_SHADOW_LAYER);
-        else {
+        // 图层 5 / 6：只投影的合并网格（多材质的组合成一个，见 shadowProxy.ts），主相机不画
+        if (i < 2) {
+          c.shadow!.camera.layers.set(NEAR_SHADOW_LAYER);
+          c.shadow!.camera.layers.enable(SHADOW_PROXY_NEAR);
+        } else {
           c.shadow!.camera.layers.set(0);
           c.shadow!.camera.layers.enable(1);
+          c.shadow!.camera.layers.enable(SHADOW_PROXY_FAR);
           if (i === 2) c.shadow!.camera.layers.enable(TERRAIN_SHADOW_LAYER);
         }
         c.shadow!.autoUpdate = false;

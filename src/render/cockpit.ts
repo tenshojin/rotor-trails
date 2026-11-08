@@ -8,6 +8,7 @@ import { FOG } from './atmosphere';
 import { VFOG } from './volumetricFog';
 import { loadGltf } from './gltf';
 import { STD_KEYS } from './modelLib';
+import { mergeShadowCasters } from './shadowProxy';
 import { drawAnnunciator, drawAttitude, drawEfb, drawGps, drawHobbs, drawOff, drawRadio, drawTrack, drawVemdBottom, drawVemdTop, drawXpdr, NEEDLE, type InstrumentData } from './instruments';
 import { CockpitControls } from './cockpitControls';
 import { Systems } from '../sim/systems';
@@ -333,6 +334,10 @@ export class Cockpit {
     this.buildWipers(scene);
     this.controls = new CockpitControls(scene, this.root);
     this.controls.animate(this.idleSystems, 1, 0);
+    // 固定件、座椅、操纵杆、雨刷这些多材质的组在阴影里各合成一个只投影的网格（见 shadowProxy.ts）
+    const proxies = mergeShadowCasters(this.root);
+    for (const g of proxies.geometries) this.geos.add(g);
+    for (const m of proxies.materials) this.mats.add(m);
     this.loaded = true;
   }
 

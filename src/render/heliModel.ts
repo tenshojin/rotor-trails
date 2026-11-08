@@ -9,6 +9,7 @@ import { loadGltf } from './gltf';
 import { getGlowTexture } from './propsView';
 import { modelResources } from './modelResources';
 import { acquireLivery, liveryMaterial, releaseLivery } from './heliLivery';
+import { mergeShadowCasters } from './shadowProxy';
 
 const EXT_URL = 'models/heli_ext.glb';
 
@@ -339,6 +340,13 @@ export class HeliModel {
     this.navLights[1].position.set(1.13, 0.72, 5.38);
     this.navLights[2].position.set(0, 0.78, 7.32);
     this.beacon.position.set(0, 1.82, 7.26);
+    // 机身外壳、桨毂、尾桨这些多材质的组在阴影里各合成一个只投影的网格（见 shadowProxy.ts）；
+    // 主旋翼桨叶是透明材质、转快了不投影，不合
+    for (const part of [body, this.rotorSpin, this.tailRotor]) {
+      const proxies = mergeShadowCasters(part);
+      for (const g of proxies.geometries) this.geos.add(g);
+      this.mats.push(...proxies.materials);
+    }
     this.extLoaded = true;
   }
 
