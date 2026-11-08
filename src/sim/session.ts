@@ -45,6 +45,8 @@ export type GameEvent =
   | { type: 'message'; text: string; level: 'info' | 'warn' | 'good' }
   | { type: 'repair'; amount: number; station: boolean }
   | { type: 'hover'; on: boolean; auto?: boolean }
+  /** 新手辅助：看起来在费劲地想停住，提示可以开悬停辅助 */
+  | { type: 'hoverHint' }
   | { type: 'caution' }
   | { type: 'complete' };
 
@@ -163,6 +165,17 @@ export class GameSession {
   private msgT: Record<string, number> = {};
   private boostEdge = false;
   private hoverEdge = false;
+  /** 新手提示悬停辅助：累积的“需要”（秒）、提示过几次、上次提示的时刻、玩家自己开过没有 */
+  private hoverNeed = 0;
+  private hoverHints = 0;
+  private hoverHintT = -1e9;
+  private hoverUsed = false;
+  /** 松手漂移的起点：低空低速、松开前后左右键两秒后记下的位置 */
+  private driftAnchor: Vector3 | null = null;
+  private driftHands = 0;
+  /** 前后、左右键换向的时刻（来回修正） */
+  private reversals: number[] = [];
+  private lastAxis = { p: 0, l: 0 };
   private disposed = false;
 
   static async create(world: WorldData, weatherId: string, assist: AssistId, free = false): Promise<GameSession> {
@@ -289,6 +302,54 @@ export class GameSession {
     this.msg(msg, 'info', 'nav', 0);
   }
 
+  /**
+   * 悬停辅助默认是关的。新手辅助下看起来在费劲地想停住时提示一句：
+   * 低空低速、松开方向键后被风推出去十几米，或者前后左右来回修正个不停。
+   * 每次飞行最多三次、至少隔 90 秒；玩家自己开过一次就不再提示。
+   */
+  private watchHover(dt: number, airborne: boolean): void {
+    if (this.assistId !== 'novice' || this.sys) return;
+    if (this.flight.hoverOn) {
+      this.hoverUsed = true;
+      this.forgetHover();
+      return;
+    }
+    const b = this.body;
+    const gs = this.groundSpeed;
+    if (!(airborne && this.agl < 70 && gs < 7 && this.state === 'running')) {
+      this.forgetHover();
+      return;
+    }
+    const inp = this.input;
+    for (const a of ['p', 'l'] as const) {
+      const sg = Math.sign(a === 'p' ? inp.pitch : inp.lateral);
+      if (sg === 0) continue;
+      if (this.lastAxis[a] !== 0 && sg !== this.lastAxis[a]) this.reversals.push(this.t);
+      this.lastAxis[a] = sg;
+    }
+    while (this.reversals.length && this.t - this.reversals[0] > 12) this.reversals.shift();
+    this.driftHands = inp.pitch === 0 && inp.lateral === 0 ? this.driftHands + dt : 0;
+    if (this.driftHands < 2) this.driftAnchor = null;
+    else if (!this.driftAnchor && gs < 4) this.driftAnchor = b.pos.clone();
+    const drifting = !!this.driftAnchor && gs > 0.8 && Math.hypot(b.pos.x - this.driftAnchor.x, b.pos.z - this.driftAnchor.z) > 12;
+    const fussing = this.reversals.length >= 5;
+    this.hoverNeed = drifting || fussing ? this.hoverNeed + dt : Math.max(0, this.hoverNeed - 0.5 * dt);
+    if (this.hoverNeed < 3 || this.hoverUsed || this.hoverHints >= 3 || this.t - this.hoverHintT < 90) return;
+    this.hoverHints++;
+    this.hoverHintT = this.t;
+    this.forgetHover();
+    this.events.push({ type: 'hoverHint' });
+  }
+
+  /** 传送、恢复或者条件不满足时清掉漂移起点和换向记录（否则一次传送就算“被推出去好几公里”） */
+  private forgetHover(): void {
+    this.hoverNeed = 0;
+    this.driftAnchor = null;
+    this.driftHands = 0;
+    this.reversals.length = 0;
+    this.lastAxis.p = this.lastAxis.l = 0;
+  }
+
   private msg(text: string, level: 'info' | 'warn' | 'good', key: string, cooldown = 4): void {
     const last = this.msgT[key] ?? -100;
     if (this.t - last < cooldown) return;
@@ -358,6 +419,7 @@ export class GameSession {
     if (this.hoverEdge) {
       this.hoverEdge = false;
       this.flight.setHover(!this.flight.hoverOn);
+      if (this.flight.hoverOn) this.hoverUsed = true;
       this.events.push({ type: 'hover', on: this.flight.hoverOn });
     }
     if (this.boostEdge) {
@@ -498,6 +560,7 @@ export class GameSession {
     this.settledTime = settled ? this.settledTime + dt : 0;
     this.settledPad = this.settledTime > 0.4 ? (this.gear.surface?.padId ?? null) : null;
     const airborne = this.gear.contactCount === 0 && this.agl > 0.8;
+    this.watchHover(dt, airborne);
 
     // 休闲模式到这里就够了：磕碰慢慢恢复，没有补给、维修站、任务和导航
     if (this.free) {
@@ -779,7 +842,9 @@ export class GameSession {
       this.flight.collective = s.collective;
       this.flight.enginePower = s.enginePower;
     }
-    this.flight.setHover(mode === 'safe' ? !grounded : s.hoverOn);
+    // 悬停辅助按检查点那一刻玩家自己的选择恢复：安全恢复也不替玩家打开（新手辅助本身会改平、保持高度）
+    this.flight.setHover(s.hoverOn);
+    this.forgetHover();
     this.state = 'running';
     this.crashCause = null;
     this.ditchT = 0;
@@ -819,6 +884,7 @@ export class GameSession {
     this.systemsRunning();
     this.flight.resetTo(b, this.totalMass(), this.altitudeMSL(), false);
     this.flight.altRef = y;
+    this.forgetHover();
     this.state = 'running';
     for (const [, cols] of this.treeProxies) for (const c of cols) this.phys.removeCollider(c);
     this.treeProxies.clear();
@@ -853,7 +919,7 @@ export class GameSession {
     this.terrainWarning = null;
     this.events = [];
     this.damage.repair(100);
-    this.flight.setHover(true);
+    // 悬停辅助不替玩家打开：开着的就接着开（resetTo 已经让它从新位置重新定点），关着的就关着
   }
 
   /** 当前关卡可用的“恢复选项”：最近检查点、较早的安全检查点（耐久 ≥ 30 且停在地面或低速）。 */

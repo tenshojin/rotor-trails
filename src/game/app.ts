@@ -1852,6 +1852,10 @@ export class App {
         case 'hover':
           hud.toast(e.on ? '悬停辅助：开启（逐渐减速并保持位置）' : e.auto ? '已着陆，悬停辅助自动关闭' : '悬停辅助：关闭', 'info', 2000);
           break;
+        case 'hoverHint':
+          // 教学有自己的说明；自动巡航和回放里的输入不是玩家的
+          if (!this.tutorial && !this.cruise && !this.replay) hud.toast(`想停稳一点？按 ${keyName(this.settings.bindings.hover[0])} 开启悬停辅助：它会帮你刹车，顶着风把飞机定在原地`, 'info', 6000);
+          break;
         case 'mission': {
           const m = e.ev;
           if (m.type === 'objectiveDone') {

@@ -48,7 +48,8 @@ describe('休闲飞行', () => {
     try {
       const v = vistasOf(map)[0];
       s.hoverAt(v.at[0], v.at[1], v.at[2], 0);
-      expect(s.flight.hoverOn).toBe(true);
+      // 悬停辅助不替玩家打开；新手辅助自己会保持高度
+      expect(s.flight.hoverOn).toBe(false);
       for (let i = 0; i < 120; i++) s.step();
       expect(s.agl).toBeGreaterThan(v.at[1] - 20);
       s.damage.durability = 80;
