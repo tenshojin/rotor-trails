@@ -115,9 +115,13 @@ export const amazonProps: Record<string, PropFn> = {
     // 局部 x 轴沿栈桥朝外（与 PropBuilder 的旋转约定一致）
     const rot = Math.atan2(-best.uz, best.ux);
     B.at(sx, wl + 0.75, sz, rot, 1);
-    B.box(6, 0, 0, 14, 0.16, 2.2, 0x7a5636, { solid: false, jitter: 0.14 });
+    // Blender 模型（props_amazon.py 的 jetty：横铺的木板、纵梁和横梁、泡在水里发黑的原木桩、缆绳）；下面的程序几何体是后备，
+    // 碰撞体照旧由它们生成（桥面也算：落在栈桥上不会陷进板子里）
+    B.beginModel('jetty_wood');
+    B.box(6, 0, 0, 14, 0.16, 2.2, 0x7a5636, { jitter: 0.14 });
     for (let x = 0; x <= 13; x += 3.25)
       for (const side of [-1, 1]) B.cyl(x, -1.7, side * 1.0, 0.11, 0.11, 3.6, 0x4a3420, 6, {});
+    B.endModel();
     // 系在栈桥旁的独木舟（船身沿栈桥方向）
     B.beginModel('canoe_wood', 8, -0.86, 2.2, Math.PI / 2 + 0.06);
     B.box(8, -0.61, 2.2, 6, 0.5, 0.9, 0x7a5636, { solid: false }, 0.06);
@@ -133,8 +137,11 @@ export const amazonProps: Record<string, PropFn> = {
   dock(B, d) {
     const len = Number(d.p?.len ?? 30);
     const w = Number(d.p?.w ?? 4);
+    // Blender 模型（props_amazon.py 的 float_dock：木板甲板架在三根原木浮筒上，外侧导向桩、轮胎护舷、系船缆；参考尺寸 30 × 4 m）
+    B.beginModel('dock_float', 0, 0, 0, 0, len / 30, 1, w / 4);
     B.box(len / 2, 0.5, 0, len, 0.4, w, 0x7a5636, { jitter: 0.1 });
     for (let x = 3; x < len; x += 6) B.cyl(x, -1.2, w / 2 - 0.3, 0.2, 0.2, 3.5, 0x4a3420, 6, {});
+    B.endModel();
   },
   riverBoat(B) {
     // 客运木船（Blender 模型参照马瑙斯港的河船）：船体 + 两层开敞甲板 + 船头一侧的驾驶室与桅杆

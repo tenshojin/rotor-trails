@@ -7,7 +7,7 @@ import os
 import sys
 
 import bpy
-from mathutils import Vector
+from mathutils import Euler, Vector
 
 sys.path.insert(0, os.path.dirname(__file__))
 import bkit as K  # noqa: E402
@@ -188,12 +188,122 @@ def canopy_tower():
     ROOTS.append(root)
 
 
+# ------------------------------------------------------------------ 木板栈桥、浮动码头
+def _planks(name, x0, x1, half_w, z_top, rng, mats, width=0.19, gap=0.013, thick=0.045, ragged=0.0):
+    """横铺的木板（沿 X 一块挨一块，每块横跨 ±half_w）：宽窄、高低、新旧略有不同，个别板子短一截"""
+    parts = []
+    x = x0
+    while x < x1 - 0.05:
+        w = width * rng.uniform(0.85, 1.12)
+        w = min(w, x1 - x)
+        hw = half_w * (1 - rng.uniform(0, ragged)) if ragged else half_w
+        off = rng.uniform(-0.03, 0.03)
+        c = Vector((x + w / 2, off, z_top - thick / 2 + rng.uniform(-0.006, 0.004)))
+        b = BK.bx(name, (w, 2 * hw, thick), tuple(c), rng.choice(mats))
+        # 每块板绕自己的中心微微翘一点（bx 已经把位置烘进网格，不能直接设物体的旋转）
+        rot = Euler((rng.uniform(-0.012, 0.012), rng.uniform(-0.01, 0.01), rng.uniform(-0.008, 0.008))).to_matrix()
+        K.map_verts(b, lambda v, rot=rot, c=c: tuple(c + rot @ (Vector(v) - c)))
+        parts.append(b)
+        x += w + gap
+    return parts
+
+
+def _pile(name, x, y, z0, z1, wl, r, bark, slime):
+    """原木桩：水面以下发黑、长青苔，水面以上是树皮"""
+    parts = []
+    if wl > z0:
+        parts.append(BK.cyl(name + '_wet', r * 1.02, wl - z0 + 0.12, (x, y, (z0 + wl + 0.12) / 2), slime, 8))
+    parts.append(BK.cyl(name, r, z1 - max(z0, wl), (x, y, (max(z0, wl) + z1) / 2), bark, 8))
+    return parts
+
+
+def jetty():
+    """营地的木板栈桥：长 14 m（X，-1 → 13）、宽 2.2 m，板面在原点上方 0.08 m（游戏里原点 = 水面上方 0.75 m）。
+    桩在 x = 0、3.25、6.5、9.75、13，横向 ±1.0 m（与 src/world/props/amazon.ts 的碰撞体一致）。"""
+    import random
+    rng = random.Random(7)
+    wl = -0.75
+    # 风吹日晒的旧木板以灰为主，偶尔一块新换的（混太多颜色会像一排琴键）
+    planks = [M('greyplank')] * 3 + [M('rawplank')]
+    bark = M('bark')
+    slime = F('pile_slime', 0x2c3022, rough=0.7)
+    parts = _planks('plank', -1.0, 13.0, 1.1, 0.08, rng, planks, ragged=0.04)
+    # 两根纵梁 + 每对桩上的横梁
+    for y in (-0.85, 0.85):
+        parts.append(BK.bx('stringer', (14.0, 0.1, 0.15), (6.0, y, -0.04), M('rawplank')))
+    xs = [0.0, 3.25, 6.5, 9.75, 13.0]
+    for x in xs:
+        parts.append(BK.bx('cap', (0.14, 2.3, 0.14), (x, 0, -0.19), M('rawplank')))
+        for y in (-1.0, 1.0):
+            top = 0.42 if x == xs[-1] else 0.06
+            parts += _pile('pile', x, y, -3.5, top, wl, 0.11, bark, slime)
+    # 两对桩之间的斜撑（水面上露出一截）
+    for i in (0, 2):
+        a, b = xs[i], xs[i + 1]
+        for y in (-1.0, 1.0):
+            parts.append(BK.stick('brace', (a, y * 1.06, -0.25), (b, y * 1.06, -1.3), 0.05, bark, seg=6))
+    # 尽头的系船桩上绕着的缆绳
+    for y in (-1.0, 1.0):
+        ring = K.torus('rope_ring', 0.135, 0.018, (13.0, y, 0.3), None, seg=14, seg2=5)
+        ring.data.materials.append(F('rope', 0xa8946a, rough=0.9))
+        parts.append(ring)
+    parts.append(BK.stick('rope', (13.0, 1.0, 0.27), (11.2, 2.0, -0.62), 0.016, F('rope', 0xa8946a, rough=0.9), seg=5))
+    root, _ = BK.model('jetty_wood', parts)
+    ROOTS.append(root)
+
+
+def float_dock():
+    """浮动码头（亚马孙河上的 flutuante）：长 30 m（X，0 → 30）、宽 4 m，木板甲板架在三根大原木浮筒上，
+    甲板面高 0.7 m（原点 = 水面）。外侧（游戏局部 +z，Blender -Y）在 x = 3、9、15、21、27 有导向桩穿过甲板边，
+    与 src/world/props/amazon.ts 的碰撞体位置一致；外沿挂旧轮胎护舷，系船缆绕在桩上。"""
+    import random
+    rng = random.Random(11)
+    L, HW = 30.0, 2.0
+    planks = [M('greyplank')] * 3 + [M('rawplank')]
+    bark = M('bark')
+    slime = F('pile_slime', 0x2c3022, rough=0.7)
+    log = M('bark')
+    parts = _planks('deck', 0.0, L, HW, 0.7, rng, planks, width=0.22, gap=0.015, thick=0.05, ragged=0.03)
+    # 甲板下的龙骨（横向枕木）与浮筒原木
+    for k in range(int(L / 1.5) + 1):
+        x = min(L - 0.08, 0.08 + k * 1.5)
+        parts.append(BK.bx('sleeper', (0.14, 2 * HW + 0.1, 0.14), (x, 0, 0.58), M('rawplank')))
+    for y in (-1.35, 0.0, 1.35):
+        for seg in range(3):
+            x0 = seg * 10.0
+            c = BK.cyl('float_log', 0.34 + rng.uniform(-0.03, 0.03), 9.6, (x0 + 5.0, y + rng.uniform(-0.05, 0.05), 0.17), log, 12, rot=(0, math.pi / 2, 0))
+            parts.append(c)
+            # 浮筒吃水线以下发黑
+            w = BK.cyl('float_wet', 0.352, 9.62, (x0 + 5.0, y, 0.17), slime, 12, rot=(0, math.pi / 2, 0))
+            K.map_verts(w, lambda v: (v[0], v[1], min(v[2], 0.02)))
+            parts.append(w)
+    # 导向桩（外侧）与护舷轮胎
+    tyre = F('fender_tyre', 0x1b1b1b, rough=0.85)
+    for x in (3.0, 9.0, 15.0, 21.0, 27.0):
+        parts += _pile('guide_pile', x, -1.7, -3.0, 1.6, 0.0, 0.2, bark, slime)
+        parts.append(BK.bx('pile_hoop', (0.5, 0.5, 0.08), (x, -1.7, 0.74), F('hoop_steel', 0x4c4f52, rough=0.5, metal=0.7)))
+    for x in (6.0, 12.0, 18.0, 24.0):
+        t = K.torus('fender', 0.32, 0.11, (x, -HW - 0.12, 0.42), tyre, seg=16, seg2=8, rot=(math.pi / 2, 0, 0))
+        parts.append(t)
+    # 系船缆（从甲板上的木桩绕到导向桩）
+    rope = F('rope', 0xa8946a, rough=0.9)
+    for x in (2.2, 14.2, 26.2):
+        parts.append(BK.cyl('bitt', 0.08, 0.45, (x, -1.1, 0.92), M('rawplank'), 8))
+        parts.append(BK.stick('mooring', (x, -1.1, 1.05), (x + 0.8, -1.7, 1.2), 0.018, rope, seg=5))
+    # 靠岸那头的跳板
+    parts.append(BK.bx('gangway', (2.4, 1.2, 0.06), (-1.0, 0.6, 0.6), M('greyplank'), rz=0.0))
+    root, _ = BK.model('dock_float', parts)
+    ROOTS.append(root)
+
+
 stilt_hut('stilt_hut_a', 'rawplank')
 stilt_hut('stilt_hut_b', 'greyplank')
 river_boat()
 canoe('canoe_wood', M('rawplank'))
 canoe('canoe_blue', F('canoe_blue', 0x2a5a8a, rough=0.6))
 canopy_tower()
+jetty()
+float_dock()
 # 科考营地的帆布屋脊帐篷（颜色与 src/world/props/amazon.ts 的 tent 一致）
 for k, c in enumerate((0x515c46, 0x7d6e50, 0x4b5a63, 0x724c34)):
     ROOTS.append(T.ridge_tent(f'tent_ridge_{k}', c))
