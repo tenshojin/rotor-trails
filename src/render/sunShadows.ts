@@ -3,7 +3,7 @@
 // 所有节点材质自动接收，不再需要逐个改写材质。
 
 import * as THREE from 'three/webgpu';
-import { positionWorld, uniform } from 'three/tsl';
+import { positionWorld, shadow as shadowNode, uniform } from 'three/tsl';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
 import { cloudShadow } from './cloudShadowMap';
 import { terrainSun } from './sunMap';
@@ -19,6 +19,42 @@ export function markNearShadow(root: THREE.Object3D): void {
   root.traverse((o) => {
     if (o.layers.mask === 1) o.layers.enable(NEAR_SHADOW_LAYER);
   });
+}
+
+/**
+ * 阴影贴图只留深度。three.js 的阴影节点给每层阴影建渲染目标时，除了深度贴图还带一张同样大小的 RGBA8 颜色贴图，
+ * 只有打开“透光阴影”（renderer.shadowMap.transmitted）时才读它；这里只用深度比较（PCF），体积雾读的也是深度，
+ * 颜色贴图白占显存（4 层 4096² 共 268 MB），每次画阴影还要把它整张清空、写一遍。
+ * three.js r187 支持没有颜色附件的渲染目标（textures 为空，尺寸取深度贴图的），阴影节点建好渲染目标后把颜色贴图拿掉。
+ * 只有深度时 three.js 不会在 setSize 时改深度贴图的尺寸（尺寸本来就从它取），改画质换阴影分辨率时一起改。
+ * 点光源的阴影（立方体贴图）有自己的 setupRenderTarget，不受影响。
+ */
+let depthOnlyShadowMaps = false;
+export function useDepthOnlyShadowMaps(): void {
+  if (depthOnlyShadowMaps) return;
+  depthOnlyShadowMaps = true;
+  type Target = { shadowMap: THREE.RenderTarget; depthTexture: THREE.DepthTexture };
+  type Builder = { renderer: THREE.WebGPURenderer };
+  const proto = Object.getPrototypeOf(shadowNode(new THREE.DirectionalLight())) as { setupRenderTarget(s: THREE.LightShadow, b: Builder): Target };
+  const base = proto.setupRenderTarget;
+  proto.setupRenderTarget = function (this: unknown, s: THREE.LightShadow, builder: Builder): Target {
+    const out = base.call(this, s, builder);
+    const cfg = builder.renderer.shadowMap as { transmitted?: boolean; type: THREE.ShadowMapType };
+    if (cfg.transmitted === true || cfg.type === THREE.VSMShadowMap) return out;
+    const rt = out.shadowMap;
+    // 颜色贴图还没传到显卡（第一次渲染时才建），去掉引用即可
+    rt.textures.length = 0;
+    const setSize = rt.setSize.bind(rt);
+    const image = out.depthTexture.image as { width: number; height: number };
+    rt.setSize = (w: number, h: number, d = 1) => {
+      if (rt.width !== w || rt.height !== h) {
+        image.width = w;
+        image.height = h;
+      }
+      setSize(w, h, d);
+    };
+    return out;
+  };
 }
 
 /** 各层阴影的远边界（米） */
@@ -47,6 +83,7 @@ export class SunShadows {
   private readonly drawn = SHADOW_PERIOD.map(() => ({ frame: -99, pos: new THREE.Vector3(1e9, 0, 0), q: new THREE.Quaternion() }));
 
   constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera, mapSize: number) {
+    useDepthOnlyShadowMaps();
     this.mapSize = mapSize;
     const l = new THREE.DirectionalLight(0xffffff, 3);
     l.castShadow = true;
