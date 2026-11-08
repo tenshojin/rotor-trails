@@ -74,6 +74,15 @@ describe('绕场飞的飞机', () => {
     expect(banked).toBeGreaterThan(200);
   });
 
+  it('灯白天不画（材质不可见，整个跳过），天黑了才亮', () => {
+    const t = new Traffic(plane(), lib);
+    const lamps = (t as unknown as { lamps: THREE.SpriteMaterial[] }).lamps;
+    t.update(0, 0, 0, true, ear);
+    for (const m of lamps) expect(m.visible).toBe(false);
+    t.update(1, 1 / 60, 1, true, ear);
+    for (const m of lamps) expect(m.visible && m.opacity > 0.5).toBe(true);
+  });
+
   it('耳朵听得到它过来和走远，天气不好就不飞', () => {
     const t = new Traffic(plane(), lib);
     t.update(1, 1 / 60, 0, true, ear);

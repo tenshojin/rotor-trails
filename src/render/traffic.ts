@@ -45,7 +45,11 @@ export class Traffic {
   update(t: number, dt: number, night: number, show: boolean, ear: THREE.Vector3): void {
     // （模型没加载到就不飞：天上不能只有一个螺旋桨圆盘）
     this.root.visible = show && this.meshes.length > 0;
-    for (const m of this.lamps) m.opacity = night * 0.95;
+    for (const m of this.lamps) {
+      m.opacity = night * 0.95;
+      // 白天灯是灭的：材质不可见，three.js 整个跳过这些灯
+      m.visible = m.opacity > 0.003;
+    }
     this.mover.pose(t, this.root.position, this.root.quaternion);
     if (dt > 0) {
       const d = this.root.position.distanceTo(ear);

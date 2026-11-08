@@ -18,6 +18,15 @@ const flat = (): number => 3;
 describe('路上的车', () => {
   const road: RoadCarsDef = { pts: [[0, 0], [300, 0]], models: ['a', 'b'], speed: 10 };
 
+  it('车灯白天不画（材质不可见，整个跳过），天黑了才亮', () => {
+    const c = new RoadCars(roadMovers([road], flat), lib(['a']));
+    const lamps = (c as unknown as { lamps: THREE.SpriteMaterial[] }).lamps;
+    c.update(0, 0);
+    for (const m of lamps) expect(m.visible).toBe(false);
+    c.update(0, 1);
+    for (const m of lamps) expect(m.visible && m.opacity > 0.5).toBe(true);
+  });
+
   it('模型没有就不画（碰撞照样有：位置和模型无关）', () => {
     const c = new RoadCars(roadMovers([road], flat), lib([]));
     expect(c.position(0)).toBeNull();

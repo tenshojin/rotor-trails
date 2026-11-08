@@ -45,6 +45,8 @@ export class RoadCars {
   update(t: number, night: number): void {
     this.lamps[0].opacity = night * 0.9;
     this.lamps[1].opacity = night * 0.8;
+    // 白天灯是灭的：材质不可见，three.js 整个跳过这些灯（否则每盏灯照样提交、叠一块全透明的面片）
+    for (const m of this.lamps) m.visible = m.opacity > 0.003;
     for (const c of this.cars) c.mover.pose(t, c.root.position, c.root.quaternion);
   }
 
