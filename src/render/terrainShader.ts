@@ -407,13 +407,16 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
       const c = texture(noise, P.xz.add(o).div(190.0).add(0.61)).b;
       return float(1).sub(a.mul(a).mul(1.25)).mul(0.44).add(float(1).sub(b2.mul(b2).mul(1.25)).mul(0.3)).add(float(1).sub(c.mul(c).mul(1.25)).mul(0.26));
     };
-    const tuft = tuftAt(vec2(0, 0)).toVar();
-    col.mulAssign(mix(float(1), mix(float(0.62), float(1.24), tuft), meadow));
-    // 风吹过草地：草一倒就翻出浅色的一面，明暗一片片地往下风走
+    // 风吹过草地：草一倒就翻出浅色的一面，明暗一片片地往下风走（林冠层也用）
     const windK = gustAt(P.xz).mul(min(WIND.k as unknown as N<'float'>, 0.7)).toVar();
-    col.mulAssign(float(1).add(windK.mul(meadow).mul(0.24)));
-    // 草簇的起伏也接光：太阳低的时候草地是一片细碎的明暗
-    nb.assign(normalize(nb.add(vec3(tuft.sub(tuftAt(vec2(1.1, 0))), 0.0, tuft.sub(tuftAt(vec2(0, 1.1)))).mul(meadow.mul(1.6)))));
+    // （岩壁、雪地、沙滩、水泥地上没有草：这 9 次采样乘的都是 0，跳过）
+    If(meadow.greaterThan(0.001), () => {
+      const tuft = tuftAt(vec2(0, 0)).toVar();
+      col.mulAssign(mix(float(1), mix(float(0.62), float(1.24), tuft), meadow));
+      col.mulAssign(float(1).add(windK.mul(meadow).mul(0.24)));
+      // 草簇的起伏也接光：太阳低的时候草地是一片细碎的明暗
+      nb.assign(normalize(nb.add(vec3(tuft.sub(tuftAt(vec2(1.1, 0))), 0.0, tuft.sub(tuftAt(vec2(0, 1.1)))).mul(meadow.mul(1.6)))));
+    });
     // 近处的颗粒：航拍贴图拉到几十米以内就是一片糊，这里叠两层细碎的明暗（草丛、土块、小石子）。
     // 不用贴图，用噪声图的高频通道：放在 1 米、3 米两个尺度上，两层错开就看不出重复
     const nearK = float(1).sub(smoothstep(35.0, 160.0, length(P.sub(cameraPosition)))).mul(float(1).sub(rockW.mul(0.5))).toVar();
@@ -430,7 +433,7 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     // 宏观地貌：岩壁加上三平面投影的脊状浮雕（两个尺度），平缓的地面只加一点起伏；明暗再跟着真实的沟谷与山脊走
     const cavS = mac.r.mul(2.0).sub(1.0);
     const cavL = mac.g.mul(2.0).sub(1.0);
-    const rockK = rockW.mul(float(1).sub(snowW));
+    const rockK = rockW.mul(float(1).sub(snowW)).toVar();
     // 竖直的两个投影：v 是地层坐标（高度加上地层面的偏移），岩层、断面沿地层面走
     const Py = P.y.add(swV).toVar();
     // 浮雕图是一面有层理的悬崖。花岗岩、片麻岩这种块状的岩石没有一层层的水平线，全摆正了就是一面毛茸茸的横纹：
@@ -457,15 +460,25 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const angA = spin(0.35);
     const angB = spin(1.15);
     const angC = spin(-0.75);
-    const rA0 = relief(230.0, 0.0, angA);
     // 几公里外 230 米一格的浮雕只有几十个像素，里面的细层线排成一道道扫描线：换成五倍大的一层
+    // （两层只在 1.1～3 km 之间都要；近处不取大的那层，3 km 外不取小的那层）
     const farRelief = smoothstep(1100.0, 3000.0, length(P.sub(cameraPosition))).toVar();
-    const rA = mix(rA0, relief(1180.0, 0.19, angA), farRelief);
+    const rA = vec4(0).toVar();
+    If(farRelief.lessThan(0.999), () => {
+      rA.assign(relief(230.0, 0.0, angA));
+    });
+    If(farRelief.greaterThan(0.001), () => {
+      rA.assign(mix(rA, relief(1180.0, 0.19, angA), farRelief));
+    });
     const rB = relief(71.0, 0.41, angB);
-    // 最细的一层（19 米平铺）：岩面上的裂隙和小棱角，只在中近距离看得出
-    const rC = relief(19.0, 0.73, angC);
-    const footK = float(1).sub(smoothstep(0.6, 3.6, length(dPx).add(length(dPy))));
-    const footC = float(1).sub(smoothstep(0.16, 1.05, length(dPx).add(length(dPy))));
+    const footK = float(1).sub(smoothstep(0.6, 3.6, length(dPx).add(length(dPy)))).toVar();
+    const footC = float(1).sub(smoothstep(0.16, 1.05, length(dPx).add(length(dPy)))).toVar();
+    // 最细的一层（19 米平铺）：岩面上的裂隙和小棱角，只在中近距离看得出（一个像素盖过一米就用不上，不取）。
+    // 不取时 w = 0.42：下面的明暗里减掉 0.42，等于没有这一层
+    const rC = vec4(0, 0, 0, 0.42).toVar();
+    If(footC.greaterThan(0.001), () => {
+      rC.assign(relief(19.0, 0.73, angC));
+    });
     // （230 米一格的这层离近了一个像素放大成几十厘米，法线一歪就背光，是一片带台阶的黑斑：近处压下来）
     const coarse = smoothstep(90.0, 380.0, length(P.sub(cameraPosition))).toVar();
     const relief3 = rA.xyz.mul(coarse.mul(0.75).add(0.25)).add(rB.xyz.mul(footK.mul(0.9))).add(rC.xyz.mul(footC.mul(0.8))).toVar();
@@ -477,8 +490,23 @@ export function makeTerrainMaterial(U: TerrainUniforms): THREE.MeshStandardNodeM
     const shade = float(1).sub(cavS.mul(0.26)).sub(cavL.mul(0.2)).add(rH.sub(0.46).mul(mix(float(0.1), float(0.7), rockK)));
     col.mulAssign(clamp(shade, 0.66, 1.4).mul(float(1).sub(snowW.mul(0.5))).add(snowW.mul(0.5)));
     // 裂缝和岩层下面的凹处：太阳照不进去，是岩壁上最黑的地方
-    const cav = cavOf(71.0, 0.41, angB).mul(footK.mul(0.75)).add(cavOf(19.0, 0.73, angC).mul(footC.mul(0.65))).add(mix(cavOf(230.0, 0.0, angA), cavOf(1180.0, 0.19, angA), farRelief).mul(coarse.mul(0.42)));
-    col.mulAssign(float(1).sub(clamp(cav, 0.0, 1.0).mul(rockK).mul(0.34)));
+    // （只有岩石上才有：草地、林地、雪地上这 12 次采样乘的都是 0，跳过；各个尺度也只在用得上的距离取）
+    If(rockK.greaterThan(0.001), () => {
+      const cav = float(0).toVar();
+      If(footK.greaterThan(0.001), () => {
+        cav.addAssign(cavOf(71.0, 0.41, angB).mul(footK.mul(0.75)));
+      });
+      If(footC.greaterThan(0.001), () => {
+        cav.addAssign(cavOf(19.0, 0.73, angC).mul(footC.mul(0.65)));
+      });
+      If(farRelief.lessThan(0.999), () => {
+        cav.addAssign(cavOf(230.0, 0.0, angA).mul(float(1).sub(farRelief)).mul(coarse.mul(0.42)));
+      });
+      If(farRelief.greaterThan(0.001), () => {
+        cav.addAssign(cavOf(1180.0, 0.19, angA).mul(farRelief).mul(coarse.mul(0.42)));
+      });
+      col.mulAssign(float(1).sub(clamp(cav, 0.0, 1.0).mul(rockK).mul(0.34)));
+    });
     // 水痕：雨水顺着岩壁往下淌，留下一道道深色的竖纹（矿物、地衣），这是崖壁远看最抢眼的纹理
     const seep = texture(noise, vec2(P.x.add(P.z).mul(0.0047), P.y.mul(0.00035))).r.mul(0.62).add(texture(noise, vec2(P.x.sub(P.z).mul(0.019), P.y.mul(0.0011).add(0.3))).g.mul(0.38));
     col.mulAssign(float(1).sub(smoothstep(0.5, 0.74, seep).mul(rockK).mul(smoothstep(0.3, 0.55, slope)).mul(0.3)));
