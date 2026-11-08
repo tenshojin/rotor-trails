@@ -12,7 +12,8 @@ import { refineRock } from './rockMesh';
 import { getRockReliefTexture, makeStrataTexture } from './terrainMacro';
 import { getNoiseTexture } from './textures';
 import { flagAspect, flagTexture, NEPAL_OUTLINE } from './flags';
-import { Windsock, windsockHardware } from './windsock';
+import { SOCK, Windsock, windsockHardware } from './windsock';
+import { bigEnough } from './screenSize';
 
 /** 三级细节模型的切换距离（米，再乘画质系数）：近景几何细节 → 中景贴图 → 远景体块 */
 const LOD_DIST: [number, number] = [110, 420];
@@ -142,6 +143,8 @@ interface Sock {
   pivot: THREE.Object3D;
   pos: THREE.Vector3;
   phase: number;
+  /** 最长的尺寸（米）：远到不足一个像素就不画（见 screenSize.ts） */
+  size: number;
   /** 风向袋的软布（旗子没有） */
   ws?: Windsock;
 }
@@ -245,7 +248,7 @@ export class PropsView {
         const ws = new Windsock(this.sockMat, this.sockHwMat, sockHw);
         ws.pivot.position.copy(pos);
         this.group.add(ws.pivot);
-        this.socks.push({ pivot: ws.pivot, pos, phase: Math.random() * 6, ws });
+        this.socks.push({ pivot: ws.pivot, pos, phase: Math.random() * 6, size: SOCK.L, ws });
       } else if (a.type === 'prayer') {
         prayers.push(a);
       } else if (a.type === 'flag') {
@@ -254,7 +257,7 @@ export class PropsView {
         const kind = String(a.p?.color ?? 'jp');
         pivot.add(new THREE.Mesh(this.makeFlagGeometry(kind, a.s), this.flagMaterial(kind)));
         this.group.add(pivot);
-        this.flags.push({ pivot, pos, phase: Math.random() * 6 });
+        this.flags.push({ pivot, pos, phase: Math.random() * 6, size: 1.8 * a.s });
       } else if (a.type === 'waterfall') {
         this.buildWaterfall(world, a);
       } else if (a.type === 'blink' || a.type === 'beacon') {
@@ -517,7 +520,8 @@ export class PropsView {
     for (let i = 0; i < this.socks.length; i++) {
       const s = this.socks[i];
       const d2 = s.pos.distanceToSquared(camPos);
-      if (d2 > 2500 * 2500) continue;
+      s.pivot.visible = bigEnough(s.pivot.visible, s.size, Math.sqrt(d2));
+      if (!s.pivot.visible || d2 > 2500 * 2500) continue;
       windAt(s.pos, w);
       const spd = Math.hypot(w.x, w.z);
       const yaw = Math.atan2(-w.z, w.x);
@@ -528,7 +532,9 @@ export class PropsView {
     let windAmt = 0;
     let n = 0;
     for (const f of this.flags) {
-      if (f.pos.distanceToSquared(camPos) > 2000 * 2000) continue;
+      const d2 = f.pos.distanceToSquared(camPos);
+      f.pivot.visible = bigEnough(f.pivot.visible, f.size, Math.sqrt(d2));
+      if (!f.pivot.visible || d2 > 2000 * 2000) continue;
       windAt(f.pos, w);
       const spd = Math.hypot(w.x, w.z);
       f.pivot.rotation.y = Math.atan2(-w.z, w.x);

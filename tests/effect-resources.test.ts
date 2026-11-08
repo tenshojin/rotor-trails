@@ -82,7 +82,8 @@ describe('world effect resource ownership', () => {
         materials.add((object as THREE.Sprite).material);
       }
     });
-    expect(geometries.size).toBe(7);
+    // 无人机：机架、桨盘、吊舱三个合并几何体，所有无人机共用（另外三个是航点光环、箭头和烟幕）
+    expect(geometries.size).toBe(6);
     const owned = [...geometries, ...materials].map(watch);
     const shared = [...sprites, getGlowTexture(), getNoiseTexture()];
     const borrowed = shared.map(watch);

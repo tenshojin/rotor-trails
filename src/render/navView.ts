@@ -10,6 +10,8 @@ import { padWorld } from '../maps/padLayout';
 import type { GameSession } from '../sim/session';
 import { getGlowTexture } from './propsView';
 import { SmokePlume } from './smokePlume';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { bigEnough } from './screenSize';
 
 /** 烟幕的一团：柔和的絮状圆斑 */
 let smokeTex: THREE.CanvasTexture | null = null;
@@ -63,7 +65,7 @@ export class NavView {
   /** 烟罐口的火光（天黑时看得见）0..1 */
   flare = 0;
   private lastT = 0;
-  private pickups = new Map<string, { obj: THREE.Group; kind: string; base: THREE.Vector3; led: THREE.Sprite; rotors: THREE.Mesh[] }>();
+  private pickups = new Map<string, { obj: THREE.Group; kind: string; base: THREE.Vector3; led: THREE.Sprite; body: THREE.Group }>();
   private mats: THREE.Material[] = [];
   private geos: THREE.BufferGeometry[] = [];
   private disposed = false;
@@ -118,14 +120,21 @@ export class NavView {
     this.buildPickups(map);
   }
 
-  /** 补给无人机：四旋翼 + 机腹吊舱（颜色区分补给种类）+ 闪烁的信标灯 */
+  /**
+   * 补给无人机：四旋翼 + 机腹吊舱（颜色区分补给种类）+ 闪烁的信标灯。
+   * 机架（机身和两根旋臂）、四个桨盘、吊舱各合成一个网格（零件之间不动，整架一起飘），所有无人机共用；
+   * 远到不足一个像素时机身不画，只留信标灯（灯随距离放大，老远就能看到）。
+   */
   private buildPickups(map: MapDef): void {
     const glow = getGlowTexture();
-    const body = new THREE.BoxGeometry(0.62, 0.16, 0.62);
-    const arm = new THREE.BoxGeometry(1.5, 0.05, 0.07);
-    const disc = new THREE.CircleGeometry(0.36, 20).rotateX(-Math.PI / 2);
-    const pod = new THREE.CapsuleGeometry(0.2, 0.42, 4, 12).rotateZ(Math.PI / 2);
-    this.geos.push(body, arm, disc, pod);
+    const parts: THREE.BufferGeometry[] = [new THREE.BoxGeometry(0.62, 0.16, 0.62)];
+    for (const r of [Math.PI / 4, -Math.PI / 4]) parts.push(new THREE.BoxGeometry(1.5, 0.05, 0.07).rotateY(r));
+    const frame = mergeGeometries(parts);
+    const discs = mergeGeometries(
+      [[0.53, 0.53], [-0.53, 0.53], [0.53, -0.53], [-0.53, -0.53]].map(([x, z]) => new THREE.CircleGeometry(0.36, 20).rotateX(-Math.PI / 2).translate(x, 0.1, z)),
+    );
+    const pod = new THREE.CapsuleGeometry(0.2, 0.42, 4, 12).rotateZ(Math.PI / 2).translate(0, -0.3, 0);
+    this.geos.push(frame, discs, pod);
     const dark = new THREE.MeshStandardMaterial({ color: 0x24262a, roughness: 0.5, metalness: 0.3 });
     const blur = new THREE.MeshBasicMaterial({ color: 0x1a1c20, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true });
     this.mats.push(dark, blur);
@@ -134,22 +143,9 @@ export class NavView {
       const color = p.kind === 'boost' ? 0xe0a820 : p.kind === 'shield' ? 0x2f7fd0 : 0x38a860;
       const podMat = new THREE.MeshStandardMaterial({ color, roughness: 0.42, metalness: 0.1 });
       this.mats.push(podMat);
-      g.add(new THREE.Mesh(body, dark));
-      for (const r of [Math.PI / 4, -Math.PI / 4]) {
-        const a = new THREE.Mesh(arm, dark);
-        a.rotation.y = r;
-        g.add(a);
-      }
-      const rotors: THREE.Mesh[] = [];
-      for (const [x, z] of [[0.53, 0.53], [-0.53, 0.53], [0.53, -0.53], [-0.53, -0.53]]) {
-        const d = new THREE.Mesh(disc, blur);
-        d.position.set(x, 0.1, z);
-        rotors.push(d);
-        g.add(d);
-      }
-      const pm = new THREE.Mesh(pod, podMat);
-      pm.position.y = -0.3;
-      g.add(pm);
+      const body = new THREE.Group();
+      body.add(new THREE.Mesh(frame, dark), new THREE.Mesh(discs, blur), new THREE.Mesh(pod, podMat));
+      g.add(body);
       const lm = new THREE.SpriteMaterial({ map: glow, color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 });
       this.mats.push(lm);
       const led = new THREE.Sprite(lm);
@@ -158,7 +154,7 @@ export class NavView {
       g.scale.setScalar(1.7);
       g.position.set(...p.pos);
       this.group.add(g);
-      this.pickups.set(p.id, { obj: g, kind: p.kind, base: new THREE.Vector3(...p.pos), led, rotors });
+      this.pickups.set(p.id, { obj: g, kind: p.kind, base: new THREE.Vector3(...p.pos), led, body });
     }
   }
 
@@ -232,6 +228,8 @@ export class NavView {
       p.obj.rotation.z = Math.sin(t * 0.9 + p.base.x) * 0.04;
       // 信标：每 1.2 秒闪一下，离得越远灯看起来越大一点（否则几百米外就看不见了）
       const d = camPos.distanceTo(p.base);
+      // 整架约 2.6 m 宽（1.5 m 的旋臂放大 1.7 倍）
+      p.body.visible = bigEnough(p.body.visible, 2.6, d);
       const on = (t + p.base.x * 0.01) % 1.2 < 0.16 ? 1 : 0.22;
       p.led.scale.setScalar(Math.min(14, Math.max(1.6, d / 70)) * (0.6 + 0.4 * on));
       (p.led.material as THREE.SpriteMaterial).opacity = on;

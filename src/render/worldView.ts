@@ -57,6 +57,7 @@ import { vistasOf } from '../sim/cruise';
 import { WaterView } from './water';
 import { CloudLayer, Lightning, LightningBolt, RainFx, SNOW } from './weatherFx';
 import type { InstrumentData } from './instruments';
+import { updateScreenScale } from './screenSize';
 
 export interface FrameInfo {
   dt: number;
@@ -961,6 +962,7 @@ export class WorldView {
       this.heli.update(f.t, f.dt, 1);
     }
     cam.updateMatrixWorld();
+    updateScreenScale(cam, this.renderer.domElement.height);
     this.cockpit.updateDetailLayer(cam, this.renderer.domElement.height, !!s && this.rig.mode === 'cockpit');
     const cp = cam.position;
     if (world && this.sky) {
