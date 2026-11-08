@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { clamp, damp } from '../core/math';
-import { EYE } from './cockpit';
+import { COCKPIT_DETAIL_LAYER, EYE } from './cockpit';
 
 export interface CameraSettings {
   fov: number;
@@ -81,6 +81,8 @@ export class CameraRig {
     // 图层 2 = 只进最近两层阴影的物体（座舱内部等）；近处的普通物体同时带图层 0 和 2
     this.camera.layers.enable(2);
     this.camera.layers.enable(3);
+    // 座舱小零件（旋钮、指示灯等）：从外面看远了由 WorldView 每帧关掉，见 cockpit.ts
+    this.camera.layers.enable(COCKPIT_DETAIL_LAYER);
   }
 
   look(dx: number, dy: number): void {

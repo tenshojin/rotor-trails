@@ -961,6 +961,7 @@ export class WorldView {
       this.heli.update(f.t, f.dt, 1);
     }
     cam.updateMatrixWorld();
+    this.cockpit.updateDetailLayer(cam, this.renderer.domElement.height, !!s && this.rig.mode === 'cockpit');
     const cp = cam.position;
     if (world && this.sky) {
       const w = weather ?? world.map.weathers[0].params;

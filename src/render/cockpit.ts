@@ -19,6 +19,17 @@ import { acquireLivery, liveryMaterial, releaseLivery, type LiveryTextures } fro
 /** 驾驶员眼点（机体坐标，右侧机长座位），与 tools/blender/cockpit_layout.py 的 EYE 一致；实际视点的左右位置由设置“座舱视点居中”调整 */
 export const EYE = new THREE.Vector3(0.45, 0.42, -1.0);
 
+/**
+ * 座舱里的小零件（旋钮、开关、指示灯、指针、显示屏、表盘玻璃）单独放一个图层。
+ * 从外面看时它们只有一两个像素、还隔着玻璃，却占追尾视角一帧要提交的物体的四成（约 190 个）；
+ * 一颗 2.5 cm 的旋钮在画面上小于 1.2 个像素时主相机就不画这一层，大于 1.6 个像素再画回来。
+ * 它们本来就不投影（见 load），阴影不受影响；点按钮用的是几何判定（cockpitControls.ts），也不受影响。
+ */
+export const COCKPIT_DETAIL_LAYER = 4;
+const DETAIL_NAME = /^(hs_|led_|ndl_|scr_|gglass_)/;
+const DETAIL_SIZE = 0.025;
+const _detailEye = new THREE.Vector3();
+
 const MODEL_URL = 'models/cockpit.glb';
 /** Blender 烘焙的环境光遮蔽（使用模型的第二套 UV） */
 const AO_URL = 'models/cockpit_ao.jpg';
@@ -168,6 +179,7 @@ export class Cockpit {
   /** 模型加载完成（失败也会 resolve，loaded 为 false） */
   readonly ready: Promise<void>;
   loaded = false;
+  private detailShown = true;
   mapRange = 2000;
   minimap: HTMLCanvasElement | null = null;
   private needles = new Map<string, Needle>();
@@ -263,6 +275,7 @@ export class Cockpit {
         // 座舱内部只进最近两层阴影（图层 2，见 sunShadows.ts）：远处地面上的机影由直升机外观模型负责，
         // 上百个座舱零件不必在外面两层阴影里各画一遍
         m.layers.mask = 1 << 2;
+        if (DETAIL_NAME.test(name)) m.layers.mask = 1 << COCKPIT_DETAIL_LAYER;
         if (name.startsWith('glass_')) {
           m.material = name.startsWith('glass_roof') ? roofGlass : glass;
           m.renderOrder = 20;
@@ -321,6 +334,23 @@ export class Cockpit {
     this.controls = new CockpitControls(scene, this.root);
     this.controls.animate(this.idleSystems, 1, 0);
     this.loaded = true;
+  }
+
+  /**
+   * 每帧：主相机画不画座舱小零件那一层（COCKPIT_DETAIL_LAYER）。inside = 座舱视角；
+   * viewHeight = 画面高度（像素）。按眼点到相机的距离和视角算一颗旋钮在画面上有几个像素。
+   */
+  updateDetailLayer(cam: THREE.PerspectiveCamera, viewHeight: number, inside: boolean): void {
+    let show = inside;
+    if (!show) {
+      _detailEye.copy(EYE).applyMatrix4(this.root.matrixWorld);
+      const d = Math.max(0.05, _detailEye.distanceTo(cam.position));
+      const px = (DETAIL_SIZE * viewHeight * cam.zoom) / (2 * d * Math.tan((cam.fov * Math.PI) / 360));
+      show = px >= (this.detailShown ? 1.2 : 1.6);
+    }
+    this.detailShown = show;
+    if (show) cam.layers.enable(COCKPIT_DETAIL_LAYER);
+    else cam.layers.disable(COCKPIT_DETAIL_LAYER);
   }
 
   /** 风挡外面的雨刷：转轴落在玻璃上（射线找交点），臂和刮片贴着玻璃转 */
