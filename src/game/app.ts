@@ -363,6 +363,8 @@ export class App {
       const pad = w.pads.get(w.map.spawn.padId)!;
       this.view.heli.root.position.set(pad.pos[0], pad.pos[1] + 1.32, pad.pos[2]);
       this.view.heli.root.quaternion.identity();
+      // 旋翼在转，驾驶舱里要坐着人
+      void this.view.ensurePilot?.();
     }
     this.last = performance.now();
     this.frameId = requestAnimationFrame(this.frame);
