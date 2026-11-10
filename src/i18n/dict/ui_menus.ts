@@ -207,7 +207,7 @@ const table: Table = {
   '旋翼航迹': ['First-person helicopter sim', '一人称視点のヘリコプターシム'],
   '设计与制作': ['Design and development', 'デザイン・制作'],
   '代码、建模脚本与声音合成': ['Code, modeling scripts and sound synthesis', 'コード・モデリングスクリプト・サウンド合成'],
-  'tenshojin，与 AI 编程助手协作': ['tenshojin, working with AI coding assistants', 'tenshojin（AI コーディングアシスタントと協力）'],
+  '{0}，与 AI 编程助手协作': ['{0}, working with AI coding assistants', '{0}（AI コーディングアシスタントと協力）'],
   '大峡谷的地形与影像': ['Grand Canyon terrain and imagery', 'グランドキャニオンの地形と画像'],
   '经 USGS The National Map 分发，美国政府公有领域数据': ['Distributed through USGS The National Map. U.S. Government public-domain data', 'USGS The National Map 経由で配布、米国政府のパブリックドメインデータ'],
   '照片材质': ['Photo materials', 'フォトマテリアル'],

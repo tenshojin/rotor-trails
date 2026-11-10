@@ -14,7 +14,7 @@ Everything a writer, curator or awards judge needs in one place. All text and im
 | **Players** | Single player |
 | **Languages** | English, Japanese, Simplified Chinese |
 | **Input** | Keyboard and mouse, gamepad, touch |
-| **Developer** | tenshojin (solo, self-published) |
+| **Developer** | TIANCHENG JIN (solo, self-published) |
 | **First public version** | November 2026 |
 | **Technology** | TypeScript, three.js (WebGPU with a WebGL2 fallback), Rapier physics |
 | **Source** | https://github.com/tenshojin/rotor-trails |
@@ -82,7 +82,7 @@ Social card (1200 × 630): [`public/og.jpg`](../../public/og.jpg).
 
 ## Credits
 
-- Design, code, modeling scripts and sound: tenshojin, working with AI coding assistants.
+- Design, code, modeling scripts and sound: TIANCHENG JIN, working with AI coding assistants.
 - Elevation data for the Grand Canyon: USGS 3D Elevation Program. Imagery: USDA National Agriculture Imagery Program, 2023, via USGS The National Map. U.S. Government public-domain data, courtesy of the U.S. Geological Survey.
 - Photo materials: [Poly Haven](https://polyhaven.com) (CC0).
 - Libraries: three.js (MIT), Rapier (Apache-2.0). Full list in [THIRD_PARTY_LICENSES.md](../../THIRD_PARTY_LICENSES.md).

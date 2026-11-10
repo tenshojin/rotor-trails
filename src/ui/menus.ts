@@ -10,7 +10,7 @@ import type { LandingMetrics } from '../sim/mission';
 import type { Lesson } from '../game/tutorial';
 import { GRADE_LABEL } from '../sim/mission';
 import { LANGS, tr, type Lang, type LangSetting } from '../i18n';
-import { FEEDBACK_URL, VERSION } from '../game/version';
+import { AUTHOR, FEEDBACK_URL, VERSION } from '../game/version';
 
 export interface CheckpointItem {
   index: number;
@@ -693,8 +693,8 @@ export class UI {
         <div class="credits-roll">
           <h1 class="logo">ROTOR TRAILS</h1>
           <div class="logo-sub">${tr`旋翼航迹`}</div>
-          ${block(tr('设计与制作'), ['tenshojin'])}
-          ${block(tr('代码、建模脚本与声音合成'), [tr('tenshojin，与 AI 编程助手协作')])}
+          ${block(tr('设计与制作'), [AUTHOR])}
+          ${block(tr('代码、建模脚本与声音合成'), [tr`${AUTHOR}，与 AI 编程助手协作`])}
           ${block(tr('大峡谷的地形与影像'), ['USGS 3D Elevation Program', 'USDA National Agriculture Imagery Program', tr('经 USGS The National Map 分发，美国政府公有领域数据')])}
           ${block(tr('照片材质'), ['Poly Haven (CC0)'])}
           ${block(tr('开源库与工具'), ['three.js · Rapier', 'Blender · Vite · TypeScript · Vitest'])}
