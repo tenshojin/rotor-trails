@@ -8,18 +8,16 @@
 
 パソコンではキーボードとマウス、またはゲームパッド（Xbox / PS 配置）で操縦します。スマートフォンとタブレットでは端末を横向きにして、画面上の 2 本のスティックで飛びます（フルシムはパソコン専用です）。デスクトップ版の Chrome か Edge で、ハードウェアアクセラレーションを有効にして遊ぶことをおすすめします。進行状況はお使いのブラウザに保存されます。日本語・英語・簡体字中国語に対応していて、ブラウザの言語に合わせて表示されます。メインメニュー右上でいつでも切り替えられます。初めての方は、まず「フライトスクール」からどうぞ。
 
-![瀬戸湾群島](docs/screenshots/04_japan.jpg)
+![瀬戸湾群島](docs/screenshots/ja/04_japan.jpg)
 
 | | | |
 | --- | --- | --- |
-| ![赤岩峡谷](docs/screenshots/05_canyon.jpg) | ![熱帯雨林の大河](docs/screenshots/06_amazon.jpg) | ![霧湾フィヨルド](docs/screenshots/07_fjord.jpg) |
-| ![雪域の峠](docs/screenshots/08_himalaya.jpg) | ![濃霧](docs/screenshots/09_weather_fog.jpg) | ![豪雨](docs/screenshots/21_storm_night.jpg) |
+| ![赤岩峡谷](docs/screenshots/ja/05_canyon.jpg) | ![熱帯雨林の大河](docs/screenshots/ja/06_amazon.jpg) | ![霧湾フィヨルド](docs/screenshots/ja/07_fjord.jpg) |
+| ![雪域の峠](docs/screenshots/ja/08_himalaya.jpg) | ![濃霧](docs/screenshots/ja/09_weather_fog.jpg) | ![豪雨](docs/screenshots/21_storm_night.jpg) |
 | ![フォトモード：グランドキャニオン](docs/screenshots/15_photo_canyon.jpg) | ![フォトモード：海の上](docs/screenshots/16_photo_sea.jpg) | ![フォトモード：フィヨルド](docs/screenshots/17_photo_fjord.jpg) |
 | ![フィヨルドのオーロラ](docs/screenshots/18_night_aurora.jpg) | ![グランドキャニオンの星空](docs/screenshots/19_night_sky.jpg) | ![雪のフィヨルド](docs/screenshots/20_snow_fjord.jpg) |
 | ![グランドキャニオンの崖](docs/screenshots/22_canyon_wall.jpg) | ![インナーゴージ](docs/screenshots/23_canyon_gorge.jpg) | ![サウスリムの集落](docs/screenshots/24_canyon_village.jpg) |
-| ![着陸アシスト](docs/screenshots/13_landing_assist.jpg) | ![重大な損傷](docs/screenshots/14_damage_critical.jpg) | ![リザルト](docs/screenshots/16_results.jpg) |
-
-（スクリーンショットは中国語版の画面です。）
+| ![着陸アシスト](docs/screenshots/ja/13_landing_assist.jpg) | ![重大な損傷](docs/screenshots/ja/14_damage_critical.jpg) | ![リザルト](docs/screenshots/ja/16_results.jpg) |
 
 ## 遊び方
 

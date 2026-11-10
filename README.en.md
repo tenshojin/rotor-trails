@@ -8,18 +8,16 @@ A first-person helicopter sim that runs in your browser. Nothing to download or 
 
 On a computer you fly with keyboard and mouse, or with a gamepad (Xbox / PlayStation layout). On a phone or tablet, turn the device sideways and fly with two on-screen sticks (Full Sim is computer-only). Desktop Chrome or Edge with hardware acceleration turned on is recommended. Your progress is saved in your own browser. The game is available in English, Japanese and Simplified Chinese; it follows your browser's language, and you can switch at the top right of the main menu. If this is your first time, start with Flight School.
 
-![Seto Bay Islands](docs/screenshots/04_japan.jpg)
+![Seto Bay Islands](docs/screenshots/en/04_japan.jpg)
 
 | | | |
 | --- | --- | --- |
-| ![Red Rock Canyon](docs/screenshots/05_canyon.jpg) | ![Rainforest Bend](docs/screenshots/06_amazon.jpg) | ![Mistbay Fjord](docs/screenshots/07_fjord.jpg) |
-| ![Snowfield Pass](docs/screenshots/08_himalaya.jpg) | ![Dense fog](docs/screenshots/09_weather_fog.jpg) | ![Rainstorm](docs/screenshots/21_storm_night.jpg) |
+| ![Red Rock Canyon](docs/screenshots/en/05_canyon.jpg) | ![Rainforest Bend](docs/screenshots/en/06_amazon.jpg) | ![Mistbay Fjord](docs/screenshots/en/07_fjord.jpg) |
+| ![Snowfield Pass](docs/screenshots/en/08_himalaya.jpg) | ![Dense fog](docs/screenshots/en/09_weather_fog.jpg) | ![Rainstorm](docs/screenshots/21_storm_night.jpg) |
 | ![Photo Mode: the Grand Canyon](docs/screenshots/15_photo_canyon.jpg) | ![Photo Mode: at sea](docs/screenshots/16_photo_sea.jpg) | ![Photo Mode: the fjord](docs/screenshots/17_photo_fjord.jpg) |
 | ![Aurora over the fjord](docs/screenshots/18_night_aurora.jpg) | ![Stars over the Grand Canyon](docs/screenshots/19_night_sky.jpg) | ![Snow in the fjord](docs/screenshots/20_snow_fjord.jpg) |
 | ![Cliffs of the Grand Canyon](docs/screenshots/22_canyon_wall.jpg) | ![The Inner Gorge](docs/screenshots/23_canyon_gorge.jpg) | ![The village on the South Rim](docs/screenshots/24_canyon_village.jpg) |
-| ![Landing aid](docs/screenshots/13_landing_assist.jpg) | ![Critical damage](docs/screenshots/14_damage_critical.jpg) | ![Results](docs/screenshots/16_results.jpg) |
-
-(The screenshots show the Chinese interface.)
+| ![Landing aid](docs/screenshots/en/13_landing_assist.jpg) | ![Critical damage](docs/screenshots/en/14_damage_critical.jpg) | ![Results](docs/screenshots/en/16_results.jpg) |
 
 ## What you can do
 

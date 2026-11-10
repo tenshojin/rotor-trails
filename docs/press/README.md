@@ -52,7 +52,7 @@ Rotor Trails puts you in the right-hand seat of a light helicopter and lets you 
 
 ## Screenshots
 
-All captured in the game, in a browser. Files are in [`docs/screenshots/`](../screenshots/). The captures were taken with the Chinese interface; the interface is also available in English and Japanese.
+All captured in the game, in a browser. Files are in [`docs/screenshots/`](../screenshots/). Captures that show the interface exist in three languages: English in [`docs/screenshots/en/`](../screenshots/en/), Japanese in [`docs/screenshots/ja/`](../screenshots/ja/), and Chinese in the main folder. The Photo Mode captures have no interface on them.
 
 | File | Shows |
 | --- | --- |
