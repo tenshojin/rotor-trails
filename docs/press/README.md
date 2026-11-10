@@ -69,6 +69,8 @@ All captured in the game, in a browser. Files are in [`docs/screenshots/`](../sc
 | `20_snow_fjord.jpg` | Snow in the fjord |
 | `22_canyon_wall.jpg`, `23_canyon_gorge.jpg`, `24_canyon_village.jpg` | The Grand Canyon: cliffs, the Inner Gorge, the South Rim village |
 | `13_landing_assist.jpg`, `14_damage_critical.jpg`, `16_results.jpg` | Interface: landing aid, damage, results |
+| `en/01_main_menu.jpg`, `en/02_map_select.jpg`, `en/03_briefing.jpg` | Interface: main menu, map select, mission briefing (also in `ja/`) |
+| `25_credits.jpg` | The credits: an auto-cruise flight over Seto Bay at dusk while the names roll |
 
 Social card (1200 × 630): [`public/og.jpg`](../../public/og.jpg).
 

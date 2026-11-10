@@ -104,6 +104,7 @@
 - **持续集成**：推送后 GitHub Actions “CI / Pages” 自动运行，`build` 任务通过（Ubuntu + Node 24：`npm ci`、类型检查、81 个测试全部通过、生产构建），用时约 50 秒。
 - **私有试玩页**（claude.ai Artifact，只有所有者能打开）：每次推送上线后同步更新，步骤见 [development.md](development.md) 的“私有试玩页”。2026-11-08 更新到最新版（页面改成完整的 HTML 文档、带上菜单图片和 Draco 解码器）；大峡谷的数据超过 Artifact 单个文件 20 MiB 的上限，试玩页里不列出这张图。
 - **公开与上线（2026-11-03 晚）**：经仓库所有者同意（“可以先公开，后续问题之后再调”），仓库改为**公开**，GitHub Pages 以 GitHub Actions 方式开启，并设置仓库变量 `DEPLOY_PAGES=true`——之后每次推送到 `main`，检查通过就自动部署。
+- **1.1 版（2026-11-10）**：英文、日文、新手入口、存档导出导入、全屏、制作人员名单、三种语言的界面走查一起上线（提交 `ee6bd71`）。上线验证：GitHub Actions 的 build、deploy 都通过（Linux 上 591 个测试、46 + 12 种回归）；线上页面引用的脚本、样式表和本地构建同名（`index-BcUS0iaK.js`、`boot-DwBeinZP.js`、`boot--datVNyh.css`）；分享卡片 `og.jpg`、`manifest.webmanifest`、字典都返回 200；用无头 Chrome 实际打开线上网址，英文主菜单、日文教学第一课、浏览器语言是中文时的中文主菜单都正常，缺译文 0 句。私有试玩页同步更新（发布前先在本机按发布后的目录结构跑过一遍日文的主菜单和任务）。
 - **网址**：https://tenshojin.github.io/rotor-trails/
 - **上线验证**：部署成功（GitHub Actions 的 build、deploy 两个任务都通过）；网址返回 200，程序、模型、贴图文件都能正常下载；用无头 Chrome 实际打开网址，主菜单、峡湾地图、日本地图都能进入，驾驶舱、直升机外观、建筑、树木模型全部加载成功，控制台 0 个错误。
 - 公开前检查过：提交作者均为 GitHub 的匿名邮箱（noreply），仓库里没有密钥、Token 或个人信息；参照照片不在仓库里。
