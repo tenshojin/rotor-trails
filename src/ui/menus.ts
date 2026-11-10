@@ -548,7 +548,7 @@ export class UI {
     });
   }
 
-  result(opts: { map: MapDef; score: ScoreResult; best: boolean; time: number; landing: LandingMetrics | null; optional: Array<{ title: string; done: boolean }>; next: MapDef | null; tutorial: boolean ; medals?: string[] }, on: { replay?: () => void; again: () => void; maps: () => void; next: () => void; menu: () => void }): void {
+  result(opts: { map: MapDef; score: ScoreResult; best: boolean; time: number; landing: LandingMetrics | null; optional: Array<{ title: string; done: boolean }>; next: MapDef | null; tutorial: boolean ; medals?: string[] }, on: { replay?: () => void; again: () => void; maps: () => void; next: () => void; menu: () => void; credits?: () => void }): void {
     const s = opts.score;
     const rows = s.breakdown.map((b) => `<tr><td>${b.label}</td><td class="muted">${b.note ?? ''}</td><td class="num">${b.value > 0 ? '+' : ''}${b.value}</td></tr>`).join('');
     const el = this.show(
@@ -564,10 +564,10 @@ export class UI {
           <div><span class="muted">${tr`用时（仅记录，不计分）`}</span><b>${fmtTime(opts.time)}</b></div>
           <div><span class="muted">${tr`可选任务`}</span><b>${opts.optional.map((o) => `${o.done ? '✔' : '○'} ${o.title}`).join('<br>') || '—'}</b></div>
         </div>
-        <div class="btn-row">${opts.next ? `<button class="btn primary" data-a="next">${tr`下一张地图：${opts.next.name}`}</button>` : ''}${on.replay ? `<button class="btn" data-a="replay">${tr`看回放`}</button>` : ''}<button class="btn" data-a="again">${tr`再飞一次`}</button><button class="btn" data-a="maps">${tr`地图选择`}</button><button class="btn ghost" data-a="menu">${tr`主菜单`}</button></div>
+        <div class="btn-row">${opts.next ? `<button class="btn primary" data-a="next">${tr`下一张地图：${opts.next.name}`}</button>` : ''}${on.credits ? `<button class="btn primary" data-a="credits">${tr`制作人员名单`}</button>` : ''}${on.replay ? `<button class="btn" data-a="replay">${tr`看回放`}</button>` : ''}<button class="btn" data-a="again">${tr`再飞一次`}</button><button class="btn" data-a="maps">${tr`地图选择`}</button><button class="btn ghost" data-a="menu">${tr`主菜单`}</button></div>
       </div></div>`),
     );
-    this.bind(el, { again: on.again, maps: on.maps, next: on.next, menu: on.menu, replay: () => on.replay?.() });
+    this.bind(el, { again: on.again, maps: on.maps, next: on.next, menu: on.menu, replay: () => on.replay?.(), credits: () => on.credits?.() });
   }
 
   help(bindings: Settings['bindings']): void {
@@ -660,9 +660,9 @@ export class UI {
     this.bind(el, { close: () => this.closeModal() });
   }
 
-  about(): void {
+  about(on: { credits?: () => void } = {}): void {
     const el = this.openModal(
-      h(`<div class="modal"><div class="card wide"><div class="screen-head"><h2>${tr`关于与授权`}</h2><button class="btn ghost" data-a="close">${tr`关闭`}</button></div>
+      h(`<div class="modal"><div class="card wide"><div class="screen-head"><h2>${tr`关于与授权`}</h2><button class="btn ghost" data-a="close">${tr`关闭`}</button>${on.credits ? `<button class="btn" data-a="credits">${tr`制作人员名单`}</button>` : ''}</div>
       <p>${tr`<b>Rotor Trails（旋翼航迹）</b> — 第一人称拟真直升机闯关游戏。地形高度、仪表画面与音效由程序生成；驾驶舱、直升机外观、建筑与树木由本项目的 Blender 脚本建模。`}</p>
       <p>${tr`地形与建筑使用 Poly Haven 的 CC0 照片材质。建模参照照片仅用于结构与比例参考，不随游戏分发。`}</p>
       <p>${tr`“大峡谷”地图的高程来自 USGS 3D Elevation Program，影像来自 USDA National Agriculture Imagery Program（2023 年，经 USGS The National Map 分发），均为美国政府公有领域数据，courtesy of the U.S. Geological Survey。`}</p>
@@ -671,7 +671,58 @@ export class UI {
       <p class="muted">${tr`除大峡谷外，地图都是虚构地形，仅体现日本海湾、美国西南峡谷、亚马孙雨林、挪威峡湾、尼泊尔高山的地貌特色，不对应真实地理位置。`} <a href="./licenses.md" target="_blank" rel="noopener">${tr`第三方素材与开源许可`}</a></p>
       <p class="muted">${tr`版本 ${VERSION}。飞起来哪里别扭、哪里出了问题，欢迎告诉我们：`} <a href="${FEEDBACK_URL}" target="_blank" rel="noopener">${tr`反馈问题和建议`}</a></p></div></div>`),
     );
-    this.bind(el, { close: () => this.closeModal() });
+    this.bind(el, {
+      close: () => this.closeModal(),
+      credits: () => {
+        this.closeModal(false);
+        on.credits?.();
+      },
+    });
+  }
+
+  /**
+   * 制作人员名单：盖在一段自动巡航的飞行上，从下往上慢慢走。走完（或者点“跳过”）停在最后一张卡片上：接着飞，或者回主菜单。
+   * stats：这位玩家自己的飞行记录，写在名单最后
+   */
+  credits(stats: { seconds: number; landings: number; places: number }, on: { fly: () => void; menu: () => void }): void {
+    const m = Math.floor(stats.seconds / 60);
+    const time = m >= 60 ? tr`${Math.floor(m / 60)} 小时 ${m % 60} 分` : tr`${m} 分钟`;
+    const block = (title: string, lines: string[]): string => `<section><h3>${title}</h3>${lines.map((l) => `<p>${l}</p>`).join('')}</section>`;
+    const el = this.show(
+      h(`<div class="screen credits-screen">
+        <div class="credits-roll">
+          <h1 class="logo">ROTOR TRAILS</h1>
+          <div class="logo-sub">${tr`旋翼航迹`}</div>
+          ${block(tr('设计与制作'), ['tenshojin'])}
+          ${block(tr('代码、建模脚本与声音合成'), [tr('tenshojin，与 AI 编程助手协作')])}
+          ${block(tr('大峡谷的地形与影像'), ['USGS 3D Elevation Program', 'USDA National Agriculture Imagery Program', tr('经 USGS The National Map 分发，美国政府公有领域数据')])}
+          ${block(tr('照片材质'), ['Poly Haven (CC0)'])}
+          ${block(tr('开源库与工具'), ['three.js · Rapier', 'Blender · Vite · TypeScript · Vitest'])}
+          ${block(tr('感谢'), [tr('每一位试玩、挑毛病、提意见的人')])}
+          <p class="credits-thanks">${tr`感谢你飞到这里。`}</p>
+          ${m >= 1 ? `<p class="credits-stats">${tr`这一路你飞了 ${time}，平安落地 ${stats.landings} 次，到过 ${stats.places} 个地方。`}</p>` : ''}
+        </div>
+        <div class="credits-end hidden"><h2>${tr`没有时间限制。想飞的时候，再回来。`}</h2>
+          <div class="btn-row"><button class="btn primary" data-a="fly">${tr`接着飞`}</button><button class="btn" data-a="menu">${tr`回主菜单`}</button></div></div>
+        <button class="btn ghost credits-skip" data-a="skip">${tr`跳过`}</button>
+      </div>`),
+    );
+    const roll = el.querySelector<HTMLElement>('.credits-roll')!;
+    const end = el.querySelector<HTMLElement>('.credits-end')!;
+    const skip = el.querySelector<HTMLElement>('.credits-skip')!;
+    // 走多久看名单有多长：每秒 38 像素，读得过来
+    const seconds = Math.max(20, (window.innerHeight + roll.scrollHeight) / 38);
+    roll.style.animationDuration = `${seconds.toFixed(1)}s`;
+    const finish = (): void => {
+      if (!end.classList.contains('hidden')) return;
+      roll.remove();
+      skip.remove();
+      end.classList.remove('hidden');
+      end.querySelector<HTMLElement>('.primary')?.focus({ preventScroll: true });
+    };
+    roll.addEventListener('animationend', finish);
+    skip.focus({ preventScroll: true });
+    this.bind(el, { skip: finish, fly: on.fly, menu: on.menu });
   }
 
   /**

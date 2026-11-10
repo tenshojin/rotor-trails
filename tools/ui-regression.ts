@@ -368,5 +368,87 @@ await test('HUD 保留告警可见度，读取改键，不重复重建相同告�
   assert(find('.hud-flight').textContent?.includes('000°'), '时钟重置后 HUD 不再更新');
 });
 
+await test('主菜单：没飞过的人第一个按钮是飞行训练；右上角能换语言', (ui) => {
+  let lang = '';
+  const on = { play: () => {}, free: () => {}, tutorial: () => {}, settings: () => {}, help: () => {}, about: () => {}, lang: (l: string) => { lang = l; } };
+  ui.main({ warning: null, tutorialDone: false, newcomer: true, lang: 'zh' }, on);
+  const first = fixture.querySelectorAll<HTMLElement>('.menu-col .btn')[0];
+  assert(first.dataset.a === 'tutorial' && first.classList.contains('primary'), '新玩家的主按钮不是飞行训练');
+  assert(document.activeElement === first, '焦点没落在飞行训练上');
+  assert(find('.lang-pick [data-v="zh"]').getAttribute('aria-pressed') === 'true', '当前语言没有标出来');
+  click('.lang-pick [data-v="ja"]');
+  assert(lang === 'ja', '点语言没有回调');
+  ui.main({ warning: null, tutorialDone: true, newcomer: false, lang: 'zh' }, on);
+  const again = fixture.querySelectorAll<HTMLElement>('.menu-col .btn')[0];
+  assert(again.dataset.a === 'play' && again.classList.contains('primary'), '飞过的人主按钮应该是开始游戏');
+  assert(!fixture.querySelector('.menu-col .tag'), '学过教学还挂着“推荐先玩”');
+});
+
+await test('任务简介：主线任务只编一次号', (ui) => {
+  ui.briefing(map, undefined, defaultSettings(), { start: () => {}, back: () => {} });
+  assert(!/^\d/.test(find<HTMLElement>('ol.obj-list li b').textContent ?? ''), '任务标题前面又手写了一遍编号');
+});
+
+await test('设置：选语言、导出存档；导入先检查、确认了才换', async (ui) => {
+  let exported = 0;
+  let imported = '';
+  let lang = 'auto';
+  ui.settings(defaultSettings(), {
+    change: (value) => { lang = value.lang; },
+    capture: () => {},
+    close: () => {},
+    exportSave: () => exported++,
+    checkSave: (text) => (text.includes('"ok"') ? 'ok' : text.includes('newer') ? 'newer' : 'invalid'),
+    importSave: (text) => { imported = text; },
+  });
+  click('#settings-assist');
+  const select = find<HTMLSelectElement>('select[data-k="lang"]');
+  select.value = 'en';
+  select.dispatchEvent(new Event('input', { bubbles: true }));
+  assert(lang === 'en', '选语言没有写进设置');
+  click('[data-a="exportSave"]');
+  assert(exported === 1 && (find('.save-notice').textContent ?? '').length > 0, '导出没有回调或没有提示');
+  const choose = async (text: string): Promise<void> => {
+    const input = find<HTMLInputElement>('.save-file');
+    const data = new DataTransfer();
+    data.items.add(new File([text], 'save.json', { type: 'application/json' }));
+    input.files = data.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  };
+  await choose('not a save');
+  assert(!fixture.querySelector('[data-a="confirmImport"]') && (find('.save-notice').textContent ?? '').length > 0, '不是存档的文件没有被拦下');
+  await choose('{"ok":true}');
+  assert(imported === '' && !!fixture.querySelector('.save-confirm'), '还没确认就导入了，或者没有提示会覆盖');
+  click('[data-a="cancelImport"]');
+  assert(!fixture.querySelector('.save-confirm') && imported === '', '取消以后还留着确认条');
+  await choose('{"ok":true}');
+  click('[data-a="confirmImport"]');
+  assert(imported === '{"ok":true}', '确认以后没有导入');
+});
+
+await test('关于页：版本号、反馈入口、制作人员名单', (ui) => {
+  let credits = 0;
+  ui.about({ credits: () => credits++ });
+  assert(/版本 \d/.test(find<HTMLElement>('.modal').textContent ?? ''), '关于页没有版本号');
+  assert(find<HTMLAnchorElement>('.modal a[href*="github.com"]').target === '_blank', '反馈入口没有在新窗口打开');
+  click('.modal [data-a="credits"]');
+  assert(credits === 1 && !fixture.querySelector('.modal'), '点制作人员名单没有回调，或者弹窗没关');
+});
+
+await test('制作人员名单：跳过后停在最后一张卡片，能接着飞或回主菜单', (ui) => {
+  let fly = 0;
+  let menu = 0;
+  ui.credits({ seconds: 8040, landings: 37, places: 3 }, { fly: () => fly++, menu: () => menu++ });
+  assert((find('.credits-stats').textContent ?? '').includes('37'), '名单最后没有写这位玩家的记录');
+  assert(document.activeElement === find('.credits-skip'), '焦点不在“跳过”上');
+  click('.credits-skip');
+  assert(!fixture.querySelector('.credits-roll') && !find<HTMLElement>('.credits-end').classList.contains('hidden'), '跳过以后名单没有收起来');
+  assert(document.activeElement === find('.credits-end [data-a="fly"]'), '最后一张卡片的焦点不在“接着飞”上');
+  click('.credits-end [data-a="fly"]');
+  click('.credits-end [data-a="menu"]');
+  assert(fly === 1 && menu === 1, '最后一张卡片的按钮没有回调');
+});
+
 document.querySelector('#summary')!.textContent = `${passed} 项通过，${failed} 项失败 · 当前窗口 ${innerWidth} × ${innerHeight}`;
 document.title = `${failed ? 'FAIL' : 'PASS'} ${passed}/${passed + failed} · Rotor Trails UI`;

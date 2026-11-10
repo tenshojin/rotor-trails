@@ -198,6 +198,9 @@ a {
   border-radius: 4px;
   padding: 1px 6px;
   margin-left: 6px;
+  /* 整个标签要么在这一行、要么换到下一行，不从中间断开 */
+  display: inline-block;
+  white-space: nowrap;
 }
 .main-menu {
   display: flex;
@@ -475,6 +478,32 @@ a {
     line-height: 1.45;
   }
 }
+/* 英文的说明长：到 1320 px 高为止都排紧、截成两行（中文、日文 1040 px 以上放得下，不动） */
+@media (min-height: 1041px) and (max-height: 1320px) and (min-width: 1101px) {
+  :root[lang='en'] .brief-side {
+    gap: 10px;
+  }
+  :root[lang='en'] .brief-side .card {
+    padding: 10px 16px;
+  }
+  :root[lang='en'] .brief-side .card h3 {
+    margin-bottom: 6px;
+  }
+  :root[lang='en'] .brief-side .opts {
+    gap: 6px;
+  }
+  :root[lang='en'] .brief-side .opt-card {
+    padding: 6px 10px;
+  }
+  :root[lang='en'] .brief-side .opt-card span {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+}
 @media (max-height: 800px) and (min-width: 1101px) {
   .screen:has(> .brief) {
     padding-top: 16px;
@@ -730,6 +759,85 @@ table.score .total td {
 }
 .btn-row.save-row {
   margin: 8px 0;
+}
+/* 制作人员名单：盖在飞行画面上，从下往上走。底下衬一层暗角，字在亮的天空和海面上也看得清 */
+.credits-screen {
+  padding: 0;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 55%, rgba(3, 7, 11, 0.62) 0%, rgba(3, 7, 11, 0.38) 45%, rgba(3, 7, 11, 0.12) 100%);
+  pointer-events: none;
+}
+.credits-roll {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: min(620px, 88vw);
+  text-align: center;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.8);
+  transform: translateX(-50%);
+  animation: credits-roll 60s linear forwards;
+}
+@keyframes credits-roll {
+  from {
+    transform: translate(-50%, 0);
+  }
+  to {
+    transform: translate(-50%, calc(-100% - 100vh));
+  }
+}
+.credits-roll .logo {
+  margin: 0;
+}
+.credits-roll .logo-sub {
+  margin-bottom: 70px;
+}
+.credits-roll section {
+  margin-bottom: 46px;
+}
+.credits-roll h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+.credits-roll p {
+  margin: 4px 0;
+  font-size: 19px;
+}
+.credits-roll .credits-thanks {
+  margin-top: 90px;
+  font-size: 26px;
+  font-weight: 600;
+}
+.credits-roll .credits-stats {
+  margin-top: 14px;
+  font-size: 16px;
+  color: #cfdbe4;
+}
+.credits-end {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(820px, 92vw);
+  transform: translate(-50%, -50%);
+  text-align: center;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9);
+  pointer-events: auto;
+}
+.credits-end h2 {
+  font-size: 24px;
+  font-weight: 600;
+}
+.credits-end .btn-row {
+  justify-content: center;
+}
+.credits-skip {
+  position: absolute;
+  right: calc(18px + env(safe-area-inset-right, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  pointer-events: auto;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
 }
 .save-confirm .btn {
   margin-left: 6px;
@@ -1024,6 +1132,24 @@ table.score .total td {
   width: 58px;
   flex-shrink: 0;
 }
+/* 英文、日文的标签比中文长（Ground speed、パワーの余裕）：标签一栏和两块面板都放宽，不然折成两行。
+   手机上的小面板（高 ≤ 520）有自己的宽度，不动 */
+@media (min-height: 521px) {
+  :root[lang='en'] .hud-flight .row span,
+  :root[lang='en'] .hud-status .row span,
+  :root[lang='ja'] .hud-flight .row span,
+  :root[lang='ja'] .hud-status .row span {
+    width: 80px;
+  }
+  :root[lang='en'] .hud-flight,
+  :root[lang='ja'] .hud-flight {
+    width: 204px;
+  }
+  :root[lang='en'] .hud-status,
+  :root[lang='ja'] .hud-status {
+    width: 236px;
+  }
+}
 .row b {
   font-family: var(--mono);
   font-size: 14px;
@@ -1136,6 +1262,8 @@ table.score .total td {
 .hud-forks {
   position: absolute;
   top: 150px;
+  /* 任务面板的字多、伸到卡片这里时，HUD 把卡片往下推这么多（见 hud.ts 的 placeForks） */
+  margin-top: var(--forks-push, 0px);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -1287,10 +1415,10 @@ table.score .total td {
 }
 /* 选路线的卡片在同一个位置：告警和提示让到卡片下面，不然两层字叠着谁也看不清 */
 .hud:has(.hud-forks:not(.hidden)) .hud-warn {
-  top: max(24%, 285px);
+  top: max(24%, calc(285px + var(--forks-push, 0px)));
 }
 .hud:has(.hud-forks:not(.hidden)) .hud-toasts {
-  top: max(34%, 335px);
+  top: max(34%, calc(335px + var(--forks-push, 0px)));
 }
 @keyframes blink {
   from {
@@ -1922,6 +2050,23 @@ kbd.big.on {
   }
 }
 
+@media (min-height: 621px) and (max-height: 720px) and (min-width: 641px) {
+  .main-menu {
+    justify-content: flex-start;
+    padding-top: 28px;
+    padding-bottom: 24px;
+  }
+  .logo-sub {
+    margin-bottom: 20px;
+  }
+  .menu-col {
+    gap: 7px;
+  }
+  .menu-foot {
+    position: static;
+    margin-top: 16px;
+  }
+}
 @media (max-height: 620px) {
   .main-menu {
     justify-content: flex-start;
@@ -2480,10 +2625,10 @@ canvas.gl.sim-cursor.sim-cursor-hot {
   top: calc(190px + env(safe-area-inset-top));
 }
 .touch-device .hud:has(.hud-forks:not(.hidden)) .hud-warn {
-  top: max(24%, calc(325px + env(safe-area-inset-top)));
+  top: max(24%, calc(325px + var(--forks-push, 0px) + env(safe-area-inset-top)));
 }
 .touch-device .hud:has(.hud-forks:not(.hidden)) .hud-toasts {
-  top: max(34%, calc(375px + env(safe-area-inset-top)));
+  top: max(34%, calc(375px + var(--forks-push, 0px) + env(safe-area-inset-top)));
 }
 @media (max-height: 520px) {
   /* 手机：完整的两块大面板放不下（会压住摇杆）。左边、摇杆上面留一小块：地速、离地高度、耐久 */
@@ -2510,6 +2655,14 @@ canvas.gl.sim-cursor.sim-cursor-hot {
   .touch-device .hud-status {
     display: none;
   }
+  /* 英文、日文的标签长（Ground speed、対地速度）：小面板放宽一点，标签不折成两行 */
+  :root:is([lang='en'], [lang='ja']) .touch-device .hud-flight {
+    width: 182px;
+  }
+  :root:is([lang='en'], [lang='ja']) .touch-device .hud-flight .row span {
+    width: 78px;
+    white-space: nowrap;
+  }
   /* 教学：任务面板不在，读数放到左上角（“看屏幕左边的两个数字”说的就是它）；
      学到风的那一课右上角露出耐久和风 */
   .touch-device .hud.hud-tut .hud-flight {
@@ -2519,6 +2672,9 @@ canvas.gl.sim-cursor.sim-cursor-hot {
   }
   .touch-device .hud.hud-tut .hud-flight .row.big b {
     font-size: 22px;
+  }
+  :root:is([lang='en'], [lang='ja']) .touch-device .hud.hud-tut .hud-flight {
+    width: 204px;
   }
   .touch-device .hud.hud-tut .hud-status {
     display: block;
@@ -2645,6 +2801,17 @@ canvas.gl.sim-cursor.sim-cursor-hot {
     background: rgba(5, 10, 16, 0.94);
     color: #e8f0f4;
     font-size: 20px;
+  }
+}
+/* 上面那句提示写在样式表里（内容是 CSS 生成的），别的语言各补一条 */
+@media (orientation: portrait) and (max-width: 640px) {
+  :root[lang='en'] .touch-device::after,
+  :root[lang='en'].touch-device::after {
+    content: 'Turn your phone sideways to play';
+  }
+  :root[lang='ja'] .touch-device::after,
+  :root[lang='ja'].touch-device::after {
+    content: 'スマートフォンを横向きにしてください';
   }
 }
 

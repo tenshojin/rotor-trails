@@ -144,7 +144,9 @@ export async function initI18n(): Promise<Lang> {
   } catch {
     /* 没有浏览器环境 */
   }
-  let l = pickLang(query, savedLang(), nav);
+  // index.html 里的小脚本在加载画面出来之前就按同一套规则定过一次（window.__bootLang），有就直接用，两边不会不一致
+  const pre = (globalThis as { __bootLang?: unknown }).__bootLang;
+  let l = known(pre) ? pre : pickLang(query, savedLang(), nav);
   let d: Dict | null = null;
   if (l !== 'zh') {
     try {

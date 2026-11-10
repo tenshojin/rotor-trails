@@ -3,8 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="description" content="Rotor Trails（旋翼航迹）：第一人称拟真直升机闯关网页游戏" />
+    <meta name="description" content="Rotor Trails: a first-person helicopter sim that runs in your browser. Missions over five maps, free flight across the real Grand Canyon, and a cold-start cockpit with 135 working switches. Free, no install. 旋翼航迹：第一人称拟真直升机网页游戏。" />
     <title>Rotor Trails · 旋翼航迹</title>
+    <!-- 发到聊天、社交网站时显示的卡片（标题、一句话、一张图）。图是游戏里拍的画面加标题，tools/mk_og.py 生成 -->
+    <link rel="canonical" href="https://tenshojin.github.io/rotor-trails/" />
+    <link rel="alternate" hreflang="zh" href="https://tenshojin.github.io/rotor-trails/?lang=zh" />
+    <link rel="alternate" hreflang="en" href="https://tenshojin.github.io/rotor-trails/?lang=en" />
+    <link rel="alternate" hreflang="ja" href="https://tenshojin.github.io/rotor-trails/?lang=ja" />
+    <link rel="alternate" hreflang="x-default" href="https://tenshojin.github.io/rotor-trails/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Rotor Trails" />
+    <meta property="og:title" content="Rotor Trails: a helicopter sim in your browser" />
+    <meta property="og:description" content="Fly a helicopter from the cockpit, right in a browser tab: missions, free flight over the real Grand Canyon, weather, night skies and 135 working switches. Free, no install." />
+    <meta property="og:url" content="https://tenshojin.github.io/rotor-trails/" />
+    <meta property="og:image" content="https://tenshojin.github.io/rotor-trails/og.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The view from the cockpit: sunrise over a forested coast and a red torii gate standing in the sea" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="zh_CN" />
+    <meta property="og:locale:alternate" content="ja_JP" />
+    <meta name="twitter:card" content="summary_large_image" />
     <!-- 添加到手机主屏幕后从那里打开：全屏、横屏（iPhone 的 Safari 不能网页全屏，只有这条路） -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
@@ -31,7 +50,7 @@
         justify-content: center;
         gap: 14px;
         color: #cfe3ee;
-        font: 15px/1.6 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif;
+        font: 15px/1.6 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Yu Gothic UI', system-ui, sans-serif;
         text-align: center;
         padding: 0 16px;
       }
@@ -67,21 +86,75 @@
   <body>
     <div id="app">
       <div id="boot-splash">
-        <b>ROTOR TRAILS · 旋翼航迹</b>
+        <b id="boot-title">ROTOR TRAILS · 旋翼航迹</b>
         <div class="bar"><i></i></div>
         <div id="boot-msg">正在加载游戏（首次约 2 MB，之后会使用浏览器缓存）…</div>
       </div>
     </div>
-    <noscript>Rotor Trails 需要启用 JavaScript。</noscript>
+    <noscript>Rotor Trails needs JavaScript. / Rotor Trails 需要启用 JavaScript。</noscript>
+    <script>
+      // 游戏脚本下载之前就把语言定下来，加载画面的字跟着换。规则和 src/i18n/index.ts 的 pickLang 一样：
+      // 网址里的 ?lang= → 设置里选定的 → 浏览器的语言列表（别的语言用英文）。游戏启动时直接用这里的结果（window.__bootLang）。
+      (function () {
+        var ok = function (x) {
+          return x === 'zh' || x === 'en' || x === 'ja';
+        };
+        var l = null;
+        try {
+          var q = new URLSearchParams(location.search).get('lang');
+          if (ok(q)) l = q;
+          if (!l) {
+            var s = JSON.parse(localStorage.getItem('rotorTrails.save') || 'null');
+            var v = s && s.settings && s.settings.lang;
+            if (ok(v)) l = v;
+          }
+        } catch (e) {
+          /* 读不到存档：看浏览器语言 */
+        }
+        if (!l) {
+          var list = navigator.languages && navigator.languages.length ? navigator.languages : navigator.language ? [navigator.language] : [];
+          for (var i = 0; i < list.length && !l; i++) {
+            var n = String(list[i]).toLowerCase();
+            l = n.indexOf('zh') === 0 ? 'zh' : n.indexOf('ja') === 0 ? 'ja' : n.indexOf('en') === 0 ? 'en' : null;
+          }
+          if (!l) l = list.length ? 'en' : 'zh';
+        }
+        window.__bootLang = l;
+        document.documentElement.lang = l === 'zh' ? 'zh-CN' : l;
+        var T = {
+          zh: {
+            load: '正在加载游戏（首次约 2 MB，之后会使用浏览器缓存）…',
+            old: '当前浏览器版本过旧，无法运行本游戏。请使用最新版 Chrome / Edge / Firefox / Safari。',
+            file: '请通过网页服务器访问（例如 npm run preview），浏览器不允许从本地文件直接加载游戏模块。',
+            slow: '加载时间较长，请检查网络后刷新页面。',
+          },
+          en: {
+            load: 'Loading the game (about 2 MB the first time, cached after that)…',
+            old: 'This browser is too old to run the game. Please use the latest Chrome, Edge, Firefox or Safari.',
+            file: 'Please open the game through a web server (for example npm run preview). Browsers do not load game modules straight from a local file.',
+            slow: 'This is taking a while. Check your connection and refresh the page.',
+          },
+          ja: {
+            load: 'ゲームを読み込み中（初回は約 2 MB、次回からはブラウザのキャッシュを使います）…',
+            old: 'このブラウザは古いため、ゲームを実行できません。最新の Chrome / Edge / Firefox / Safari をお使いください。',
+            file: 'ウェブサーバー経由で開いてください（例：npm run preview）。ブラウザはローカルファイルからゲームのモジュールを直接読み込めません。',
+            slow: '読み込みに時間がかかっています。ネットワークを確認して、ページを更新してください。',
+          },
+        }[l];
+        window.__bootText = T;
+        if (l !== 'zh') document.getElementById('boot-title').textContent = 'ROTOR TRAILS';
+        document.getElementById('boot-msg').textContent = T.load;
+      })();
+    </script>
     <script nomodule>
-      document.getElementById('boot-msg').textContent = '当前浏览器版本过旧，无法运行本游戏。请使用最新版 Chrome / Edge / Firefox / Safari。';
+      document.getElementById('boot-msg').textContent = window.__bootText.old;
     </script>
     <script>
       // 加载过慢或脚本加载失败（例如直接双击打开 index.html）时给出提示，而不是一直黑屏
       setTimeout(function () {
         var m = document.getElementById('boot-msg');
         if (m && document.getElementById('boot-splash')) {
-          m.textContent = location.protocol === 'file:' ? '请通过网页服务器访问（例如 npm run preview），浏览器不允许从本地文件直接加载游戏模块。' : '加载时间较长，请检查网络后刷新页面。';
+          m.textContent = location.protocol === 'file:' ? window.__bootText.file : window.__bootText.slow;
         }
       }, 25000);
     </script>

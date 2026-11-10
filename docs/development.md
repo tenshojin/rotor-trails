@@ -145,6 +145,36 @@ python -I tools/real/trace_roofs.py ../rotor-trails-tiles/grandcanyon/hi tools/r
 
 停机坪灯具与固定环可单独生成：`blender -b --factory-startup --python tools/blender/pad_fixtures.py -- public/models/pad_fixtures.glb --preview tmp/pad-fixtures`。游戏按材质批量绘制这些部件，灯光位置跟随停机坪朝向。
 
+## 多语言（中文、英文、日文）
+
+界面文字在代码里写的就是中文，中文原文同时是查译文的键：
+
+- `tr('已暂停')`：当场翻译。
+- `` tr`从最近检查点继续（${label}）` ``：带数值的句子，键是 `从最近检查点继续（{0}）`，译文里用 `{0}`、`{1}` 摆位置（顺序可以换）。
+- `tr('关闭@@悬停辅助的状态')`：同一句中文在两个地方要译成不同的词时，`@@` 后面写说明，中文显示时去掉。
+- `trKey('五重塔')`：只做标记不翻译。存档里当名字用的地名（地标、景点）在定义处保持中文，显示的地方再 `tr(名字)`。
+
+译文在 `src/i18n/dict/`，按原文出自哪个源文件分表，一行是 `'中文原文': ['English', '日本語']`；值也可以写成函数（英文的单复数）。
+
+语言在启动时定下来（`?lang=zh|en|ja` → 设置里选的 → 浏览器语言，别的语言用英文），换语言要重新加载页面：地图、课程、勋章这些文字是模块加载时就建好的表。所以入口 `src/main.ts` 先 `initI18n()` 再动态加载 `src/boot.ts`；`index.html` 里有一小段脚本按同一套规则先定一次（加载画面的字跟着换），结果放在 `window.__bootLang`。测试环境里一律是中文。
+
+加了或改了界面文字之后：
+
+1. 新的字面量包进 `tr()`；只给开发者看的（`console.warn`、`new Error`）不用包，`tools/i18n-allow.json` 是白名单。
+2. `node tools/i18nScan.ts` 看有没有没包起来的中文、缺译文的键、字典里用不到的旧键（加 `--bare`、`--stale` 列出来，`--dump tmp/i18n` 把缺的键按文件写成 JSON）。
+3. 在 `src/i18n/dict/` 对应的表里补上英文和日文。
+4. `npm test`：`tests/i18n.test.ts` 会查每一句都有两种译文、占位符和 `<b>`、`<kbd>` 这些标记对得上、英文里没有残留的中日文字符。
+
+要注意的：
+
+- 逻辑不要依赖译文（比如按提示开头的两个字判断它是哪一句）：换了语言就失效。
+- 句子别用“前半句 + 变量 + 后半句”拼：各种语言的词序不一样，写成一个模板。
+- 写死在样式表里的字（竖屏提示）用 `:root[lang='en']`、`:root[lang='ja']` 各补一条。
+- 字体按语言分（`:root[lang='ja']` 用日文字体，不然汉字是中文字形）；英文、日文的 HUD 标签比中文长，面板宽度也按语言放宽。
+- 改了界面要把三种语言都过一遍：英文一句话常常比中文长一倍。
+
+分享卡片 `public/og.jpg`（发到聊天、社交网站时显示的图）：`python tools/mk_og.py docs/screenshots/04_japan.jpg public/og.jpg`。
+
 ## 部署到 GitHub Pages
 
 本仓库已开启 GitHub Pages：每次推送到 `main`，工作流通过检查后自动部署到 https://tenshojin.github.io/rotor-trails/ 。
@@ -183,6 +213,7 @@ src/
   world/       世界生成：高度场、建筑与道具、植被
   render/      渲染：地形、水、天空、树、建筑、座舱、仪表、导航标记、天气特效
   game/        应用状态机、输入、设置、存档、教学
+  i18n/        多语言：tr() 和按来源文件分的字典（dict/，中文原文 → [英文, 日文]）
   ui/          HUD、菜单与样式
   audio/       程序化音效（旋翼、发动机、风、雨、告警）
 tests/         自动化测试（Vitest）

@@ -79,6 +79,8 @@ interface RunConfig {
   free?: boolean;
   /** 时段（只影响画面） */
   time?: TimeOfDay;
+  /** 制作人员名单：加载完直接起飞，自动巡航 + 电影镜头，名单从画面上走过 */
+  credits?: boolean;
 }
 
 type Course = 'flight' | 'sim';
@@ -166,6 +168,8 @@ export class App {
   private langDirty = false;
   /** 游戏自己要刷新页面（换语言、导入存档）：不弹“确定离开吗” */
   private leaving = false;
+  /** 正在放制作人员名单（一段自动巡航的飞行）：不接受操纵，不暂停 */
+  private creditsOn = false;
   private medalT = 0;
   private photoPending = false;
   /** 电影镜头里耳朵离飞机多远、飞机朝耳朵过来的速度 */
@@ -487,7 +491,7 @@ export class App {
         tutorial: () => this.trainingMenu(),
         settings: () => this.openSettings(),
         help: () => this.ui.help(this.settings.bindings),
-        about: () => this.ui.about(),
+        about: () => this.ui.about({ credits: () => this.startCredits() }),
         log: () => this.openLog(),
       },
     );
@@ -797,6 +801,11 @@ export class App {
         : pad
           ? `<br>${tr`按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>左摇杆</kbd> 飞行 · <kbd>右摇杆</kbd> 观察 · <kbd>${k('pause')}</kbd> 暂停`}`
           : `<br>${tr`按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>${k('pause')}</kbd> 暂停`}`;
+    if (cfg.credits) {
+      this.beginFlight();
+      this.rollCredits();
+      return;
+    }
     this.ui.clickToStart(
       this.tutorial ? tr`第 ${(cfg.lesson ?? 0) + 1} 课 · ${this.tutorial.lessons[cfg.lesson ?? 0].title}` : cfg.free ? tr`休闲飞行 · ${cfg.map.name}` : cfg.map.name,
       cfg.tutorial ? tr('跟着屏幕下方的提示做，每次只学一个动作。') : cfg.free ? tr`没有任务，没有计时。想去哪儿就去哪儿，懒得飞就按 <kbd>${k('cruise')}</kbd> 让它自己飞。` : `${this.session.mission.current()?.def.title ?? ''}${controls}`,
@@ -880,7 +889,8 @@ export class App {
     this.refreshControlHint();
     this.input.active = true;
     this.input.clear();
-    this.input.requestLock();
+    // （放名单时不锁鼠标：玩家要点“跳过”，而且这一下不是点击触发的，浏览器也不给锁）
+    if (!this.run?.credits) this.input.requestLock();
     this.last = performance.now();
     this.stepper.reset();
     this.armBack();
@@ -906,11 +916,60 @@ export class App {
       // 超仿真要低头看仪表板：卡片放到上面，别挡住开关
       this.tutBox.classList.toggle('top', this.run?.course === 'sim');
     }
-    if (this.input.lockFailed && !this.input.pad.connected && !this.touch) this.hud.toast(tr('鼠标锁定不可用：按住鼠标拖动或使用方向键观察'), 'warn', 6000);
+    if (this.input.lockFailed && !this.input.pad.connected && !this.touch && !this.run?.credits) this.hud.toast(tr('鼠标锁定不可用：按住鼠标拖动或使用方向键观察'), 'warn', 6000);
+  }
+
+  /**
+   * 制作人员名单：在濑户湾的黄昏里自动巡航，电影镜头，名单从画面上慢慢走过。
+   * 从“关于”和最后一张图的结算页进来。走完（或者跳过）可以接着飞：它本来就是一趟休闲飞行。
+   */
+  startCredits(): void {
+    void this.startRun({ map: getMap('japan'), weather: 'clear', assist: 'novice', tutorial: false, free: true, time: 'dusk', credits: true });
+  }
+
+  private rollCredits(): void {
+    const s = this.session;
+    const run = this.run;
+    if (!s || !run) return;
+    this.creditsOn = true;
+    this.input.active = false;
+    this.input.clear();
+    this.cruise = new ScenicCruise(s, vistasOf(run.map));
+    this.view.rig.setMode('cinema');
+    this.hud.setCinema?.(true);
+    this.hud.show(false);
+    const d = this.save.data;
+    const places = Object.values(d.visited).reduce((a, list) => a + (list?.length ?? 0), 0);
+    this.ui.credits?.(
+      { seconds: d.log.seconds, landings: d.log.landings, places },
+      { fly: () => this.endCredits(true), menu: () => this.endCredits(false) },
+    );
+  }
+
+  private endCredits(keepFlying: boolean): void {
+    if (!this.creditsOn) return;
+    this.creditsOn = false;
+    this.ui.clear();
+    if (!keepFlying || !this.session || !this.run) {
+      this.quitToMenu();
+      return;
+    }
+    // 接着飞：回到座舱，自动巡航还开着，动任何一个飞行键就交回给玩家
+    this.run.credits = false;
+    this.view.rig.setMode('cockpit');
+    this.hud.setCinema?.(false);
+    this.hud.show(true);
+    this.input.active = true;
+    this.input.clear();
+    this.input.requestLock();
+    this.refreshControlHint();
+    this.hud.toast(tr('自动巡航：开启。动任何一个飞行键就交回给你'), 'info', 3500);
   }
 
   pause(): void {
     if (this.state !== 'playing' || !this.session) return;
+    // 放名单时切到别的窗口不弹暂停菜单（名单是界面的一部分，暂停菜单会把它换掉）
+    if (this.creditsOn) return;
     this.state = 'paused';
     this.refreshControlHint();
     this.input.active = false;
@@ -1406,6 +1465,7 @@ export class App {
     else if (this.ui.hasModal) this.ui.closeModal();
     else if (this.photoPanel) this.closePhoto();
     else if (this.replay) this.closeReplay();
+    else if (this.creditsOn) this.endCredits(false);
     else if (this.state === 'playing') this.pause();
     // 暂停菜单、坠毁、结算、起飞前：停在这一页（离开飞行走菜单里的按钮，免得一按返回整局没了）
     else if (this.state === 'paused' || this.state === 'failed' || this.state === 'ready' || this.state === 'result') handled = true;
@@ -1443,6 +1503,7 @@ export class App {
     this.session = null;
     this.tutorial = null;
     this.cruise = null;
+    this.creditsOn = false;
     this.hud.setTutorial?.(null);
     this.hud.setFree?.(false);
     this.hud.setCinema?.(false);
@@ -1864,7 +1925,7 @@ export class App {
       this.view.drawInstruments(this.t, this.instrumentData(s));
       this.listenForWalls(s, dt);
       this.listenFromCamera(s, dt);
-      this.touch?.setMode(this.photoPanel ? 'photo' : this.state !== 'playing' || this.replay ? 'off' : 'fly');
+      this.touch?.setMode(this.photoPanel ? 'photo' : this.state !== 'playing' || this.replay || this.creditsOn ? 'off' : 'fly');
       if (this.touch && this.state === 'playing') this.touchKeyStates(s);
       if (this.state === 'playing') this.watchPlaces(s, dt);
       this.audio.update(this.audioState(this.state !== 'playing' && (!this.replay || !!this.photoPanel)), dt);
@@ -1972,6 +2033,7 @@ export class App {
 
   /** 背景音乐放多大：菜单里放，任务和训练里不放（要听发动机和告警），休闲飞行垫在风景底下，让它自己飞的时候大一点 */
   private musicLevel(): number {
+    if (this.creditsOn) return 1;
     if (this.replay) return 0.8;
     if (this.state === 'loading') return 0.6;
     if (this.state !== 'playing' && this.state !== 'ready') return this.state === 'paused' ? 0.7 : 1;
@@ -2314,6 +2376,7 @@ export class App {
         },
         next: () => next && this.briefing(next),
         menu: () => this.quitToMenu(),
+        credits: !next && !run.tutorial ? () => this.startCredits() : undefined,
       },
     );
     show();

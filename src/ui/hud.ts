@@ -102,6 +102,8 @@ export class Hud {
   private blockers: Box[] = [];
   private blockT = -Infinity;
   private blockEls: HTMLElement[] = [];
+  /** 路线卡片被任务面板往下推了多少像素 */
+  private forksPush = 0;
   private placeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(parent: HTMLElement) {
@@ -624,6 +626,7 @@ export class Hud {
     const now = performance.now();
     if (now - this.blockT < 500 && now >= this.blockT) return;
     this.blockT = now;
+    this.placeForks();
     this.blockers.length = 0;
     const r = this.root.classList;
     if (r.contains('hud-off') || r.contains('hud-cine')) return;
@@ -633,6 +636,26 @@ export class Hud {
       const b = e.getBoundingClientRect();
       if (b.width > 0 && b.height > 0) this.blockers.push({ left: b.left, top: b.top, right: b.right, bottom: b.bottom });
     }
+  }
+
+  /**
+   * 路线卡片在上方正中，任务面板在左上角。面板里的字一多（英文、日文，或者任务说明本来就长）会伸到卡片那里：
+   * 两块横向有交叠时，把卡片推到面板底下（告警和提示跟着让，见样式表里的 --forks-push）。半秒量一次。
+   */
+  private placeForks(): void {
+    const f = this.forks;
+    const cur = this.forksPush;
+    let want = 0;
+    const obj = this.blockEls[0];
+    const r = this.root.classList;
+    if (obj && !f.classList.contains('hidden') && !obj.classList.contains('hidden') && !r.contains('hud-calm') && !r.contains('hud-off')) {
+      const a = obj.getBoundingClientRect();
+      const b = f.getBoundingClientRect();
+      if (a.width > 0 && b.width > 0 && a.right > b.left + 2 && a.left < b.right - 2) want = Math.max(0, Math.ceil(a.bottom + 8 - (b.top - cur)));
+    }
+    if (want === cur) return;
+    this.forksPush = want;
+    this.root.style.setProperty('--forks-push', `${want}px`);
   }
 
   /** 标记旁边的字（带深色描边）：压着面板或航点读数时换到 alt 那一边，两边都压着就淡一些 */

@@ -200,3 +200,75 @@ describe('本地存档', () => {
     expect(s.record('japan').bestTime).toBe(400);
   });
 });
+
+describe('存档导出和导入', () => {
+  const played = (): { st: MemStorage; save: SaveStore } => {
+    const st = new MemStorage();
+    const save = new SaveStore(st);
+    save.data.settings.fov = 88;
+    save.data.settings.lang = 'ja';
+    save.recordResult('japan', 1100, 'S', ['jo-lh'], 512);
+    save.visit('japan', '五重塔');
+    save.data.log.landings = 7;
+    save.save();
+    return { st, save };
+  };
+
+  it('导出的文本带着游戏标记和版本，再导入到另一个浏览器里进度一样', () => {
+    const { save } = played();
+    const text = save.exportText();
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    expect(parsed.game).toBe(SAVE_KEY);
+    expect(parsed.version).toBe(SAVE_VERSION);
+    expect(SaveStore.check(text)).toBe('ok');
+
+    const other = new MemStorage();
+    const fresh = new SaveStore(other);
+    expect(fresh.importText(text)).toBe(true);
+    expect(fresh.data.settings.fov).toBe(88);
+    expect(fresh.data.settings.lang).toBe('ja');
+    expect(fresh.data.maps.japan?.bestRating).toBe('S');
+    expect(fresh.data.maps.japan?.optionalDone).toEqual(['jo-lh']);
+    expect(fresh.data.visited.japan).toEqual(['五重塔']);
+    expect(fresh.data.log.landings).toBe(7);
+    // 写进了存储：重新打开还在
+    expect(new SaveStore(other).data.maps.japan?.bestScore).toBe(1100);
+  });
+
+  it('不是存档的文件、别的游戏的文件都不收，现有进度不动', () => {
+    const { save } = played();
+    for (const bad of ['', 'not json', '[]', '{}', '{"version":4}', '{"version":"4","settings":{}}', JSON.stringify({ game: 'other-game', version: SAVE_VERSION, settings: {} })]) {
+      expect(SaveStore.check(bad), bad).toBe('invalid');
+      expect(save.importText(bad), bad).toBe(false);
+    }
+    expect(save.data.maps.japan?.bestScore).toBe(1100);
+  });
+
+  it('比这个版本新的存档不收（读了会丢东西）', () => {
+    const { save } = played();
+    const newer = JSON.stringify({ game: SAVE_KEY, version: SAVE_VERSION + 1, settings: {}, maps: {} });
+    expect(SaveStore.check(newer)).toBe('newer');
+    expect(save.importText(newer)).toBe(false);
+    expect(save.data.settings.fov).toBe(88);
+  });
+
+  it('导入的内容和读档走同一套校验：越界的数值被收回来', () => {
+    const save = new SaveStore(new MemStorage());
+    const text = JSON.stringify({ version: SAVE_VERSION, settings: { fov: 999, quality: 'insane' }, maps: { japan: { completed: true, bestScore: -5, bestRating: 'Z' } } });
+    expect(save.importText(text)).toBe(true);
+    expect(save.data.settings.fov).toBe(100);
+    expect(save.data.settings.quality).toBe(defaultSettings().quality);
+    expect(save.data.maps.japan?.bestScore).toBe(0);
+    expect(save.data.maps.japan?.bestRating).toBe('');
+  });
+
+  it('存储写不进去时导入失败，原来的进度留着', () => {
+    const { save } = played();
+    const text = save.exportText();
+    const broken: StorageLike = { getItem: () => null, setItem: () => { throw new Error('quota'); } };
+    const locked = new SaveStore(broken);
+    locked.data.settings.fov = 77;
+    expect(locked.importText(text)).toBe(false);
+    expect(locked.data.settings.fov).toBe(77);
+  });
+});
