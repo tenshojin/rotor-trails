@@ -7,14 +7,18 @@ import { BUFFS } from '../sim/buffs';
 import { STATUS_LABEL } from '../sim/damage';
 import { LANDING_LIMITS } from '../sim/mission';
 import type { GameSession } from '../sim/session';
-import { keyName, type Settings } from '../game/settings';
+import { SPEED_K, SPEED_U, keyName, type Settings } from '../game/settings';
 import type { TutorialHud } from '../game/tutorial';
 import type { WorldView } from '../render/worldView';
 import { tr } from '../i18n';
 
-const SPEED_K = { kmh: 3.6, kt: 1.9438, ms: 1 };
-const SPEED_U = { kmh: 'km/h', kt: 'kt', ms: 'm/s' };
 const headingLabel = (degrees: number) => String(Math.round(wrap360(degrees)) % 360).padStart(3, '0');
+/** 带正负号的读数。四舍五入之后是 0 的不带符号：不显示 “-0°”、“+0.0” 这种读数 */
+export function signed(value: number, digits = 0): string {
+  const text = value.toFixed(digits);
+  if (Number(text) === 0) return text.replace('-', '');
+  return value > 0 ? `+${text}` : text;
+}
 
 // 静止或悬停时大部分文字不变，不必每秒重建十余次 DOM。
 const markup = new WeakMap<HTMLElement, string>();
@@ -297,8 +301,8 @@ export class Hud {
       <div class="row"><span>${tr`空速`}</span><b>${Math.round(tel.airspeed * k)}</b><em>${u}</em></div>
       <div class="row big ${s.agl < 10 ? 'amber' : ''}"><span>${tr`离地高度`}</span><b>${s.agl > 2500 ? '—' : s.agl.toFixed(s.agl < 20 ? 1 : 0)}</b><em>m</em></div>
       <div class="row"><span>${tr`海拔`}</span><b>${Math.round(msl)}</b><em>m</em></div>
-      <div class="row ${Math.abs(vs) > 6 ? 'amber' : ''}"><span>${tr`垂直速度`}</span><b>${vs >= 0 ? '+' : ''}${vs.toFixed(1)}</b><em>m/s</em></div>
-      <div class="row"><span>${tr`姿态`}</span><b class="sm">${tr`俯仰 ${pitch >= 0 ? '+' : ''}${pitch.toFixed(0)}° · 横滚 ${roll >= 0 ? '+' : ''}${roll.toFixed(0)}°`}</b></div>
+      <div class="row ${Math.abs(vs) > 6 ? 'amber' : ''}"><span>${tr`垂直速度`}</span><b>${signed(vs, 1)}</b><em>m/s</em></div>
+      <div class="row"><span>${tr`姿态`}</span><b class="sm att"><i>${tr`俯仰 ${signed(pitch)}°`}</i><i>${tr`横滚 ${signed(roll)}°`}</i></b></div>
       <div class="row"><span>${tr`航向`}</span><b>${headingLabel(tel.heading * RAD)}°</b></div>
       <div class="row compact"><span>${tr`耐久`}</span><b class="${dc}">${Math.round(d)}</b></div>`);
     // 状态
@@ -437,7 +441,9 @@ export class Hud {
     const tel = s.flight.telemetry;
     const k = SPEED_K[set.speedUnit];
     const target = showHover && (!showPad || hoverNear < near) ? { x: hoverObj!.center[0], y: hoverObj!.center[1], z: hoverObj!.center[2], half: hoverObj!.radius, name: hoverObj!.title, hover: true } : { x: pad!.pos[0], y: pad!.pos[1], z: pad!.pos[2], half: pad!.size / 2, name: pad!.name, hover: false };
-    const relH = s.skidY - target.y;
+    // 停在坪上时滑橇比坪面的基准低几厘米（起落架压缩），读数写 0，不写 “-0.1 m”；真的在坪下面（坪在山顶）照实写
+    const relRaw = s.skidY - target.y;
+    const relH = relRaw < 0 && relRaw > -0.3 ? 0 : relRaw;
     const descent = Math.max(0, -s.body.vel.y);
     const drift = s.groundSpeed;
     const att = Math.max(Math.abs(tel.pitch), Math.abs(tel.roll)) / DEG;

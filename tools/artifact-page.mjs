@@ -27,6 +27,8 @@ const cssHref = pick(/<link rel="stylesheet" crossorigin href="\.\/(assets\/[^"]
 const body = pick(/<body>([\s\S]*?)<\/body>/, '<body>').replace(/<script type="module"[\s\S]*?<\/script>/g, '').trim();
 // 预加载的分块（three、rapier）：和入口一起开始下载。不带 crossorigin，和下面的入口脚本一样，否则浏览器会再下一遍
 const preloads = [...html.matchAll(/<link rel="modulepreload" crossorigin href="\.\/(assets\/[^"]+\.js)">/g)].map((m) => `<link rel="modulepreload" href="${m[1]}">`).join('\n');
+// 样式表两样都放：内联一份（页面一定有样式），再链接一份 assets/ 里的同一个文件。游戏本体是入口定好语言以后动态加载的，
+// 加载它的那段代码会先确认样式表在不在页面上：看到这个链接就不再自己插；不然它自己插一个，万一那个文件没加载成功，整个游戏就不启动了
 // 网页图标是内嵌的 SVG（data: 网址，Artifact 允许），照搬
 const icon = html.match(/<link rel="icon" href="data:[^"]*" \/>/)?.[0] ?? '';
 const css = fs.readFileSync(path.join('dist', cssHref), 'utf8');
@@ -64,6 +66,7 @@ ${headStyle.trim()}
 <style>
 ${css.trim()}
 </style>
+<link rel="stylesheet" href="${cssHref}">
 </head>
 <body>
 ${body}

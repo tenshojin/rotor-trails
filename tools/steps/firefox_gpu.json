@@ -1,0 +1,23 @@
+{
+  "steps": [
+    { "goto": "http://localhost:4176/?lang=en" },
+    { "until": "window.__app && window.__app.state === 'menu'", "max": 300 },
+    { "wait": 5 },
+    { "eval": "JSON.stringify({ lang: document.documentElement.lang, state: window.__app.state, quality: window.__app.settings.quality, gpu: String(window.__app.gpu).slice(0, 90), info: window.__app.view.gpuInfo ? window.__app.view.gpuInfo() : null, missing: window.__i18nMissing.size })", "label": "menu" },
+    { "shot": "ffgpu_menu" },
+    { "goto": "http://localhost:4176/?lang=en&map=japan&autostart=1&assist=novice&weather=clear&time=day" },
+    { "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded", "max": 300 },
+    { "wait": 8 },
+    { "eval": "JSON.stringify({ state: window.__app.state, fps: Math.round(window.__app.fps), t: +window.__app.session.t.toFixed(1), quality: window.__app.settings.quality, info: window.__app.view.gpuInfo ? window.__app.view.gpuInfo() : null, hud: document.querySelector('.hud-flight').textContent.replace(/\\s+/g, ' ').slice(0, 90) })", "label": "flight" },
+    { "shot": "ffgpu_flight" },
+    { "eval": "(window.__app.debugTeleport(-640, 70, 700, 330, 30), 1)", "label": "teleport" },
+    { "wait": 6 },
+    { "eval": "JSON.stringify({ fps: Math.round(window.__app.fps), agl: +window.__app.session.agl.toFixed(0), speed: +window.__app.session.groundSpeed.toFixed(0) })", "label": "airborne" },
+    { "shot": "ffgpu_air" },
+    { "goto": "http://localhost:4176/?lang=en&map=fjord&free=1&autostart=1&weather=clear&time=dusk" },
+    { "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded", "max": 300 },
+    { "wait": 8 },
+    { "eval": "JSON.stringify({ state: window.__app.state, fps: Math.round(window.__app.fps), quality: window.__app.settings.quality })", "label": "fjord dusk" },
+    { "shot": "ffgpu_fjord" }
+  ]
+}

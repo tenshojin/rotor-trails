@@ -365,6 +365,15 @@ export function padNamesOn(): boolean {
 }
 
 /** 提示里写的按键名：用手柄时是手柄上的键，触屏上是屏幕按键，否则是键盘键名 */
+/** HUD 的速度单位：1 m/s 是多少、单位怎么写。HUD、导航和教学里的速度都按它换算 */
+export const SPEED_K = { kmh: 3.6, kt: 1.9438, ms: 1 } as const;
+export const SPEED_U = { kmh: 'km/h', kt: 'kt', ms: 'm/s' } as const;
+
+/** 把 m/s 写成选定的单位，取整，和 HUD 上的读数一个写法（11 m/s → “40 km/h”、“21 kt”、“11 m/s”） */
+export function speedText(metersPerSecond: number, unit: Settings['speedUnit']): string {
+  return `${Math.round(metersPerSecond * SPEED_K[unit])} ${SPEED_U[unit]}`;
+}
+
 export function keyName(code: string): string {
   if (padBindings) {
     const b = padBindings();

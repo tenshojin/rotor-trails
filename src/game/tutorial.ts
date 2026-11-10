@@ -5,7 +5,7 @@
 
 import { RAD, headingDelta, wrap360 } from '../core/math';
 import type { GameSession } from '../sim/session';
-import { keyName, type Action, type Settings } from './settings';
+import { keyName, speedText, type Action, type Settings } from './settings';
 import { tr } from '../i18n';
 
 /** 教学时 HUD 上露出来的部分（没学到的先藏起来） */
@@ -48,12 +48,15 @@ export interface StepState {
 }
 
 export type K = (a: Action) => string;
+/** 把速度（m/s）写成 HUD 选定的单位：教学里说的数和屏幕左边的读数是同一个单位 */
+export type SpeedText = (metersPerSecond: number) => string;
+const KMH: SpeedText = (v) => speedText(v, 'kmh');
 
 export interface TutorialStep {
   id: string;
   title: string;
   /** 要做什么（一句话） */
-  text: (k: K, c: TutorialCtx) => string;
+  text: (k: K, c: TutorialCtx, v?: SpeedText) => string;
   /** 为什么、会发生什么（一句话） */
   why?: (k: K) => string;
   /** 屏幕上放大显示的按键 */
@@ -222,7 +225,7 @@ export const LESSONS: Lesson[] = [
       {
         id: 'forward',
         title: tr('向前飞'),
-        text: (k) => tr`按住 <kbd>${k('forward')}</kbd>，机头往下压，飞机开始往前走。加速到地速 <b>40 km/h</b>。`,
+        text: (k, _c, v = KMH) => tr`按住 <kbd>${k('forward')}</kbd>，机头往下压，飞机开始往前走。加速到地速 <b>${v(11)}</b>。`,
         why: () => tr('直升机靠把旋翼往前倾来前进，所以往前飞时机头是低的。'),
         keys: ['forward'],
         spot: 'flight',
@@ -244,7 +247,7 @@ export const LESSONS: Lesson[] = [
       {
         id: 'brake',
         title: tr('刹车'),
-        text: (k) => tr`按住 <kbd>${k('back')}</kbd>，机头抬起来就是刹车。地速降到 <b>10 km/h</b> 以下就松手。`,
+        text: (k, _c, v = KMH) => tr`按住 <kbd>${k('back')}</kbd>，机头抬起来就是刹车。地速降到 <b>${v(2.8)}</b> 以下就松手。`,
         why: () => tr('别按太久，否则飞机会倒着飞。眼睛看着地速，到了就松手。'),
         keys: ['back'],
         spot: 'flight',
@@ -256,7 +259,7 @@ export const LESSONS: Lesson[] = [
       {
         id: 'accel2',
         title: tr('再飞起来'),
-        text: (k) => tr`再按住 <kbd>${k('forward')}</kbd>，加速到 <b>30 km/h</b>。`,
+        text: (k, _c, v = KMH) => tr`再按住 <kbd>${k('forward')}</kbd>，加速到 <b>${v(8.3)}</b>。`,
         keys: ['forward'],
         spot: 'flight',
         check: (s) => clamp01(s.groundSpeed / 8.3),
@@ -668,6 +671,7 @@ export class Tutorial {
   }
 
   private keyFn: K = (a) => keyName(this.settings.bindings[a][0]);
+  private speedFn: SpeedText = (v) => speedText(v, this.settings.speedUnit);
   private liveText = '';
 
   html(ctx: TutorialCtx = NO_CTX): string {
@@ -693,7 +697,7 @@ export class Tutorial {
     this.cachedHtml =
       `<div class="tut-head"><span class="tut-lesson">${tr`第 ${l + 1} 课 · ${this.lessons[l].title}`}</span><span class="tut-dots">${dots}</span></div>` +
       `<div class="tut-main"><div class="tut-body"><div class="tut-title">${step.title}</div>` +
-      `<div class="tut-text">${step.text(k, ctx)}</div>` +
+      `<div class="tut-text">${step.text(k, ctx, this.speedFn)}</div>` +
       (step.why ? `<div class="tut-why">${step.why(k)}</div>` : '') +
       (this.lookHint ? `<div class="tut-note">${this.lookHint}</div>` : '') +
       (this.note ? `<div class="tut-note">${this.note}</div>` : '') +

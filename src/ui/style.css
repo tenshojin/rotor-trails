@@ -516,6 +516,17 @@ a {
     -webkit-line-clamp: 1;
   }
 }
+/* 更矮（640 px 以下：1920×1080 的笔记本缩放 150% 以后浏览器里只剩 600 px 高）：一行说明也放不下，
+   最后一排“飞行辅助”被贴底的开始按钮盖住。这时选项只留名字，说明在卡片的 title 里（鼠标停上去看） */
+@media (max-height: 640px) and (min-width: 1101px) {
+  .brief-side .opt-card span {
+    display: none;
+  }
+  .brief-side .opt-card {
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+}
 .obj-list {
   margin: 0;
   padding-left: 20px;
@@ -785,8 +796,14 @@ table.score .total td {
     transform: translate(-50%, calc(-100% - 100vh));
   }
 }
+/* 标题是渐变字：字本身透明，渐变画在背景上。继承来的文字阴影画在渐变上面，整行字就成了黑的，所以这里不要文字阴影，
+   换成 drop-shadow（它是对画好的字整体投影）。字号按名单一栏的宽度定，不折成两行 */
 .credits-roll .logo {
   margin: 0;
+  font-size: clamp(30px, 4.4vw, 58px);
+  white-space: nowrap;
+  text-shadow: none;
+  filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.75));
 }
 .credits-roll .logo-sub {
   margin-bottom: 70px;
@@ -838,6 +855,38 @@ table.score .total td {
   bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   pointer-events: auto;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+}
+/* 宽屏：名单靠左走，右边留给画面。电影镜头多半把直升机放在画面中间，名单居中的话字正好盖在它身上 */
+@keyframes credits-roll-left {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(calc(-100% - 100vh));
+  }
+}
+@media (min-width: 1000px) {
+  .credits-screen {
+    background: linear-gradient(90deg, rgba(3, 7, 11, 0.7) 0%, rgba(3, 7, 11, 0.52) 28%, rgba(3, 7, 11, 0.12) 58%, rgba(3, 7, 11, 0) 100%);
+  }
+  .credits-roll {
+    left: 7vw;
+    width: min(560px, 40vw);
+    text-align: left;
+    transform: none;
+    animation-name: credits-roll-left;
+  }
+  .credits-end {
+    left: 7vw;
+    top: auto;
+    bottom: 16vh;
+    width: min(600px, 44vw);
+    transform: none;
+    text-align: left;
+  }
+  .credits-end .btn-row {
+    justify-content: flex-start;
+  }
 }
 .save-confirm .btn {
   margin-left: 6px;
@@ -1150,6 +1199,27 @@ table.score .total td {
     width: 236px;
   }
 }
+/* 矮窗口（高 ≤ 520）但不是触屏，比如系统缩放 150% 的小笔记本、放大过的浏览器：一样放宽，不然 “Ground speed” 折成两行。
+   触屏的小面板有自己的宽度（见手机一节），这里不碰 */
+@media (max-height: 520px) {
+  :root:is([lang='en'], [lang='ja']) #app:not(.touch-device) .hud-flight .row span,
+  :root:is([lang='en'], [lang='ja']) #app:not(.touch-device) .hud-status .row span {
+    width: 80px;
+  }
+  :root:is([lang='en'], [lang='ja']) #app:not(.touch-device) .hud-flight {
+    width: 204px;
+  }
+  :root:is([lang='en'], [lang='ja']) #app:not(.touch-device) .hud-status {
+    width: 236px;
+  }
+  /* 教学里那两个大数字的标签字大，要更宽（和高窗口里一样） */
+  :root:is([lang='en'], [lang='ja']) #app:not(.touch-device) .hud.hud-tut .hud-flight {
+    width: 236px;
+  }
+  :root:is([lang='en'], [lang='ja']) #app:not(.touch-device) .hud.hud-tut .hud-flight .row span {
+    width: 94px;
+  }
+}
 .row b {
   font-family: var(--mono);
   font-size: 14px;
@@ -1158,6 +1228,15 @@ table.score .total td {
   font-family: var(--font);
   font-size: 12px;
   font-weight: 500;
+}
+/* 姿态：俯仰一行、横滚一行。原来写成一句，三种语言里都从中间折断（“横滚” 在上一行，度数掉到下一行） */
+.row b.att {
+  display: grid;
+  gap: 1px;
+}
+.row b.att i {
+  font-style: normal;
+  white-space: nowrap;
 }
 .row.big b {
   font-size: 19px;
@@ -1515,6 +1594,8 @@ table.score .total td {
 }
 .tut-text b {
   color: #fff;
+  /* 加粗的都是短短一截（“40 km/h”“5 米”“松手就是停住”）：不从中间折行，数字和单位不分家 */
+  white-space: nowrap;
 }
 .tut-why {
   font-size: 14px;
@@ -1620,6 +1701,14 @@ kbd.big.on {
   font-size: 14px;
   color: #dfe8ef;
 }
+/* 教学里标签的字大（14 px），英文 “Ground speed” 要 90 px：原来的 80 px 会折成两行，手机上不折就压住读数 */
+:root:is([lang='en'], [lang='ja']) .hud.hud-tut .hud-flight {
+  width: 236px;
+}
+:root:is([lang='en'], [lang='ja']) .hud.hud-tut .hud-flight .row span {
+  width: 94px;
+  white-space: nowrap;
+}
 .hud.tut-spot-flight .hud-flight,
 .hud.tut-spot-status .hud-status,
 .hud.tut-spot-landing .hud-landing {
@@ -1699,6 +1788,25 @@ kbd.big.on {
 }
 .free-actions .primary {
   grid-column: 1 / -1;
+}
+/* 矮窗口（笔记本的浏览器常见 650～800 px 高）：时段、天气、两排地名再加四排按钮，一屏放不下，
+   最下面的“操作说明”“回主菜单”要滚才看得到。卡片放宽（地名少折一两行）、按钮排三列 */
+@media (max-height: 800px) and (min-width: 780px) {
+  .free-pause {
+    width: min(800px, calc(100vw - 32px));
+  }
+  .free-pause h3 {
+    margin-top: 10px;
+  }
+  .free-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 12px;
+  }
+  .free-actions .btn:not(.primary) {
+    padding-left: 12px;
+    padding-right: 12px;
+    font-size: 14px;
+  }
 }
 /* 课程表 */
 .course-tabs {
@@ -2450,6 +2558,51 @@ canvas.gl.sim-cursor.sim-cursor-hot {
   font-size: 13px;
 }
 
+/* 手机和平板的教学面板：放在两个摇杆中间，不盖住摇杆和它上面的字（教学里说“左摇杆上推”，那个摇杆得看得见）。
+   窗口不到 780 px 宽时中间放不下一段话，照旧铺开。手机上（高 ≤ 520）字和边距收一点，面板别占掉半个屏幕 */
+@media (min-width: 780px) {
+  .touch-device .tutorial:not(.top):not(.side) {
+    width: min(680px, calc(100% - 340px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  }
+}
+/* 触屏上右边的大按键写的是“右摇杆上推”这样的长名字：竖着排、收小一号。三个并排（边飞边转那一步）会把说明挤成一窄条 */
+.touch-device .tut-keys {
+  flex-direction: column;
+  gap: 6px;
+}
+.touch-device kbd.big {
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 14px;
+  border-bottom-width: 3px;
+}
+@media (max-height: 520px) {
+  .touch-device .tutorial:not(.top) {
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    padding: 9px 16px 7px;
+  }
+  .touch-device .tut-main {
+    margin: 3px 0 6px;
+    gap: 12px;
+  }
+  .touch-device .tut-title {
+    font-size: 18px;
+  }
+  .touch-device .tut-text {
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .touch-device .tut-why,
+  .touch-device .tut-note {
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  /* 右边的大按键在手机上写的是“左摇杆上推”这样的长名字，占掉面板三分之一，说明里已经写了同一个名字：手机上不放 */
+  .touch-device .tut-keys {
+    display: none;
+  }
+}
 /* 手机和平板：虚拟摇杆。手指按在哪儿摇杆就到哪儿，平时只在两个下角淡淡地画一个圈 */
 .touch-ui {
   position: absolute;
@@ -2674,7 +2827,7 @@ canvas.gl.sim-cursor.sim-cursor-hot {
     font-size: 22px;
   }
   :root:is([lang='en'], [lang='ja']) .touch-device .hud.hud-tut .hud-flight {
-    width: 204px;
+    width: 216px;
   }
   .touch-device .hud.hud-tut .hud-status {
     display: block;

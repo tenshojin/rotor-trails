@@ -142,7 +142,11 @@
           },
         }[l];
         window.__bootText = T;
-        if (l !== 'zh') document.getElementById('boot-title').textContent = 'ROTOR TRAILS';
+        if (l !== 'zh') {
+          // 标签页标题和加载画面的标题：英文、日文只写英文名
+          document.title = 'Rotor Trails';
+          document.getElementById('boot-title').textContent = 'ROTOR TRAILS';
+        }
         document.getElementById('boot-msg').textContent = T.load;
       })();
     </script>

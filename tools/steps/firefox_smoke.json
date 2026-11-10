@@ -1,0 +1,22 @@
+{
+  "prefs": { "dom.webgpu.enabled": false },
+  "steps": [
+    { "goto": "http://localhost:4176/?lang=en" },
+    { "until": "window.__app && window.__app.state === 'menu'", "max": 400 },
+    { "wait": 4 },
+    { "eval": "JSON.stringify({ lang: document.documentElement.lang, title: document.title, state: window.__app.state, quality: window.__app.settings.quality, gpu: String(window.__app.gpu).slice(0, 90), missing: window.__i18nMissing.size, buttons: [...document.querySelectorAll('.menu-col .btn')].map((b) => b.textContent.trim().replace(/\\s+/g, ' ')).join(' | ') })", "label": "menu" },
+    { "shot": "ff_menu" },
+    { "eval": "(window.__app.openSettings(), [...document.querySelectorAll('.ui [role=tab], .ui .tabs button')].map((b) => b.textContent.trim()).join(' | '))", "label": "settings tabs" },
+    { "wait": 1 },
+    { "shot": "ff_settings" },
+    { "eval": "(window.__app.ui.closeModal && window.__app.ui.closeModal(), window.__app.mainMenu(), 1)", "label": "back" },
+    { "goto": "http://localhost:4176/?lang=en&map=japan&autostart=1&assist=novice&weather=clear&time=day" },
+    { "until": "window.__app && window.__app.state === 'playing' && window.__app.view.cockpit.loaded", "max": 600 },
+    { "wait": 6 },
+    { "eval": "JSON.stringify({ state: window.__app.state, fps: window.__app.fps, t: +window.__app.session.t.toFixed(1), agl: +window.__app.session.agl.toFixed(1), hud: document.querySelector('.hud-flight').textContent.replace(/\\s+/g, ' ').slice(0, 120), obj: document.querySelector('.hud-obj').textContent.replace(/\\s+/g, ' ').slice(0, 90), missing: window.__i18nMissing.size })", "label": "flight" },
+    { "shot": "ff_flight" },
+    { "eval": "(window.__app.pause(), document.querySelector('.ui h2') && document.querySelector('.ui h2').textContent)", "label": "pause" },
+    { "wait": 1 },
+    { "shot": "ff_pause" }
+  ]
+}

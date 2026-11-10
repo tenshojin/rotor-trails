@@ -107,9 +107,10 @@ function pickQuality(gpu: string): Settings['quality'] {
   return 'medium';
 }
 
-/** 浏览器跑在集成显卡上时的提示（笔记本常见：有独显但浏览器默认用核显） */
-function gpuWarning(gpu: string): string | null {
-  if (!isIntegrated(gpu)) return null;
+/** 浏览器跑在集成显卡上时的提示（笔记本常见：有独显但浏览器默认用核显）。
+ *  只在 Windows 电脑上说：手机、平板的显卡（Mali、Adreno）也算集成显卡，苹果电脑换不了，这句话对它们没有用，白占主菜单一块地方 */
+export function gpuWarning(gpu: string, userAgent: string = typeof navigator === 'undefined' ? '' : navigator.userAgent): string | null {
+  if (!isIntegrated(gpu) || !/Windows/i.test(userAgent)) return null;
   return tr`浏览器当前使用集成显卡（${gpu.replace(/^ANGLE \(|\)$/g, '').slice(0, 60)}），画面可能卡顿。电脑有独立显卡时：Windows 设置 → 系统 → 屏幕 → 显示卡，把浏览器设为“高性能”，重启浏览器即可。`;
 }
 

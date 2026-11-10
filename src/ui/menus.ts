@@ -467,7 +467,7 @@ export class UI {
   }
 
   clickToStart(text: string, sub: string, on: () => void): void {
-    const el = this.show(h(`<div class="screen center click-start" data-a="go"><div class="card narrow"><h2>${text}</h2><p>${sub}</p><button class="btn primary" data-a="go">${tr`点击开始飞行`}</button></div></div>`));
+    const el = this.show(h(`<div class="screen center click-start" data-a="go"><div class="card narrow"><h2>${text}</h2><p>${sub}</p><button class="btn primary" data-a="go">${this.touch ? tr('点击开始飞行@@触屏') : tr('点击开始飞行')}</button></div></div>`));
     this.bind(el, { go: on });
   }
 
@@ -789,7 +789,9 @@ export class UI {
           check('navGuides', tr('三维航线标记'), tr('在场景里显示光环和箭头，默认关闭（方向看 HUD 的菱形标记）')) +
           check('eyeAdapt', tr('人眼适应'), tr('看向明暗不同的地方时，曝光像眼睛一样慢慢调整；关闭后曝光固定。')) +
           check('lightning', tr('闪电闪光'), tr('对光敏感可关闭')) +
-          `<p class="muted">${tr`低画质减少远景细节、阴影和雨滴数量，不改变碰撞、导航或物理难度。画面卡顿时，先降低画质或渲染分辨率，再关闭光线追踪。`}</p>`;
+          `<p class="muted">${tr`低画质减少远景细节、阴影和雨滴数量，不改变碰撞、导航或物理难度。画面卡顿时，先降低画质或渲染分辨率，再关闭光线追踪。`}</p>` +
+          // （界面没有单独的“字号”设置：浏览器自带的缩放就是，菜单和 HUD 会跟着重新排版）
+          (this.touch ? '' : `<p class="muted">${tr`界面的字太小或太大：用浏览器自带的缩放，Ctrl 加 + 放大、Ctrl 加 − 缩小、Ctrl 加 0 还原（苹果电脑是 ⌘）。`}</p>`);
       } else if (tab === 'audio') {
         body.innerHTML = range('volMaster', tr('总音量'), 0, 1, 0.05, pct) + range('volEngine', tr('发动机与旋翼'), 0, 1, 0.05, pct) + range('volAmbience', tr('环境与天气'), 0, 1, 0.05, pct) + range('volAlerts', tr('告警与提示'), 0, 1, 0.05, pct) + range('volMusic', tr('背景音乐（菜单和休闲飞行）'), 0, 1, 0.05, pct);
       } else {

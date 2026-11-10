@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LESSONS, Tutorial, TUTORIAL_STEPS, type TutorialCtx } from '../src/game/tutorial';
-import { defaultSettings, type Action } from '../src/game/settings';
+import { defaultSettings, speedText, type Action } from '../src/game/settings';
 import type { GameSession } from '../src/sim/session';
 
 function session() {
@@ -46,6 +46,31 @@ describe('教学内容', () => {
       expect(!!step.manual !== !!step.check, step.id).toBe(true);
       expect(step.text(() => 'X', ctx()).length, step.id).toBeGreaterThan(4);
     }
+  });
+
+  it('说到速度时用 HUD 选定的单位：选了节，教学也写节', () => {
+    const step = (id: string) => TUTORIAL_STEPS[indexOf(id)];
+    const kt = (v: number) => speedText(v, 'kt');
+    const ms = (v: number) => speedText(v, 'ms');
+    // 不传单位时是 km/h（默认设置）
+    expect(step('forward').text(() => 'W', ctx())).toContain('40 km/h');
+    expect(step('brake').text(() => 'S', ctx())).toContain('10 km/h');
+    expect(step('accel2').text(() => 'W', ctx())).toContain('30 km/h');
+    // 换成节、米每秒：数字是过关的那个速度，和屏幕左边的读数同一个写法
+    expect(step('forward').text(() => 'W', ctx(), kt)).toContain('21 kt');
+    expect(step('brake').text(() => 'S', ctx(), kt)).toContain('5 kt');
+    expect(step('accel2').text(() => 'W', ctx(), kt)).toContain('16 kt');
+    expect(step('forward').text(() => 'W', ctx(), ms)).toContain('11 m/s');
+    expect(step('forward').text(() => 'W', ctx(), kt)).not.toContain('km/h');
+  });
+
+  it('教学面板跟着设置里的速度单位换', () => {
+    const t = new Tutorial({ ...defaultSettings(), speedUnit: 'kt' });
+    const s = session();
+    jump(t, s, 'forward');
+    expect(t.html(ctx())).toContain('21 kt');
+    t.setSettings({ ...defaultSettings(), speedUnit: 'kmh' });
+    expect(t.html(ctx())).toContain('40 km/h');
   });
 
   it('每一课（第一课除外）都有撞了能回去的安全点', () => {

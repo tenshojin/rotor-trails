@@ -47,7 +47,7 @@ vi.mock('../src/ui/replayPanel', () => ({ ReplayPanel: class {
 } }));
 vi.mock('../src/world/worldgen', () => ({ generateWorld: vi.fn() }));
 
-import { App } from '../src/game/app';
+import { App, gpuWarning } from '../src/game/app';
 import { SAVE_KEY } from '../src/game/save';
 import { TRAINING } from '../src/maps/training';
 import { GameSession, newBody } from '../src/sim/session';
@@ -402,5 +402,27 @@ describe('运行与加载恢复', () => {
     internals.frame(2000);
     expect(app.fps).toBe(0.5);
     expect(app.view.render).toHaveBeenCalledWith(app.session, expect.objectContaining({ dt: 0.1 }));
+  });
+});
+
+describe('集成显卡的提示', () => {
+  const WIN = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36';
+  const ANDROID = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36';
+  const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Safari/605.1.15';
+
+  it('Windows 电脑的浏览器跑在核显上：提示去系统设置里换显卡', () => {
+    expect(gpuWarning('ANGLE (Intel, Intel(R) UHD Graphics 770 Direct3D11 vs_5_0 ps_5_0, D3D11)', WIN)).toContain('UHD Graphics 770');
+    expect(gpuWarning('intel gen-12lp', WIN)).not.toBeNull();
+  });
+
+  it('独立显卡不提示', () => {
+    expect(gpuWarning('ANGLE (NVIDIA, NVIDIA GeForce RTX 5070 Ti Laptop GPU Direct3D11 vs_5_0 ps_5_0, D3D11)', WIN)).toBeNull();
+    expect(gpuWarning('nvidia blackwell', WIN)).toBeNull();
+  });
+
+  it('手机、平板、苹果电脑不提示：Windows 设置里换显卡对它们没有用', () => {
+    expect(gpuWarning('ANGLE (Qualcomm, Adreno (TM) 740, OpenGL ES 3.2)', ANDROID)).toBeNull();
+    expect(gpuWarning('Mali-G78', ANDROID)).toBeNull();
+    expect(gpuWarning('Intel(R) Iris(TM) Plus Graphics 655', MAC)).toBeNull();
   });
 });

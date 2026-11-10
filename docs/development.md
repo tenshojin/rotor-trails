@@ -158,6 +158,8 @@ python -I tools/real/trace_roofs.py ../rotor-trails-tiles/grandcanyon/hi tools/r
 
 语言在启动时定下来（`?lang=zh|en|ja` → 设置里选的 → 浏览器语言，别的语言用英文），换语言要重新加载页面：地图、课程、勋章这些文字是模块加载时就建好的表。所以入口 `src/main.ts` 先 `initI18n()` 再动态加载 `src/boot.ts`；`index.html` 里有一小段脚本按同一套规则先定一次（加载画面的字跟着换），结果放在 `window.__bootLang`。测试环境里一律是中文。
 
+游戏本体是入口定好语言以后才动态加载的，所以构建出来的页面里本来只剩入口一个脚本，three.js、物理引擎和样式表要晚一拍才开始下载。`vite.config.ts` 里的小插件 `preloadGame` 把它们写回 `<head>`（`modulepreload` 只下载不执行，样式表直接链接），和入口同时开始下。`tools/artifact-page.mjs` 也是按这两种标签从 `dist/index.html` 里找样式表和要预加载的分块，改构建配置时两边一起看。
+
 加了或改了界面文字之后：
 
 1. 新的字面量包进 `tr()`；只给开发者看的（`console.warn`、`new Error`）不用包，`tools/i18n-allow.json` 是白名单。
@@ -172,6 +174,28 @@ python -I tools/real/trace_roofs.py ../rotor-trails-tiles/grandcanyon/hi tools/r
 - 写死在样式表里的字（竖屏提示）用 `:root[lang='en']`、`:root[lang='ja']` 各补一条。
 - 字体按语言分（`:root[lang='ja']` 用日文字体，不然汉字是中文字形）；英文、日文的 HUD 标签比中文长，面板宽度也按语言放宽。
 - 改了界面要把三种语言都过一遍：英文一句话常常比中文长一倍。
+
+把三种语言的界面过一遍用 `tools/uiLang.mjs`：一种窗口、一种语言，把主菜单到结算的每个界面打开一遍，查超出窗口、互相压住、被截断的字，记下缺译文的句子和页面报错，并截图。先做一份不会变的构建再跑（跑的时候改 `src` 不会把页面刷新掉）：
+
+```bash
+npx vite build --outDir tmp/snapshot
+npx vite preview --outDir tmp/snapshot --port 4176 --strictPort
+```
+
+```bash
+CHROME_EXTRA_ARGS="--disable-gpu --use-angle=swiftshader" node tools/uiLang.mjs en1280 1280 720 en menu,fly,free,tut,credits,sim
+CHROME_EXTRA_ARGS="--disable-gpu --use-angle=swiftshader" node tools/uiLang.mjs jaPhone 844 390 ja tut,fly mobile
+```
+
+结果在 `tmp/uilang/log.txt`，一行一条：`R` 是排版（`ok`，或者 `OUT` 超出窗口、`OVER` 互相压住、`CLIP` 被截断），`M` 是缺译文的句子数，`E` 是页面报错数。`OVER` 不一定是毛病（暂停菜单后面本来就垫着 HUD，主菜单的语言按钮和标题同在一个大方框里），要对着截图看。一次只开一个浏览器；软件渲染下平板（2 倍像素）一秒不到一帧，一组要十来分钟。
+
+Firefox 用 `tools/ffsmoke.mjs`（无头 Firefox，临时配置目录，WebDriver BiDi 驱动）：
+
+```bash
+node tools/ffsmoke.mjs tmp/ff tools/steps/firefox_smoke.json
+```
+
+默认是软件渲染（WebGL 走 WARP），不占显卡；显卡空着的时候加环境变量 `FF_GPU=1`、换成 `tools/steps/firefox_gpu.json`，WebGL 用真显卡跑。**Firefox 的 WebGPU 用它测不了**：无头模式下 `requestAdapter()` 拿到的是 `null`（软件适配器、强制开 GPU 进程都试过），游戏在无头 Firefox 里总是退到 WebGL2。所以它测的是 Firefox 的脚本引擎、排版和 WebGL2 这条路；WebGPU 那条路要在真的 Firefox 窗口里打开看。
 
 分享卡片 `public/og.jpg`（发到聊天、社交网站时显示的图）：`python tools/mk_og.py docs/screenshots/04_japan.jpg public/og.jpg`。
 
