@@ -10,7 +10,17 @@ import game_medals from './game_medals.ts';
 import game_places from './game_places.ts';
 import game_save from './game_save.ts';
 import game_settings from './game_settings.ts';
+import game_simTutorial from './game_simTutorial.ts';
+import game_tutorial from './game_tutorial.ts';
 import i18n_index from './i18n_index.ts';
+import maps_amazon from './maps_amazon.ts';
+import maps_canyon from './maps_canyon.ts';
+import maps_fjord from './maps_fjord.ts';
+import maps_grandcanyon from './maps_grandcanyon.ts';
+import maps_himalaya from './maps_himalaya.ts';
+import maps_japan from './maps_japan.ts';
+import maps_placeNotes from './maps_placeNotes.ts';
+import maps_training from './maps_training.ts';
 import render_timeOfDay from './render_timeOfDay.ts';
 import render_worldView from './render_worldView.ts';
 import sim_controls from './sim_controls.ts';
@@ -36,7 +46,17 @@ const ALL: Table = {
   ...game_places,
   ...game_save,
   ...game_settings,
+  ...game_simTutorial,
+  ...game_tutorial,
   ...i18n_index,
+  ...maps_amazon,
+  ...maps_canyon,
+  ...maps_fjord,
+  ...maps_grandcanyon,
+  ...maps_himalaya,
+  ...maps_japan,
+  ...maps_placeNotes,
+  ...maps_training,
   ...render_timeOfDay,
   ...render_worldView,
   ...sim_controls,
