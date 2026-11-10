@@ -313,7 +313,7 @@ export class Hud {
       <div class="row wind"><span>${tr`风`}</span><div class="warrow" style="transform:rotate(${relWind + 180}deg)">➤</div>${tr`<b>${wi.speed.toFixed(0)}</b><em>m/s 来自 ${headingLabel(wi.dirFrom)}°</em>`}</div>
       <div class="row"><span>${tr`阵风`}</span><b class="sm">${wi.gust > 0.5 ? '+' + wi.gust.toFixed(0) + ' m/s' : tr('平稳')}</b><em>${wi.vertical > 1 ? tr('上升气流') : wi.vertical < -1 ? tr('下沉气流') : ''}</em></div>
       ${wi.zone ? `<div class="zone">${tr`风区：${wi.zone}`}</div>` : ''}${gustTxt}
-      <div class="row"><span>${tr`悬停辅助`}</span><b class="sm ${tel.hover !== 'off' ? 'ok' : ''}">${tel.hover === 'off' ? tr('关闭') : tel.hover === 'braking' ? tr('减速中') : tr('定点保持')}</b></div>
+      <div class="row"><span>${tr`悬停辅助`}</span><b class="sm ${tel.hover !== 'off' ? 'ok' : ''}">${tel.hover === 'off' ? tr('关闭@@悬停辅助的状态') : tel.hover === 'braking' ? tr('减速中') : tr('定点保持')}</b></div>
       <div class="row"><span>${tr`辅助模式`}</span><b class="sm">${s.flight.assist.label}</b></div>
       <div class="row"><span>${tr`载货`}</span><b class="sm">${tr`${s.mission.cargo} 箱`}</b></div>`);
     // Buff

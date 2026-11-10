@@ -13,6 +13,7 @@
     "noFallthroughCasesInSwitch": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
     "useDefineForClassFields": true,
     "verbatimModuleSyntax": false
   },

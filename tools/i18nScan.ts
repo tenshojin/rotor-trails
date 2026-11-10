@@ -1,7 +1,7 @@
 // 多语言的检查工具：把源码里的字符串字面量找出来，看哪些带汉字、有没有包在 tr() / trKey() 里、键是什么。
 // tests/i18n.test.ts 用它核对“每句界面文字都有英文、日文译文”；也可以直接跑：
 //   node tools/i18nScan.ts            列出还没包起来的中文、还缺译文的键
-//   node tools/i18nScan.ts --dump tmp/i18n   把各语言缺的键按文件写成 JSON，翻译时照着填
+//   node tools/i18nScan.ts --dump tmp/i18n   把还缺译文的键按来源文件写成 JSON，翻译时照着填
 // 只做词法扫描（注释、字符串、模板、正则），不依赖 TypeScript 编译器。
 
 import fs from 'node:fs';
@@ -230,7 +230,7 @@ export interface Report {
 
 /** 字典目录不扫（里面的中文是键）。allow：允许不翻的中文字面量（文件 → 原文列表） */
 export function report(srcDir: string, allow: Readonly<Record<string, readonly string[]>> = {}): Report {
-  const lits = scanDir(srcDir, ['i18n/en', 'i18n/ja']);
+  const lits = scanDir(srcDir, ['i18n/dict']);
   const keys = new Map<string, string>();
   for (const l of lits) if (l.key !== null && !keys.has(l.key)) keys.set(l.key, l.file);
   // 白名单的键是文件、以 / 结尾的目录，或者 *（所有文件）；值是“这一行里字面量之前的代码 + 字面量”里出现的片段
@@ -260,19 +260,20 @@ if (isMain) {
   for (const [f, list] of [...byFile(r.bare)].sort((a, b) => b[1].length - a[1].length)) console.log(`  bare ${String(list.length).padStart(4)}  ${f}`);
   for (const l of r.problems) console.log(`  PROBLEM ${l.file}:${l.line} ${l.problem}\n    ${l.raw.slice(0, 100)}`);
   if (process.argv.includes('--bare')) for (const l of r.bare) console.log(`${l.file}:${l.line}  ${l.raw.replace(/\s+/g, ' ').slice(0, 140)}`);
-  for (const lang of ['en', 'ja']) {
-    const mod = (await import(`../src/i18n/${lang}/index.ts`)) as { default: Record<string, unknown> };
-    const dict = mod.default;
-    const miss = [...r.keys].filter(([k]) => !(k in dict));
-    const stale = Object.keys(dict).filter((k) => !r.keys.has(k));
-    console.log(`${lang}: ${Object.keys(dict).length} entries, missing ${miss.length}, stale ${stale.length}`);
-    if (process.argv.includes('--stale')) for (const k of stale) console.log(`  stale: ${k.slice(0, 80)}`);
-    if (dumpAt > 0) {
-      const dir = path.resolve(process.argv[dumpAt + 1]);
-      fs.mkdirSync(dir, { recursive: true });
-      const g: Record<string, string[]> = {};
-      for (const [k, f] of miss) (g[f] ??= []).push(k);
-      fs.writeFileSync(path.join(dir, `missing-${lang}.json`), JSON.stringify(g, null, 1));
-    }
+  const dict = ((await import('../src/i18n/dict/index.ts')) as { default: Record<string, unknown> }).default;
+  const miss = [...r.keys].filter(([k]) => !(k in dict));
+  const stale = Object.keys(dict).filter((k) => !r.keys.has(k));
+  console.log(`dict: ${Object.keys(dict).length} entries, missing ${miss.length}, stale ${stale.length}`);
+  if (process.argv.includes('--stale')) for (const k of stale) console.log(`  stale: ${k.slice(0, 80)}`);
+  if (dumpAt > 0) {
+    // 缺译文的键按来源文件分组，文件里的顺序就是源码里的顺序
+    const dir = path.resolve(process.argv[dumpAt + 1]);
+    fs.mkdirSync(dir, { recursive: true });
+    const g: Record<string, string[]> = {};
+    for (const [k, f] of miss) (g[f] ??= []).push(k);
+    fs.writeFileSync(path.join(dir, 'missing.json'), JSON.stringify(g, null, 1));
+    const all: Record<string, string[]> = {};
+    for (const [k, f] of r.keys) (all[f] ??= []).push(k);
+    fs.writeFileSync(path.join(dir, 'keys.json'), JSON.stringify(all, null, 1));
   }
 }

@@ -42,7 +42,7 @@ import { isTimeOfDay, type TimeOfDay } from '../render/timeOfDay';
 import { waitForOperation } from './pending';
 import { InstrumentLists } from './instrumentLists';
 import { nextView } from './views';
-import { tr } from '../i18n';
+import { currentLang, tr } from '../i18n';
 
 /** claude.ai 的私有试玩页（Artifact）放不下大峡谷的数据（单个文件超过 20 MiB），那里不列出真实地形的地图（见 tools/artifact-page.mjs） */
 const PLAYABLE_REAL_MAPS = (globalThis as { __artifact?: boolean }).__artifact ? [] : REAL_MAPS;
@@ -108,7 +108,7 @@ function pickQuality(gpu: string): Settings['quality'] {
 /** 浏览器跑在集成显卡上时的提示（笔记本常见：有独显但浏览器默认用核显） */
 function gpuWarning(gpu: string): string | null {
   if (!isIntegrated(gpu)) return null;
-  return tr('浏览器当前使用集成显卡（') + gpu.replace(/^ANGLE \(|\)$/g, '').slice(0, 60) + tr('），画面可能卡顿。电脑有独立显卡时：Windows 设置 → 系统 → 屏幕 → 显示卡，把浏览器设为“高性能”，重启浏览器即可。');
+  return tr`浏览器当前使用集成显卡（${gpu.replace(/^ANGLE \(|\)$/g, '').slice(0, 60)}），画面可能卡顿。电脑有独立显卡时：Windows 设置 → 系统 → 屏幕 → 显示卡，把浏览器设为“高性能”，重启浏览器即可。`;
 }
 
 
@@ -162,6 +162,10 @@ export class App {
   private replaySideHeld = false;
   private replaySpaceHeld = false;
   private medalInfo: MedalWorld | null = null;
+  /** 飞行中改了语言：回到主菜单时重新加载（语言在启动时定，见 i18n/index.ts） */
+  private langDirty = false;
+  /** 游戏自己要刷新页面（换语言、导入存档）：不弹“确定离开吗” */
+  private leaving = false;
   private medalT = 0;
   private photoPending = false;
   /** 电影镜头里耳朵离飞机多远、飞机朝耳朵过来的速度 */
@@ -287,7 +291,7 @@ export class App {
       window.addEventListener('popstate', () => this.onBrowserBack(), listenerOptions);
       window.addEventListener('beforeunload', (e) => {
         this.flushSettingsSave();
-        if (this.state === 'playing' || this.state === 'paused') {
+        if (!this.leaving && (this.state === 'playing' || this.state === 'paused')) {
           e.preventDefault();
           e.returnValue = '';
         }
@@ -467,9 +471,17 @@ export class App {
     this.input.clear();
     this.input.cancelCapture();
     this.input.exitLock();
+    if (this.langDirty) {
+      this.reloadForLanguage();
+      return;
+    }
+    const d = this.save.data;
+    // 一课没学过、一张图没飞完：主菜单把“飞行训练”放在最上面
+    const newcomer = !d.tutorialDone && d.lessonsDone.length === 0 && d.simLessonsDone.length === 0 && !Object.values(d.maps).some((r) => r?.completed);
     this.ui.main(
-      { warning: [this.loadWarning, gpuWarning(this.gpu), this.save.warning].filter(Boolean).join('<br>') || null, tutorialDone: this.save.data.tutorialDone },
+      { warning: [this.loadWarning, gpuWarning(this.gpu), this.save.warning].filter(Boolean).join('<br>') || null, tutorialDone: d.tutorialDone, newcomer, lang: currentLang() },
       {
+        lang: (l) => this.applySettings({ ...this.settings, lang: l }),
         play: () => this.mapSelect(),
         free: () => this.freeSelect(),
         tutorial: () => this.trainingMenu(),
@@ -533,7 +545,7 @@ export class App {
 
   freeBrief(m: MapDef): void {
     const been = this.save.data.visited[m.id] ?? [];
-    this.ui.freeBrief(m, this.settings, vistasOf(m).map((v) => `${been.includes(v.name) ? '✓ ' : ''}${v.name}`), {
+    this.ui.freeBrief(m, this.settings, vistasOf(m).map((v) => `${been.includes(v.name) ? '✓ ' : ''}${tr(v.name)}`), {
       start: (weather, time, sim) => void this.startRun({ map: m, weather, assist: sim ? 'sim' : 'novice', tutorial: false, free: true, time }),
       back: () => this.freeSelect(),
     });
@@ -561,11 +573,53 @@ export class App {
         this.input.cancelCapture();
         this.flushSettingsSave();
       },
+      exportSave: () => this.exportSave(),
+      checkSave: (text) => SaveStore.check(text),
+      importSave: (text) => {
+        if (this.save.importText(text)) this.reloadPage();
+        else this.hud.toast(tr('导入失败：浏览器不让保存。现在的进度没有动'), 'warn', 5000);
+      },
     });
+  }
+
+  /** 把存档存成一个文件（浏览器下载） */
+  private exportSave(): void {
+    this.flushSettingsSave();
+    const p = (n: number): string => String(n).padStart(2, '0');
+    const d = new Date();
+    const a = document.createElement('a');
+    a.download = `rotor-trails-save-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}.json`;
+    a.href = URL.createObjectURL(new Blob([this.save.exportText()], { type: 'application/json' }));
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  private reloadPage(): void {
+    this.leaving = true;
+    globalThis.location?.reload?.();
+  }
+
+  /** 换语言：去掉网址里的 ?lang=（它比设置优先，留着就换不过去），重新加载 */
+  private reloadForLanguage(): void {
+    this.flushSettingsSave();
+    this.save.save();
+    this.leaving = true;
+    try {
+      const u = new URL(location.href);
+      if (u.searchParams.has('lang')) {
+        u.searchParams.delete('lang');
+        location.replace(u.href);
+        return;
+      }
+    } catch {
+      /* 没有网址可改：直接刷新 */
+    }
+    globalThis.location?.reload?.();
   }
 
   applySettings(s: Settings): void {
     if (this.disposed) return;
+    const langChanged = s.lang !== this.settings.lang;
     this.settings = s;
     this.save.data.settings = s;
     this.view.applySettings(s);
@@ -578,6 +632,14 @@ export class App {
     // only receive the final value after a short pause or when leaving settings.
     if (this.settingsSaveTimer !== null) clearTimeout(this.settingsSaveTimer);
     this.settingsSaveTimer = setTimeout(() => this.flushSettingsSave(), 200);
+    if (langChanged) {
+      // 在菜单里马上换；飞行中不打断这一趟，回到主菜单时再换
+      if (this.state === 'menu') this.reloadForLanguage();
+      else {
+        this.langDirty = true;
+        this.hud.toast(tr('语言会在回到主菜单时切换'), 'info', 4000);
+      }
+    }
   }
 
   private flushSettingsSave(): void {
@@ -896,14 +958,14 @@ export class App {
     const been = this.save.data.visited[run.map.id] ?? [];
     const here = s.body?.pos;
     const todo = places.filter((p) => !been.includes(p.name));
-    const unseen = todo.map((p) => (here ? `${p.name} · ${directionTo(here.x, here.z, p)}` : p.name));
+    const unseen = todo.map((p) => (here ? `${tr(p.name)} · ${directionTo(here.x, here.z, p)}` : tr(p.name)));
     this.ui.freePause(
       { map: run.map, time: run.time ?? 'day', weather: s.weather.preset.id, vistas: vistas.map((v) => v.name), been, total: places.length, unseen, canGo: !s.sys, cruise: !!this.cruise, replay: this.tape.seconds >= REPLAY_MIN },
       {
         go: (i) => {
           const p = todo[i];
           this.cruise = new ScenicCruise(s, vistas, [p.x, p.z]);
-          this.hud.toast(tr`自动巡航：去${p.name}。动任何一个飞行键就交回给你`, 'info', 3500);
+          this.hud.toast(tr`自动巡航：去${tr(p.name)}。动任何一个飞行键就交回给你`, 'info', 3500);
           this.resume();
         },
         replay: () => this.replayFromPause(),
@@ -963,7 +1025,7 @@ export class App {
     this.placeT = 30;
     const id = this.run.map.id;
     const first = this.save.visit(id, p.name);
-    this.hud.place?.(p.name, p.note, first ? tr`到过 ${this.save.data.visited[id]?.length ?? 1} / ${w.places.length}` : '');
+    this.hud.place?.(tr(p.name), p.note, first ? tr`到过 ${this.save.data.visited[id]?.length ?? 1} / ${w.places.length}` : '');
   }
 
   /** 左右的山壁有多远：一秒四次就够了 */
@@ -1514,8 +1576,9 @@ export class App {
     const dx = q.behind ? 1 : q.x < w ? -1 : q.x > innerWidth - w ? 1 : 0;
     const dy = q.behind ? 0 : q.y < h ? -1 : q.y > innerHeight - h ? 1 : 0;
     if (!dx && !dy) return '';
-    const way = `${dx < 0 ? tr('左') : dx > 0 ? tr('右') : ''}${dy < 0 ? tr('上') : dy > 0 ? tr('下') : ''}`;
-    return this.input.device === 'pad' ? tr`光圈在视野外：推右摇杆往${way}看。` : tr`光圈在视野外：把鼠标移到屏幕${way}边，往${way}看。`;
+    // 八个方向各是一个完整的词（“左上”不是“左”+“上”拼出来的：别的语言里词序不一样）
+    const way = [[tr('左上@@屏幕方向'), tr('上@@屏幕方向'), tr('右上@@屏幕方向')], [tr('左@@屏幕方向'), '', tr('右@@屏幕方向')], [tr('左下@@屏幕方向'), tr('下@@屏幕方向'), tr('右下@@屏幕方向')]][dy + 1][dx + 1];
+    return this.input.device === 'pad' ? tr`光圈在视野外：推右摇杆往${way}看。` : tr`光圈在视野外：把鼠标移到屏幕${way}边，视线会跟着转过去。`;
   }
 
   private readEnv(s: GameSession): ReadEnv {
@@ -2113,7 +2176,7 @@ export class App {
           const m = e.ev;
           if (m.type === 'objectiveDone') {
             A.success();
-            hud.toast(tr`${m.optional ? tr('可选任务完成') : tr('任务完成')}：${m.obj.def.title}${m.landing ? tr`（降落${GRADE_LABEL[m.landing.grade]}）` : ''}`, 'good', 4000);
+            hud.toast(tr`${m.optional ? tr('可选任务完成') : tr('任务完成@@一项目标')}：${m.obj.def.title}${m.landing ? tr`（降落${GRADE_LABEL[m.landing.grade]}）` : ''}`, 'good', 4000);
           } else if (m.type === 'objectiveStart') hud.toast(tr`新任务：${m.obj.def.title}`, 'info', 4000);
           else if (m.type === 'landingRejected') hud.toast(tr`着陆不合格：${m.metrics.reasons.join(tr('，'))}。请起飞后重新降落`, 'bad', 5000);
           else if (m.type === 'landingAccepted') hud.toast(tr`着陆合格（${GRADE_LABEL[m.metrics.grade]}），保持停稳…`, 'good', 2500);

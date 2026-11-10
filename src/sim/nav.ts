@@ -193,7 +193,7 @@ export class Navigator {
 
     if (this.focus > 0 && optionalGoal) {
       this.direct(pos, optionalGoal.pos, optionalGoal.label, 'optional');
-      info.pathLabel = tr('可选任务');
+      info.pathLabel = tr('可选任务@@导航目标');
       return info;
     }
     if (!goal) {

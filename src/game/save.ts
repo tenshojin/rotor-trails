@@ -200,6 +200,34 @@ export class SaveStore {
     return r;
   }
 
+  /** 导出：整份存档的文本（JSON）。玩家存成文件，换电脑、换浏览器时再导入 */
+  exportText(): string {
+    return JSON.stringify({ game: SAVE_KEY, exportedAt: new Date().toISOString(), ...this.data, version: SAVE_VERSION }, null, 1);
+  }
+
+  /** 这段文本是不是能导入的存档。newer：比这个版本新的游戏导出的，读了会丢东西，不收 */
+  static check(text: string): 'ok' | 'invalid' | 'newer' {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return 'invalid';
+    }
+    if (!isSaveObject(parsed) || typeof parsed.version !== 'number' || !Number.isFinite(parsed.version) || !isSaveObject(parsed.settings)) return 'invalid';
+    if (parsed.game !== undefined && parsed.game !== SAVE_KEY) return 'invalid';
+    return parsed.version > SAVE_VERSION ? 'newer' : 'ok';
+  }
+
+  /** 导入：和读档走同一套迁移与校验，然后存进浏览器。存不进去（存储不可用）返回 false，现有进度不动 */
+  importText(text: string): boolean {
+    if (SaveStore.check(text) !== 'ok') return false;
+    const before = this.data;
+    this.data = migrate(JSON.parse(text));
+    if (this.save()) return true;
+    this.data = before;
+    return false;
+  }
+
   /** 记下到过的地方，返回是不是第一次来 */
   visit(map: MapId, place: string): boolean {
     const list = (this.data.visited[map] ??= []);

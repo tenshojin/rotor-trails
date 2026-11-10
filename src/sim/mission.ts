@@ -249,6 +249,8 @@ export class MissionRuntime {
         while (o.routeIdx < d.route.length - 1 && Math.hypot(ctx.pos.x - d.route[o.routeIdx][0], ctx.pos.z - d.route[o.routeIdx][2]) < 55) o.routeIdx++;
       }
       let remaining = 0;
+      // （“太快了”的提示要留到速度降下来为止；按整句比，不按开头的字比：译成别的语言后开头不一样）
+      const fast = tr`速度过快：低于 ${d.maxSpeed} m/s 才能看清`;
       d.points.forEach((p, i) => {
         if (o.visited[i]) return;
         const dd = Math.hypot(ctx.pos.x - p.pos[0], ctx.pos.y - p.pos[1], ctx.pos.z - p.pos[2]);
@@ -256,14 +258,14 @@ export class MissionRuntime {
           if (ctx.speed <= d.maxSpeed) {
             o.visited[i] = true;
             out.push({ type: 'inspectPoint', obj: o, label: p.label, remaining: o.visited.filter((v) => !v).length });
-          } else o.hint = tr`速度过快：低于 ${d.maxSpeed} m/s 才能看清`;
+          } else o.hint = fast;
         }
         if (!o.visited[i]) remaining++;
       });
       o.progress = 1 - remaining / d.points.length;
       if (remaining === 0) this.finish(o, isOpt, null, out);
-      else if (!o.hint.startsWith(tr('速度'))) o.hint = tr`剩余 ${remaining} 个巡查点`;
-      if (o.hint.startsWith(tr('速度')) && ctx.speed <= d.maxSpeed) o.hint = tr`剩余 ${remaining} 个巡查点`;
+      else if (o.hint !== fast) o.hint = tr`剩余 ${remaining} 个巡查点`;
+      if (o.hint === fast && ctx.speed <= d.maxSpeed) o.hint = tr`剩余 ${remaining} 个巡查点`;
     }
   }
 

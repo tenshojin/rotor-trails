@@ -1,6 +1,25 @@
 {
-  "*": ["console.warn(", "console.error(", "console.log(", "console.info(", "new Error(", "new TypeError(", "new RangeError("],
-  "sim/autopilot.ts": [""],
-  "i18n/index.ts": ["简体中文", "日本語", "@@"],
-  "maps/": ["note: '"]
+  "*": [
+    "console.warn(",
+    "console.error(",
+    "console.log(",
+    "console.info(",
+    "new Error(",
+    "new TypeError(",
+    "new RangeError("
+  ],
+  "sim/autopilot.ts": [
+    ""
+  ],
+  "i18n/index.ts": [
+    "简体中文",
+    "日本語",
+    "@@"
+  ],
+  "maps/": [
+    "note: '"
+  ],
+  "ui/menus.ts": [
+    "语言 / Language"
+  ]
 }

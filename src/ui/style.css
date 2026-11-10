@@ -14,6 +14,13 @@
   --mono: 'Cascadia Mono', Consolas, 'SFMono-Regular', monospace;
   color-scheme: dark;
 }
+/* 日文、英文各用自己的字体：日文里的汉字用中文字体画出来，字形是错的（“直”“海”这些字两边写法不一样） */
+:root[lang='ja'] {
+  --font: 'Segoe UI', 'Yu Gothic UI', 'Hiragino Sans', 'Meiryo', 'Noto Sans JP', system-ui, sans-serif;
+}
+:root[lang='en'] {
+  --font: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+}
 
 * {
   box-sizing: border-box;
@@ -215,6 +222,39 @@ a {
   color: var(--muted);
   letter-spacing: 0.3em;
   margin-bottom: 36px;
+}
+/* 英文一行字多：字距收一点，不然副标题比标题还宽 */
+:root[lang='en'] .logo-sub {
+  letter-spacing: 0.14em;
+}
+/* 主菜单右上角的语言切换 */
+.lang-pick {
+  position: absolute;
+  top: calc(18px + env(safe-area-inset-top, 0px));
+  right: calc(22px + env(safe-area-inset-right, 0px));
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  background: rgba(8, 14, 20, 0.55);
+  border: 1px solid var(--line);
+}
+.lang-pick button {
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.lang-pick button:hover {
+  color: var(--text);
+}
+.lang-pick button.on {
+  color: var(--text);
+  background: rgba(56, 232, 255, 0.16);
 }
 .menu-col {
   display: flex;
@@ -687,6 +727,12 @@ table.score .total td {
   gap: 10px;
   margin-top: 20px;
   flex-wrap: wrap;
+}
+.btn-row.save-row {
+  margin: 8px 0;
+}
+.save-confirm .btn {
+  margin-left: 6px;
 }
 .settings .tabs {
   display: flex;

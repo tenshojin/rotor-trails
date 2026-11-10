@@ -23,6 +23,17 @@ export const LANGS: ReadonlyArray<{ id: Lang; name: string; html: string }> = [
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Entry = string | ((...v: any[]) => string);
 export type Dict = Readonly<Record<string, Entry>>;
+/** 字典里的一条：[英文, 日文]（dict/ 下面每个文件一张表，键是中文原文） */
+export type Pair = readonly [en: Entry, ja: Entry];
+export type Table = Readonly<Record<string, Pair>>;
+
+/** 从 [英文, 日文] 的表里取一种语言 */
+export function column(table: Table, l: Exclude<Lang, 'zh'>): Dict {
+  const i = l === 'en' ? 0 : 1;
+  const out: Record<string, Entry> = {};
+  for (const k of Object.keys(table)) out[k] = table[k][i];
+  return out;
+}
 
 /** 存档的键（和 game/save.ts 的 SAVE_KEY 一样；这里不能 import 它，tests/i18n.test.ts 守着两边一致） */
 export const SAVE_KEY_FOR_LANG = 'rotorTrails.save';
@@ -137,7 +148,7 @@ export async function initI18n(): Promise<Lang> {
   let d: Dict | null = null;
   if (l !== 'zh') {
     try {
-      d = (l === 'en' ? await import('./en') : await import('./ja')).default;
+      d = column((await import('./dict/index.ts')).default, l);
     } catch (e) {
       console.warn('i18n: dictionary failed to load, falling back to zh', e);
       l = 'zh';

@@ -9,7 +9,8 @@ import type { ScoreResult } from '../sim/scoring';
 import type { LandingMetrics } from '../sim/mission';
 import type { Lesson } from '../game/tutorial';
 import { GRADE_LABEL } from '../sim/mission';
-import { tr } from '../i18n';
+import { LANGS, tr, type Lang, type LangSetting } from '../i18n';
+import { FEEDBACK_URL, VERSION } from '../game/version';
 
 export interface CheckpointItem {
   index: number;
@@ -194,26 +195,36 @@ export class UI {
     );
   }
 
-  main(opts: { warning: string | null; tutorialDone: boolean }, on: { play: () => void; free: () => void; tutorial: () => void; settings: () => void; help: () => void; about: () => void; log?: () => void }): void {
+  /**
+   * newcomer：一课没学过、一张图没飞完的人。主按钮换成“飞行训练”放在最上面：
+   * 没学过操作直接进任务，头一分钟就摔，第一印象就坏了。
+   * lang：右上角的语言切换（浏览器语言认错了的时候一眼能找到，三个名字用各自的文字写）
+   */
+  main(opts: { warning: string | null; tutorialDone: boolean; newcomer?: boolean; lang?: Lang }, on: { play: () => void; free: () => void; tutorial: () => void; settings: () => void; help: () => void; about: () => void; log?: () => void; lang?: (l: Lang) => void }): void {
+    const play = `<button class="btn ${opts.newcomer ? '' : 'primary'}" data-a="play">${tr`开始游戏`}</button>`;
+    const free = `<button class="btn" data-a="free">${tr`休闲飞行`}</button>`;
+    const train = `<button class="btn ${opts.newcomer ? 'primary' : ''}" data-a="tutorial">${tr`飞行训练`}${opts.tutorialDone ? '' : ` <span class="tag">${tr`推荐先玩`}</span>`}</button>`;
+    const langs = on.lang
+      ? `<div class="lang-pick" role="group" aria-label="Language">${LANGS.map((l) => `<button type="button" class="${l.id === opts.lang ? 'on' : ''}" data-a="lang" data-v="${l.id}" lang="${l.html}" aria-pressed="${l.id === opts.lang}">${l.name}</button>`).join('')}</div>`
+      : '';
     const el = this.show(
       h(`<div class="screen main-menu">
+        ${langs}
         <div class="title-block">
           <h1 class="logo">ROTOR TRAILS</h1>
           <div class="logo-sub">${tr`旋翼航迹 · 第一人称拟真直升机`}</div>
         </div>
         <div class="menu-col">
-          <button class="btn primary" data-a="play">${tr`开始游戏`}</button>
-          <button class="btn" data-a="free">${tr`休闲飞行`}</button>
-          <button class="btn" data-a="tutorial">${tr`飞行训练`}${opts.tutorialDone ? '' : ` <span class="tag">${tr`推荐先玩`}</span>`}</button>
+          ${opts.newcomer ? train + play + free : play + free + train}
           ${on.log ? `<button class="btn" data-a="log">${tr`飞行记录`}</button>` : ''}
           <button class="btn" data-a="settings">${tr`设置`}</button>
           <button class="btn" data-a="help">${tr`操作说明`}</button>
           <button class="btn ghost" data-a="about">${tr`关于与授权`}</button>
         </div>
-        <div class="menu-foot">${opts.warning ? `<div class="warnbox">${opts.warning}</div>` : ''}<span>${tr`v1.0 · 没有时间限制，按自己的节奏飞行`}</span></div>
+        <div class="menu-foot">${opts.warning ? `<div class="warnbox">${opts.warning}</div>` : ''}<span>v${VERSION} · ${tr`没有时间限制，按自己的节奏飞行`}</span></div>
       </div>`),
     );
-    this.bind(el, { play: on.play, free: on.free, tutorial: on.tutorial, settings: on.settings, help: on.help, about: on.about, log: () => on.log?.() });
+    this.bind(el, { play: on.play, free: on.free, tutorial: on.tutorial, settings: on.settings, help: on.help, about: on.about, log: () => on.log?.(), lang: (b) => on.lang?.(b.dataset.v as Lang) });
   }
 
   /** 飞行训练的课程表 */
@@ -276,7 +287,7 @@ export class UI {
     let time: TimeOfDay = 'day';
     let assist: AssistId = settings.assist;
     const objs = m.mission.main
-      .map((o, i) => `<li><b>${i + 1}. ${o.title}</b><span>${o.detail}</span></li>`)
+      .map((o) => `<li><b>${o.title}</b><span>${o.detail}</span></li>`)
       .join('');
     const opt = m.mission.optional.map((o) => `<li><b>${rec?.optionalDone.includes(o.id) ? '✔ ' : ''}${o.title}</b><span>${o.detail}</span></li>`).join('');
     const forks = m.legs
@@ -393,7 +404,7 @@ export class UI {
       h(`<div class="screen center dim"><div class="card free-pause"><h2>${o.map.name}</h2>
       <h3>${tr`时段`}</h3><div class="chips" data-group="time">${(Object.keys(TIME_OF_DAY) as TimeOfDay[]).map((k) => chip('time', k, TIME_OF_DAY[k].label, k === o.time)).join('')}</div>
       <h3>${tr`天气`}</h3><div class="chips" data-group="weather">${o.map.weathers.map((w) => chip('weather', w.id, w.label, w.id === o.weather)).join('')}</div>
-      <h3>${tr`去这些地方`}</h3><div class="chips">${o.vistas.map((v, i) => chip('vista', String(i), `${o.been.includes(v) ? '✓ ' : ''}${v}`, false)).join('')}</div>
+      <h3>${tr`去这些地方`}</h3><div class="chips">${o.vistas.map((v, i) => chip('vista', String(i), `${o.been.includes(v) ? '✓ ' : ''}${tr(v)}`, false)).join('')}</div>
       ${o.unseen.length ? `<h3>${tr`还没去过（到过 ${o.been.length} / ${o.total}）`}${o.canGo ? tr(' · 点一下自动飞过去') : ''}</h3>${o.canGo ? `<div class="chips">${o.unseen.map((v, i) => chip('go', String(i), v, false)).join('')}</div>` : `<p class="vistas">${o.unseen.map((v) => `<span>${v}</span>`).join('')}</p>`}` : `<p class="muted been-all">${tr`这张图的 ${o.total} 个地方都到过了。`}</p>`}
       <div class="free-actions"><button class="btn primary" data-a="resume">${tr`继续飞行`}</button>
       <button class="btn" data-a="cruise">${o.cruise ? tr('关闭自动巡航') : tr('自动巡航（看风景）')}</button>
@@ -657,14 +668,22 @@ export class UI {
       <p>${tr`“大峡谷”地图的高程来自 USGS 3D Elevation Program，影像来自 USDA National Agriculture Imagery Program（2023 年，经 USGS The National Map 分发），均为美国政府公有领域数据，courtesy of the U.S. Geological Survey。`}</p>
       <h3>${tr`第三方开源库`}</h3>
       <ul class="tips"><li>three.js — MIT License</li><li>${tr`Rapier（@dimforge/rapier3d-compat）— Apache License 2.0`}</li><li>${tr`开发工具：Vite（MIT）、TypeScript（Apache-2.0）、Vitest（MIT）`}</li></ul>
-      <p class="muted">${tr`可查看`}<a href="./licenses.md" target="_blank" rel="noopener">${tr`第三方素材与开源许可`}</a>${tr`。除大峡谷外，地图都是虚构地形，仅体现日本海湾、美国西南峡谷、亚马孙雨林、挪威峡湾、尼泊尔高山的地貌特色，不对应真实地理位置。`}</p></div></div>`),
+      <p class="muted">${tr`除大峡谷外，地图都是虚构地形，仅体现日本海湾、美国西南峡谷、亚马孙雨林、挪威峡湾、尼泊尔高山的地貌特色，不对应真实地理位置。`} <a href="./licenses.md" target="_blank" rel="noopener">${tr`第三方素材与开源许可`}</a></p>
+      <p class="muted">${tr`版本 ${VERSION}。飞起来哪里别扭、哪里出了问题，欢迎告诉我们：`} <a href="${FEEDBACK_URL}" target="_blank" rel="noopener">${tr`反馈问题和建议`}</a></p></div></div>`),
     );
     this.bind(el, { close: () => this.closeModal() });
   }
 
-  settings(cur: Settings, on: { change: (s: Settings) => void; capture: (cb: (code: string) => void) => (() => void) | void; close: () => void }): void {
+  /**
+   * exportSave / checkSave / importSave：存档只在这个浏览器里，换电脑、清浏览器数据就没了，所以能导出成文件再导入。
+   * 导入要点两次：选好文件先检查（checkSave），提示会覆盖，确认了才真的换（importSave，之后游戏重新加载）
+   */
+  settings(cur: Settings, on: { change: (s: Settings) => void; capture: (cb: (code: string) => void) => (() => void) | void; close: () => void; exportSave?: () => void; checkSave?: (text: string) => 'ok' | 'invalid' | 'newer'; importSave?: (text: string) => void }): void {
     const s: Settings = structuredClone(cur);
     let tab = 'controls';
+    let pendingImport: string | null = null;
+    let saveNotice = '';
+    const canFull = !this.touch && typeof document !== 'undefined' && document.fullscreenEnabled === true;
     let cancelCapture: (() => void) | void;
     let captureVersion = 0;
     let bindingNotice = tr('点一个键再按新键就换成新键；按 Delete 删掉这个备用键，按 Esc 取消。每个动作最多 3 个键。');
@@ -673,7 +692,7 @@ export class UI {
       cancelCapture?.();
       cancelCapture = undefined;
     };
-    const el = this.openModal(h(`<div class="modal"><div class="card wide settings"><div class="screen-head"><h2>${tr`设置`}</h2><button class="btn ghost" data-a="close">${tr`完成`}</button></div>
+    const el = this.openModal(h(`<div class="modal"><div class="card wide settings"><div class="screen-head"><h2>${tr`设置`}</h2><button class="btn ghost" data-a="close">${tr('完成@@关闭设置的按钮')}</button></div>
       <div class="tabs" role="tablist" aria-label="${tr`设置分类`}"><button class="tab" id="settings-controls" role="tab" aria-controls="settings-panel" data-a="tab" data-t="controls">${tr`操作`}</button><button class="tab" id="settings-video" role="tab" aria-controls="settings-panel" data-a="tab" data-t="video">${tr`画面`}</button><button class="tab" id="settings-audio" role="tab" aria-controls="settings-panel" data-a="tab" data-t="audio">${tr`声音`}</button><button class="tab" id="settings-assist" role="tab" aria-controls="settings-panel" data-a="tab" data-t="assist">${tr`辅助与显示`}</button></div>
       <div class="tab-body" id="settings-panel" role="tabpanel"></div><p class="settings-save muted">${tr`设置自动保存到此浏览器`}</p></div></div>`), (notify) => { stopCapture(); if (notify) on.close(); });
     const body = el.querySelector('.tab-body') as HTMLDivElement;
@@ -706,6 +725,7 @@ export class UI {
             : `<h3>${tr`按键绑定`} <button class="btn sm ghost" data-a="resetKeys">${tr`恢复默认`}</button></h3><p class="binding-notice" role="status">${escapeHtml(bindingNotice)}</p><div class="bind-list">${rows}</div>`);
       } else if (tab === 'video') {
         body.innerHTML =
+          (canFull ? `<div class="set-row"><span>${tr`全屏显示`}</span><button type="button" class="btn sm" data-a="fullscreen">${document.fullscreenElement ? tr('退出全屏') : tr('进入全屏')}</button><em class="muted">${tr`也可以按 F11。全屏时 Esc 是暂停，按住 Esc 才退出全屏`}</em></div>` : '') +
           select('quality', tr('画质'), (Object.keys(QUALITY) as Array<keyof typeof QUALITY>).map((q) => [q, QUALITY[q].label])) +
           check('rayTracing', tr('光线追踪'), tr('沿地形追踪真实光线：山谷、岩壁、机腹接到地面反上来的彩色光，金属映出地形，舱内光线随脚下的地面变化。进图时多算一秒，飞行时几乎不占性能')) +
           check('volumetric', tr('体积雾与光束'), tr('贴地薄雾、穿过树林与云缝的光束（丁达尔效应）；中画质及以上生效')) +
@@ -722,7 +742,11 @@ export class UI {
       } else if (tab === 'audio') {
         body.innerHTML = range('volMaster', tr('总音量'), 0, 1, 0.05, pct) + range('volEngine', tr('发动机与旋翼'), 0, 1, 0.05, pct) + range('volAmbience', tr('环境与天气'), 0, 1, 0.05, pct) + range('volAlerts', tr('告警与提示'), 0, 1, 0.05, pct) + range('volMusic', tr('背景音乐（菜单和休闲飞行）'), 0, 1, 0.05, pct);
       } else {
+        // （“语言 / Language”这个标签不翻：不管现在是哪种语言，都要让人认得出这一项是什么）
+        const langs: Array<[LangSetting, string]> = [['auto', tr('跟随浏览器')], ...LANGS.map((l): [LangSetting, string] => [l.id, l.name])];
         body.innerHTML =
+          select('lang', '语言 / Language', langs) +
+          `<p class="muted">${tr`换语言会重新加载游戏；飞行中改的话，回到主菜单时才换。`}</p>` +
           select('assist', tr('默认飞行辅助'), (Object.keys(ASSISTS) as AssistId[]).map((a) => [a, ASSISTS[a].label])) +
           `<p class="muted">${ASSISTS[s.assist].desc}</p>` +
           select('speedUnit', tr('HUD 速度单位'), [
@@ -731,7 +755,13 @@ export class UI {
             ['ms', 'm/s'],
           ]) +
           range('hudOpacity', tr('HUD 不透明度'), 0.3, 1, 0.05, pct) +
-          check('hints', tr('显示操作提示'), tr('常规提示；教学与安全告警始终保留'));
+          check('hints', tr('显示操作提示'), tr('常规提示；教学与安全告警始终保留')) +
+          (on.exportSave && on.checkSave && on.importSave
+            ? `<h3>${tr`存档`}</h3><p class="muted">${tr`进度和设置只存在这个浏览器里。换电脑、换浏览器或者清理浏览器数据之前，先导出一份，到那边再导入。`}</p>
+              <div class="btn-row save-row"><button type="button" class="btn sm" data-a="exportSave">${tr`导出存档`}</button><button type="button" class="btn sm" data-a="pickSave">${tr`导入存档…`}</button><input type="file" class="save-file" accept=".json,application/json" hidden></div>
+              ${pendingImport !== null ? `<p class="warnbox save-confirm">${tr`导入会覆盖现在的进度和设置，然后重新加载游戏。`} <button type="button" class="btn sm primary" data-a="confirmImport">${tr`确认导入`}</button> <button type="button" class="btn sm ghost" data-a="cancelImport">${tr`取消`}</button></p>` : ''}
+              <p class="save-notice muted" role="status">${escapeHtml(saveNotice)}</p>`
+            : '');
       }
     };
     render();
@@ -763,12 +793,70 @@ export class UI {
         body.querySelector<HTMLElement>('[data-k="assist"]')?.focus({ preventScroll: true });
       }
     });
+    body.addEventListener('change', (e) => {
+      const input = e.target as HTMLInputElement;
+      if (!input.classList?.contains('save-file')) return;
+      const file = input.files?.[0];
+      if (!file) return;
+      const show = (notice: string, text: string | null): void => {
+        saveNotice = notice;
+        pendingImport = text;
+        if (tab === 'assist') {
+          render();
+          body.querySelector<HTMLElement>(text === null ? '[data-a="pickSave"]' : '[data-a="confirmImport"]')?.focus({ preventScroll: true });
+        }
+      };
+      // （存档只有几十 KB；选错了一个大文件就不读了）
+      if (file.size > 2_000_000) return show(tr('这不是旋翼航迹的存档文件。'), null);
+      void file.text().then(
+        (text) => {
+          if (!el.isConnected) return;
+          const r = on.checkSave?.(text) ?? 'invalid';
+          if (r === 'ok') show('', text);
+          else show(r === 'newer' ? tr('这份存档来自更新的版本，现在这个版本读不了。刷新页面更新游戏后再导入。') : tr('这不是旋翼航迹的存档文件。'), null);
+        },
+        () => show(tr('文件读不出来，换一个再试。'), null),
+      );
+    });
     this.bind(el, {
       close: () => this.closeModal(),
       tab: (b) => {
         stopCapture();
         tab = b.dataset.t!;
+        pendingImport = null;
         render();
+      },
+      fullscreen: () => {
+        const done = (): void => {
+          if (!el.isConnected || tab !== 'video') return;
+          render();
+          body.querySelector<HTMLElement>('[data-a="fullscreen"]')?.focus({ preventScroll: true });
+        };
+        if (document.fullscreenElement) void document.exitFullscreen().then(done, done);
+        else {
+          void document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(() => {
+            // 全屏时让 Esc 留给游戏当暂停键（长按才退出全屏）；只有 Chrome、Edge 支持，别的浏览器照旧
+            void (navigator as unknown as { keyboard?: { lock?: (keys: string[]) => Promise<void> } }).keyboard?.lock?.(['Escape'])?.catch(() => {});
+            done();
+          }, done);
+        }
+      },
+      exportSave: () => {
+        on.exportSave?.();
+        saveNotice = tr('已导出：存档文件在浏览器的下载文件夹里。');
+        pendingImport = null;
+        render();
+        body.querySelector<HTMLElement>('[data-a="exportSave"]')?.focus({ preventScroll: true });
+      },
+      pickSave: () => body.querySelector<HTMLInputElement>('.save-file')?.click(),
+      confirmImport: () => {
+        if (pendingImport !== null) on.importSave?.(pendingImport);
+      },
+      cancelImport: () => {
+        pendingImport = null;
+        saveNotice = '';
+        render();
+        body.querySelector<HTMLElement>('[data-a="pickSave"]')?.focus({ preventScroll: true });
       },
       resetKeys: () => {
         stopCapture();

@@ -1,6 +1,7 @@
 // 游戏设置（带默认值与校验）与画质预设。
 
 import type { AssistId } from '../config/flight';
+import type { LangSetting } from '../i18n';
 import { tr } from '../i18n';
 
 export type Action =
@@ -150,6 +151,8 @@ export interface Settings {
   speedUnit: 'kmh' | 'kt' | 'ms';
   hudOpacity: number;
   hints: boolean;
+  /** 界面语言：auto = 跟随浏览器（见 i18n/index.ts 的 pickLang）。换了要重新加载才生效 */
+  lang: LangSetting;
   bindings: Record<Action, string[]>;
 }
 
@@ -181,6 +184,7 @@ export function defaultSettings(): Settings {
     speedUnit: 'kmh',
     hudOpacity: 1,
     hints: true,
+    lang: 'auto',
     bindings: structuredClone(DEFAULT_BINDINGS),
   };
 }
@@ -272,6 +276,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     speedUnit: pick(r.speedUnit, ['kmh', 'kt', 'ms'] as const, d.speedUnit),
     hudOpacity: num(r.hudOpacity, 0.3, 1, d.hudOpacity),
     hints: bool(r.hints, d.hints),
+    lang: pick(r.lang, ['auto', 'zh', 'en', 'ja'] as const, d.lang),
     bindings,
   };
 }
