@@ -5,10 +5,14 @@
 //   十字键 上 导航目标  下 HUD  左右 地图范围   按下右摇杆 截图  按下左摇杆 配平（超仿真）
 //   超仿真：屏幕中间有准星，对准开关按 A 往前拨、X 往回拨，按住转旋钮（App.simControls）
 //   教学的说明页：A 翻页
-// 菜单里：十字键或左摇杆移动焦点，A 确认，B 返回。
+// 菜单里：十字键或左摇杆移动焦点，A 确认，B 返回，右摇杆上下滚动长页面。
+// 拍照模式（'panel'）：摇杆、扳机、肩键照旧管机位，十字键和 A 走下面那排面板。
+// 接了好几个手柄时跟着最后有人动的那个；不是标准布局的设备（方向盘、飞行摇杆）不认，但告诉玩家一声。
 
 export type PadEdge = 'hover' | 'boost' | 'view' | 'center' | 'pause' | 'cruise' | 'nav' | 'hud' | 'mapRange' | 'photo' | 'trim';
 export type PadNav = 'up' | 'down' | 'left' | 'right' | 'ok' | 'back';
+/** menu：在菜单里；fly：在飞；panel：拍照模式（十字键和 A 给面板，其余照飞行） */
+export type PadMode = 'menu' | 'fly' | 'panel';
 
 const DEAD = 0.14;
 /** 摇杆推过这么多才算“玩家在用手柄”：静止时漂一点不算 */
@@ -56,16 +60,29 @@ export class PadReader {
   used = false;
   /** 手柄接上（true）或断开（false） */
   onConnection: ((connected: boolean, name: string) => void) | null = null;
+  /** 接着一个认不出布局的设备（每个设备只报一次） */
+  onIgnored: ((name: string) => void) | null = null;
   private held: boolean[] = [];
   private navDir: PadNav | null = null;
   private navT = 0;
   private motor: { playEffect?: (type: string, p: Record<string, number>) => Promise<unknown> } | null = null;
+  private ignored = new Set<string>();
+  private index = -1;
 
-  /** 读一次手柄。inMenu：方向键和 A、B 用来走菜单，不是飞行动作 */
-  poll(dt: number, inMenu: boolean, edge: (a: PadEdge) => void, nav: (d: PadNav) => void): void {
+  /** 读一次手柄。mode：menu 方向键和 A、B 走菜单；panel 十字键和 A 走拍照面板；fly 全是飞行动作 */
+  poll(dt: number, mode: PadMode, edge: (a: PadEdge) => void, nav: (d: PadNav) => void): void {
     const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
+    const list = [...pads].filter((p): p is Gamepad => !!p && p.connected);
     // 只认标准布局：方向盘、飞行摇杆、踏板也报成手柄，它们的轴静止时可能在 ±1，接上就等于有人一直推着杆
-    const pad = [...pads].find((p) => p && p.connected && p.mapping === 'standard' && p.buttons.length >= 10) ?? null;
+    const std = list.filter((p) => p.mapping === 'standard' && p.buttons.length >= 10);
+    for (const p of list) {
+      if (std.includes(p) || this.ignored.has(p.id)) continue;
+      this.ignored.add(p.id);
+      this.onIgnored?.(p.id);
+    }
+    // 接了好几个：跟着最后有人动的那个（timestamp 是它最后一次有输入的时间），都没动就还用原来那个
+    let pad = std.find((p) => p.index === this.index) ?? std[0] ?? null;
+    for (const p of std) if (pad && p.timestamp > pad.timestamp && (p.buttons.some((b) => b.pressed) || p.axes.some((v) => Math.abs(v) > USED))) pad = p;
     this.used = false;
     if (!pad) {
       if (this.connected) {
@@ -76,6 +93,12 @@ export class PadReader {
       return;
     }
     const fresh = !this.connected;
+    // 换了一个手柄：上一个手柄按着的键不算到这一个头上（这一个上正按着的，就是让它接手的那一下，照常算）
+    if (pad.index !== this.index) {
+      this.held = [];
+      this.navDir = null;
+    }
+    this.index = pad.index;
     this.connected = true;
     this.name = pad.id;
     if (fresh) this.onConnection?.(true, pad.id);
@@ -91,14 +114,18 @@ export class PadReader {
     this.vertical = val(7) - val(6);
     this.used = pad.buttons.some((b) => b.pressed) || pad.axes.some((v) => Math.abs(v) > USED);
     const pressed = (i: number): boolean => on(i) && !this.held[i];
-    if (inMenu) {
+    if (mode === 'menu') {
       if (pressed(0)) nav('ok');
       if (pressed(1)) nav('back');
       if (pressed(9)) edge('pause');
-      this.moveFocus(dt, on, ax, nav);
+      this.moveFocus(dt, on, ax, nav, true);
     } else {
-      for (const [i, a] of EDGES) if (pressed(i)) edge(a);
-      this.navDir = null;
+      // 拍照面板：A 和十字键给面板，其余的键照飞行（B 加速、Y 倾斜回正、视图键收面板……）
+      for (const [i, a] of EDGES) if (pressed(i) && !(mode === 'panel' && (i === 0 || i >= 12))) edge(a);
+      if (mode === 'panel') {
+        if (pressed(0)) nav('ok');
+        this.moveFocus(dt, on, ax, nav, false);
+      } else this.navDir = null;
     }
     this.held = pad.buttons.map((b) => b.pressed);
   }
@@ -114,8 +141,10 @@ export class PadReader {
     void this.motor?.playEffect?.('dual-rumble', { duration: 120 + 260 * k, strongMagnitude: k, weakMagnitude: 0.3 + 0.5 * k })?.catch(() => {});
   }
 
-  private moveFocus(dt: number, on: (i: number) => boolean, ax: (i: number) => number, nav: (d: PadNav) => void): void {
-    const dir: PadNav | null = on(12) || ax(1) < -STICK_NAV ? 'up' : on(13) || ax(1) > STICK_NAV ? 'down' : on(14) || ax(0) < -STICK_NAV ? 'left' : on(15) || ax(0) > STICK_NAV ? 'right' : null;
+  /** stick：左摇杆也能走（菜单里）；拍照面板只认十字键，左摇杆在挪机位 */
+  private moveFocus(dt: number, on: (i: number) => boolean, ax: (i: number) => number, nav: (d: PadNav) => void, stick: boolean): void {
+    const s = stick ? ax : () => 0;
+    const dir: PadNav | null = on(12) || s(1) < -STICK_NAV ? 'up' : on(13) || s(1) > STICK_NAV ? 'down' : on(14) || s(0) < -STICK_NAV ? 'left' : on(15) || s(0) > STICK_NAV ? 'right' : null;
     if (dir !== this.navDir) {
       this.navDir = dir;
       this.navT = REPEAT_WAIT;
@@ -132,6 +161,7 @@ export class PadReader {
 
   private reset(): void {
     this.connected = false;
+    this.index = -1;
     this.forward = this.turn = this.lateral = this.vertical = this.lookX = this.lookY = 0;
     this.held = [];
     this.navDir = null;

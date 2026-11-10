@@ -126,6 +126,16 @@ export class PhotoPanel {
     this.root.classList.toggle('hidden');
   }
 
+  /** 面板展开着（手柄的十字键这时候走面板） */
+  get open(): boolean {
+    return !this.root.classList.contains('hidden');
+  }
+
+  /** 面板本身（手柄在上面挑项目） */
+  get element(): HTMLElement {
+    return this.root;
+  }
+
   /** 存好了：面板收起来的时候也要让人知道，所以闪一下画面 */
   saved(text: string): void {
     this.note.textContent = text;

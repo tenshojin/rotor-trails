@@ -1,11 +1,14 @@
 // 键盘鼠标输入：可重绑定的按键、鼠标锁定观察（失败时退化为拖拽/方向键观察）、
 // 浏览器快捷键冲突处理（游戏中拦截可拦截的 Ctrl 组合键）、失焦/切后台时清空按键状态。
 
-import { PadReader, type PadEdge, type PadNav } from './gamepad';
+import { PadReader, type PadEdge, type PadMode, type PadNav } from './gamepad';
 import { isBindingCode, type Action, type Settings } from './settings';
 
 type EdgeAction = 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim' | 'photo';
 const EDGE: EdgeAction[] = ['hover', 'boost', 'center', 'pause', 'view', 'nav', 'mapRange', 'hud', 'cruise', 'trim', 'photo'];
+
+/** 手柄上按住哪个键算按住这个动作（拍照模式“按住 B 走得快”这类要看按住没有，不是按了一下） */
+const PAD_HOLD: Partial<Record<Action, number>> = { hover: 0, boost: 1, view: 2, center: 3, cruise: 8, pause: 9, trim: 10, photo: 11, nav: 12, hud: 13, mapRange: 14 };
 
 /** 鼠标移到屏幕边上转头：从离边 EDGE_ZONE 处开始转，越靠边越快 */
 const EDGE_ZONE = 0.2;
@@ -51,6 +54,8 @@ export class Input {
   onPadNav: ((d: PadNav) => void) | null = null;
   /** 手机、平板：没有鼠标，也就不锁鼠标 */
   touch: TouchAxes | null = null;
+  /** 拍照模式开着面板：手柄的十字键和 A 走面板（App 设） */
+  padPanel = false;
   onLockChange: ((locked: boolean) => void) | null = null;
   /** 改键捕获：返回按下的按键代码 */
   private capture: ((code: string) => void) | null = null;
@@ -148,42 +153,37 @@ export class Input {
   }
 
   is(a: Action): boolean {
-    for (const c of this.settings.bindings[a]) if (this.down.has(c)) return true;
+    if (this.keyHeld(a)) return true;
+    const b = PAD_HOLD[a];
+    if (b !== undefined && this.active && this.pad.connected && this.pad.down(b)) return true;
     return Math.abs(this.padAxis(a)) > 0.5;
   }
 
-  /** 这个动作在手柄上的量：教学里判断“按住了没有”也看它 */
-  private padAxis(a: Action): number {
-    const p: TouchAxes | null = this.pad.connected ? this.pad : this.touch;
-    if (!p || !this.active) return 0;
-    switch (a) {
-      case 'forward':
-        return Math.max(0, p.forward);
-      case 'back':
-        return Math.max(0, -p.forward);
-      case 'right':
-        return Math.max(0, p.turn);
-      case 'left':
-        return Math.max(0, -p.turn);
-      case 'strafeRight':
-        return Math.max(0, p.lateral);
-      case 'strafeLeft':
-        return Math.max(0, -p.lateral);
-      case 'up':
-        return Math.max(0, p.vertical);
-      case 'down':
-        return Math.max(0, -p.vertical);
-      default:
-        return 0;
-    }
+  /** 键盘上按着这个动作的键没有（不看手柄、触屏） */
+  keyHeld(a: Action): boolean {
+    for (const c of this.settings.bindings[a]) if (this.down.has(c)) return true;
+    return false;
   }
 
-  /** 每帧读一次手柄。飞行中按键走 onEdge，菜单里走 onPadNav */
+  /** 这个动作在手柄、触屏摇杆上的量：教学里判断“按住了没有”也看它。
+   *  平板接着手柄时屏幕上的摇杆照样能用：两边谁推得多算谁 */
+  private padAxis(a: Action, touch = true): number {
+    if (!this.active) return 0;
+    return Math.max(this.pad.connected ? stickAmount(this.pad, a) : 0, touch && this.touch ? stickAmount(this.touch, a) : 0);
+  }
+
+  /** 每帧读一次手柄。飞行中按键走 onEdge，菜单（和拍照面板）里走 onPadNav */
   pollPad(dt: number): void {
-    this.pad.poll(dt, !this.active, (a: PadEdge) => {
+    const mode: PadMode = !this.active ? 'menu' : this.padPanel ? 'panel' : 'fly';
+    this.pad.poll(dt, mode, (a: PadEdge) => {
       if (this.active || a === 'pause') this.onEdge?.(a, true);
     }, (d) => this.onPadNav?.(d));
     if (this.pad.used) this.setDevice('pad');
+  }
+
+  /** 手指碰了屏幕上的摇杆或按键：提示换回触屏的叫法（之前拿过手柄的话） */
+  noteTouch(): void {
+    this.setDevice('keyboard');
   }
 
   private setDevice(d: 'keyboard' | 'pad'): void {
@@ -220,14 +220,10 @@ export class Input {
     return [edgeRate(this.mouseX) * EDGE_YAW * dt, edgeRate(this.mouseY) * EDGE_PITCH * dt];
   }
 
-  axis(neg: Action, pos: Action): number {
-    const keys = (this.keyDown(pos) ? 1 : 0) - (this.keyDown(neg) ? 1 : 0);
-    return keys || this.padAxis(pos) - this.padAxis(neg);
-  }
-
-  private keyDown(a: Action): boolean {
-    for (const c of this.settings.bindings[a]) if (this.down.has(c)) return true;
-    return false;
+  /** touch = false：不算屏幕上的摇杆（拍照模式里右摇杆左右是挪机位，不是倾斜） */
+  axis(neg: Action, pos: Action, touch = true): number {
+    const keys = (this.keyHeld(pos) ? 1 : 0) - (this.keyHeld(neg) ? 1 : 0);
+    return keys || this.padAxis(pos, touch) - this.padAxis(neg, touch);
   }
 
   clear = (): void => {
@@ -343,7 +339,9 @@ export class Input {
     if (e.button !== 0) return;
     if (!this.locked) {
       this.dragging = true;
-      if (!this.lockFailed && e.button === 0) this.requestLock();
+      // 上一次没锁上也再试一次：按 Esc 退出锁定后浏览器会拦一小会儿，那次失败不代表这台机器锁不了。
+      // 点一下画面是真正的用户操作，锁不上就按住拖动看，什么也不丢
+      this.requestLock();
     }
   };
 
@@ -415,8 +413,8 @@ export class Input {
     dx += this.axis('lookLeft', 'lookRight') * 1.6 * dt;
     dy -= this.axis('lookDown', 'lookUp') * 1.2 * dt;
     if (this.active && this.pad.connected) {
-      dx += this.pad.lookX * 2.1 * dt;
-      dy += this.pad.lookY * 1.6 * dt;
+      dx += this.pad.lookX * 2.1 * s.padSensitivity * dt;
+      dy += this.pad.lookY * 1.6 * s.padSensitivity * dt;
     }
     if (s.invertX) dx = -dx;
     if (s.invertY) dy = -dy;
@@ -446,6 +444,30 @@ export class Input {
 }
 
 const NO_CLICKS: PointerClick[] = [];
+
+/** 摇杆（手柄或屏幕上的）往这个动作的方向推了多少（0..1） */
+function stickAmount(p: TouchAxes, a: Action): number {
+  switch (a) {
+    case 'forward':
+      return Math.max(0, p.forward);
+    case 'back':
+      return Math.max(0, -p.forward);
+    case 'right':
+      return Math.max(0, p.turn);
+    case 'left':
+      return Math.max(0, -p.turn);
+    case 'strafeRight':
+      return Math.max(0, p.lateral);
+    case 'strafeLeft':
+      return Math.max(0, -p.lateral);
+    case 'up':
+      return Math.max(0, p.vertical);
+    case 'down':
+      return Math.max(0, -p.vertical);
+    default:
+      return 0;
+  }
+}
 
 /** 离屏幕边还有 EDGE_ZONE 时开始转，越靠边越快（平方：刚进去只是微微转） */
 function edgeRate(p: number): number {

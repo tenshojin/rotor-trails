@@ -4,7 +4,7 @@ import { ASSISTS, type AssistId } from '../config/flight';
 import { TIME_OF_DAY, type TimeOfDay } from '../render/timeOfDay';
 import type { MapDef } from '../maps/types';
 import type { MapRecord } from '../game/save';
-import { ACTION_LABEL, DEFAULT_BINDINGS, QUALITY, keyLabel, keyName, type Action, type Settings } from '../game/settings';
+import { ACTION_LABEL, DEFAULT_BINDINGS, QUALITY, keyLabel, keyName, onTouchScreen, type Action, type Settings } from '../game/settings';
 import type { ScoreResult } from '../sim/scoring';
 import type { LandingMetrics } from '../sim/mission';
 import type { Lesson } from '../game/tutorial';
@@ -560,36 +560,42 @@ export class UI {
 
   help(bindings: Settings['bindings']): void {
     const k = (a: Action) => [...new Set(bindings[a].map(keyLabel))].join(' / ');
+    // 手机、平板上只写屏幕上有的摇杆和按键：没有键盘，写一个“N”只会让人找不到
+    const tr = (acts: Action[], keys: string, desc: string) =>
+      !this.touch || acts.every((a) => bindings[a].some(onTouchScreen)) ? `<tr><td>${keys}</td><td>${desc}</td></tr>` : '';
     const el = this.openModal(
       h(`<div class="modal"><div class="card wide"><div class="screen-head"><h2>操作说明</h2><button class="btn ghost" data-a="close">关闭</button></div>
       <div class="help-grid">
         <div><h3>基本操控</h3><table class="keys">
-          <tr><td>${k('forward')}</td><td>机体前倾，逐渐加速</td></tr>
-          <tr><td>${k('back')}</td><td>后倾减速，低速下缓慢后退</td></tr>
-          <tr><td>${k('left')} / ${k('right')}</td><td>左/右转（自动协调机头方向与坡度）</td></tr>
-          <tr><td>${k('up')}</td><td>爬升（增加升力）</td></tr>
-          <tr><td>${k('down')}</td><td>下降（减小升力）</td></tr>
-          <tr><td>${k('strafeLeft')} / ${k('strafeRight')}</td><td>向左/右平移（悬停修正、侧风修正）</td></tr>
-          <tr><td>${k('hover')}</td><td>悬停辅助：逐渐减速并保持位置</td></tr>
-          <tr><td>${k('boost')}</td><td>使用已获得的动力增强</td></tr>
+          ${tr(['forward'], k('forward'), '机体前倾，逐渐加速')}
+          ${tr(['back'], k('back'), '后倾减速，低速下缓慢后退')}
+          ${tr(['left', 'right'], `${k('left')} / ${k('right')}`, '左/右转（自动协调机头方向与坡度）')}
+          ${tr(['up'], k('up'), '爬升（增加升力）')}
+          ${tr(['down'], k('down'), '下降（减小升力）')}
+          ${tr(['strafeLeft', 'strafeRight'], `${k('strafeLeft')} / ${k('strafeRight')}`, '向左/右平移（悬停修正、侧风修正）')}
+          ${tr(['hover'], k('hover'), '悬停辅助：逐渐减速并保持位置')}
+          ${tr(['boost'], k('boost'), '使用已获得的动力增强')}
           <tr><td>${this.touch ? '拖动屏幕' : '鼠标'}</td><td>观察四周（不控制飞机方向）</td></tr>
-          <tr><td>${k('center')}</td><td>视角回正</td></tr>
-          <tr><td>${k('view')}</td><td>切换座舱 / 追尾 / 电影镜头（休闲飞行；任务和训练固定座舱视角）</td></tr>
-          <tr><td>${k('nav')}</td><td>切换导航目标（主线/可选任务）；分岔处切换推荐路线</td></tr>
-          <tr><td>${k('mapRange')}</td><td>切换座舱地图显示范围</td></tr>
-          <tr><td>${k('hud')}</td><td>HUD 显示：自动（平稳飞行时收起）/ 完整 / 隐藏（想看风景、截图的时候）</td></tr>
-          <tr><td>${k('cruise')}</td><td>自动巡航（休闲飞行）：沿着景点自己飞，动任何飞行键就交回给你</td></tr>
-          <tr><td>${k('photo')}</td><td>截图：把这一帧存成图片，不带 HUD，暂停的时候也能拍。想挑机位、调焦距和曝光，暂停菜单里有拍照模式</td></tr>
-          <tr><td>${k('pause')}</td><td>暂停。暂停菜单里还有回放（电影镜头再放一遍刚才飞的）；休闲飞行还能换时段、换天气、跳到景点</td></tr></table></div>
+          ${tr(['center'], k('center'), '视角回正')}
+          ${tr(['view'], k('view'), '切换座舱 / 追尾 / 电影镜头（休闲飞行；任务和训练固定座舱视角）')}
+          ${tr(['nav'], k('nav'), this.touch ? '切换导航目标（主线/可选任务）；分岔处也可以直接点路线卡片选推荐路线' : '切换导航目标（主线/可选任务）；分岔处切换推荐路线')}
+          ${tr(['mapRange'], k('mapRange'), '切换座舱地图显示范围')}
+          ${tr(['hud'], k('hud'), 'HUD 显示：自动（平稳飞行时收起）/ 完整 / 隐藏（想看风景、截图的时候）')}
+          ${tr(['cruise'], k('cruise'), '自动巡航（休闲飞行）：沿着景点自己飞，动任何飞行键就交回给你')}
+          ${tr(['photo'], k('photo'), '截图：把这一帧存成图片，不带 HUD，暂停的时候也能拍。想挑机位、调焦距和曝光，暂停菜单里有拍照模式')}
+          ${tr(['pause'], k('pause'), '暂停。暂停菜单里还有回放（电影镜头再放一遍刚才飞的）；休闲飞行还能换时段、换天气、跳到景点')}
+          ${this.touch ? '' : `<tr><td>回放里</td><td>${k('up')} 暂停 / 继续，${k('strafeLeft')} / ${k('strafeRight')} 退 / 进 5 秒，${k('center')} 慢放，${k('nav')} 拍这一帧（也可以用鼠标点下面的面板）</td></tr>`}</table></div>
         ${this.touch ? `<div><h3>手机和平板</h3><table class="keys">
           <tr><td>左边按住</td><td>出现左摇杆：上下爬升、下降，左右转向</td></tr>
           <tr><td>右边按住</td><td>出现右摇杆：上下前进、后退，左右平移</td></tr>
           <tr><td>中间拖动</td><td>转头看四周</td></tr>
-          <tr><td>上面两边的键</td><td>暂停、切换视角（休闲飞行）、视角回正、悬停、动力增强、自动巡航（休闲飞行）</td></tr></table>
-          <p class="muted">超仿真要用鼠标按开关，只能在电脑上玩。</p></div>` : ''}
+          <tr><td>上面两边的键</td><td>暂停、切换视角（休闲飞行）、导航（任务）、视角回正、悬停、动力增强、自动巡航（休闲飞行）。悬停、巡航开着时键是亮的；手里没有动力增强时增强键是暗的，有好几次时写着次数</td></tr>
+          <tr><td>拍照模式</td><td>暂停菜单里进：左摇杆升降，右摇杆前后左右挪机位，拖动屏幕转镜头</td></tr></table>
+          <p class="muted">超仿真要用鼠标按开关，只能在电脑上玩。</p>
+          ${(globalThis as { __artifact?: boolean }).__artifact ? '' : '<p class="muted">iPhone 的 Safari 不能网页全屏：点分享 →“添加到主屏幕”，从主屏幕打开就是全屏（那里的存档和 Safari 里的分开存）。</p>'}</div>` : ''}
         <div><h3>手柄（Xbox / PS 布局）</h3><table class="keys">
           <tr><td>左摇杆</td><td>前后 = 机头俯仰，左右 = 转向</td></tr>
-          <tr><td>右摇杆</td><td>转头看</td></tr>
+          <tr><td>右摇杆</td><td>转头看（速度在设置里调）</td></tr>
           <tr><td>LT / RT</td><td>下降 / 爬升（按得越深越快）</td></tr>
           <tr><td>LB / RB</td><td>向左 / 右平移</td></tr>
           <tr><td>A / B</td><td>悬停辅助 / 动力增强</td></tr>
@@ -597,10 +603,12 @@ export class UI {
           <tr><td>十字键</td><td>上 导航目标，下 HUD，左右 地图范围</td></tr>
           <tr><td>菜单键 / 视图键</td><td>暂停 / 自动巡航</td></tr>
           <tr><td>按下右摇杆 / 左摇杆</td><td>截图 / 配平（超仿真）</td></tr>
-          <tr><td>菜单里</td><td>十字键或左摇杆走，A 确认，B 返回</td></tr>
+          <tr><td>菜单里</td><td>十字键或左摇杆走，A 确认，B 返回，右摇杆滚动长页面</td></tr>
+          <tr><td>拍照模式</td><td>摇杆、扳机、肩键挪机位，按住 B 走得快，十字键左右挑项目、上下调（焦距、曝光……），A 勾选，视图键收起面板</td></tr>
+          <tr><td>回放</td><td>A 暂停 / 继续，LB / RB 退 / 进 5 秒，Y 慢放，X 换镜头，十字键上 拍这一帧，B 结束</td></tr>
           <tr><td>教学</td><td>说明页按 A 继续</td></tr>
           <tr><td>超仿真</td><td>屏幕中间有准星：右摇杆转头对准开关，A 往前拨、X 往回拨，按住 A / X 转旋钮</td></tr></table>
-          <p class="muted">拿起手柄，提示里的按键就换成手柄上的；飞行中手柄断开会自动暂停。</p></div>
+          <p class="muted">拿起手柄，提示里的按键就换成手柄上的；飞行中手柄断开会自动暂停。接了好几个手柄时，谁最后动听谁的。</p></div>
         <div><h3>飞行要点</h3><ul class="tips">
           <li>直升机有真实的重量和惯性：加速、减速、转弯都需要时间和空间，<b>高速时请提前减速</b>。</li>
           <li>升力来自旋翼，机身倾斜时升力方向也随之倾斜；急转弯需要更多动力，动力不足时会掉高度。</li>
@@ -658,7 +666,7 @@ export class UI {
     let tab = 'controls';
     let cancelCapture: (() => void) | void;
     let captureVersion = 0;
-    let bindingNotice = '点击按键即可修改；按 Esc 取消。每个动作最多保留 3 个按键。';
+    let bindingNotice = '点一个键再按新键就换成新键；按 Delete 删掉这个备用键，按 Esc 取消。每个动作最多 3 个键。';
     const stopCapture = () => {
       captureVersion++;
       cancelCapture?.();
@@ -686,11 +694,15 @@ export class UI {
         const rows = (Object.keys(ACTION_LABEL) as Action[])
           .map((a) => `<div class="bind-row"><span>${ACTION_LABEL[a]}</span><div>${s.bindings[a].map((c, i) => `<button class="key" data-a="rebind" data-act="${a}" data-i="${i}" aria-label="${ACTION_LABEL[a]}：${escapeHtml(keyLabel(c))}，点击改键">${escapeHtml(keyLabel(c))}</button>`).join('')}${s.bindings[a].length < 3 ? `<button class="key add" data-a="rebind" data-act="${a}" data-i="${s.bindings[a].length}" aria-label="为${ACTION_LABEL[a]}添加备用按键" title="添加备用按键">＋</button>` : ''}</div></div>`)
           .join('');
+        // 手机、平板：转头是手指拖，没有键盘可改（屏幕上的摇杆和按键是固定的）
         body.innerHTML =
-          range('mouseSensitivity', '鼠标灵敏度', 0.1, 4, 0.05, (v) => v.toFixed(2)) +
+          range('mouseSensitivity', this.touch ? '拖动转头灵敏度' : '鼠标灵敏度', 0.1, 4, 0.05, (v) => v.toFixed(2)) +
+          range('padSensitivity', '手柄转头速度（右摇杆）', 0.3, 2.5, 0.05, (v) => v.toFixed(2)) +
           check('invertY', '视角上下反转') +
           check('invertX', '视角左右反转') +
-          `<h3>按键绑定 <button class="btn sm ghost" data-a="resetKeys">恢复默认</button></h3><p class="binding-notice" role="status">${escapeHtml(bindingNotice)}</p><div class="bind-list">${rows}</div>`;
+          (this.touch
+            ? '<p class="muted">手机、平板上用屏幕上的摇杆和按键，没有要改的键。接上手柄也能玩，键位见操作说明。</p>'
+            : `<h3>按键绑定 <button class="btn sm ghost" data-a="resetKeys">恢复默认</button></h3><p class="binding-notice" role="status">${escapeHtml(bindingNotice)}</p><div class="bind-list">${rows}</div>`);
       } else if (tab === 'video') {
         body.innerHTML =
           select('quality', '画质', (Object.keys(QUALITY) as Array<keyof typeof QUALITY>).map((q) => [q, QUALITY[q].label])) +
@@ -741,7 +753,7 @@ export class UI {
       else if (t instanceof HTMLInputElement && t.type === 'range') {
         rec[k] = Number(t.value);
         const em = t.parentElement?.querySelector('em');
-        if (em) em.textContent = k === 'fov' ? `${Math.round(Number(t.value))}°` : k === 'mouseSensitivity' ? Number(t.value).toFixed(2) : `${Math.round(Number(t.value) * 100)}%`;
+        if (em) em.textContent = k === 'fov' ? `${Math.round(Number(t.value))}°` : k === 'mouseSensitivity' || k === 'padSensitivity' ? Number(t.value).toFixed(2) : `${Math.round(Number(t.value) * 100)}%`;
       } else rec[k] = t.value;
       if (k === 'quality' || k === 'rayTracing') s.autoQuality = false;
       on.change(structuredClone(s));
@@ -775,13 +787,23 @@ export class UI {
         b.textContent = '按下新按键…';
         b.classList.add('wait');
         b.focus({ preventScroll: true });
-        body.querySelector('.binding-notice')!.textContent = `正在修改“${ACTION_LABEL[act]}”：按下新按键，或按 Esc 取消。`;
+        const removable = i < s.bindings[act].length && s.bindings[act].length > 1;
+        body.querySelector('.binding-notice')!.textContent = `正在修改“${ACTION_LABEL[act]}”：按下新按键${removable ? '，按 Delete 删掉这个键' : ''}，或按 Esc 取消。`;
         cancelCapture = on.capture((code) => {
           if (version !== captureVersion || !el.isConnected) return;
           cancelCapture = undefined;
           const conflict = (Object.keys(s.bindings) as Action[]).find((a) => a !== act && s.bindings[a].includes(code));
           if (code === 'Escape') {
             bindingNotice = '已取消改键，原按键保留。';
+          } else if (code === 'Delete') {
+            // 加错了的备用键删得掉；每个动作至少留一个键
+            if (i >= s.bindings[act].length) bindingNotice = '已取消，没有添加按键。';
+            else if (s.bindings[act].length <= 1) bindingNotice = `“${ACTION_LABEL[act]}”至少要留一个键：想换成别的键，直接按新键。`;
+            else {
+              s.bindings[act] = s.bindings[act].filter((_, j) => j !== i);
+              bindingNotice = `已删掉，“${ACTION_LABEL[act]}”现在是 ${s.bindings[act].map(keyLabel).join(' / ')}。`;
+              on.change(structuredClone(s));
+            }
           } else if (conflict) {
             bindingNotice = `${keyLabel(code)} 已用于“${ACTION_LABEL[conflict]}”，请先修改该动作，或选用其他按键。原按键保留。`;
           } else if (/^(Control|Alt|Meta)/.test(code) || ['Tab', 'F5', 'F11', 'F12'].includes(code)) {

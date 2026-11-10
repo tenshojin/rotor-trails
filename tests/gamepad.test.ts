@@ -40,7 +40,7 @@ describe('手柄', () => {
     p.axes = [0.5, -1, 0, 0];
     press(p, 7, 0.6);
     press(p, 6, 0.1);
-    r.poll(0.016, false, () => {}, () => {});
+    r.poll(0.016, 'fly', () => {}, () => {});
     expect(r.connected).toBe(true);
     expect(r.forward).toBeCloseTo(1, 6);
     expect(r.turn).toBeGreaterThan(0);
@@ -53,12 +53,12 @@ describe('手柄', () => {
     const r = new PadReader();
     const got: PadEdge[] = [];
     press(p, 0);
-    for (let i = 0; i < 5; i++) r.poll(0.016, false, (a) => got.push(a), () => {});
+    for (let i = 0; i < 5; i++) r.poll(0.016, 'fly', (a) => got.push(a), () => {});
     expect(got).toEqual(['hover']);
     press(p, 0, 0);
-    r.poll(0.016, false, (a) => got.push(a), () => {});
+    r.poll(0.016, 'fly', (a) => got.push(a), () => {});
     press(p, 0);
-    r.poll(0.016, false, (a) => got.push(a), () => {});
+    r.poll(0.016, 'fly', (a) => got.push(a), () => {});
     expect(got).toEqual(['hover', 'hover']);
   });
 
@@ -69,13 +69,13 @@ describe('手柄', () => {
     const edges: PadEdge[] = [];
     const nav: PadNav[] = [];
     press(p, 0);
-    r.poll(0.016, true, (a) => edges.push(a), (d) => nav.push(d));
+    r.poll(0.016, 'menu', (a) => edges.push(a), (d) => nav.push(d));
     expect(edges).toEqual([]);
     expect(nav).toEqual(['ok']);
     nav.length = 0;
     press(p, 0, 0);
     press(p, 13);
-    for (let i = 0; i < 60; i++) r.poll(0.016, true, () => {}, (d) => nav.push(d));
+    for (let i = 0; i < 60; i++) r.poll(0.016, 'menu', () => {}, (d) => nav.push(d));
     expect(nav[0]).toBe('down');
     expect(nav.length).toBeGreaterThanOrEqual(3);
     expect(nav.length).toBeLessThan(10);
@@ -87,7 +87,7 @@ describe('手柄', () => {
     const r = new PadReader();
     const edges: PadEdge[] = [];
     press(p, 9);
-    r.poll(0.016, true, (a) => edges.push(a), () => {});
+    r.poll(0.016, 'menu', (a) => edges.push(a), () => {});
     expect(edges).toEqual(['pause']);
   });
 
@@ -96,10 +96,10 @@ describe('手柄', () => {
     plug(p);
     const r = new PadReader();
     p.axes = [1, 1, 1, 1];
-    r.poll(0.016, false, () => {}, () => {});
+    r.poll(0.016, 'fly', () => {}, () => {});
     expect(r.turn).not.toBe(0);
     plug(null);
-    r.poll(0.016, false, () => {}, () => {});
+    r.poll(0.016, 'fly', () => {}, () => {});
     expect(r.connected).toBe(false);
     expect(r.turn).toBe(0);
     expect(r.lookY).toBe(0);
@@ -110,12 +110,12 @@ describe('手柄', () => {
     const playEffect = vi.fn().mockResolvedValue('complete');
     plug(Object.assign(p, { vibrationActuator: { playEffect } }));
     const r = new PadReader();
-    r.poll(0.016, false, () => {}, () => {});
+    r.poll(0.016, 'fly', () => {}, () => {});
     r.rumble(0.5);
     expect(playEffect).toHaveBeenCalledOnce();
     expect(playEffect.mock.calls[0][0]).toBe('dual-rumble');
     plug(fake());
-    r.poll(0.016, false, () => {}, () => {});
+    r.poll(0.016, 'fly', () => {}, () => {});
     expect(() => r.rumble(1)).not.toThrow();
   });
 
@@ -125,14 +125,14 @@ describe('手柄', () => {
     p.axes = [0, -1, 0, 0];
     plug(p);
     const r = new PadReader();
-    r.poll(0.016, false, () => {}, () => {});
+    r.poll(0.016, 'fly', () => {}, () => {});
     expect(r.connected).toBe(false);
     expect(r.forward).toBe(0);
   });
 
   it('没有手柄接口的环境不出错', () => {
     vi.stubGlobal('navigator', {});
-    expect(() => new PadReader().poll(0.016, false, () => {}, () => {})).not.toThrow();
+    expect(() => new PadReader().poll(0.016, 'fly', () => {}, () => {})).not.toThrow();
   });
 
   it('按下左摇杆是配平（超仿真）', () => {
@@ -141,7 +141,7 @@ describe('手柄', () => {
     const r = new PadReader();
     const got: PadEdge[] = [];
     press(p, 10);
-    r.poll(0.016, false, (a) => got.push(a), () => {});
+    r.poll(0.016, 'fly', (a) => got.push(a), () => {});
     expect(got).toEqual(['trim']);
   });
 
@@ -150,20 +150,80 @@ describe('手柄', () => {
     plug(p);
     const r = new PadReader();
     p.axes = [0.2, -0.15, 0, 0.1];
-    r.poll(0.016, false, () => {}, () => {});
+    r.poll(0.016, 'fly', () => {}, () => {});
     expect(r.used).toBe(false);
     p.axes = [0, -0.8, 0, 0];
-    r.poll(0.016, false, () => {}, () => {});
+    r.poll(0.016, 'fly', () => {}, () => {});
     expect(r.used).toBe(true);
     p.axes = [0, 0, 0, 0];
     press(p, 0);
-    r.poll(0.016, false, () => {}, () => {});
+    r.poll(0.016, 'fly', () => {}, () => {});
     expect(r.used).toBe(true);
     expect(r.down(0)).toBe(true);
     press(p, 0, 0);
-    r.poll(0.016, false, () => {}, () => {});
+    r.poll(0.016, 'fly', () => {}, () => {});
     expect(r.used).toBe(false);
     expect(r.down(0)).toBe(false);
+  });
+
+  it('拍照面板：A 和十字键给面板（按住会连发），其余键照飞行，左摇杆不走面板', () => {
+    const p = fake();
+    plug(p);
+    const r = new PadReader();
+    const edges: PadEdge[] = [];
+    const nav: PadNav[] = [];
+    press(p, 0);
+    press(p, 1);
+    press(p, 8);
+    r.poll(0.016, 'panel', (a) => edges.push(a), (d) => nav.push(d));
+    expect(nav).toEqual(['ok']);
+    expect(edges).toEqual(['boost', 'cruise']);
+    press(p, 0, 0);
+    press(p, 1, 0);
+    press(p, 8, 0);
+    nav.length = 0;
+    press(p, 12);
+    for (let i = 0; i < 60; i++) r.poll(0.016, 'panel', () => {}, (d) => nav.push(d));
+    expect(nav[0]).toBe('up');
+    expect(nav.length).toBeGreaterThanOrEqual(3);
+    press(p, 12, 0);
+    nav.length = 0;
+    p.axes = [-1, 0, 0, 0];
+    r.poll(0.016, 'panel', () => {}, (d) => nav.push(d));
+    expect(nav).toEqual([]);
+    expect(r.turn).toBeLessThan(0);
+  });
+
+  it('接了两个手柄：谁最后动听谁的，换手柄时上一个按着的键不算', () => {
+    const a = Object.assign(fake(), { id: 'A', index: 0, timestamp: 10 });
+    const b = Object.assign(fake(), { id: 'B', index: 1, timestamp: 5 });
+    vi.stubGlobal('navigator', { getGamepads: () => [a, b] });
+    const r = new PadReader();
+    r.poll(0.016, 'fly', () => {}, () => {});
+    expect(r.name).toBe('A');
+    // B 有人动了（时间更新）：换成 B，B 上正按着的那一下照常算
+    const got: PadEdge[] = [];
+    press(b, 0);
+    b.timestamp = 20;
+    r.poll(0.016, 'fly', (e) => got.push(e), () => {});
+    expect(r.name).toBe('B');
+    expect(got).toEqual(['hover']);
+    // A 只是时间戳更新、没人按：不抢过去
+    a.timestamp = 30;
+    r.poll(0.016, 'fly', () => {}, () => {});
+    expect(r.name).toBe('B');
+  });
+
+  it('认不出布局的设备（方向盘、飞行摇杆）每个只报一次', () => {
+    const wheel = Object.assign(fake(), { id: 'Wheel', mapping: '' });
+    plug(wheel);
+    const r = new PadReader();
+    const told: string[] = [];
+    r.onIgnored = (name) => told.push(name);
+    r.poll(0.016, 'fly', () => {}, () => {});
+    r.poll(0.016, 'menu', () => {}, () => {});
+    expect(told).toEqual(['Wheel']);
+    expect(r.connected).toBe(false);
   });
 
   it('接上、断开各通知一次', () => {
@@ -172,11 +232,11 @@ describe('手柄', () => {
     const r = new PadReader();
     const events: string[] = [];
     r.onConnection = (on, name) => events.push(`${on}:${name}`);
-    r.poll(0.016, false, () => {}, () => {});
-    r.poll(0.016, false, () => {}, () => {});
+    r.poll(0.016, 'fly', () => {}, () => {});
+    r.poll(0.016, 'fly', () => {}, () => {});
     plug(null);
-    r.poll(0.016, false, () => {}, () => {});
-    r.poll(0.016, false, () => {}, () => {});
+    r.poll(0.016, 'fly', () => {}, () => {});
+    r.poll(0.016, 'fly', () => {}, () => {});
     expect(events).toEqual(['true:pad', 'false:pad']);
     expect(r.used).toBe(false);
   });

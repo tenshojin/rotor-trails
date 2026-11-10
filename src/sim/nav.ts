@@ -148,6 +148,14 @@ export class Navigator {
     return this.focus === 0 ? '导航：主线任务' : `导航：可选任务 ${this.focus}`;
   }
 
+  /** 点了某张路线卡片（触屏）：把这条设成推荐路线。不在分岔处、或者在导航可选任务时不管 */
+  prefer(index: number): string | null {
+    const leg = this.map.legs[this.leg];
+    if (this.path !== null || !leg || this.focus !== 0 || index < 0 || index >= leg.paths.length || index === this.preferred) return null;
+    this.preferred = index;
+    return `推荐路线：${leg.paths[index].label}`;
+  }
+
   snapshot(): NavSnapshot {
     return { leg: this.leg, path: this.path, node: this.node, preferred: this.preferred, legStart: [...this.legStart], focus: this.focus };
   }

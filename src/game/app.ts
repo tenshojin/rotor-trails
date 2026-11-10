@@ -31,7 +31,7 @@ import { FlightTape, REPLAY_MIN } from './replay';
 import { LOOK } from '../render/post';
 import { PhotoPanel } from '../ui/photoPanel';
 import { ReplayPanel } from '../ui/replayPanel';
-import { padNavigate } from '../ui/padNav';
+import { markPadFocus, padNavigate, padScroll, panelNavigate } from '../ui/padNav';
 import { blocked, GPS_RANGES, operate, PressQueue, readout, type ActEnv, type ReadEnv } from '../sim/controls';
 import { SimPanel } from '../ui/simPanel';
 import type { Spot } from '../render/cockpitControls';
@@ -150,6 +150,16 @@ export class App {
   /** 休闲模式的自动巡航 */
   private cruise: ScenicCruise | null = null;
   private touch: TouchControls | null = null;
+  /** 接着、但认不出布局的设备（方向盘、飞行摇杆）：进飞行时说一次 */
+  private ignoredPad: string | null = null;
+  private ignoredPadTold = false;
+  /** 浏览器的“返回”（手机的返回键、鼠标侧键）先当暂停用：飞行时在历史里垫了一格 */
+  private backArmed = false;
+  /** 拿着手柄时框着的那个控件（焦点变了就挪框） */
+  private padMarked: Element | null = null;
+  /** 回放里上一帧有没有按着：退/进 5 秒（Q、E，LB、RB）、空格暂停，按一下算一次 */
+  private replaySideHeld = false;
+  private replaySpaceHeld = false;
   private medalInfo: MedalWorld | null = null;
   private medalT = 0;
   private photoPending = false;
@@ -216,6 +226,9 @@ export class App {
       this.hud = new Hud(root);
       rollback.push(() => this.hud.dispose());
       this.hud.setOpacity(this.settings.hudOpacity);
+      this.hud.onFork = (i) => {
+        if (this.state === 'playing') this.session?.preferRoute(i);
+      };
       this.tutBox = document.createElement('div');
       rollback.push(() => this.tutBox.remove());
       this.tutBox.className = 'tutorial hidden';
@@ -227,9 +240,18 @@ export class App {
       this.input = new Input(canvas, this.settings);
       rollback.push(() => this.input.dispose());
       this.input.onEdge = (a, fromPad) => this.onEdge(a, fromPad);
-      this.input.onPadNav = (d) => padNavigate(this.root, d);
+      this.input.onPadNav = (d) => {
+        // 拍照模式：十字键和 A 走下面那排面板；其他时候走菜单
+        if (this.photoPanel && this.input.padPanel) panelNavigate(this.photoPanel.element, d, '[data-k="lens"]');
+        else padNavigate(this.root, d);
+      };
       this.input.onDevice = (d) => this.onDevice(d);
       this.input.onPadConnection = (connected) => this.onPadConnection(connected);
+      this.input.pad.onIgnored = (name) => {
+        // 方向盘、飞行摇杆、老式手柄：浏览器没按标准布局报，读不了它的键。进了飞行再说一声（菜单里没有提示条）
+        this.ignoredPad = name;
+        if (this.state === 'playing') this.tellIgnoredPad();
+      };
       if (touchOnly()) this.setupTouch(rollback);
       this.input.onLockChange = (locked) => {
         if (!locked && this.state === 'playing' && !this.input.lockFailed) this.pause();
@@ -261,6 +283,7 @@ export class App {
         // Losing the window must still leave the aircraft safely paused.
         if (this.state === 'playing') this.pause();
       }, listenerOptions);
+      window.addEventListener('popstate', () => this.onBrowserBack(), listenerOptions);
       window.addEventListener('beforeunload', (e) => {
         this.flushSettingsSave();
         if (this.state === 'playing' || this.state === 'paused') {
@@ -583,6 +606,9 @@ export class App {
   private onDevice(d: 'keyboard' | 'pad'): void {
     usePadNames(d === 'pad' ? () => this.settings.bindings : null);
     this.root.classList.toggle('pad-active', d === 'pad');
+    // 拿起手柄：现在焦点在哪就框在哪（不用先按一下方向键才看得见）；放下手柄：键盘有浏览器自己的焦点框
+    this.padMarked = d === 'pad' ? document.activeElement : null;
+    markPadFocus(this.padMarked);
     this.controlHintHtml = '';
     this.refreshControlHint();
   }
@@ -673,7 +699,8 @@ export class App {
     this.tutorialHtml = '';
     this.hud.setTutorial?.(null);
     this.hud.setFree?.(cfg.free === true);
-    this.touch?.setFree(cfg.free === true);
+    // 导航键只在任务里有：切换推荐路线、去可选任务（教学按课走，用不着）
+    this.touch?.setFree(cfg.free === true, !cfg.free && !cfg.tutorial);
     this.hud.setCinema?.(false);
     this.cruise = null;
     this.tape.clear();
@@ -793,6 +820,9 @@ export class App {
     this.input.requestLock();
     this.last = performance.now();
     this.stepper.reset();
+    this.armBack();
+    this.goFullscreen();
+    if (this.ignoredPad) this.tellIgnoredPad();
     if (this.tutorial) {
       const s = this.session;
       const t = this.tutorial;
@@ -966,13 +996,15 @@ export class App {
     this.input.setFreeMouse(true);
     this.input.active = true;
     this.input.clear();
-    // 提示按正在用的设备写：触屏上只能拖动转镜头（没有移动键），手柄的摇杆写成一个词，不然是一串“左摇杆上推左摇杆左推……”
+    // 提示按正在用的设备写：触屏上两根摇杆挪机位、拖动转镜头；手柄的摇杆写成一个词，不然是一串“左摇杆上推左摇杆左推……”。
+    // 手柄的十字键走下面这排面板（左右挑、上下调，一进来挑的是焦距），A 按下
     const pad = this.input.device === 'pad';
     const keys = this.touch && !pad
-      ? '拖动屏幕转镜头 · 下面调焦距、曝光、倾斜 · 点“存图”保存，“返回”回到暂停菜单'
+      ? '左摇杆升降 · 右摇杆前后左右 · 拖动屏幕转镜头 · 下面调焦距、曝光、倾斜 · 点“存图”保存，“返回”回到暂停菜单'
       : pad
-        ? `右摇杆转镜头 · 左摇杆移动 · ${k('up')} / ${k('down')} 升降 · 按住 ${k('boost')} 走得快 · ${k('strafeLeft')} / ${k('strafeRight')} 倾斜 · ${k('hud')} 收起面板 · ${k('photo')} 存图 · ${k('pause')} 返回`
+        ? `右摇杆转镜头 · 左摇杆移动 · ${k('up')} / ${k('down')} 升降 · 按住 ${k('boost')} 走得快 · ${k('strafeLeft')} / ${k('strafeRight')} 倾斜 · 十字键左右挑、上下调（焦距、曝光……） · A 勾选、按按钮 · ${k('cruise')} 收起面板 · ${k('photo')} 存图 · ${k('pause')} 返回`
         : `按住鼠标转镜头 · ${k('forward')}${k('left')}${k('back')}${k('right')} 移动 · ${k('up')} / ${k('down')} 升降 · 按住 ${k('boost')} 走得快 · 滚轮变焦 · ${k('strafeLeft')} / ${k('strafeRight')} 倾斜 · ${k('hud')} 收起面板 · ${k('photo')} 存图 · ${k('pause')} 返回`;
+    this.input.padPanel = true;
     this.photoPanel = new PhotoPanel(this.root, rig.photoFov, keys, this.settings.quality !== 'low', {
       fov: (v) => {
         rig.photoFov = v;
@@ -1012,6 +1044,7 @@ export class App {
     if (!this.photoPanel) return;
     this.photoPanel.dispose();
     this.photoPanel = null;
+    this.input.padPanel = false;
     this.setLook(1, 0, 0);
     this.view.exposureBias = 0;
     this.view.hideHeli = false;
@@ -1082,10 +1115,14 @@ export class App {
     this.input.active = true;
     this.input.clear();
     const k = (a: keyof Settings['bindings']): string => keyName(this.settings.bindings[a][0]);
-    // 触屏上没有收起面板、截图这些键，面板上的按钮就是全部操作
-    const keys = this.touch && this.input.device !== 'pad'
+    // 触屏上没有收起面板、截图这些键，面板上的按钮就是全部操作；手柄和键盘每个按钮都有对应的键
+    const pad = this.input.device === 'pad';
+    const keys = this.touch && !pad
       ? '拖动进度条看任意一刻 · 点“拍这一帧”进拍照模式'
-      : `${k('pause')} 结束 · ${k('view')} 换镜头 · ${k('hud')} 收起面板 · ${k('photo')} 截图`;
+      : pad
+        ? `${k('hover')} 暂停 / 继续 · ${k('strafeLeft')} / ${k('strafeRight')} 退 / 进 5 秒 · ${k('center')} 慢放 · ${k('view')} 换镜头 · ${k('nav')} 拍这一帧 · ${k('hud')} 收起面板 · ${k('photo')} 截图 · ${k('boost')} 结束`
+        : `${k('up')} 暂停 / 继续 · ${k('strafeLeft')} / ${k('strafeRight')} 退 / 进 5 秒 · ${k('center')} 慢放 · ${k('view')} 换镜头 · ${k('nav')} 拍这一帧 · ${k('hud')} 收起面板 · ${k('photo')} 截图 · ${k('pause')} 结束`;
+    this.replaySideHeld = this.replaySpaceHeld = false;
     const r: ReplayRun = {
       t: Math.max(0, this.tape.seconds - lead),
       seg: 0,
@@ -1114,6 +1151,26 @@ export class App {
       }),
     };
     this.replay = r;
+  }
+
+  /** 回放里的键：Q / E（手柄 LB / RB）退、进 5 秒，空格暂停、继续。按一下算一次，按住不连跳 */
+  private replayKeys(): void {
+    const r = this.replay;
+    if (!r || this.photoPanel) {
+      this.replaySideHeld = this.replaySpaceHeld = false;
+      return;
+    }
+    const side = this.input.axis('strafeLeft', 'strafeRight');
+    const held = Math.abs(side) > 0.5;
+    if (held && !this.replaySideHeld) {
+      r.t = clamp(r.t + Math.sign(side) * 5, 0, Math.max(0, this.tape.seconds - 0.05));
+      this.view.rig.setMode('cinema');
+      r.panel.update(r.t);
+    }
+    this.replaySideHeld = held;
+    const space = this.input.keyHeld('up');
+    if (space && !this.replaySpaceHeld) r.panel.toggleHold();
+    this.replaySpaceHeld = space;
   }
 
   /** 把这一刻的姿态写给画面和声音看（物理这时候没在走） */
@@ -1184,12 +1241,15 @@ export class App {
       rig.photoFov = clamp(rig.photoFov * 0.93 ** wheel, PHOTO_FOV[0], PHOTO_FOV[1]);
       panel.setFov(rig.photoFov);
     }
-    const tilt = i.axis('strafeLeft', 'strafeRight');
+    // 倾斜只听键盘 Q / E 和手柄 LB / RB：触屏右摇杆的左右在拍照模式里是挪机位
+    const tilt = i.axis('strafeLeft', 'strafeRight', false);
     if (tilt) {
       rig.photoRoll = clamp(rig.photoRoll - tilt * dt * 0.35, -0.5236, 0.5236);
       panel.setRoll(rig.photoRoll);
     }
-    rig.movePhoto(dt, { x: i.axis('left', 'right'), y: i.axis('down', 'up'), z: i.axis('back', 'forward') }, i.takeLook(dt), i.is('boost'), (s.world.map.flightSize ?? s.world.map.size) / 2 - 30, this.photoFloor);
+    // 触屏：左摇杆上下升降、左右挪，右摇杆前后左右挪（两根摇杆的左右都是横着挪）
+    const side = clamp(i.axis('left', 'right') + (this.touch?.lateral ?? 0), -1, 1);
+    rig.movePhoto(dt, { x: side, y: i.axis('down', 'up'), z: i.axis('back', 'forward') }, i.takeLook(dt), i.is('boost'), (s.world.map.flightSize ?? s.world.map.size) / 2 - 30, this.photoFloor);
   }
 
   /** 换时段：夜里多一盏着陆灯，所有材质要重新编译，所以进出夜晚时等它编译完 */
@@ -1241,6 +1301,61 @@ export class App {
     this.input.requestLock();
     this.last = performance.now();
     this.stepper.reset();
+    this.armBack();
+    this.goFullscreen();
+  }
+
+  /**
+   * 手机、平板：飞的时候铺满屏幕。玩家中途退出全屏（安卓的返回手势会先退全屏）以后，
+   * 下一次点“开始飞行”“继续飞行”再进去：点按钮本身就是浏览器要求的那一下用户操作
+   */
+  private goFullscreen(): void {
+    if (!this.touch || document.fullscreenElement) return;
+    const el = document.documentElement;
+    try {
+      void el.requestFullscreen?.({ navigationUI: 'hide' })
+        ?.then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape'))
+        .catch(() => undefined);
+    } catch {
+      /* 浏览器不给全屏（iPhone 的 Safari）：照常玩 */
+    }
+  }
+
+  /**
+   * 飞行时在浏览器历史里垫一格：按返回（手机的返回键、鼠标侧键）先暂停，而不是直接离开页面。
+   * 暂停菜单、拍照、回放、弹窗里按返回是关掉它；回到主菜单以后不再垫，再按一次就是真的离开
+   */
+  private armBack(): void {
+    if (this.backArmed) return;
+    try {
+      history.pushState({ rotorBack: true }, '');
+      this.backArmed = true;
+    } catch {
+      /* 嵌在别的页面里、不让改历史：返回键照浏览器默认的来 */
+    }
+  }
+
+  /** 浏览器“返回”了一步（垫的那一格用掉了）：能当作退一层就退一层，再垫回去 */
+  private onBrowserBack(): void {
+    this.backArmed = false;
+    let handled = true;
+    if (this.state === 'disposed') handled = false;
+    else if (this.ui.hasModal) this.ui.closeModal();
+    else if (this.photoPanel) this.closePhoto();
+    else if (this.replay) this.closeReplay();
+    else if (this.state === 'playing') this.pause();
+    // 暂停菜单、坠毁、结算、起飞前：停在这一页（离开飞行走菜单里的按钮，免得一按返回整局没了）
+    else if (this.state === 'paused' || this.state === 'failed' || this.state === 'ready' || this.state === 'result') handled = true;
+    else handled = false;
+    if (handled) this.armBack();
+  }
+
+  /** 接着认不出的设备：飞行时提示一次（只提示一次，不然方向盘一直插着每局都说） */
+  private tellIgnoredPad(): void {
+    if (this.ignoredPadTold || !this.ignoredPad) return;
+    this.ignoredPadTold = true;
+    const name = this.ignoredPad.replace(/\s*\(.*$/, '').slice(0, 40) || '这个设备';
+    this.hud.toast(`接着“${name}”，但浏览器没有按标准手柄布局识别它，游戏读不了它的按键。Xbox / PS 手柄在 Chrome、Edge 里最稳`, 'warn', 7000);
   }
 
   restoreCheckpoint(i: number, mode: 'exact' | 'safe'): void {
@@ -1436,18 +1551,27 @@ export class App {
     if (this.photoPanel) {
       if (a === 'pause') this.closePhoto();
       else if (a === 'photo') this.photoPending = true;
-      else if (a === 'hud') this.photoPanel.toggle();
-      else if (a === 'center') {
+      // 收起面板：键盘 U；手柄是视图键（十字键在走面板）
+      else if (a === 'hud' || (fromPad && a === 'cruise')) {
+        this.photoPanel.toggle();
+        this.input.padPanel = this.photoPanel.open;
+        (document.activeElement as HTMLElement | null)?.blur?.();
+      } else if (a === 'center') {
         this.view.rig.photoRoll = 0;
         this.photoPanel.setRoll(0);
       }
       return;
     }
     if (this.replay) {
-      if (a === 'pause') this.closeReplay();
+      const r = this.replay;
+      if (a === 'pause' || (fromPad && a === 'boost')) this.closeReplay();
       else if (a === 'photo') this.photoPending = true;
-      else if (a === 'hud') this.replay.panel.toggle();
+      else if (a === 'hud' || a === 'cruise') r.panel.toggle();
       else if (a === 'view') this.view.rig.nextShot();
+      // A / H 暂停、继续；Y / Z 慢放；十字键上 / N 拍这一帧（进拍照模式）
+      else if (a === 'hover') r.panel.toggleHold();
+      else if (a === 'center') r.panel.toggleSlow();
+      else if (a === 'nav') this.openPhoto();
       return;
     }
     if (a === 'pause') {
@@ -1566,6 +1690,14 @@ export class App {
     const dt = Math.min(frameSeconds, 0.1);
     this.frames++;
     this.input.pollPad?.(dt);
+    // 菜单里右摇杆上下滚动长页面（操作说明、飞行记录、设置）
+    if (!this.input.active && this.input.pad.connected && this.input.pad.lookY) padScroll(this.root, this.input.pad.lookY * 1100 * dt);
+    // 拿着手柄时焦点自己变了（新页面打开落在主按钮上、弹窗关上回到原来的按钮）：框跟过去。
+    // 不靠 focus 事件：浏览器窗口没被选中时（手柄照样能按）焦点事件不一定来
+    if (this.input.device === 'pad' && document.activeElement !== this.padMarked) {
+      this.padMarked = document.activeElement;
+      markPadFocus(this.padMarked);
+    }
     // Report actual elapsed time; the simulation clamp must not hide long stalls.
     this.fpsT += frameSeconds;
     if (this.fpsT >= 1) {
@@ -1657,6 +1789,7 @@ export class App {
     }
     if (s && (this.state === 'playing' || this.state === 'paused' || this.state === 'ready' || this.state === 'failed')) {
       this.stepPhoto(dt);
+      this.replayKeys();
       this.stepReplay(s, renderDt);
       this.view.render(s, { dt: renderDt, t: this.t, alpha, replay: !!this.replay });
       if (this.photoPending) {
@@ -1667,7 +1800,8 @@ export class App {
       this.view.drawInstruments(this.t, this.instrumentData(s));
       this.listenForWalls(s, dt);
       this.listenFromCamera(s, dt);
-      this.touch?.setMode(this.state !== 'playing' ? (this.photoPanel ? 'look' : 'off') : this.replay ? 'off' : 'fly');
+      this.touch?.setMode(this.photoPanel ? 'photo' : this.state !== 'playing' || this.replay ? 'off' : 'fly');
+      if (this.touch && this.state === 'playing') this.touchKeyStates(s);
       if (this.state === 'playing') this.watchPlaces(s, dt);
       this.audio.update(this.audioState(this.state !== 'playing' && (!this.replay || !!this.photoPanel)), dt);
     } else {
@@ -1725,6 +1859,16 @@ export class App {
     this.showReticle(I.sim && I.device === 'pad');
   }
 
+  /** 屏幕上的开关键自己显示状态：手机上写着这些的大面板放不下 */
+  private touchKeyStates(s: GameSession): void {
+    const t = this.touch;
+    if (!t) return;
+    const b = s.buffs;
+    t.setKey('hover', s.flight.telemetry.hover !== 'off');
+    t.setKey('boost', b.boostActive, !b.boostActive && b.boostCharges <= 0, b.boostCharges > 1 ? `增强 ×${b.boostCharges}` : '增强');
+    t.setKey('cruise', this.cruise !== null);
+  }
+
   /** 超仿真用手柄时屏幕中间的准星 */
   private showReticle(on: boolean): void {
     if (on && !this.padReticle) {
@@ -1747,6 +1891,7 @@ export class App {
       this.input.lookDX += dx;
       this.input.lookDY += dy;
     };
+    t.onTouch = () => this.input.noteTouch();
     useTouchNames(true);
     rollback.push(() => useTouchNames(false));
     this.ui.touch = true;

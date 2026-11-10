@@ -314,6 +314,12 @@ export class GameSession {
     this.msg(msg, 'info', 'nav', 0);
   }
 
+  /** 分岔处点了一张路线卡片：设成推荐路线 */
+  preferRoute(index: number): void {
+    const msg = this.nav.prefer(index);
+    if (msg) this.msg(msg, 'info', 'nav', 0);
+  }
+
   /**
    * 悬停辅助默认是关的。新手辅助下看起来在费劲地想停住时提示一句：
    * 低空低速、松开方向键后被风推出去十几米，或者前后左右来回修正个不停。

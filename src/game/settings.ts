@@ -115,7 +115,10 @@ export const QUALITY: Record<QualityId, QualityPreset> = {
 };
 
 export interface Settings {
+  /** 鼠标转头的灵敏度；手机、平板上是手指拖动转头的灵敏度 */
   mouseSensitivity: number;
+  /** 手柄右摇杆转头的速度（和鼠标分开：同一个人鼠标调快了，摇杆不一定也要快） */
+  padSensitivity: number;
   invertY: boolean;
   invertX: boolean;
   fov: number;
@@ -152,6 +155,7 @@ export interface Settings {
 export function defaultSettings(): Settings {
   return {
     mouseSensitivity: 1,
+    padSensitivity: 1,
     invertY: false,
     invertX: false,
     fov: 72,
@@ -242,6 +246,7 @@ export function sanitizeSettings(raw: unknown): Settings {
   }
   return {
     mouseSensitivity: num(r.mouseSensitivity, 0.1, 4, d.mouseSensitivity),
+    padSensitivity: num(r.padSensitivity, 0.3, 2.5, d.padSensitivity),
     invertY: bool(r.invertY, d.invertY),
     invertX: bool(r.invertX, d.invertX),
     fov: num(r.fov, 50, 100, d.fov),
@@ -305,12 +310,17 @@ const TOUCH_NAMES: Record<string, string> = {
   KeyZ: '回正',
   KeyV: '视角',
   KeyJ: '巡航',
+  KeyN: '导航',
   Escape: '暂停',
   KeyP: '暂停',
 };
 let touchNames = false;
 export function useTouchNames(on: boolean): void {
   touchNames = on;
+}
+/** 这个键在手机、平板上有没有对应的摇杆或屏幕按键（没有的话操作说明里不写它） */
+export function onTouchScreen(code: string): boolean {
+  return code in TOUCH_NAMES;
 }
 
 /** 正在用手柄时，提示里写手柄上的键（Xbox 的叫法，PS 手柄同样的位置）。按动作找，改过键也对得上 */

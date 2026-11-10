@@ -83,6 +83,8 @@ export class Hud {
   private free = false;
   /** 自动巡航开着 */
   autoFlight = false;
+  /** 点了第几张路线卡片（触屏） */
+  onFork: ((index: number) => void) | null = null;
   /** 动力到顶：这一次从什么时候开始、最后一次是什么时候 */
   private limitOn = false;
   private limitAt = -99;
@@ -121,6 +123,13 @@ export class Hud {
     this.headingCv.width = 560;
     this.headingCv.height = 46;
     this.forks = el('div', 'hud-forks hidden', this.root);
+    // 触屏上路线卡片能点：点哪张就推荐哪条（键盘、手柄是导航键轮着换）
+    this.forks.addEventListener('pointerdown', (e) => {
+      const card = (e.target as HTMLElement).closest<HTMLElement>('.fork');
+      if (!card?.dataset.i) return;
+      e.preventDefault();
+      this.onFork?.(Number(card.dataset.i));
+    });
     this.landing = el('div', 'panel hud-landing hidden', this.root);
     el('div', 'hud-label', this.landing, '着陆辅助');
     this.landCv = el('canvas', 'land-cv', this.landing);
@@ -274,7 +283,9 @@ export class Hud {
     const vs = s.body.vel.y;
     const msl = s.altitudeMSL();
     const navInfo = s.nav.info;
-    // 飞行数据（教学时只留最要紧的两个数）
+    const d = s.damage.durability;
+    const dc = d >= 70 ? 'ok' : d >= 30 ? 'amber' : 'red';
+    // 飞行数据（教学时只留最要紧的两个数）。最后一行耐久只在手机上露出来：右边的状态面板手机上放不下
     if (this.tut) setMarkup(this.flight, `
       <div class="row big"><span>地速</span><b>${Math.round(s.groundSpeed * k)}</b><em>${u}</em></div>
       <div class="row big ${s.agl < 3 && !s.gear.contactCount ? 'amber' : ''}"><span>离地高度</span><b>${s.agl > 2500 ? '—' : s.agl.toFixed(s.agl < 20 ? 1 : 0)}</b><em>m</em></div>`);
@@ -285,11 +296,10 @@ export class Hud {
       <div class="row"><span>海拔</span><b>${Math.round(msl)}</b><em>m</em></div>
       <div class="row ${Math.abs(vs) > 6 ? 'amber' : ''}"><span>垂直速度</span><b>${vs >= 0 ? '+' : ''}${vs.toFixed(1)}</b><em>m/s</em></div>
       <div class="row"><span>姿态</span><b class="sm">俯仰 ${pitch >= 0 ? '+' : ''}${pitch.toFixed(0)}° · 横滚 ${roll >= 0 ? '+' : ''}${roll.toFixed(0)}°</b></div>
-      <div class="row"><span>航向</span><b>${headingLabel(tel.heading * RAD)}°</b></div>`);
+      <div class="row"><span>航向</span><b>${headingLabel(tel.heading * RAD)}°</b></div>
+      <div class="row compact"><span>耐久</span><b class="${dc}">${Math.round(d)}</b></div>`);
     // 状态
-    const d = s.damage.durability;
     const st = s.damage.status;
-    const dc = d >= 70 ? 'ok' : d >= 30 ? 'amber' : 'red';
     const margin = clamp(1 - tel.hoverPowerFrac, -1, 1);
     const wi = s.windInfo;
     const relWind = headingDelta(wrap360(tel.heading * RAD), wrap360(wi.dirFrom));
@@ -365,11 +375,11 @@ export class Hud {
     if (nav.forks) {
       this.forks.classList.remove('hidden');
       setMarkup(this.forks,
-        `<div class="hud-label">路线选择（飞向其中一条即可<span class="fork-key">；按 ${[...new Set(set.bindings.nav.map(keyName))].join(' / ')} 切换推荐</span>）</div>` +
+        `<div class="hud-label">路线选择（飞向其中一条即可<span class="fork-key">；按 ${[...new Set(set.bindings.nav.map(keyName))].join(' / ')} 切换推荐</span><span class="fork-tap">；点卡片设为推荐</span>）</div>` +
         nav.forks
-          .map((f) => {
+          .map((f, i) => {
             const r = headingDelta(wrap360(tel.heading * RAD), f.bearing);
-            return `<div class="fork ${f.preferred ? 'pref' : ''} tag-${f.tag}"><b>${f.label}</b><span>${f.detail}</span><em>${Math.round(f.distance)} m · ${Math.abs(r) < 8 ? '正前方' : (r > 0 ? '右 ' : '左 ') + Math.abs(Math.round(r)) + '°'}</em></div>`;
+            return `<div class="fork ${f.preferred ? 'pref' : ''} tag-${f.tag}" data-i="${i}"><b>${f.label}</b><span>${f.detail}</span><em>${Math.round(f.distance)} m · ${Math.abs(r) < 8 ? '正前方' : (r > 0 ? '右 ' : '左 ') + Math.abs(Math.round(r)) + '°'}</em></div>`;
           })
           .join(''));
     } else this.forks.classList.add('hidden');

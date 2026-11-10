@@ -962,6 +962,10 @@ table.score .total td {
   right: 12px;
   width: 210px;
 }
+/* 耐久本来写在右边的状态面板里；只有手机上（状态面板放不下）才在这一块露出来 */
+.hud-flight .row.compact {
+  display: none;
+}
 .row {
   display: flex;
   align-items: baseline;
@@ -2122,10 +2126,21 @@ canvas.gl.sim-cursor.sim-cursor-hot {
   }
 }
 
-/* 手柄走菜单：焦点要看得见 */
-.pad-focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+/* 手柄走菜单：焦点一直看得见。浏览器只在键盘操作之后才画 focus-visible，手柄按键不算键盘，
+   不加这一条的话新打开的页面上看不出焦点在哪，按 A 不知道会按到什么 */
+.pad-active .pad-focus,
+.pad-active button:focus,
+.pad-active input:focus,
+.pad-active select:focus,
+.pad-active a:focus,
+.pad-active [tabindex='0']:focus {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
+}
+/* 拍照面板一排挨得紧：框画在里面一点，别压到旁边的控件 */
+.pad-active .photo-panel .pad-focus,
+.pad-active .photo-panel :focus {
+  outline-offset: 1px;
 }
 
 /* 加载画面的小提示 */
@@ -2347,13 +2362,63 @@ canvas.gl.sim-cursor.sim-cursor-hot {
   font: inherit;
   font-size: 13px;
   touch-action: none;
+  position: relative;
+}
+/* 按得到的范围比看得见的大一圈（44 px 高，手机上手指的大小）：画面上的键不变大，旁边的面板不用挪 */
+.t-key::after {
+  content: '';
+  position: absolute;
+  inset: -4px -3px;
 }
 .t-key:active {
   background: rgba(56, 232, 255, 0.34);
 }
+/* 手机上连点两下不放大页面（菜单按钮点快了会整页放大）；滑动、双指缩放照常 */
+.touch-device {
+  touch-action: manipulation;
+}
+/* 竖着拿的平板：窄屏时导航靠右放，会压到右上角的“增强、悬停”：挪到那排键下面 */
+@media (max-width: 980px) and (min-height: 521px) {
+  .touch-device .hud-nav {
+    top: calc(52px + env(safe-area-inset-top));
+  }
+}
+/* 开关键自己显示状态：悬停开着、巡航开着、增强正在生效时亮着；手上没有增强时暗着 */
+.t-key.on {
+  background: rgba(56, 232, 255, 0.34);
+  border-color: rgba(56, 232, 255, 0.85);
+  color: #fff;
+}
+.t-key.dim {
+  opacity: 0.45;
+}
 .touch-ui.look-only .t-stick,
 .touch-ui.look-only .t-keys {
   display: none;
+}
+/* 拍照模式：两根摇杆挪机位，没有飞行按键；摇杆的字换成拍照的叫法 */
+.touch-ui.photo-sticks .t-keys,
+.touch-ui .t-photo,
+.touch-ui.photo-sticks .t-fly {
+  display: none;
+}
+.touch-ui.photo-sticks .t-photo {
+  display: inline;
+}
+/* 面板在最下面一条：两个摇杆的圈画在面板上面，不然看不见 */
+.touch-ui.photo-sticks .t-base:not(.on) {
+  bottom: 150px;
+}
+/* 路线卡片能点：点哪张推荐哪条 */
+.touch-device .fork {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.fork-tap {
+  display: none;
+}
+.touch-device .fork-tap {
+  display: inline;
 }
 /* 提示里全是键盘，手机上用不着；矮屏幕两边的大面板会压住摇杆，上面的航向条已经写着速度和高度 */
 .touch-device .hud-hint {
@@ -2375,8 +2440,52 @@ canvas.gl.sim-cursor.sim-cursor-hot {
   top: max(34%, calc(375px + env(safe-area-inset-top)));
 }
 @media (max-height: 520px) {
-  .touch-device .hud-flight,
+  /* 手机：完整的两块大面板放不下（会压住摇杆）。左边、摇杆上面留一小块：地速、离地高度、耐久 */
+  .touch-device .hud-flight {
+    top: auto;
+    bottom: calc(176px + env(safe-area-inset-bottom));
+    left: calc(12px + env(safe-area-inset-left));
+    transform: none;
+    width: 150px;
+    padding: 3px 9px;
+  }
+  .touch-device .hud-flight .row:not(.big):not(.compact) {
+    display: none;
+  }
+  .touch-device .hud-flight .row.compact {
+    display: flex;
+  }
+  .touch-device .hud-flight .row {
+    padding: 1px 0;
+  }
+  .touch-device .hud-flight .row.big b {
+    font-size: 16px;
+  }
   .touch-device .hud-status {
+    display: none;
+  }
+  /* 教学：任务面板不在，读数放到左上角（“看屏幕左边的两个数字”说的就是它）；
+     学到风的那一课右上角露出耐久和风 */
+  .touch-device .hud.hud-tut .hud-flight {
+    top: calc(56px + env(safe-area-inset-top));
+    bottom: auto;
+    width: 172px;
+  }
+  .touch-device .hud.hud-tut .hud-flight .row.big b {
+    font-size: 22px;
+  }
+  .touch-device .hud.hud-tut .hud-status {
+    display: block;
+    top: calc(56px + env(safe-area-inset-top));
+    right: calc(12px + env(safe-area-inset-right));
+    transform: none;
+    width: 200px;
+    padding: 3px 9px;
+  }
+  .touch-device .hud.hud-tut .hud-status > :not(:nth-child(-n + 2)):not(.wind) {
+    display: none;
+  }
+  .touch-device .hud.tut-no-status .hud-status {
     display: none;
   }
   .touch-device .heading-tape {
@@ -2468,7 +2577,7 @@ canvas.gl.sim-cursor.sim-cursor-hot {
 .pad-reticle.on {
   display: block;
 }
-/* 手机上没有切换推荐路线的键 */
+/* 手机上没有切换推荐路线的键：写的是“点卡片” */
 .touch-device .fork-key {
   display: none;
 }

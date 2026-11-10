@@ -16,9 +16,10 @@ export class ReplayPanel {
   private readonly bar: HTMLInputElement;
   private readonly time: HTMLElement;
   private readonly holdBtn: HTMLButtonElement;
+  private readonly slowBox: HTMLInputElement;
   private dragging = false;
 
-  constructor(parent: HTMLElement, private readonly seconds: number, keys: string, on: ReplayHandlers) {
+  constructor(parent: HTMLElement, private readonly seconds: number, keys: string, private readonly on: ReplayHandlers) {
     const root = this.root = document.createElement('div');
     root.className = 'photo-panel replay-panel';
     root.innerHTML = `<div class="photo-keys">${keys}</div>
@@ -36,6 +37,7 @@ export class ReplayPanel {
     this.bar = q('.replay-bar');
     this.time = q('.replay-time');
     this.holdBtn = q('[data-a="hold"]');
+    this.slowBox = q('[data-k="slow"]');
     this.bar.addEventListener('pointerdown', () => {
       this.dragging = true;
     });
@@ -43,12 +45,8 @@ export class ReplayPanel {
       this.dragging = false;
     });
     this.bar.addEventListener('input', () => on.seek(Number(this.bar.value)));
-    this.holdBtn.addEventListener('click', () => {
-      const held = this.holdBtn.getAttribute('aria-pressed') !== 'true';
-      this.setHold(held);
-      on.hold(held);
-    });
-    q<HTMLInputElement>('[data-k="slow"]').addEventListener('change', (e) => on.slow((e.target as HTMLInputElement).checked));
+    this.holdBtn.addEventListener('click', () => this.toggleHold());
+    this.slowBox.addEventListener('change', () => on.slow(this.slowBox.checked));
     q('[data-a="shot"]').addEventListener('click', () => on.shot());
     q('[data-a="photo"]').addEventListener('click', () => on.photo());
     q('[data-a="back"]').addEventListener('click', () => on.back());
@@ -59,6 +57,19 @@ export class ReplayPanel {
   private setHold(on: boolean): void {
     this.holdBtn.setAttribute('aria-pressed', String(on));
     this.holdBtn.textContent = on ? '继续' : '暂停';
+  }
+
+  /** 暂停 / 继续（点按钮、空格、手柄 A 都走这里，按钮上的字跟着变） */
+  toggleHold(): void {
+    const held = this.holdBtn.getAttribute('aria-pressed') !== 'true';
+    this.setHold(held);
+    this.on.hold(held);
+  }
+
+  /** 慢放开关（手柄 Y、键盘回正键） */
+  toggleSlow(): void {
+    this.slowBox.checked = !this.slowBox.checked;
+    this.on.slow(this.slowBox.checked);
   }
 
   update(t: number): void {
