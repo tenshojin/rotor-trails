@@ -8,6 +8,7 @@ import type { Vec2 } from '../sim/terrain';
 import { randomBands, type RockFormDef } from '../world/rockForm';
 import { PathSampler, riverLine } from './routeUtil';
 import type { MapDef, RouteNodeDef, V3 } from './types';
+import { tr, trKey } from '../i18n';
 
 /** 被挤压抬升过的变质岩：倾角很大，深灰、褐黄、铁锈色的岩层斜穿山体 */
 const ROCK: RockFormDef = {
@@ -131,40 +132,40 @@ const MID: V3 = (() => {
 // ---------- 航点 ----------
 // 山谷内航点沿冰川谷中心线；离开山谷的航点使用 autoAlt（生成地形后按实际障碍自动抬高）。
 const S_MONV = VP.arcOf(MONASTERY[0], MONASTERY[2]);
-const valleyNodes = VP.nodes('h-v', S_BASE + 150, S_MONV, 260, (s) => valleyFloor(s) + 110, { label: '冰川谷', radius: 70, speed: 35, clearance: 25 });
-const valley2 = VP.nodes('h-w', S_MONV + 260, S_GLACIER - 260, 240, (s) => valleyFloor(s) + 120, { label: '上游冰川谷', radius: 70, speed: 30, clearance: 25, autoAlt: 30 });
+const valleyNodes = VP.nodes('h-v', S_BASE + 150, S_MONV, 260, (s) => valleyFloor(s) + 110, { label: tr('冰川谷'), radius: 70, speed: 35, clearance: 25 });
+const valley2 = VP.nodes('h-w', S_MONV + 260, S_GLACIER - 260, 240, (s) => valleyFloor(s) + 120, { label: tr('上游冰川谷'), radius: 70, speed: 30, clearance: 25, autoAlt: 30 });
 valley2[0].checkpoint = true;
 const monUp: V3 = [MONASTERY[0] + 25, MONASTERY[1] + 110, MONASTERY[2] + 25];
 
 const NODES: RouteNodeDef[] = [
   ...valleyNodes,
-  { id: 'h-mup', pos: monUp, radius: 45, speed: 12, label: '寺院上空', autoAlt: 40 },
-  { id: 'h-r1', pos: [-1450, 400, 1050], radius: 70, speed: 25, label: '山脊爬升', checkpoint: true, autoAlt: 45 },
-  { id: 'h-r2', pos: [-1180, 600, 700], radius: 60, speed: 22, label: '刀脊', autoAlt: 45 },
-  { id: 'h-d1', pos: [...VP.point(S_MONV + 120, valleyFloor(S_MONV + 120) + 140)], radius: 70, speed: 25, label: '下降回冰川谷', autoAlt: 35 },
+  { id: 'h-mup', pos: monUp, radius: 45, speed: 12, label: tr('寺院上空'), autoAlt: 40 },
+  { id: 'h-r1', pos: [-1450, 400, 1050], radius: 70, speed: 25, label: tr('山脊爬升'), checkpoint: true, autoAlt: 45 },
+  { id: 'h-r2', pos: [-1180, 600, 700], radius: 60, speed: 22, label: tr('刀脊'), autoAlt: 45 },
+  { id: 'h-d1', pos: [...VP.point(S_MONV + 120, valleyFloor(S_MONV + 120) + 140)], radius: 70, speed: 25, label: tr('下降回冰川谷'), autoAlt: 35 },
   ...valley2,
   // 山口航段 A：冰川谷道（短、低，但有下坡风与阵风）
-  { id: 'h-c1', pos: [1120, 1250, -780], radius: 70, speed: 28, label: '冰川谷道入口', checkpoint: true, autoAlt: 45 },
-  { id: 'h-c2', pos: [1395, 1240, -1110], radius: 60, speed: 20, label: '冰川谷道', autoAlt: 40 },
-  { id: 'h-c3', pos: [1350, COL_STATION[1] + 30, -1340], radius: 50, speed: 15, label: '山口谷道', autoAlt: 35 },
+  { id: 'h-c1', pos: [1120, 1250, -780], radius: 70, speed: 28, label: tr('冰川谷道入口'), checkpoint: true, autoAlt: 45 },
+  { id: 'h-c2', pos: [1395, 1240, -1110], radius: 60, speed: 20, label: tr('冰川谷道'), autoAlt: 40 },
+  { id: 'h-c3', pos: [1350, COL_STATION[1] + 30, -1340], radius: 50, speed: 15, label: tr('山口谷道'), autoAlt: 35 },
   // 山口航段 B：高空越脊（先在开阔的盆地上空爬到岩壁以上，沿谷道东缘高空飞到山口正上方再垂直下降）
-  { id: 'h-s1', pos: [1180, 1500, -720], radius: 70, speed: 25, label: '高空越脊爬升', checkpoint: true, autoAlt: 60 },
-  { id: 'h-s2', pos: [1420, 1750, -900], radius: 70, speed: 25, label: '冰川谷上空', autoAlt: 60 },
-  { id: 'h-s3', pos: [1480, 1830, -1180], radius: 70, speed: 22, label: '谷道东缘上空', autoAlt: 60 },
-  { id: 'h-s4', pos: [1330, 1840, -1480], radius: 50, speed: 12, label: '山口上空', autoAlt: 50 },
+  { id: 'h-s1', pos: [1180, 1500, -720], radius: 70, speed: 25, label: tr('高空越脊爬升'), checkpoint: true, autoAlt: 60 },
+  { id: 'h-s2', pos: [1420, 1750, -900], radius: 70, speed: 25, label: tr('冰川谷上空'), autoAlt: 60 },
+  { id: 'h-s3', pos: [1480, 1830, -1180], radius: 70, speed: 22, label: tr('谷道东缘上空'), autoAlt: 60 },
+  { id: 'h-s4', pos: [1330, 1840, -1480], radius: 50, speed: 12, label: tr('山口上空'), autoAlt: 50 },
   // 最后一段：先在山口上空垂直爬升（两侧岩壁很近），再向南在谷道上空借东侧岩壁的上升气流盘旋爬升，
   // 然后向西北长距离爬升到冰斗出口上空，从东面进近平台（在开阔空域里爬升，而不是贴着山脊）
-  { id: 'h-f1', pos: [COL_STATION[0] + 6, COL_STATION[1] + 320, COL_STATION[2] + 15], radius: 40, speed: 10, label: '垂直爬出山口', checkpoint: true },
-  { id: 'h-f1b', pos: [1395, COL_STATION[1] + 560, -1310], radius: 60, speed: 14, label: '借上升气流爬升', autoAlt: 45 },
-  { id: 'h-f2', pos: [1110, SUMMIT[1] + 40, -1490], radius: 60, speed: 16, label: '冰斗出口上空', autoAlt: 45 },
+  { id: 'h-f1', pos: [COL_STATION[0] + 6, COL_STATION[1] + 320, COL_STATION[2] + 15], radius: 40, speed: 10, label: tr('垂直爬出山口'), checkpoint: true },
+  { id: 'h-f1b', pos: [1395, COL_STATION[1] + 560, -1310], radius: 60, speed: 14, label: tr('借上升气流爬升'), autoAlt: 45 },
+  { id: 'h-f2', pos: [1110, SUMMIT[1] + 40, -1490], radius: 60, speed: 16, label: tr('冰斗出口上空'), autoAlt: 45 },
 ];
 
 export const HIMALAYA: MapDef = {
   id: 'himalaya',
-  name: '雪域山口',
-  subtitle: '尼泊尔 · 喜马拉雅高山',
-  region: '喜马拉雅山区（虚构）',
-  description: '从冰川谷底的大本营出发，向山脊寺院和冰川营地运送物资，穿越强风山口，最终降落在海拔约 5100 m 的冰斗平台。越往高处空气越稀薄，可用动力逐渐下降。',
+  name: tr('雪域山口'),
+  subtitle: tr('尼泊尔 · 喜马拉雅高山'),
+  region: tr('喜马拉雅山区（虚构）'),
+  description: tr('从冰川谷底的大本营出发，向山脊寺院和冰川营地运送物资，穿越强风山口，最终降落在海拔约 5100 m 的冰斗平台。越往高处空气越稀薄，可用动力逐渐下降。'),
   difficulty: 5,
   recommendedAssist: 'standard',
   size: 4096,
@@ -232,11 +233,11 @@ export const HIMALAYA: MapDef = {
   farExtent: 5,
   spawn: { padId: 'H-base', heading: 60 },
   pads: [
-    { id: 'H-base', name: '大本营停机坪', pos: [BASE[0], BASE[1] + 0.45, BASE[2]], size: 22, kind: 'start', style: 'ground' },
-    { id: 'H-mon', name: '山脊寺院', pos: [MONASTERY[0], MONASTERY[1] + 0.45, MONASTERY[2]], size: 15, kind: 'delivery', style: 'ground' },
-    { id: 'H-col', name: '山口研究站', pos: [COL_STATION[0], COL_STATION[1] + 0.45, COL_STATION[2]], size: 16, kind: 'delivery', style: 'ground' },
-    { id: 'H-summit', name: '冰斗平台', pos: [SUMMIT[0], SUMMIT[1] + 0.45, SUMMIT[2]], size: 14, kind: 'final', style: 'ground' },
-    { id: 'H-mid', name: '谷地维修坪', pos: [MID[0], MID[1] + 0.45, MID[2]], size: 18, kind: 'repair', style: 'ground', repair: { amount: 100, uses: 2 } },
+    { id: 'H-base', name: tr('大本营停机坪'), pos: [BASE[0], BASE[1] + 0.45, BASE[2]], size: 22, kind: 'start', style: 'ground' },
+    { id: 'H-mon', name: tr('山脊寺院'), pos: [MONASTERY[0], MONASTERY[1] + 0.45, MONASTERY[2]], size: 15, kind: 'delivery', style: 'ground' },
+    { id: 'H-col', name: tr('山口研究站'), pos: [COL_STATION[0], COL_STATION[1] + 0.45, COL_STATION[2]], size: 16, kind: 'delivery', style: 'ground' },
+    { id: 'H-summit', name: tr('冰斗平台'), pos: [SUMMIT[0], SUMMIT[1] + 0.45, SUMMIT[2]], size: 14, kind: 'final', style: 'ground' },
+    { id: 'H-mid', name: tr('谷地维修坪'), pos: [MID[0], MID[1] + 0.45, MID[2]], size: 18, kind: 'repair', style: 'ground', repair: { amount: 100, uses: 2 } },
   ],
   props: [
     { type: 'hvillage', pos: [BASE[0] - 60, 0, BASE[2] + 70], ground: true, p: { r: 90, n: 14 } },
@@ -275,29 +276,29 @@ export const HIMALAYA: MapDef = {
     {
       to: 'hm-mon',
       paths: [
-        { id: 'valley', label: '沿冰川谷', detail: '沿宽阔谷地缓慢爬升，再从山谷一侧爬升到寺院上空：较长，坡度缓', tag: 'safe', nodes: [...valleyNodes.map((x) => x.id), 'h-mup'] },
-        { id: 'ridge', label: '刀脊直上', detail: '沿山脊直线爬升到寺院：距离短，但需要持续大坡度爬升，山脊风大', tag: 'short', nodes: ['h-r1', 'h-r2', 'h-mup'] },
+        { id: 'valley', label: tr('沿冰川谷'), detail: tr('沿宽阔谷地缓慢爬升，再从山谷一侧爬升到寺院上空：较长，坡度缓'), tag: 'safe', nodes: [...valleyNodes.map((x) => x.id), 'h-mup'] },
+        { id: 'ridge', label: tr('刀脊直上'), detail: tr('沿山脊直线爬升到寺院：距离短，但需要持续大坡度爬升，山脊风大'), tag: 'short', nodes: ['h-r1', 'h-r2', 'h-mup'] },
       ],
     },
-    { to: 'hm-glacier', paths: [{ id: 'main', label: '上游冰川谷', detail: '', tag: 'main', nodes: ['h-mup', 'h-d1', ...valley2.map((x) => x.id)] }] },
+    { to: 'hm-glacier', paths: [{ id: 'main', label: tr('上游冰川谷'), detail: '', tag: 'main', nodes: ['h-mup', 'h-d1', ...valley2.map((x) => x.id)] }] },
     {
       to: 'hm-col',
       paths: [
-        { id: 'gully', label: '冰川谷道', detail: '沿陡峭的冰川谷道直接爬向山口：距离短、爬升少，但谷道里有顺坡而下的强风和规律阵风，两侧岩壁很近', tag: 'short', nodes: ['h-c1', 'h-c2', 'h-c3'] },
-        { id: 'high', label: '高空越脊', detail: '先在开阔的盆地上空爬升到岩壁以上，沿谷道东缘高空飞到山口正上方再垂直下降：避开谷道里的强风和阵风，但要多爬升约 200 m，空气更稀薄、更费动力（低云天气可尽早爬到云上）', tag: 'safe', nodes: ['h-s1', 'h-s2', 'h-s3', 'h-s4'] },
+        { id: 'gully', label: tr('冰川谷道'), detail: tr('沿陡峭的冰川谷道直接爬向山口：距离短、爬升少，但谷道里有顺坡而下的强风和规律阵风，两侧岩壁很近'), tag: 'short', nodes: ['h-c1', 'h-c2', 'h-c3'] },
+        { id: 'high', label: tr('高空越脊'), detail: tr('先在开阔的盆地上空爬升到岩壁以上，沿谷道东缘高空飞到山口正上方再垂直下降：避开谷道里的强风和阵风，但要多爬升约 200 m，空气更稀薄、更费动力（低云天气可尽早爬到云上）'), tag: 'safe', nodes: ['h-s1', 'h-s2', 'h-s3', 'h-s4'] },
       ],
     },
-    { to: 'hm-summit', paths: [{ id: 'main', label: '冰斗平台', detail: '', tag: 'main', nodes: ['h-f1', 'h-f1b', 'h-f2'] }] },
+    { to: 'hm-summit', paths: [{ id: 'main', label: tr('冰斗平台'), detail: '', tag: 'main', nodes: ['h-f1', 'h-f1b', 'h-f2'] }] },
   ],
   mission: {
     startCargo: 2,
     main: [
-      { id: 'hm-mon', kind: 'land', title: '向山脊寺院运送物资', detail: '寺院建在海拔约 3450 m 的山脊平台上，停机坪只有 15 m。卸下第一箱物资。', padId: 'H-mon', dwell: 4, cargo: 'unload', approach: [MONASTERY[0], MONASTERY[1] + 35, MONASTERY[2]] },
+      { id: 'hm-mon', kind: 'land', title: tr('向山脊寺院运送物资'), detail: tr('寺院建在海拔约 3450 m 的山脊平台上，停机坪只有 15 m。卸下第一箱物资。'), padId: 'H-mon', dwell: 4, cargo: 'unload', approach: [MONASTERY[0], MONASTERY[1] + 35, MONASTERY[2]] },
       {
         id: 'hm-glacier',
         kind: 'hover',
-        title: '向冰川营地空投物资',
-        detail: '冰川营地海拔约 3900 m。在营地标记上方 6–14 m 稳定悬停 6 秒放下物资。',
+        title: tr('向冰川营地空投物资'),
+        detail: tr('冰川营地海拔约 3900 m。在营地标记上方 6–14 m 稳定悬停 6 秒放下物资。'),
         center: GLACIER,
         radius: 9,
         minH: 6,
@@ -307,12 +308,12 @@ export const HIMALAYA: MapDef = {
         cargo: 'drop',
         approach: [GLACIER[0], GLACIER[1] + 35, GLACIER[2]],
       },
-      { id: 'hm-col', kind: 'land', title: '降落在山口研究站', detail: `研究站建在海拔约 ${Math.round((ALT0 + COL_STATION[1]) / 10) * 10} m 的山口鞍部，两侧是岩壁，谷道里常有顺坡而下的强风。接载科研人员。`, padId: 'H-col', dwell: 4, approach: [COL_STATION[0], COL_STATION[1] + 35, COL_STATION[2]] },
+      { id: 'hm-col', kind: 'land', title: tr('降落在山口研究站'), detail: tr`研究站建在海拔约 ${Math.round((ALT0 + COL_STATION[1]) / 10) * 10} m 的山口鞍部，两侧是岩壁，谷道里常有顺坡而下的强风。接载科研人员。`, padId: 'H-col', dwell: 4, approach: [COL_STATION[0], COL_STATION[1] + 35, COL_STATION[2]] },
       {
         id: 'hm-summit',
         kind: 'land',
-        title: '降落在冰斗平台',
-        detail: `最终目标：海拔约 ${Math.round((ALT0 + SUMMIT[1]) / 10) * 10} m 的冰斗平台（14 m）。空气稀薄、动力余量小；平台东侧有背风下沉气流，先爬到平台高度以上再进近，提前减速、平稳下降。`,
+        title: tr('降落在冰斗平台'),
+        detail: tr`最终目标：海拔约 ${Math.round((ALT0 + SUMMIT[1]) / 10) * 10} m 的冰斗平台（14 m）。空气稀薄、动力余量小；平台东侧有背风下沉气流，先爬到平台高度以上再进近，提前减速、平稳下降。`,
         padId: 'H-summit',
         dwell: 3,
         approach: [SUMMIT[0], SUMMIT[1] + 32, SUMMIT[2]],
@@ -322,8 +323,8 @@ export const HIMALAYA: MapDef = {
       {
         id: 'ho-chorten',
         kind: 'hover',
-        title: '绕行大本营白塔祈福',
-        detail: '在大本营白塔上空 15–45 m 悬停 4 秒。',
+        title: tr('绕行大本营白塔祈福'),
+        detail: tr('在大本营白塔上空 15–45 m 悬停 4 秒。'),
         center: [BASE[0] - 10, BASE[1], BASE[2] - 60],
         radius: 30,
         minH: 15,
@@ -335,11 +336,11 @@ export const HIMALAYA: MapDef = {
       {
         id: 'ho-icefall',
         kind: 'inspect',
-        title: '侦察冰瀑',
-        detail: '以低于 25 m/s 的速度飞过冰川谷上游的两个冰瀑观测点。',
+        title: tr('侦察冰瀑'),
+        detail: tr('以低于 25 m/s 的速度飞过冰川谷上游的两个冰瀑观测点。'),
         points: [
-          { pos: [VP.point(S_GLACIER - 600, 0)[0], Math.round(valleyFloor(S_GLACIER - 600) + 90), VP.point(S_GLACIER - 600, 0)[2]], radius: 45, label: '冰瀑下段' },
-          { pos: [VP.point(S_GLACIER - 300, 0)[0], Math.round(valleyFloor(S_GLACIER - 300) + 90), VP.point(S_GLACIER - 300, 0)[2]], radius: 45, label: '冰瀑上段' },
+          { pos: [VP.point(S_GLACIER - 600, 0)[0], Math.round(valleyFloor(S_GLACIER - 600) + 90), VP.point(S_GLACIER - 600, 0)[2]], radius: 45, label: tr('冰瀑下段') },
+          { pos: [VP.point(S_GLACIER - 300, 0)[0], Math.round(valleyFloor(S_GLACIER - 300) + 90), VP.point(S_GLACIER - 300, 0)[2]], radius: 45, label: tr('冰瀑上段') },
         ],
         maxSpeed: 25,
         approach: [VP.point(S_GLACIER - 600, 0)[0], Math.round(valleyFloor(S_GLACIER - 600) + 90), VP.point(S_GLACIER - 600, 0)[2]],
@@ -355,35 +356,35 @@ export const HIMALAYA: MapDef = {
     { id: 'hr2', kind: 'repair', pos: valley2[valley2.length - 1].pos, node: valley2[valley2.length - 1].id, note: '冰川营地前' },
   ],
   windZones: [
-    { id: 'h-valley', name: '冰川谷谷风', a: VP.at(S_BASE), b: VP.at(S_GLACIER), radius: 260, feather: 200, kind: 'channel', dirFrom: 230, speed: 7 },
+    { id: 'h-valley', name: tr('冰川谷谷风'), a: VP.at(S_BASE), b: VP.at(S_GLACIER), radius: 260, feather: 200, kind: 'channel', dirFrom: 230, speed: 7 },
     // 冰川谷道：冷空气顺坡下泄（下坡风），飞得比山脊高就基本避开
-    { id: 'h-col', name: '山口下坡风', a: [1400, -1090], b: [1310, -1600], radius: 110, feather: 100, yMax: COL_STATION[1] + 150, kind: 'channel', dirFrom: 345, speed: 11 },
-    { id: 'h-colgust', name: '谷道阵风', a: [1390, -1150], b: [1320, -1540], radius: 100, feather: 80, yMax: COL_STATION[1] + 150, kind: 'gust', gust: { amp: 6, period: 11, dirFrom: 335 } },
-    { id: 'h-ridge', name: '刀脊横风', a: [-1450, 1050], b: [-1000, 560], radius: 160, feather: 120, kind: 'gust', gust: { amp: 6, period: 10, phase: 4, dirFrom: 200 } },
-    { id: 'h-lee', name: '平台背风下沉气流', a: [SUMMIT[0] + 100, SUMMIT[2] + 60], b: [SUMMIT[0] + 110, SUMMIT[2] - 70], radius: 55, feather: 60, yMin: SUMMIT[1] - 150, yMax: SUMMIT[1] + 60, kind: 'lift', vertical: -1.8 },
-    { id: 'h-up', name: '东侧岩壁上升气流', a: [1415, -1260], b: [1430, -1540], radius: 60, feather: 60, yMax: COL_STATION[1] + 650, kind: 'lift', vertical: 2.5 },
+    { id: 'h-col', name: tr('山口下坡风'), a: [1400, -1090], b: [1310, -1600], radius: 110, feather: 100, yMax: COL_STATION[1] + 150, kind: 'channel', dirFrom: 345, speed: 11 },
+    { id: 'h-colgust', name: tr('谷道阵风'), a: [1390, -1150], b: [1320, -1540], radius: 100, feather: 80, yMax: COL_STATION[1] + 150, kind: 'gust', gust: { amp: 6, period: 11, dirFrom: 335 } },
+    { id: 'h-ridge', name: tr('刀脊横风'), a: [-1450, 1050], b: [-1000, 560], radius: 160, feather: 120, kind: 'gust', gust: { amp: 6, period: 10, phase: 4, dirFrom: 200 } },
+    { id: 'h-lee', name: tr('平台背风下沉气流'), a: [SUMMIT[0] + 100, SUMMIT[2] + 60], b: [SUMMIT[0] + 110, SUMMIT[2] - 70], radius: 55, feather: 60, yMin: SUMMIT[1] - 150, yMax: SUMMIT[1] + 60, kind: 'lift', vertical: -1.8 },
+    { id: 'h-up', name: tr('东侧岩壁上升气流'), a: [1415, -1260], b: [1430, -1540], radius: 60, feather: 60, yMax: COL_STATION[1] + 650, kind: 'lift', vertical: 2.5 },
   ],
   weathers: [
-    { id: 'clear', label: '晴天', kind: 'clear', desc: '晴朗寒冷，西南风 6 m/s，能见度极佳。', params: makeWeather({ windDirFrom: 240, windSpeed: 6, gustAmp: 1.5, cloudCover: 0.25, visibility: 16000 }) },
+    { id: 'clear', label: tr('晴天'), kind: 'clear', desc: tr('晴朗寒冷，西南风 6 m/s，能见度极佳。'), params: makeWeather({ windDirFrom: 240, windSpeed: 6, gustAmp: 1.5, cloudCover: 0.25, visibility: 16000 }) },
     {
       id: 'lowcloud',
-      label: '低云',
+      label: tr('低云'),
       kind: 'lowCloud',
-      desc: '海拔约 4000–4250 m 有一层低云：冰川营地在云下，山口和平台在云上。冰川谷道会钻进云里，高空越脊可以更早爬到云上；在云中依靠 HUD 航线与姿态仪飞行。',
+      desc: tr('海拔约 4000–4250 m 有一层低云：冰川营地在云下，山口和平台在云上。冰川谷道会钻进云里，高空越脊可以更早爬到云上；在云中依靠 HUD 航线与姿态仪飞行。'),
       params: makeWeather({ windDirFrom: 230, windSpeed: 7, gustAmp: 2, cloudCover: 0.6, overcast: 0.35, lowCloud: 0.9, cloudBase: 1200, cloudTop: 1450, visibility: 8000 }),
     },
     {
       id: 'snow',
-      label: '小雪',
+      label: tr('小雪'),
       kind: 'snow',
-      desc: '灰白的天，细雪被西风吹着斜斜地飘，能见度约 2.5 公里。',
+      desc: tr('灰白的天，细雪被西风吹着斜斜地飘，能见度约 2.5 公里。'),
       params: makeWeather({ snow: 0.75, windDirFrom: 260, windSpeed: 7, gustAmp: 2, turbulence: 0.4, cloudCover: 0.95, overcast: 0.7, visibility: 2500 }),
     },
     {
       id: 'windy',
-      label: '强风',
+      label: tr('强风'),
       kind: 'wind',
-      desc: '西风 13 m/s，山口与山脊处有强阵风（有规律，约每 10–11 秒一次）。',
+      desc: tr('西风 13 m/s，山口与山脊处有强阵风（有规律，约每 10–11 秒一次）。'),
       params: makeWeather({ windDirFrom: 280, windSpeed: 13, gustAmp: 4, turbulence: 0.8, cloudCover: 0.45, overcast: 0.15, zoneScale: 1.35, visibility: 12000 }),
     },
   ],
@@ -412,21 +413,21 @@ export const HIMALAYA: MapDef = {
   ambience: { wind: 1.2, birds: 0.1 },
   birds: { kite: 8, raven: 8 },
   landmarks: [
-    { name: '山脊寺院', pos: MONASTERY },
-    { name: '山口', pos: COL },
-    { name: '冰斗平台', pos: SUMMIT },
+    { name: trKey('山脊寺院'), pos: MONASTERY },
+    { name: trKey('山口'), pos: COL },
+    { name: trKey('冰斗平台'), pos: SUMMIT },
   ],
   vistas: [
-    { name: '雪线', at: [251, 100, 194], look: [445, 16] },
-    { name: '河谷', at: [-832, 100, 928], look: [-625, 767] },
-    { name: '两座山峰之间', at: [-535, 100, 405], look: [-303, 562] },
-    { name: '雪山群', at: [0, 300, 0], look: [-600, 1800] },
-    { name: '冰川上游', at: [445, 100, 16], look: [621, -179] },
+    { name: trKey('雪线'), at: [251, 100, 194], look: [445, 16] },
+    { name: trKey('河谷'), at: [-832, 100, 928], look: [-625, 767] },
+    { name: trKey('两座山峰之间'), at: [-535, 100, 405], look: [-303, 562] },
+    { name: trKey('雪山群'), at: [0, 300, 0], look: [-600, 1800] },
+    { name: trKey('冰川上游'), at: [445, 100, 16], look: [621, -179] },
   ],
   briefing: [
-    '海拔每升高 1000 m，空气密度下降约 11%，发动机功率与旋翼效率随之下降：HUD 的“动力余量”和“密度”会直观显示。变化是连续、可预期的，不会突然失去升力。',
-    '起飞时机上有 2 箱物资（共 280 kg），越重越费动力；在高处悬停前确认动力余量。带前飞速度爬升比原地垂直爬升省功率。',
-    '冰川谷道里有顺坡而下的强风与规律阵风；高空越脊避开强风，但要飞得更高。最后的冰斗平台东侧有背风下沉气流，先爬高再进近。',
+    tr('海拔每升高 1000 m，空气密度下降约 11%，发动机功率与旋翼效率随之下降：HUD 的“动力余量”和“密度”会直观显示。变化是连续、可预期的，不会突然失去升力。'),
+    tr('起飞时机上有 2 箱物资（共 280 kg），越重越费动力；在高处悬停前确认动力余量。带前飞速度爬升比原地垂直爬升省功率。'),
+    tr('冰川谷道里有顺坡而下的强风与规律阵风；高空越脊避开强风，但要飞得更高。最后的冰斗平台东侧有背风下沉气流，先爬高再进近。'),
   ],
   estMinutes: [9, 12],
 };

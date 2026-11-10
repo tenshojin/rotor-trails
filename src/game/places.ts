@@ -3,6 +3,7 @@
 
 import type { MapDef } from '../maps/types';
 import { PLACE_NOTES } from '../maps/placeNotes';
+import { tr } from '../i18n';
 
 export interface Place {
   name: string;
@@ -52,7 +53,7 @@ export class PlaceWatcher {
   }
 }
 
-const COMPASS = ['北', '东北', '东', '东南', '南', '西南', '西', '西北'];
+const COMPASS = [tr('北'), tr('东北'), tr('东'), tr('东南'), tr('南'), tr('西南'), tr('西'), tr('西北')];
 
 /** “东北 1.2 公里”：世界里 -z 是北 */
 export function directionTo(x: number, z: number, p: Place): string {
@@ -60,6 +61,6 @@ export function directionTo(x: number, z: number, p: Place): string {
   const dz = p.z - z;
   const d = Math.hypot(dx, dz);
   const i = Math.round(Math.atan2(dx, -dz) / (Math.PI / 4));
-  const far = d < 950 ? `${Math.max(10, Math.round(d / 10) * 10)} 米` : `${(d / 1000).toFixed(1)} 公里`;
+  const far = d < 950 ? tr`${Math.max(10, Math.round(d / 10) * 10)} 米` : tr`${(d / 1000).toFixed(1)} 公里`;
   return `${COMPASS[((i % 8) + 8) % 8]} ${far}`;
 }

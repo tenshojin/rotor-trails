@@ -3,6 +3,7 @@
 
 import { clamp } from '../core/math';
 import type { ContactReport, HeliPart } from './physics';
+import { tr } from '../i18n';
 
 export const DAMAGE = {
   /** 每步速度变化低于该值视为静止/挤压接触（重力支撑约 0.16 m/s/步），不计伤害 */
@@ -43,15 +44,15 @@ export type DamageStatus = 'normal' | 'damaged' | 'critical' | 'destroyed';
 export type DamageCause = 'impact' | 'scrape' | 'rotor' | 'tailRotor' | 'hardLanding' | 'sideLoad' | 'attitude' | 'rollover' | 'water';
 
 export const CAUSE_LABEL: Record<DamageCause, string> = {
-  impact: '机身撞击',
-  scrape: '机身擦碰',
-  rotor: '旋翼撞击',
-  tailRotor: '尾桨撞击',
-  hardLanding: '过重着陆',
-  sideLoad: '带侧滑着陆',
-  attitude: '姿态不当着陆',
-  rollover: '侧翻',
-  water: '落水',
+  impact: tr('机身撞击'),
+  scrape: tr('机身擦碰'),
+  rotor: tr('旋翼撞击'),
+  tailRotor: tr('尾桨撞击'),
+  hardLanding: tr('过重着陆'),
+  sideLoad: tr('带侧滑着陆'),
+  attitude: tr('姿态不当着陆'),
+  rollover: tr('侧翻'),
+  water: tr('落水'),
 };
 
 export interface DamageEvent {
@@ -83,10 +84,10 @@ export function statusOf(durability: number): DamageStatus {
 }
 
 export const STATUS_LABEL: Record<DamageStatus, string> = {
-  normal: '正常',
-  damaged: '受损',
-  critical: '严重受损',
-  destroyed: '坠毁',
+  normal: tr('正常'),
+  damaged: tr('受损'),
+  critical: tr('严重受损'),
+  destroyed: tr('坠毁'),
 };
 
 interface Episode {

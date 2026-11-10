@@ -58,6 +58,7 @@ import { WaterView } from './water';
 import { CloudLayer, Lightning, LightningBolt, RainFx, SNOW } from './weatherFx';
 import type { InstrumentData } from './instruments';
 import { updateScreenScale } from './screenSize';
+import { tr } from '../i18n';
 
 export interface FrameInfo {
   dt: number;
@@ -495,7 +496,7 @@ export class WorldView {
       this.world = world;
       const map = world.map;
       const tick = () => new Promise<void>((r) => setTimeout(r, 0));
-      progress?.(0.82, '构建地形网格');
+      progress?.(0.82, tr('构建地形网格'));
       await tick();
       // 真实地形的网格有 1600 万格：雾、倒影、光照这些低频的东西用 10 米一格的副本
       const real = world.real;
@@ -518,13 +519,13 @@ export class WorldView {
       fogMaps.height = groundTex;
       fogMaps.forest = forestTex;
       VFOG.mapSize.value = map.size;
-      progress?.(0.84, '加载地形材质');
+      progress?.(0.84, tr('加载地形材质'));
       const layers = early ? await early.layers : texSize > 0 ? await loadTerrainLayers(map.id, map.biome, texSize) : null;
       if (layers) this.mapTextures.push(layers.color, layers.normal);
       layersTaken = true;
       this.terrainTexSize = layers ? texSize : 0;
       if (real) {
-        progress?.(0.86, '加载航拍影像');
+        progress?.(0.86, tr('加载航拍影像'));
         const images = await loadRealImages(real.def, (this.renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend ? 16 : 8);
         const strata = await loadStrata(real.def);
         const aux = await loadAux(real.def);
@@ -578,7 +579,7 @@ export class WorldView {
         this.water = new WaterView(map, depth, (this.renderer as unknown as { reversedDepthBuffer?: boolean }).reversedDepthBuffer === true, field, this.sky);
         this.scene.add(this.water.mesh);
       }
-      progress?.(0.88, '构建建筑与植被');
+      progress?.(0.88, tr('构建建筑与植被'));
       await tick();
       const modelFile = MODEL_FILES[map.id];
       const [lib, detail, treeLib] = await Promise.all([early ? early.lib : modelFile ? loadModelLib(modelFile) : Promise.resolve(null), loadDetailTextures(), loadTreeLib()]);
@@ -650,7 +651,7 @@ export class WorldView {
       this.minimap = real && map.flightSize ? makeMinimapCanvas({ ...map, size: map.flightSize }, real.sunOuter, world.trees) : makeMinimapCanvas(map, lowT, world.trees);
       this.cockpit.minimap = this.minimap;
       if (!this.cockpit.loaded || !this.heli.extLoaded) {
-        progress?.(0.92, '加载直升机模型');
+        progress?.(0.92, tr('加载直升机模型'));
         await Promise.all([this.cockpit.ready, this.heli.ready]);
       }
       await this.padDetails.ready;
@@ -658,7 +659,7 @@ export class WorldView {
       await this.terrainRefresh;
       protectTransparent(this.scene);
       markNearShadow(this.scene);
-      progress?.(0.96, '编译着色器');
+      progress?.(0.96, tr('编译着色器'));
       await tick();
     } catch (error) {
       this.unload();

@@ -6,16 +6,17 @@
 import { makeWeather } from '../sim/weather';
 import { GRAND_CANYON_BRIDGES, GRAND_CANYON_BUILDINGS } from './grandcanyonBuildings';
 import type { MapDef } from './types';
+import { tr, trKey } from '../i18n';
 
 /** 南缘崖边的一块平地，光明天使步道口以东：停在这里往北就是峡谷 */
 const PAD: [number, number, number] = [-1660, 2166.3, 2290];
 
 export const GRAND_CANYON: MapDef = {
   id: 'grandcanyon',
-  name: '大峡谷',
-  subtitle: '超大地图 · 真实地形',
-  region: '美国亚利桑那州 · 真实测绘数据',
-  description: '不是算法生成的山：每一座峰、每一层岩石都在现实里的位置上。41 公里见方，南缘北缘都能飞到。',
+  name: tr('大峡谷'),
+  subtitle: tr('超大地图 · 真实地形'),
+  region: tr('美国亚利桑那州 · 真实测绘数据'),
+  description: tr('不是算法生成的山：每一座峰、每一层岩石都在现实里的位置上。41 公里见方，南缘北缘都能飞到。'),
   difficulty: 3,
   recommendedAssist: 'standard',
   // 夏天的积云底在南缘上方两公里左右
@@ -30,7 +31,7 @@ export const GRAND_CANYON: MapDef = {
   real: {
     base: 'real/grandcanyon/',
     bytes: 89e6,
-    credit: '高程：USGS 3DEP；影像：USDA NAIP 2023（经 USGS The National Map）。美国政府公有领域数据。',
+    credit: tr('高程：USGS 3DEP；影像：USDA NAIP 2023（经 USGS The National Map）。美国政府公有领域数据。'),
     levels: [
       { size: 10240, res: 4097, heights: 'core.dem', image: 'core.webp', base: 724, step: 0.05 },
       { size: 40960, res: 4097, heights: 'mid.dem', image: 'mid.webp', base: 647, step: 0.1 },
@@ -52,7 +53,7 @@ export const GRAND_CANYON: MapDef = {
     // 高度已经从测绘数据里读好了
   },
   spawn: { padId: 'G-rim', heading: 0 },
-  pads: [{ id: 'G-rim', name: '南缘起降场', pos: PAD, size: 22, kind: 'start', style: 'ground' }],
+  pads: [{ id: 'G-rim', name: tr('南缘起降场'), pos: PAD, size: 22, kind: 'start', style: 'ground' }],
   props: [],
   vegetation: [],
   clearings: [],
@@ -62,8 +63,8 @@ export const GRAND_CANYON: MapDef = {
   pickups: [],
   windZones: [],
   weathers: [
-    { id: 'clear', label: '晴天', kind: 'clear', desc: '高原的空气很干净，对岸的崖壁一层一层看得清楚。', params: makeWeather({ windDirFrom: 240, windSpeed: 4, gustAmp: 1, cloudCover: 0.17, visibility: 70000 }) },
-    { id: 'haze', label: '夏日薄霾', kind: 'clear', desc: '远处的岩层一层层淡下去。', params: makeWeather({ windDirFrom: 220, windSpeed: 5, gustAmp: 1.4, cloudCover: 0.25, visibility: 32000 }) },
+    { id: 'clear', label: tr('晴天'), kind: 'clear', desc: tr('高原的空气很干净，对岸的崖壁一层一层看得清楚。'), params: makeWeather({ windDirFrom: 240, windSpeed: 4, gustAmp: 1, cloudCover: 0.17, visibility: 70000 }) },
+    { id: 'haze', label: tr('夏日薄霾'), kind: 'clear', desc: tr('远处的岩层一层层淡下去。'), params: makeWeather({ windDirFrom: 220, windSpeed: 5, gustAmp: 1.4, cloudCover: 0.25, visibility: 32000 }) },
   ],
   defaultWeather: 'clear',
   biome: {
@@ -101,24 +102,24 @@ export const GRAND_CANYON: MapDef = {
   birds: { condor: 10, raven: 12 },
   // 山顶的位置和海拔来自高程数据（和公开的海拔对得上：琐罗亚斯德 2171 m、梵天 2301 m、胡夫金字塔 1646 m、战舰 1783 m）
   landmarks: [
-    { name: '马瑟观景点', pos: [-1176, 2162, 2570] },
-    { name: '亚基角', pos: [989, 2210, 3016] },
-    { name: '幻影牧场', pos: [31, 777, -2297] },
-    { name: '琐罗亚斯德神殿', pos: [4520, 2174, -3720] },
-    { name: '梵天神殿', pos: [5000, 2302, -4900] },
-    { name: '胡夫金字塔', pos: [-2230, 1647, -3930] },
-    { name: '战舰岩', pos: [-3940, 1783, 960] },
+    { name: trKey('马瑟观景点'), pos: [-1176, 2162, 2570] },
+    { name: trKey('亚基角'), pos: [989, 2210, 3016] },
+    { name: trKey('幻影牧场'), pos: [31, 777, -2297] },
+    { name: trKey('琐罗亚斯德神殿'), pos: [4520, 2174, -3720] },
+    { name: trKey('梵天神殿'), pos: [5000, 2302, -4900] },
+    { name: trKey('胡夫金字塔'), pos: [-2230, 1647, -3930] },
+    { name: trKey('战舰岩'), pos: [-3940, 1783, 960] },
   ],
   vistas: [
-    { name: '南缘上空', at: [-1176, 260, 2300], look: [31, -2297] },
-    { name: '内峡谷与科罗拉多河', at: [-600, 420, -900], look: [400, -2000] },
-    { name: '幻影牧场', at: [31, 200, -1800], look: [31, -2297] },
-    { name: '琐罗亚斯德神殿', at: [2900, 300, -2600], look: [4520, -3720] },
-    { name: '战舰岩', at: [-2600, 300, 700], look: [-3940, 960] },
-    { name: '北缘客栈', at: [3700, 260, -11300], look: [1500, -2400] },
-    { name: '皇家角', at: [12600, 320, -2300], look: [9000, 2000] },
-    { name: '隐士歇脚处', at: [-10400, 300, 1500], look: [-6000, -3000] },
+    { name: trKey('南缘上空'), at: [-1176, 260, 2300], look: [31, -2297] },
+    { name: trKey('内峡谷与科罗拉多河'), at: [-600, 420, -900], look: [400, -2000] },
+    { name: trKey('幻影牧场'), at: [31, 200, -1800], look: [31, -2297] },
+    { name: trKey('琐罗亚斯德神殿'), at: [2900, 300, -2600], look: [4520, -3720] },
+    { name: trKey('战舰岩'), at: [-2600, 300, 700], look: [-3940, 960] },
+    { name: trKey('北缘客栈'), at: [3700, 260, -11300], look: [1500, -2400] },
+    { name: trKey('皇家角'), at: [12600, 320, -2300], look: [9000, 2000] },
+    { name: trKey('隐士歇脚处'), at: [-10400, 300, 1500], look: [-6000, -3000] },
   ],
-  briefing: ['真实地形，超大地图，休闲飞行。'],
+  briefing: [tr('真实地形，超大地图，休闲飞行。')],
   estMinutes: [10, 60],
 };

@@ -6,6 +6,7 @@ import { smoothstep } from '../core/math';
 import { makeWeather } from '../sim/weather';
 import { PathSampler, riverLine } from './routeUtil';
 import type { MapDef } from './types';
+import { tr, trKey } from '../i18n';
 
 const SEED = 101;
 const n = new Perlin2(SEED);
@@ -95,10 +96,10 @@ function airfield(x: number, z: number): number {
 
 export const TRAINING: MapDef = {
   id: 'training',
-  name: '飞行训练场',
-  subtitle: '基础驾驶教学',
-  region: '训练基地',
-  description: '雪山脚下的谷地小机场。按步骤练习起飞、加速、减速、转向、高度控制、悬停、侧风修正与安全降落。',
+  name: tr('飞行训练场'),
+  subtitle: tr('基础驾驶教学'),
+  region: tr('训练基地'),
+  description: tr('雪山脚下的谷地小机场。按步骤练习起飞、加速、减速、转向、高度控制、悬停、侧风修正与安全降落。'),
   difficulty: 1,
   recommendedAssist: 'novice',
   size: 2048,
@@ -166,9 +167,9 @@ export const TRAINING: MapDef = {
   ],
   spawn: { padId: 'T-start', heading: 0 },
   pads: [
-    { id: 'T-start', name: '起飞坪', pos: [0, 10.4, 140], size: 22, kind: 'start', style: 'ground' },
-    { id: 'T-final', name: '训练降落坪', pos: [-260, 10.4, -260], size: 20, kind: 'final', style: 'ground' },
-    { id: 'T-repair', name: '维修坪', pos: [60, 10.4, 60], size: 18, kind: 'repair', style: 'ground', repair: { amount: 100, uses: 9 } },
+    { id: 'T-start', name: tr('起飞坪'), pos: [0, 10.4, 140], size: 22, kind: 'start', style: 'ground' },
+    { id: 'T-final', name: tr('训练降落坪'), pos: [-260, 10.4, -260], size: 20, kind: 'final', style: 'ground' },
+    { id: 'T-repair', name: tr('维修坪'), pos: [60, 10.4, 60], size: 18, kind: 'repair', style: 'ground', repair: { amount: 100, uses: 9 } },
   ],
   props: [
     { type: 'runway', pos: [RW_X, 10, RW_Z], p: { l: RW_L, w: 30 } },
@@ -214,15 +215,15 @@ export const TRAINING: MapDef = {
   ],
   clearings: [[0, -120, 80]],
   nodes: [
-    { id: 't-climb', pos: [0, 40, -40], radius: 40, speed: 10, label: '离场' },
-    { id: 't-run', pos: [0, 45, -420], radius: 50, speed: 25, label: '加速直线' },
-    { id: 't-turn', pos: [-260, 50, -520], radius: 50, speed: 18, label: '左转航点' },
-    { id: 't-wind', pos: [-420, 40, -150], radius: 50, speed: 12, label: '侧风区' },
+    { id: 't-climb', pos: [0, 40, -40], radius: 40, speed: 10, label: tr('离场') },
+    { id: 't-run', pos: [0, 45, -420], radius: 50, speed: 25, label: tr('加速直线') },
+    { id: 't-turn', pos: [-260, 50, -520], radius: 50, speed: 18, label: tr('左转航点') },
+    { id: 't-wind', pos: [-420, 40, -150], radius: 50, speed: 12, label: tr('侧风区') },
   ],
   legs: [
     {
       to: 'tr-land',
-      paths: [{ id: 'main', label: '训练航线', detail: '', tag: 'main', nodes: ['t-climb', 't-run', 't-turn', 't-wind'] }],
+      paths: [{ id: 'main', label: tr('训练航线'), detail: '', tag: 'main', nodes: ['t-climb', 't-run', 't-turn', 't-wind'] }],
     },
   ],
   mission: {
@@ -231,8 +232,8 @@ export const TRAINING: MapDef = {
       {
         id: 'tr-land',
         kind: 'land',
-        title: '在训练降落坪安全降落',
-        detail: '平稳接地：下降速度 < 2.5 m/s，水平漂移 < 2.5 m/s，姿态 < 12°。',
+        title: tr('在训练降落坪安全降落'),
+        detail: tr('平稳接地：下降速度 < 2.5 m/s，水平漂移 < 2.5 m/s，姿态 < 12°。'),
         padId: 'T-final',
         dwell: 3,
         approach: [-260, 40, -260],
@@ -246,12 +247,12 @@ export const TRAINING: MapDef = {
     { id: 'tr-repair', kind: 'repair', pos: [-380, 40, -330] },
   ],
   windZones: [
-    { id: 'tr-cross', name: '训练侧风区', a: [-480, -260], b: [-380, -60], radius: 120, feather: 80, kind: 'channel', dirFrom: 0, speed: 8 },
+    { id: 'tr-cross', name: tr('训练侧风区'), a: [-480, -260], b: [-380, -60], radius: 120, feather: 80, kind: 'channel', dirFrom: 0, speed: 8 },
   ],
   weathers: [
-    { id: 'clear', label: '晴朗', kind: 'clear', desc: '微风，能见度极好。', params: makeWeather({ windDirFrom: 250, windSpeed: 2.5, gustAmp: 0.6, cloudCover: 0.25 }) },
-    { id: 'breeze', label: '晴·有风', kind: 'wind', desc: '持续西风约 7 m/s，带轻微阵风。', params: makeWeather({ windDirFrom: 270, windSpeed: 7, gustAmp: 2, cloudCover: 0.4 }) },
-    { id: 'snow', label: '小雪', kind: 'snow', desc: '细雪落在谷地里，跑道和屋顶慢慢白了，能见度约 3 公里。', params: makeWeather({ snow: 0.55, windDirFrom: 250, windSpeed: 3, gustAmp: 0.8, cloudCover: 0.95, overcast: 0.6, visibility: 3200 }) },
+    { id: 'clear', label: tr('晴朗'), kind: 'clear', desc: tr('微风，能见度极好。'), params: makeWeather({ windDirFrom: 250, windSpeed: 2.5, gustAmp: 0.6, cloudCover: 0.25 }) },
+    { id: 'breeze', label: tr('晴·有风'), kind: 'wind', desc: tr('持续西风约 7 m/s，带轻微阵风。'), params: makeWeather({ windDirFrom: 270, windSpeed: 7, gustAmp: 2, cloudCover: 0.4 }) },
+    { id: 'snow', label: tr('小雪'), kind: 'snow', desc: tr('细雪落在谷地里，跑道和屋顶慢慢白了，能见度约 3 公里。'), params: makeWeather({ snow: 0.55, windDirFrom: 250, windSpeed: 3, gustAmp: 0.8, cloudCover: 0.95, overcast: 0.6, visibility: 3200 }) },
   ],
   defaultWeather: 'clear',
   biome: {
@@ -298,13 +299,13 @@ export const TRAINING: MapDef = {
       [-30, 100, 690],
     ],
   },
-  landmarks: [{ name: '机库', pos: [70, 10, 170] }],
+  landmarks: [{ name: trKey('机库'), pos: [70, 10, 170] }],
   vistas: [
-    { name: '谷地全景', at: [120, 130, 420], look: [-40, -900] },
-    { name: '小机场', at: [320, 45, 300], look: [-60, 100] },
-    { name: '北面的雪山', at: [-40, 120, -420], look: [100, -1500] },
-    { name: '小河上空', at: [300, 60, -300], look: [360, 300] },
+    { name: trKey('谷地全景'), at: [120, 130, 420], look: [-40, -900] },
+    { name: trKey('小机场'), at: [320, 45, 300], look: [-60, 100] },
+    { name: trKey('北面的雪山'), at: [-40, 120, -420], look: [100, -1500] },
+    { name: trKey('小河上空'), at: [300, 60, -300], look: [360, 300] },
   ],
-  briefing: ['按照屏幕提示完成每一步操作。', '可通过暂停菜单跳过当前步骤或退出教学。'],
+  briefing: [tr('按照屏幕提示完成每一步操作。'), tr('可通过暂停菜单跳过当前步骤或退出教学。')],
   estMinutes: [5, 8],
 };

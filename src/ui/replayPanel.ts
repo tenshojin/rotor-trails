@@ -1,5 +1,7 @@
 // 回放的面板：进度条、暂停、慢放、换镜头、拍照。画面是主角，只占最下面一条，能收起来。
 
+import { tr } from '../i18n';
+
 const clock = (s: number): string => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 export interface ReplayHandlers {
@@ -24,13 +26,13 @@ export class ReplayPanel {
     root.className = 'photo-panel replay-panel';
     root.innerHTML = `<div class="photo-keys">${keys}</div>
       <div class="photo-row">
-        <button type="button" class="btn sm" data-a="hold" aria-pressed="false">暂停</button>
-        <input type="range" class="replay-bar" min="0" max="${seconds}" step="0.1" value="0" aria-label="回放进度">
+        <button type="button" class="btn sm" data-a="hold" aria-pressed="false">${tr`暂停`}</button>
+        <input type="range" class="replay-bar" min="0" max="${seconds}" step="0.1" value="0" aria-label="${tr`回放进度`}">
         <output class="replay-time">0:00 / ${clock(seconds)}</output>
-        <label class="photo-check"><input type="checkbox" data-k="slow">慢放</label>
-        <button type="button" class="btn sm" data-a="shot">换镜头</button>
-        <button type="button" class="btn sm" data-a="photo">拍这一帧</button>
-        <button type="button" class="btn sm primary" data-a="back">结束回放</button>
+        <label class="photo-check"><input type="checkbox" data-k="slow">${tr`慢放`}</label>
+        <button type="button" class="btn sm" data-a="shot">${tr`换镜头`}</button>
+        <button type="button" class="btn sm" data-a="photo">${tr`拍这一帧`}</button>
+        <button type="button" class="btn sm primary" data-a="back">${tr`结束回放`}</button>
       </div>`;
     parent.appendChild(root);
     const q = <T extends HTMLElement>(s: string): T => root.querySelector(s) as T;
@@ -56,7 +58,7 @@ export class ReplayPanel {
 
   private setHold(on: boolean): void {
     this.holdBtn.setAttribute('aria-pressed', String(on));
-    this.holdBtn.textContent = on ? '继续' : '暂停';
+    this.holdBtn.textContent = on ? tr('继续') : tr('暂停');
   }
 
   /** 暂停 / 继续（点按钮、空格、手柄 A 都走这里，按钮上的字跟着变） */

@@ -15,6 +15,7 @@ import { applyRockForm } from './rockForm';
 import { buildPad, type PropCtx } from './props/common';
 import { PROP_FNS } from './props/index';
 import { scatterTrees, type TreeSet } from './vegetation';
+import { tr } from '../i18n';
 
 export interface WorldData {
   /** 真实地形的原始数据 */
@@ -76,7 +77,7 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
     pickups: map.pickups.map((pickup) => ({ ...pickup, pos: [...pickup.pos] })),
     rivers: map.rivers?.map((river) => ({ ...river, pts: river.pts.map((p): [number, number, number, number] => [p[0], p[1], p[2], p[3]]) })),
   };
-  progress?.(0.05, map.real ? '下载真实地形' : '生成地形');
+  progress?.(0.05, map.real ? tr('下载真实地形') : tr('生成地形'));
   await tick();
   const hb = new HeightBuilder(map.size, map.res);
   const real = map.real ? await loadRealData(map.real) : undefined;
@@ -96,12 +97,12 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
   }
   const protection = map.erosion || map.dissect || map.rockForm || map.rivers?.length ? protectMask(map) : undefined;
   if (map.dissect) {
-    progress?.(0.15, '河流下切');
+    progress?.(0.15, tr('河流下切'));
     await tick();
     dissect(hb.data, map.res, { ...map.dissect, size: map.size, waterLevel: map.waterLevel, mask: protection, seed: map.seed });
   }
   if (map.erosion) {
-    progress?.(0.25, '雨水侵蚀');
+    progress?.(0.25, tr('雨水侵蚀'));
     await tick();
     erode(hb.data, map.res, map.seed, { droplets: map.erosion, waterLevel: map.waterLevel, mask: protection });
   }
@@ -115,7 +116,7 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
   map.paintFinal?.(hb);
   const terrain = hb.build();
   if (real && map.flightSize) terrain.outer = real.outer;
-  progress?.(0.45, '布置建筑与停机坪');
+  progress?.(0.45, tr('布置建筑与停机坪'));
   await tick();
   const waterLevel = map.waterLevel;
   const ctx: PropCtx = {
@@ -142,7 +143,7 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
     B.defaultTag = { kind: 'structure', id: d.type };
     fn(B, d, rng, ctx);
   }
-  progress?.(0.65, '种植植被');
+  progress?.(0.65, tr('种植植被'));
   await tick();
   const flow = makeFlowMap(real ? real.low : terrain, map.waterLevel);
   const keepOut = map.pads.map((p): [number, number, number] => [p.pos[0], p.pos[2], p.size * 0.75 + 14]);
@@ -165,7 +166,7 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
   const world: WorldData = { map, terrain, surface: hb.surface, flow, builder: B, colliders: B.colliders, trees, pads, ctx, real: realView, movers };
   resolveAutoAltitudes(world);
   attachPickupsToNodes(world);
-  progress?.(0.8, '完成');
+  progress?.(0.8, tr('完成'));
   return world;
 }
 

@@ -7,6 +7,7 @@ import type { Vec2 } from '../sim/terrain';
 import { randomBands, type RockFormDef } from '../world/rockForm';
 import { PathSampler, polylineDist, smoothPath } from './routeUtil';
 import type { MapDef, RouteNodeDef, V3 } from './types';
+import { tr, trKey } from '../i18n';
 
 /** 片麻岩：灰色的岩体里斜着的片理，一层硬一层软，岩壁上是一道道斜着的岩架 */
 const ROCK: RockFormDef = {
@@ -198,7 +199,7 @@ function skerry(x: number, z: number, cx: number, cz: number, r: number): number
 
 // ---------- 航点 ----------
 const LOWW = 70;
-const outer = FP.nodes('f-o', FP.arcOf(-1500, 250), S_ISLAND - 420, 280, () => LOWW, { label: '峡湾外段', radius: 70, speed: 40, clearance: 25 });
+const outer = FP.nodes('f-o', FP.arcOf(-1500, 250), S_ISLAND - 420, 280, () => LOWW, { label: tr('峡湾外段'), radius: 70, speed: 40, clearance: 25 });
 const wide = (() => {
   const out: RouteNodeDef[] = [];
   const ss = [S_ISLAND - 220, S_ISLAND, S_ISLAND + 220];
@@ -206,7 +207,7 @@ const wide = (() => {
     const c = FP.at(s);
     const nn = nrmL(s);
     const off = -(halfW(s) * 0.35);
-    out.push({ id: `f-w${i}`, pos: [Math.round(c[0] + nn[0] * off), LOWW, Math.round(c[1] + nn[1] * off)], radius: 70, speed: 38, label: '主航道', clearance: 25, checkpoint: i === 0 });
+    out.push({ id: `f-w${i}`, pos: [Math.round(c[0] + nn[0] * off), LOWW, Math.round(c[1] + nn[1] * off)], radius: 70, speed: 38, label: tr('主航道'), clearance: 25, checkpoint: i === 0 });
   });
   return out;
 })();
@@ -217,12 +218,12 @@ const strait = (() => {
     const c = FP.at(s);
     const nn = nrmL(s);
     const off = halfW(s) - 62;
-    out.push({ id: `f-s${i}`, pos: [Math.round(c[0] + nn[0] * off), 45, Math.round(c[1] + nn[1] * off)], radius: 30, speed: 22, label: '近岸海峡', clearance: 15, checkpoint: i === 0 });
+    out.push({ id: `f-s${i}`, pos: [Math.round(c[0] + nn[0] * off), 45, Math.round(c[1] + nn[1] * off)], radius: 30, speed: 22, label: tr('近岸海峡'), clearance: 15, checkpoint: i === 0 });
   });
   return out;
 })();
-const toFarm = FP.nodes('f-a', S_ISLAND + 380, S_FARM - 120, 200, () => LOWW, { label: '峡湾中段', radius: 70, speed: 35, clearance: 25 });
-const fjordInner = FP.nodes('f-i', S_VILLAGE + 260, S_HEAD - 260, 260, () => LOWW, { label: '峡湾内段', radius: 70, speed: 40, clearance: 25 });
+const toFarm = FP.nodes('f-a', S_ISLAND + 380, S_FARM - 120, 200, () => LOWW, { label: tr('峡湾中段'), radius: 70, speed: 35, clearance: 25 });
+const fjordInner = FP.nodes('f-i', S_VILLAGE + 260, S_HEAD - 260, 260, () => LOWW, { label: tr('峡湾内段'), radius: 70, speed: 40, clearance: 25 });
 fjordInner[Math.floor(fjordInner.length / 2)].checkpoint = true;
 
 const NODES: RouteNodeDef[] = [
@@ -230,20 +231,20 @@ const NODES: RouteNodeDef[] = [
   ...wide,
   ...strait,
   ...toFarm,
-  { id: 'f-fu', pos: [Math.round(FARM[0] - FARM_N[0] * 120), 300, Math.round(FARM[2] - FARM_N[1] * 120)], radius: 50, speed: 15, label: '农场下方峡湾' },
-  { id: 'f-fd', pos: [Math.round(FARM[0] - FARM_N[0] * 110), 150, Math.round(FARM[2] - FARM_N[1] * 110)], radius: 50, speed: 15, label: '离开农场' },
-  ...FP.nodes('f-v', S_FARM + 200, S_VILLAGE - 220, 240, () => LOWW, { label: '峡湾中段', radius: 70, speed: 40, clearance: 25 }),
-  { id: 'f-vu', pos: [PIER[0], 60, PIER[2]], radius: 40, speed: 10, label: '离开码头' },
+  { id: 'f-fu', pos: [Math.round(FARM[0] - FARM_N[0] * 120), 300, Math.round(FARM[2] - FARM_N[1] * 120)], radius: 50, speed: 15, label: tr('农场下方峡湾') },
+  { id: 'f-fd', pos: [Math.round(FARM[0] - FARM_N[0] * 110), 150, Math.round(FARM[2] - FARM_N[1] * 110)], radius: 50, speed: 15, label: tr('离开农场') },
+  ...FP.nodes('f-v', S_FARM + 200, S_VILLAGE - 220, 240, () => LOWW, { label: tr('峡湾中段'), radius: 70, speed: 40, clearance: 25 }),
+  { id: 'f-vu', pos: [PIER[0], 60, PIER[2]], radius: 40, speed: 10, label: tr('离开码头') },
   ...fjordInner,
-  ...PASSP.nodes('f-p', 120, PASSP.len - 150, 170, (s) => Math.max(passFloor(s / PASSP.len), 40) + 95, { label: '山口', radius: 70, speed: 32, clearance: 25 }, { 2: { checkpoint: true } }),
+  ...PASSP.nodes('f-p', 120, PASSP.len - 150, 170, (s) => Math.max(passFloor(s / PASSP.len), 40) + 95, { label: tr('山口'), radius: 70, speed: 32, clearance: 25 }, { 2: { checkpoint: true } }),
 ];
 
 export const FJORD_MAP: MapDef = {
   id: 'fjord',
-  name: '雾湾峡湾',
-  subtitle: '挪威 · 峡湾与海岸',
-  region: '挪威西海岸（虚构）',
-  description: '巡查峡湾口的导航信标，向悬崖农场和临水村落运送物资，最后抵达峡湾尽头的港口。浓雾天气下能见度只有几百米，信标灯光与 HUD 导航是关键。',
+  name: tr('雾湾峡湾'),
+  subtitle: tr('挪威 · 峡湾与海岸'),
+  region: tr('挪威西海岸（虚构）'),
+  description: tr('巡查峡湾口的导航信标，向悬崖农场和临水村落运送物资，最后抵达峡湾尽头的港口。浓雾天气下能见度只有几百米，信标灯光与 HUD 导航是关键。'),
   difficulty: 4,
   recommendedAssist: 'standard',
   size: 4096,
@@ -303,11 +304,11 @@ export const FJORD_MAP: MapDef = {
   farExtent: 4,
   spawn: { padId: 'F-mouth', heading: 0 },
   pads: [
-    { id: 'F-mouth', name: '峡湾口灯塔站', pos: [-1715, 14.45, -110], size: 18, kind: 'start', style: 'ground' },
-    { id: 'F-farm', name: '悬崖农场', pos: [FARM[0], FARM[1] + 0.45, FARM[2]], size: 16, kind: 'delivery', style: 'ground' },
-    { id: 'F-pier', name: '村落码头停机坪', pos: PIER, size: 18, kind: 'delivery', style: 'pier' },
-    { id: 'F-head', name: '峡湾港口停机坪', pos: [HEAD[0], HEAD[1] + 0.45, HEAD[2]], size: 20, kind: 'final', style: 'ground' },
-    { id: 'F-rep', name: '村落维修坪', pos: [VILLAGE[0] - V_N[0] * 30, VILLAGE[1] + 0.45, VILLAGE[2] - V_N[1] * 30], size: 16, kind: 'repair', style: 'ground', repair: { amount: 100, uses: 2 } },
+    { id: 'F-mouth', name: tr('峡湾口灯塔站'), pos: [-1715, 14.45, -110], size: 18, kind: 'start', style: 'ground' },
+    { id: 'F-farm', name: tr('悬崖农场'), pos: [FARM[0], FARM[1] + 0.45, FARM[2]], size: 16, kind: 'delivery', style: 'ground' },
+    { id: 'F-pier', name: tr('村落码头停机坪'), pos: PIER, size: 18, kind: 'delivery', style: 'pier' },
+    { id: 'F-head', name: tr('峡湾港口停机坪'), pos: [HEAD[0], HEAD[1] + 0.45, HEAD[2]], size: 20, kind: 'final', style: 'ground' },
+    { id: 'F-rep', name: tr('村落维修坪'), pos: [VILLAGE[0] - V_N[0] * 30, VILLAGE[1] + 0.45, VILLAGE[2] - V_N[1] * 30], size: 16, kind: 'repair', style: 'ground', repair: { amount: 100, uses: 2 } },
   ],
   props: [
     ...BEACONS.map((b, i) => ({ type: 'beacon', pos: [b[0], 0, b[2]] as V3, ground: true, p: { h: 16, color: ['green', 'red', 'white'][i], period: [2, 3, 4][i] } })),
@@ -342,20 +343,20 @@ export const FJORD_MAP: MapDef = {
   ],
   nodes: NODES,
   legs: [
-    { to: 'fm-beacons', paths: [{ id: 'main', label: '峡湾口', detail: '', tag: 'main', nodes: [] }] },
+    { to: 'fm-beacons', paths: [{ id: 'main', label: tr('峡湾口'), detail: '', tag: 'main', nodes: [] }] },
     {
       to: 'fm-farm',
       paths: [
-        { id: 'wide', label: '宽阔主航道', detail: '沿峡湾南侧宽阔水道飞行：离峭壁远，雾天最安全', tag: 'safe', nodes: [...outer.map((x) => x.id), ...wide.map((x) => x.id), ...toFarm.map((x) => x.id), 'f-fu'] },
-        { id: 'strait', label: '近岸海峡', detail: '从小岛与北岸峭壁之间的海峡穿过：距离更短，但宽度不足百米，雾中要提前减速', tag: 'short', nodes: [...outer.map((x) => x.id), ...strait.map((x) => x.id), ...toFarm.map((x) => x.id), 'f-fu'] },
+        { id: 'wide', label: tr('宽阔主航道'), detail: tr('沿峡湾南侧宽阔水道飞行：离峭壁远，雾天最安全'), tag: 'safe', nodes: [...outer.map((x) => x.id), ...wide.map((x) => x.id), ...toFarm.map((x) => x.id), 'f-fu'] },
+        { id: 'strait', label: tr('近岸海峡'), detail: tr('从小岛与北岸峭壁之间的海峡穿过：距离更短，但宽度不足百米，雾中要提前减速'), tag: 'short', nodes: [...outer.map((x) => x.id), ...strait.map((x) => x.id), ...toFarm.map((x) => x.id), 'f-fu'] },
       ],
     },
-    { to: 'fm-pier', paths: [{ id: 'main', label: '峡湾中段', detail: '', tag: 'main', nodes: ['f-fd', ...NODES.filter((x) => x.id.startsWith('f-v') && x.id !== 'f-vu').map((x) => x.id)] }] },
+    { to: 'fm-pier', paths: [{ id: 'main', label: tr('峡湾中段'), detail: '', tag: 'main', nodes: ['f-fd', ...NODES.filter((x) => x.id.startsWith('f-v') && x.id !== 'f-vu').map((x) => x.id)] }] },
     {
       to: 'fm-head',
       paths: [
-        { id: 'fjord', label: '沿峡湾水道', detail: '沿蜿蜒的峡湾水面飞行，低空、开阔，距离较长', tag: 'safe', nodes: ['f-vu', ...fjordInner.map((x) => x.id)] },
-        { id: 'pass', label: '翻越山口', detail: '爬升穿过高原上的山口直达港口：距离短，但山口风大、有积雪，需要较多爬升', tag: 'short', nodes: ['f-vu', ...NODES.filter((x) => x.id.startsWith('f-p')).map((x) => x.id)] },
+        { id: 'fjord', label: tr('沿峡湾水道'), detail: tr('沿蜿蜒的峡湾水面飞行，低空、开阔，距离较长'), tag: 'safe', nodes: ['f-vu', ...fjordInner.map((x) => x.id)] },
+        { id: 'pass', label: tr('翻越山口'), detail: tr('爬升穿过高原上的山口直达港口：距离短，但山口风大、有积雪，需要较多爬升'), tag: 'short', nodes: ['f-vu', ...NODES.filter((x) => x.id.startsWith('f-p')).map((x) => x.id)] },
       ],
     },
   ],
@@ -365,31 +366,31 @@ export const FJORD_MAP: MapDef = {
       {
         id: 'fm-beacons',
         kind: 'inspect',
-        title: '巡查峡湾口导航信标',
-        detail: '依次低速飞过三座导航信标（绿、红、白，闪光节奏不同），速度低于 30 m/s。',
-        points: BEACONS.map((b, i) => ({ pos: [b[0], 68, b[2]] as V3, radius: 45, label: `${['绿色', '红色', '白色'][i]}信标` })),
+        title: tr('巡查峡湾口导航信标'),
+        detail: tr('依次低速飞过三座导航信标（绿、红、白，闪光节奏不同），速度低于 30 m/s。'),
+        points: BEACONS.map((b, i) => ({ pos: [b[0], 68, b[2]] as V3, radius: 45, label: tr`${[tr('绿色'), tr('红色'), tr('白色')][i]}信标` })),
         maxSpeed: 30,
         approach: [BEACONS[1][0], 70, BEACONS[1][2]],
       },
-      { id: 'fm-farm', kind: 'land', title: '向悬崖农场运送物资', detail: '农场建在北岸峭壁中段约 270 m 高的平台上。贴近峭壁时谨慎进近，注意侧风。', padId: 'F-farm', dwell: 4, cargo: 'unload', approach: [Math.round(FARM[0] - FARM_N[0] * 45), FARM[1] + 30, Math.round(FARM[2] - FARM_N[1] * 45)] },
-      { id: 'fm-pier', kind: 'land', title: '向村落码头运送物资', detail: '停机坪建在伸入峡湾的码头上，四周是水面。安全降落并卸货。', padId: 'F-pier', dwell: 4, cargo: 'unload', approach: [PIER[0], 40, PIER[2]] },
-      { id: 'fm-head', kind: 'land', title: '抵达峡湾港口', detail: '最终目标：在峡湾尽头的港口停机坪精确降落。', padId: 'F-head', dwell: 3, approach: [HEAD[0], 45, HEAD[2]] },
+      { id: 'fm-farm', kind: 'land', title: tr('向悬崖农场运送物资'), detail: tr('农场建在北岸峭壁中段约 270 m 高的平台上。贴近峭壁时谨慎进近，注意侧风。'), padId: 'F-farm', dwell: 4, cargo: 'unload', approach: [Math.round(FARM[0] - FARM_N[0] * 45), FARM[1] + 30, Math.round(FARM[2] - FARM_N[1] * 45)] },
+      { id: 'fm-pier', kind: 'land', title: tr('向村落码头运送物资'), detail: tr('停机坪建在伸入峡湾的码头上，四周是水面。安全降落并卸货。'), padId: 'F-pier', dwell: 4, cargo: 'unload', approach: [PIER[0], 40, PIER[2]] },
+      { id: 'fm-head', kind: 'land', title: tr('抵达峡湾港口'), detail: tr('最终目标：在峡湾尽头的港口停机坪精确降落。'), padId: 'F-head', dwell: 3, approach: [HEAD[0], 45, HEAD[2]] },
     ],
     optional: [
       {
         id: 'fo-falls',
         kind: 'inspect',
-        title: '巡视七姐妹瀑布',
-        detail: '以低于 25 m/s 的速度飞近瀑布（60 m 内）。',
-        points: [{ pos: [Math.round(FARM[0] + 160 - FARM_N[0] * 60), 150, Math.round(FARM[2] + 40 - FARM_N[1] * 60)], radius: 45, label: '瀑布' }],
+        title: tr('巡视七姐妹瀑布'),
+        detail: tr('以低于 25 m/s 的速度飞近瀑布（60 m 内）。'),
+        points: [{ pos: [Math.round(FARM[0] + 160 - FARM_N[0] * 60), 150, Math.round(FARM[2] + 40 - FARM_N[1] * 60)], radius: 45, label: tr('瀑布') }],
         maxSpeed: 25,
         approach: [Math.round(FARM[0] + 160 - FARM_N[0] * 60), 150, Math.round(FARM[2] + 40 - FARM_N[1] * 60)],
       },
       {
         id: 'fo-fish',
         kind: 'hover',
-        title: '为养殖场投放饲料',
-        detail: '在鲑鱼养殖网箱上方 8–25 m 悬停 5 秒。',
+        title: tr('为养殖场投放饲料'),
+        detail: tr('在鲑鱼养殖网箱上方 8–25 m 悬停 5 秒。'),
         center: [VILLAGE[0] + V_N[0] * 260 - 120, 0, VILLAGE[2] + V_N[1] * 260],
         radius: 30,
         minH: 8,
@@ -408,32 +409,32 @@ export const FJORD_MAP: MapDef = {
     { id: 'fr2', kind: 'repair', pos: fjordInner[Math.floor(fjordInner.length / 2)].pos, note: '峡湾内段' },
   ],
   windZones: [
-    { id: 'f-chan1', name: '峡湾顺谷风', a: FP.at(FP.arcOf(-1400, 250)), b: FP.at(S_FARM), radius: 260, feather: 150, yMax: 500, kind: 'channel', dirFrom: 270, speed: 8 },
-    { id: 'f-strait', name: '海峡侧风阵风', a: FP.at(S_ISLAND - 200), b: FP.at(S_ISLAND + 200), radius: 200, feather: 100, kind: 'gust', gust: { amp: 6, period: 12, dirFrom: 0 } },
-    { id: 'f-cliff', name: '峭壁下沉气流', a: [FARM[0] - 60, FARM[2]], b: [FARM[0] + 60, FARM[2]], radius: 140, feather: 100, kind: 'lift', vertical: -2 },
-    { id: 'f-pass', name: '山口强风', a: [PASS[1][0], PASS[1][1]], b: [PASS[3][0], PASS[3][1]], radius: 220, feather: 150, kind: 'channel', dirFrom: 300, speed: 13 },
+    { id: 'f-chan1', name: tr('峡湾顺谷风'), a: FP.at(FP.arcOf(-1400, 250)), b: FP.at(S_FARM), radius: 260, feather: 150, yMax: 500, kind: 'channel', dirFrom: 270, speed: 8 },
+    { id: 'f-strait', name: tr('海峡侧风阵风'), a: FP.at(S_ISLAND - 200), b: FP.at(S_ISLAND + 200), radius: 200, feather: 100, kind: 'gust', gust: { amp: 6, period: 12, dirFrom: 0 } },
+    { id: 'f-cliff', name: tr('峭壁下沉气流'), a: [FARM[0] - 60, FARM[2]], b: [FARM[0] + 60, FARM[2]], radius: 140, feather: 100, kind: 'lift', vertical: -2 },
+    { id: 'f-pass', name: tr('山口强风'), a: [PASS[1][0], PASS[1][1]], b: [PASS[3][0], PASS[3][1]], radius: 220, feather: 150, kind: 'channel', dirFrom: 300, speed: 13 },
   ],
   weathers: [
-    { id: 'clear', label: '晴天', kind: 'clear', desc: '晴朗清冷，西风 5 m/s，峭壁投下深长的阴影。', params: makeWeather({ windDirFrom: 270, windSpeed: 5, gustAmp: 1.2, cloudCover: 0.35, visibility: 12000 }) },
+    { id: 'clear', label: tr('晴天'), kind: 'clear', desc: tr('晴朗清冷，西风 5 m/s，峭壁投下深长的阴影。'), params: makeWeather({ windDirFrom: 270, windSpeed: 5, gustAmp: 1.2, cloudCover: 0.35, visibility: 12000 }) },
     {
       id: 'fog',
-      label: '浓雾',
+      label: tr('浓雾'),
       kind: 'fog',
-      desc: '浓雾笼罩峡湾，能见度约 350 m。信标闪光可在雾中远距离辨认；依靠 HUD 导航、降低速度。',
+      desc: tr('浓雾笼罩峡湾，能见度约 350 m。信标闪光可在雾中远距离辨认；依靠 HUD 导航、降低速度。'),
       params: makeWeather({ windDirFrom: 260, windSpeed: 3, gustAmp: 0.8, cloudCover: 0.9, overcast: 0.75, visibility: 350, wetness: 0.6, zoneScale: 0.6 }),
     },
     {
       id: 'snow',
-      label: '小雪',
+      label: tr('小雪'),
       kind: 'snow',
-      desc: '细雪落进峡湾，水面是铅灰色的，能见度约 3 公里。',
+      desc: tr('细雪落进峡湾，水面是铅灰色的，能见度约 3 公里。'),
       params: makeWeather({ snow: 0.6, windDirFrom: 270, windSpeed: 4, gustAmp: 1.2, cloudCover: 0.95, overcast: 0.65, visibility: 3000 }),
     },
     {
       id: 'crosswind',
-      label: '侧风',
+      label: tr('侧风'),
       kind: 'wind',
-      desc: '北风 11 m/s 横穿峡湾，在海峡与山口处形成阵风；靠近峭壁时需要持续修正。',
+      desc: tr('北风 11 m/s 横穿峡湾，在海峡与山口处形成阵风；靠近峭壁时需要持续修正。'),
       params: makeWeather({ windDirFrom: 0, windSpeed: 11, gustAmp: 3.5, turbulence: 0.6, cloudCover: 0.6, overcast: 0.3, visibility: 9000, zoneScale: 1.3 }),
     },
   ],
@@ -468,21 +469,21 @@ export const FJORD_MAP: MapDef = {
   ],
   birds: { gull: 18, raven: 4 },
   landmarks: [
-    { name: '木板教堂', pos: [VILLAGE[0], 20, VILLAGE[2]] },
-    { name: '悬崖农场', pos: FARM },
-    { name: '七姐妹瀑布', pos: [FARM[0] + 160, 150, FARM[2] + 40] },
+    { name: trKey('木板教堂'), pos: [VILLAGE[0], 20, VILLAGE[2]] },
+    { name: trKey('悬崖农场'), pos: FARM },
+    { name: trKey('七姐妹瀑布'), pos: [FARM[0] + 160, 150, FARM[2] + 40] },
   ],
   vistas: [
-    { name: '峡湾入口', at: [-1276, 100, 160], look: [-1048, 242] },
-    { name: '岩壁之间', at: [-442, 100, 173], look: [-283, 229] },
-    { name: '七姐妹瀑布', at: [16, 100, 198], look: [3, 8] },
-    { name: '海中小岛', at: [-591, 100, -58], look: [-335, -67] },
-    { name: '峡湾尽头', at: [500, 90, -200], look: [-900, 300] },
+    { name: trKey('峡湾入口'), at: [-1276, 100, 160], look: [-1048, 242] },
+    { name: trKey('岩壁之间'), at: [-442, 100, 173], look: [-283, 229] },
+    { name: trKey('七姐妹瀑布'), at: [16, 100, 198], look: [3, 8] },
+    { name: trKey('海中小岛'), at: [-591, 100, -58], look: [-335, -67] },
+    { name: trKey('峡湾尽头'), at: [500, 90, -200], look: [-900, 300] },
   ],
   briefing: [
-    '峡湾两侧是数百米高的峭壁。宽阔主航道离峭壁远，近岸海峡宽度不足百米。',
-    '浓雾中能见度只有约 350 m：彩色信标灯光可以穿透雾气，HUD 的航点标记、转弯预告和地形告警始终有效。',
-    '悬崖农场在峭壁中段，背风侧有下沉气流——进近时保留动力余量。',
+    tr('峡湾两侧是数百米高的峭壁。宽阔主航道离峭壁远，近岸海峡宽度不足百米。'),
+    tr('浓雾中能见度只有约 350 m：彩色信标灯光可以穿透雾气，HUD 的航点标记、转弯预告和地形告警始终有效。'),
+    tr('悬崖农场在峭壁中段，背风侧有下沉气流——进近时保留动力余量。'),
   ],
   estMinutes: [9, 12],
 };

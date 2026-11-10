@@ -2,9 +2,10 @@
 // 机型为虚构的轻型单发通用直升机 RT-7「隼」，参数量级参考同级别真实机型。
 
 import { DEG } from '../core/math';
+import { tr } from '../i18n';
 
 export const HELI = {
-  name: 'RT-7 隼',
+  name: tr('RT-7 隼'),
   /** 空机 + 驾驶员 + 燃油（kg） */
   massBase: 1750,
   /** 主惯量（kg·m²）：x=俯仰，y=偏航，z=横滚 */
@@ -164,8 +165,8 @@ export interface AssistPreset {
 export const ASSISTS: Record<AssistId, AssistPreset> = {
   novice: {
     id: 'novice',
-    label: '新手辅助',
-    desc: '增稳最强：松开按键自动改平并缓慢减速，自动保持高度，近地自动限制下降速度。',
+    label: tr('新手辅助'),
+    desc: tr('增稳最强：松开按键自动改平并缓慢减速，自动保持高度，近地自动限制下降速度。'),
     attitudeMode: 'attitude',
     maxPitch: 16 * DEG,
     maxBank: 25 * DEG,
@@ -199,8 +200,8 @@ export const ASSISTS: Record<AssistId, AssistPreset> = {
   },
   standard: {
     id: 'standard',
-    label: '标准辅助',
-    desc: '默认模式：松开按键改平但保留惯性，保持垂直速度（高度会缓慢漂移），兼顾拟真与可玩性。',
+    label: tr('标准辅助'),
+    desc: tr('默认模式：松开按键改平但保留惯性，保持垂直速度（高度会缓慢漂移），兼顾拟真与可玩性。'),
     attitudeMode: 'attitude',
     maxPitch: 22 * DEG,
     maxBank: 35 * DEG,
@@ -234,8 +235,8 @@ export const ASSISTS: Record<AssistId, AssistPreset> = {
   },
   challenge: {
     id: 'challenge',
-    label: '挑战辅助',
-    desc: '减少辅助：姿态按角速度控制（松杆保持当前姿态），总距杆直接控制升力，反扭矩协调不完全。',
+    label: tr('挑战辅助'),
+    desc: tr('减少辅助：姿态按角速度控制（松杆保持当前姿态），总距杆直接控制升力，反扭矩协调不完全。'),
     attitudeMode: 'rate',
     maxPitch: 38 * DEG,
     maxBank: 55 * DEG,
@@ -269,8 +270,8 @@ export const ASSISTS: Record<AssistId, AssistPreset> = {
   },
   sim: {
     id: 'sim',
-    label: '超仿真',
-    desc: '冷舱启动，按钮和仪表都要亲手操作。没有任何飞行辅助：旋翼转速要自己看，发动机停了只能自转下滑。鼠标不锁定，移到屏幕边转头；Shift 下降，C 动力增强。',
+    label: tr('超仿真'),
+    desc: tr('冷舱启动，按钮和仪表都要亲手操作。没有任何飞行辅助：旋翼转速要自己看，发动机停了只能自转下滑。鼠标不锁定，移到屏幕边转头；Shift 下降，C 动力增强。'),
     attitudeMode: 'rate',
     maxPitch: 60 * DEG,
     maxBank: 80 * DEG,

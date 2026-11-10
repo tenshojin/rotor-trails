@@ -1,5 +1,7 @@
 // 超仿真的界面：鼠标旁边的控件说明、左上角的检查单。别的 HUD 都收起来，飞行信息全在仪表上。
 
+import { tr } from '../i18n';
+
 export interface ChecklistRow {
   text: string;
   done: boolean;
@@ -19,7 +21,7 @@ export class SimPanel {
     this.tip.className = 'sim-tip hidden';
     this.list = document.createElement('div');
     this.list.className = 'sim-list hidden';
-    this.list.innerHTML = '<div class="sim-list-head"><b>启动检查单</b><button type="button" class="sim-auto">自动完成</button></div><ol></ol><p class="sim-note">把鼠标移到屏幕边转头。左键操作，右键往回拧，滚轮转旋钮或拉近视野。</p>';
+    this.list.innerHTML = `<div class="sim-list-head"><b>${tr`启动检查单`}</b><button type="button" class="sim-auto">${tr`自动完成`}</button></div><ol></ol><p class="sim-note">${tr`把鼠标移到屏幕边转头。左键操作，右键往回拧，滚轮转旋钮或拉近视野。`}</p>`;
     this.rows = this.list.querySelector('ol')!;
     this.list.querySelector('.sim-auto')!.addEventListener('click', this.auto);
     parent.append(this.tip, this.list);

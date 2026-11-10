@@ -4,14 +4,15 @@
 // 夜晚：太阳换成月亮（同一盏方向光，阴影、山影、水面的碎光都照常工作，只是暗得多、偏蓝）。
 
 import type { MapDef } from '../maps/types';
+import { tr } from '../i18n';
 
 export type TimeOfDay = 'day' | 'dawn' | 'dusk' | 'night';
 
 export const TIME_OF_DAY: Record<TimeOfDay, { label: string; desc: string }> = {
-  day: { label: '白天', desc: '地图默认的日照。' },
-  dawn: { label: '清晨', desc: '日出后不久：低角度的阳光，谷地与林间有晨雾，光束最明显。' },
-  dusk: { label: '黄昏', desc: '日落前：暖色斜阳、长长的影子，云底被染成橙红。' },
-  night: { label: '夜晚', desc: '月光下飞行：星空、水面上的月光、城镇灯火，靠仪表和着陆灯。' },
+  day: { label: tr('白天'), desc: tr('地图默认的日照。') },
+  dawn: { label: tr('清晨'), desc: tr('日出后不久：低角度的阳光，谷地与林间有晨雾，光束最明显。') },
+  dusk: { label: tr('黄昏'), desc: tr('日落前：暖色斜阳、长长的影子，云底被染成橙红。') },
+  night: { label: tr('夜晚'), desc: tr('月光下飞行：星空、水面上的月光、城镇灯火，靠仪表和着陆灯。') },
 };
 
 export function isTimeOfDay(v: unknown): v is TimeOfDay {

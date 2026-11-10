@@ -1,6 +1,8 @@
 // 拍照模式的面板：焦距、曝光、倾斜、隐藏直升机、构图线。画面是主角，这个面板只占最下面一条，
 // 还能一键收起来。面板和构图线都是网页元素，存下来的图里没有它们。
 
+import { tr } from '../i18n';
+
 /** 全画幅相机的焦距和竖直视角互换（底片高 24 mm） */
 export const lensOfFov = (fov: number): number => 12 / Math.tan((fov * Math.PI) / 360);
 export const fovOfLens = (mm: number): number => (Math.atan(12 / mm) * 360) / Math.PI;
@@ -13,11 +15,11 @@ const sliderAt = (mm: number): number => Math.log(mm / LENS_MIN) / Math.log(LENS
 
 /** 风格：名字、饱和度、冷暖、黑位 */
 export const LOOKS: ReadonlyArray<readonly [string, number, number, number]> = [
-  ['原片', 1, 0, 0],
-  ['胶片', 0.86, 0.55, 0.045],
-  ['暖阳', 1.1, 1, 0],
-  ['冷调', 0.92, -1, 0.01],
-  ['黑白', 0, 0, 0.015],
+  [tr('原片'), 1, 0, 0],
+  [tr('胶片'), 0.86, 0.55, 0.045],
+  [tr('暖阳'), 1.1, 1, 0],
+  [tr('冷调'), 0.92, -1, 0.01],
+  [tr('黑白'), 0, 0, 0.015],
 ];
 
 export interface PhotoPanelHandlers {
@@ -53,17 +55,17 @@ export class PhotoPanel {
     root.className = 'photo-panel';
     root.innerHTML = `<div class="photo-keys">${keys}</div>
       <div class="photo-row">
-        <label class="photo-slider"><span>焦距</span><input type="range" data-k="lens" min="0" max="1" step="0.002" aria-label="焦距"><output></output></label>
-        <label class="photo-slider"><span>曝光</span><input type="range" data-k="ev" min="-2" max="2" step="0.1" value="0" aria-label="曝光"><output>0.0</output></label>
-        <label class="photo-slider"><span>倾斜</span><input type="range" data-k="roll" min="-30" max="30" step="1" value="0" aria-label="倾斜"><output>0°</output></label>
-        ${canBlur ? '<label class="photo-slider"><span>虚化</span><input type="range" data-k="dof" min="0" max="1" step="0.02" value="0" aria-label="背景虚化"><output>关</output></label>' : ''}
-        <label class="photo-slider"><span>风格</span><select data-k="look" aria-label="风格">${LOOKS.map((l, i) => `<option value="${i}">${l[0]}</option>`).join('')}</select></label>
-        <label class="photo-check"><input type="checkbox" data-k="heli">隐藏直升机</label>
-        <label class="photo-check"><input type="checkbox" data-k="blur">旋翼虚化</label>
-        <label class="photo-check"><input type="checkbox" data-k="grid">构图线</label>
+        <label class="photo-slider"><span>${tr`焦距`}</span><input type="range" data-k="lens" min="0" max="1" step="0.002" aria-label="${tr`焦距`}"><output></output></label>
+        <label class="photo-slider"><span>${tr`曝光`}</span><input type="range" data-k="ev" min="-2" max="2" step="0.1" value="0" aria-label="${tr`曝光`}"><output>0.0</output></label>
+        <label class="photo-slider"><span>${tr`倾斜`}</span><input type="range" data-k="roll" min="-30" max="30" step="1" value="0" aria-label="${tr`倾斜`}"><output>0°</output></label>
+        ${canBlur ? `<label class="photo-slider"><span>${tr`虚化`}</span><input type="range" data-k="dof" min="0" max="1" step="0.02" value="0" aria-label="${tr`背景虚化`}"><output>${tr`关`}</output></label>` : ''}
+        <label class="photo-slider"><span>${tr`风格`}</span><select data-k="look" aria-label="${tr`风格`}">${LOOKS.map((l, i) => `<option value="${i}">${l[0]}</option>`).join('')}</select></label>
+        <label class="photo-check"><input type="checkbox" data-k="heli">${tr`隐藏直升机`}</label>
+        <label class="photo-check"><input type="checkbox" data-k="blur">${tr`旋翼虚化`}</label>
+        <label class="photo-check"><input type="checkbox" data-k="grid">${tr`构图线`}</label>
         <span class="photo-note" role="status"></span>
-        <button type="button" class="btn sm primary" data-a="save">存图</button>
-        <button type="button" class="btn sm" data-a="back">返回</button>
+        <button type="button" class="btn sm primary" data-a="save">${tr`存图`}</button>
+        <button type="button" class="btn sm" data-a="back">${tr`返回`}</button>
       </div>`;
     parent.appendChild(root);
     const q = <T extends HTMLElement>(s: string): T => root.querySelector(s) as T;
@@ -87,7 +89,7 @@ export class PhotoPanel {
     const dof = root.querySelector<HTMLInputElement>('[data-k="dof"]');
     dof?.addEventListener('input', () => {
       const v = Number(dof.value);
-      (dof.nextElementSibling as HTMLElement).textContent = v > 0 ? `${Math.round(v * 100)}%` : '关';
+      (dof.nextElementSibling as HTMLElement).textContent = v > 0 ? `${Math.round(v * 100)}%` : tr('关');
       on.blur(v);
     });
     this.tilt.addEventListener('input', () => {

@@ -1,6 +1,7 @@
 // 游戏设置（带默认值与校验）与画质预设。
 
 import type { AssistId } from '../config/flight';
+import { tr } from '../i18n';
 
 export type Action =
   | 'forward'
@@ -28,29 +29,29 @@ export type Action =
   | 'lookDown';
 
 export const ACTION_LABEL: Record<Action, string> = {
-  forward: '前倾加速',
-  back: '后倾减速 / 后退',
-  left: '左转',
-  right: '右转',
-  up: '爬升（增加升力）',
-  down: '下降（减小升力）',
-  strafeLeft: '向左平移',
-  strafeRight: '向右平移',
-  hover: '悬停辅助 开/关',
-  boost: '使用动力增强',
-  center: '视角回正',
-  pause: '暂停',
-  view: '切换视角：座舱 / 追尾 / 电影镜头（休闲模式）',
-  nav: '切换导航目标 / 分岔推荐路线',
-  mapRange: '切换地图范围',
-  hud: 'HUD 显示（自动 / 完整 / 隐藏）',
-  cruise: '自动巡航 开/关（休闲模式）',
-  trim: '配平：把现在的杆位设成中立点（超仿真）',
-  photo: '截图（存成图片，不带 HUD）',
-  lookLeft: '向左看（无鼠标锁定时）',
-  lookRight: '向右看',
-  lookUp: '向上看',
-  lookDown: '向下看',
+  forward: tr('前倾加速'),
+  back: tr('后倾减速 / 后退'),
+  left: tr('左转'),
+  right: tr('右转'),
+  up: tr('爬升（增加升力）'),
+  down: tr('下降（减小升力）'),
+  strafeLeft: tr('向左平移'),
+  strafeRight: tr('向右平移'),
+  hover: tr('悬停辅助 开/关'),
+  boost: tr('使用动力增强'),
+  center: tr('视角回正'),
+  pause: tr('暂停'),
+  view: tr('切换视角：座舱 / 追尾 / 电影镜头（休闲模式）'),
+  nav: tr('切换导航目标 / 分岔推荐路线'),
+  mapRange: tr('切换地图范围'),
+  hud: tr('HUD 显示（自动 / 完整 / 隐藏）'),
+  cruise: tr('自动巡航 开/关（休闲模式）'),
+  trim: tr('配平：把现在的杆位设成中立点（超仿真）'),
+  photo: tr('截图（存成图片，不带 HUD）'),
+  lookLeft: tr('向左看（无鼠标锁定时）'),
+  lookRight: tr('向右看'),
+  lookUp: tr('向上看'),
+  lookDown: tr('向下看'),
 };
 
 export const DEFAULT_BINDINGS: Record<Action, string[]> = {
@@ -108,10 +109,10 @@ export interface QualityPreset {
 }
 
 export const QUALITY: Record<QualityId, QualityPreset> = {
-  low: { label: '低', pixelRatio: 0.8, shadows: false, shadowSize: 512, shadowRange: 0, treeNear: 280, treeFar: 1500, terrainLod: 0.75, rainDensity: 0.35, envSize: 64, terrainTex: 0, hiRing: 0, msaa: 0, bloom: false, ao: false },
-  medium: { label: '中', pixelRatio: 1, shadows: true, shadowSize: 1024, shadowRange: 800, treeNear: 420, treeFar: 2600, terrainLod: 1.15, rainDensity: 0.65, envSize: 128, terrainTex: 1024, hiRing: 6, msaa: 4, bloom: false, ao: true },
-  high: { label: '高', pixelRatio: 1.5, shadows: true, shadowSize: 2048, shadowRange: 1600, treeNear: 600, treeFar: 4200, terrainLod: 1.7, rainDensity: 1, envSize: 256, terrainTex: 1024, hiRing: 8, msaa: 4, bloom: true, ao: true },
-  ultra: { label: '极高（Ultra）', pixelRatio: 2, shadows: true, shadowSize: 4096, shadowRange: 2800, treeNear: 850, treeFar: 6000, terrainLod: 2.6, rainDensity: 1, envSize: 256, terrainTex: 1024, hiRing: 8, msaa: 4, bloom: true, ao: true },
+  low: { label: tr('低'), pixelRatio: 0.8, shadows: false, shadowSize: 512, shadowRange: 0, treeNear: 280, treeFar: 1500, terrainLod: 0.75, rainDensity: 0.35, envSize: 64, terrainTex: 0, hiRing: 0, msaa: 0, bloom: false, ao: false },
+  medium: { label: tr('中'), pixelRatio: 1, shadows: true, shadowSize: 1024, shadowRange: 800, treeNear: 420, treeFar: 2600, terrainLod: 1.15, rainDensity: 0.65, envSize: 128, terrainTex: 1024, hiRing: 6, msaa: 4, bloom: false, ao: true },
+  high: { label: tr('高'), pixelRatio: 1.5, shadows: true, shadowSize: 2048, shadowRange: 1600, treeNear: 600, treeFar: 4200, terrainLod: 1.7, rainDensity: 1, envSize: 256, terrainTex: 1024, hiRing: 8, msaa: 4, bloom: true, ao: true },
+  ultra: { label: tr('极高（Ultra）'), pixelRatio: 2, shadows: true, shadowSize: 4096, shadowRange: 2800, treeNear: 850, treeFar: 6000, terrainLod: 2.6, rainDensity: 1, envSize: 256, terrainTex: 1024, hiRing: 8, msaa: 4, bloom: true, ao: true },
 };
 
 export interface Settings {
@@ -277,42 +278,42 @@ export function sanitizeSettings(raw: unknown): Settings {
 
 /** 按键代码的可读名称 */
 const KEY_NAMES: Record<string, string> = {
-    Space: '空格',
-    ControlLeft: '左 Ctrl',
-    ControlRight: '右 Ctrl',
-    ShiftLeft: '左 Shift',
-    ShiftRight: '右 Shift',
-    AltLeft: '左 Alt',
-    AltRight: '右 Alt',
+    Space: tr('空格'),
+    ControlLeft: tr('左 Ctrl'),
+    ControlRight: tr('右 Ctrl'),
+    ShiftLeft: tr('左 Shift'),
+    ShiftRight: tr('右 Shift'),
+    AltLeft: tr('左 Alt'),
+    AltRight: tr('右 Alt'),
     Escape: 'Esc',
     ArrowLeft: '←',
     ArrowRight: '→',
     ArrowUp: '↑',
     ArrowDown: '↓',
-    Enter: '回车',
+    Enter: tr('回车'),
     Tab: 'Tab',
-    Backspace: '退格',
+    Backspace: tr('退格'),
 };
 
 /** 手机、平板上提示里写的是屏幕上的摇杆和按键 */
 const TOUCH_NAMES: Record<string, string> = {
-  KeyW: '右摇杆上推',
-  KeyS: '右摇杆下拉',
-  KeyA: '左摇杆左推',
-  KeyD: '左摇杆右推',
-  KeyQ: '右摇杆左推',
-  KeyE: '右摇杆右推',
-  Space: '左摇杆上推',
-  ShiftLeft: '左摇杆下拉',
-  ShiftRight: '左摇杆下拉',
-  KeyH: '悬停',
-  KeyC: '增强',
-  KeyZ: '回正',
-  KeyV: '视角',
-  KeyJ: '巡航',
-  KeyN: '导航',
-  Escape: '暂停',
-  KeyP: '暂停',
+  KeyW: tr('右摇杆上推'),
+  KeyS: tr('右摇杆下拉'),
+  KeyA: tr('左摇杆左推'),
+  KeyD: tr('左摇杆右推'),
+  KeyQ: tr('右摇杆左推'),
+  KeyE: tr('右摇杆右推'),
+  Space: tr('左摇杆上推'),
+  ShiftLeft: tr('左摇杆下拉'),
+  ShiftRight: tr('左摇杆下拉'),
+  KeyH: tr('悬停'),
+  KeyC: tr('增强'),
+  KeyZ: tr('回正'),
+  KeyV: tr('视角'),
+  KeyJ: tr('巡航'),
+  KeyN: tr('导航'),
+  Escape: tr('暂停'),
+  KeyP: tr('暂停'),
 };
 let touchNames = false;
 export function useTouchNames(on: boolean): void {
@@ -325,10 +326,10 @@ export function onTouchScreen(code: string): boolean {
 
 /** 正在用手柄时，提示里写手柄上的键（Xbox 的叫法，PS 手柄同样的位置）。按动作找，改过键也对得上 */
 const PAD_NAMES: Partial<Record<Action, string>> = {
-  forward: '左摇杆上推',
-  back: '左摇杆下拉',
-  left: '左摇杆左推',
-  right: '左摇杆右推',
+  forward: tr('左摇杆上推'),
+  back: tr('左摇杆下拉'),
+  left: tr('左摇杆左推'),
+  right: tr('左摇杆右推'),
   up: 'RT',
   down: 'LT',
   strafeLeft: 'LB',
@@ -337,17 +338,17 @@ const PAD_NAMES: Partial<Record<Action, string>> = {
   boost: 'B',
   view: 'X',
   center: 'Y',
-  pause: '菜单键',
-  cruise: '视图键',
-  nav: '十字键上',
-  hud: '十字键下',
-  mapRange: '十字键左右',
-  photo: '按下右摇杆',
-  trim: '按下左摇杆',
-  lookLeft: '右摇杆',
-  lookRight: '右摇杆',
-  lookUp: '右摇杆',
-  lookDown: '右摇杆',
+  pause: tr('菜单键'),
+  cruise: tr('视图键'),
+  nav: tr('十字键上'),
+  hud: tr('十字键下'),
+  mapRange: tr('十字键左右'),
+  photo: tr('按下右摇杆'),
+  trim: tr('按下左摇杆'),
+  lookLeft: tr('右摇杆'),
+  lookRight: tr('右摇杆'),
+  lookUp: tr('右摇杆'),
+  lookDown: tr('右摇杆'),
 };
 let padBindings: (() => Record<Action, string[]>) | null = null;
 /** 玩家拿起手柄时传入当前键位（按代码找到动作），放下手柄、碰键盘鼠标时传 null */
@@ -373,6 +374,6 @@ export function keyLabel(code: string): string {
   if (KEY_NAMES[code]) return KEY_NAMES[code];
   if (code.startsWith('Key')) return code.slice(3);
   if (code.startsWith('Digit')) return code.slice(5);
-  if (code.startsWith('Numpad')) return '小键盘 ' + code.slice(6);
+  if (code.startsWith('Numpad')) return tr('小键盘 ') + code.slice(6);
   return code;
 }

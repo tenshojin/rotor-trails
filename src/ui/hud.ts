@@ -10,6 +10,7 @@ import type { GameSession } from '../sim/session';
 import { keyName, type Settings } from '../game/settings';
 import type { TutorialHud } from '../game/tutorial';
 import type { WorldView } from '../render/worldView';
+import { tr } from '../i18n';
 
 const SPEED_K = { kmh: 3.6, kt: 1.9438, ms: 1 };
 const SPEED_U = { kmh: 'km/h', kt: 'kt', ms: 'm/s' };
@@ -108,7 +109,7 @@ export class Hud {
     this.overlay = el('canvas', 'hud-overlay', this.root);
     this.og = this.overlay.getContext('2d')!;
     const obj = el('div', 'panel hud-obj', this.root);
-    el('div', 'hud-label', obj, '当前任务');
+    el('div', 'hud-label', obj, tr('当前任务'));
     this.objTitle = el('div', 'obj-title', obj);
     this.objDetail = el('div', 'obj-detail', obj);
     const bar = el('div', 'obj-bar', obj);
@@ -131,7 +132,7 @@ export class Hud {
       this.onFork?.(Number(card.dataset.i));
     });
     this.landing = el('div', 'panel hud-landing hidden', this.root);
-    el('div', 'hud-label', this.landing, '着陆辅助');
+    el('div', 'hud-label', this.landing, tr('着陆辅助'));
     this.landCv = el('canvas', 'land-cv', this.landing);
     this.landCv.width = this.landCv.height = 200;
     this.landInfo = el('div', 'land-info', this.landing);
@@ -166,7 +167,7 @@ export class Hud {
     this.root.classList.toggle('hud-full', this.mode === 1);
     this.root.classList.toggle('hud-off', this.mode === 2);
     this.root.classList.toggle('hud-clean', this.mode === 2);
-    return ['自动', '完整', '隐藏'][this.mode];
+    return [tr('自动'), tr('完整'), tr('隐藏')][this.mode];
   }
 
   setFree(on: boolean): void {
@@ -287,34 +288,34 @@ export class Hud {
     const dc = d >= 70 ? 'ok' : d >= 30 ? 'amber' : 'red';
     // 飞行数据（教学时只留最要紧的两个数）。最后一行耐久只在手机上露出来：右边的状态面板手机上放不下
     if (this.tut) setMarkup(this.flight, `
-      <div class="row big"><span>地速</span><b>${Math.round(s.groundSpeed * k)}</b><em>${u}</em></div>
-      <div class="row big ${s.agl < 3 && !s.gear.contactCount ? 'amber' : ''}"><span>离地高度</span><b>${s.agl > 2500 ? '—' : s.agl.toFixed(s.agl < 20 ? 1 : 0)}</b><em>m</em></div>`);
+      <div class="row big"><span>${tr`地速`}</span><b>${Math.round(s.groundSpeed * k)}</b><em>${u}</em></div>
+      <div class="row big ${s.agl < 3 && !s.gear.contactCount ? 'amber' : ''}"><span>${tr`离地高度`}</span><b>${s.agl > 2500 ? '—' : s.agl.toFixed(s.agl < 20 ? 1 : 0)}</b><em>m</em></div>`);
     else setMarkup(this.flight, `
-      <div class="row big"><span>地速</span><b>${Math.round(s.groundSpeed * k)}</b><em>${u}</em></div>
-      <div class="row"><span>空速</span><b>${Math.round(tel.airspeed * k)}</b><em>${u}</em></div>
-      <div class="row big ${s.agl < 10 ? 'amber' : ''}"><span>离地高度</span><b>${s.agl > 2500 ? '—' : s.agl.toFixed(s.agl < 20 ? 1 : 0)}</b><em>m</em></div>
-      <div class="row"><span>海拔</span><b>${Math.round(msl)}</b><em>m</em></div>
-      <div class="row ${Math.abs(vs) > 6 ? 'amber' : ''}"><span>垂直速度</span><b>${vs >= 0 ? '+' : ''}${vs.toFixed(1)}</b><em>m/s</em></div>
-      <div class="row"><span>姿态</span><b class="sm">俯仰 ${pitch >= 0 ? '+' : ''}${pitch.toFixed(0)}° · 横滚 ${roll >= 0 ? '+' : ''}${roll.toFixed(0)}°</b></div>
-      <div class="row"><span>航向</span><b>${headingLabel(tel.heading * RAD)}°</b></div>
-      <div class="row compact"><span>耐久</span><b class="${dc}">${Math.round(d)}</b></div>`);
+      <div class="row big"><span>${tr`地速`}</span><b>${Math.round(s.groundSpeed * k)}</b><em>${u}</em></div>
+      <div class="row"><span>${tr`空速`}</span><b>${Math.round(tel.airspeed * k)}</b><em>${u}</em></div>
+      <div class="row big ${s.agl < 10 ? 'amber' : ''}"><span>${tr`离地高度`}</span><b>${s.agl > 2500 ? '—' : s.agl.toFixed(s.agl < 20 ? 1 : 0)}</b><em>m</em></div>
+      <div class="row"><span>${tr`海拔`}</span><b>${Math.round(msl)}</b><em>m</em></div>
+      <div class="row ${Math.abs(vs) > 6 ? 'amber' : ''}"><span>${tr`垂直速度`}</span><b>${vs >= 0 ? '+' : ''}${vs.toFixed(1)}</b><em>m/s</em></div>
+      <div class="row"><span>${tr`姿态`}</span><b class="sm">${tr`俯仰 ${pitch >= 0 ? '+' : ''}${pitch.toFixed(0)}° · 横滚 ${roll >= 0 ? '+' : ''}${roll.toFixed(0)}°`}</b></div>
+      <div class="row"><span>${tr`航向`}</span><b>${headingLabel(tel.heading * RAD)}°</b></div>
+      <div class="row compact"><span>${tr`耐久`}</span><b class="${dc}">${Math.round(d)}</b></div>`);
     // 状态
     const st = s.damage.status;
     const margin = clamp(1 - tel.hoverPowerFrac, -1, 1);
     const wi = s.windInfo;
     const relWind = headingDelta(wrap360(tel.heading * RAD), wrap360(wi.dirFrom));
-    const gustTxt = wi.gustIn !== null && wi.gustIn < 2.5 ? `<div class="gust-warn">阵风将至 ${wi.gustIn.toFixed(1)} s</div>` : '';
+    const gustTxt = wi.gustIn !== null && wi.gustIn < 2.5 ? `<div class="gust-warn">${tr`阵风将至 ${wi.gustIn.toFixed(1)} s`}</div>` : '';
     setMarkup(this.status, `
-      <div class="row"><span>机体耐久</span><b class="${dc}">${Math.round(d)}</b><em class="${dc}">${STATUS_LABEL[st]}</em></div>
+      <div class="row"><span>${tr`机体耐久`}</span><b class="${dc}">${Math.round(d)}</b><em class="${dc}">${STATUS_LABEL[st]}</em></div>
       <div class="meter ${dc}"><i style="width:${d}%"></i><s style="left:70%"></s><s style="left:30%"></s></div>
-      <div class="row"><span>动力余量</span><b class="${margin < 0.1 ? 'amber' : ''}">${Math.round(margin * 100)}%</b><em>${tel.torqueLimited ? '<span class="amber">动力上限</span>' : `密度 ${(tel.density * 100).toFixed(0)}%`}</em></div>
+      <div class="row"><span>${tr`动力余量`}</span><b class="${margin < 0.1 ? 'amber' : ''}">${Math.round(margin * 100)}%</b><em>${tel.torqueLimited ? `<span class="amber">${tr`动力上限`}</span>` : tr`密度 ${(tel.density * 100).toFixed(0)}%`}</em></div>
       <div class="meter ${margin < 0.1 ? 'amber' : 'ok'}"><i style="width:${clamp(tel.powerFrac, 0, 1) * 100}%"></i><s style="left:${clamp(tel.hoverPowerFrac, 0, 1) * 100}%"></s></div>
-      <div class="row wind"><span>风</span><div class="warrow" style="transform:rotate(${relWind + 180}deg)">➤</div><b>${wi.speed.toFixed(0)}</b><em>m/s 来自 ${headingLabel(wi.dirFrom)}°</em></div>
-      <div class="row"><span>阵风</span><b class="sm">${wi.gust > 0.5 ? '+' + wi.gust.toFixed(0) + ' m/s' : '平稳'}</b><em>${wi.vertical > 1 ? '上升气流' : wi.vertical < -1 ? '下沉气流' : ''}</em></div>
-      ${wi.zone ? `<div class="zone">风区：${wi.zone}</div>` : ''}${gustTxt}
-      <div class="row"><span>悬停辅助</span><b class="sm ${tel.hover !== 'off' ? 'ok' : ''}">${tel.hover === 'off' ? '关闭' : tel.hover === 'braking' ? '减速中' : '定点保持'}</b></div>
-      <div class="row"><span>辅助模式</span><b class="sm">${s.flight.assist.label}</b></div>
-      <div class="row"><span>载货</span><b class="sm">${s.mission.cargo} 箱</b></div>`);
+      <div class="row wind"><span>${tr`风`}</span><div class="warrow" style="transform:rotate(${relWind + 180}deg)">➤</div>${tr`<b>${wi.speed.toFixed(0)}</b><em>m/s 来自 ${headingLabel(wi.dirFrom)}°</em>`}</div>
+      <div class="row"><span>${tr`阵风`}</span><b class="sm">${wi.gust > 0.5 ? '+' + wi.gust.toFixed(0) + ' m/s' : tr('平稳')}</b><em>${wi.vertical > 1 ? tr('上升气流') : wi.vertical < -1 ? tr('下沉气流') : ''}</em></div>
+      ${wi.zone ? `<div class="zone">${tr`风区：${wi.zone}`}</div>` : ''}${gustTxt}
+      <div class="row"><span>${tr`悬停辅助`}</span><b class="sm ${tel.hover !== 'off' ? 'ok' : ''}">${tel.hover === 'off' ? tr('关闭') : tel.hover === 'braking' ? tr('减速中') : tr('定点保持')}</b></div>
+      <div class="row"><span>${tr`辅助模式`}</span><b class="sm">${s.flight.assist.label}</b></div>
+      <div class="row"><span>${tr`载货`}</span><b class="sm">${tr`${s.mission.cargo} 箱`}</b></div>`);
     // Buff
     const b = s.buffs;
     const slot = (cls: string, name: string, on: boolean, text: string, frac: number) =>
@@ -322,8 +323,8 @@ export class Hud {
     // 手上没有补给时不占地方
     this.buffs.classList.toggle('hidden', !(b.boostActive || b.boostCharges > 0 || b.shieldActive));
     setMarkup(this.buffs,
-      slot('boost', '动力增强', b.boostActive || b.boostCharges > 0, b.boostActive ? `生效 ${b.boostTime.toFixed(1)} s` : b.boostCharges > 0 ? `已储备 · ${[...new Set(set.bindings.boost.map(keyName))].join(' / ')} 使用` : '未持有', b.boostActive ? b.boostTime / BUFFS.boost.duration : b.boostCharges > 0 ? 1 : 0) +
-      slot('shield', '免伤护盾', b.shieldActive, b.shieldActive ? `剩余 ${b.shieldTime.toFixed(1)} s` : '未激活', b.shieldTime / BUFFS.shield.maxDuration));
+      slot('boost', tr('动力增强'), b.boostActive || b.boostCharges > 0, b.boostActive ? tr`生效 ${b.boostTime.toFixed(1)} s` : b.boostCharges > 0 ? tr`已储备 · ${[...new Set(set.bindings.boost.map(keyName))].join(' / ')} 使用` : tr('未持有'), b.boostActive ? b.boostTime / BUFFS.boost.duration : b.boostCharges > 0 ? 1 : 0) +
+      slot('shield', tr('免伤护盾'), b.shieldActive, b.shieldActive ? tr`剩余 ${b.shieldTime.toFixed(1)} s` : tr('未激活'), b.shieldTime / BUFFS.shield.maxDuration));
     // 任务
     const cur = s.mission.current();
     if (cur) {
@@ -337,34 +338,34 @@ export class Hud {
       this.objDetail.textContent = cur.def.detail;
       this.objBar.style.width = `${cur.progress * 100}%`;
       let hint = cur.hint;
-      if (s.repairProgress > 0) hint = `维修中… ${Math.round(s.repairProgress * 100)}%`;
+      if (s.repairProgress > 0) hint = tr`维修中… ${Math.round(s.repairProgress * 100)}%`;
       this.objHint.textContent = hint;
     } else {
-      this.objTitle.textContent = '全部任务完成';
+      this.objTitle.textContent = tr('全部任务完成');
       this.objDetail.textContent = '';
       this.objBar.style.width = '100%';
       this.objHint.textContent = '';
     }
     const opts = s.mission.optional;
     setMarkup(this.optList, opts.length
-      ? `<div class="hud-label">可选任务 ${s.mission.optionalDone}/${opts.length}${s.nav.focus > 0 ? ' · 导航中' : ''}</div>` +
+      ? `<div class="hud-label">${tr`可选任务 ${s.mission.optionalDone}/`}${opts.length}${s.nav.focus > 0 ? tr(' · 导航中') : ''}</div>` +
         opts.map((o) => `<div class="opt ${o.status === 'done' ? 'done' : ''}">${o.status === 'done' ? '✔' : '○'} ${o.def.title}${o.status !== 'done' && o.progress > 0 ? ` (${Math.round(o.progress * 100)}%)` : ''}</div>`).join('')
       : '');
     // 导航文字
     const nav = navInfo;
     const dist = nav.distance > 1000 ? `${(nav.distance / 1000).toFixed(2)} km` : `${Math.round(nav.distance)} m`;
     const rel = headingDelta(wrap360(tel.heading * RAD), nav.bearing);
-    const dirTxt = Math.abs(rel) < 8 ? '正前方' : `${rel > 0 ? '右' : '左'} ${Math.abs(Math.round(rel))}°`;
+    const dirTxt = Math.abs(rel) < 8 ? tr('正前方') : `${rel > 0 ? tr('右') : tr('左')} ${Math.abs(Math.round(rel))}°`;
     let navHtml = '';
-    if (this.free) navHtml = `<div class="nav-main">${Math.round(s.groundSpeed * k)} ${u} · 离地 ${s.agl > 2500 ? '—' : Math.round(s.agl)} m</div>`;
-    else if (nav.mode === 'complete') navHtml = '<div class="nav-main">任务完成</div>';
+    if (this.free) navHtml = `<div class="nav-main">${tr`${Math.round(s.groundSpeed * k)} ${u} · 离地 ${s.agl > 2500 ? '—' : Math.round(s.agl)} m`}</div>`;
+    else if (nav.mode === 'complete') navHtml = `<div class="nav-main">${tr`任务完成`}</div>`;
     else {
       const alt = `${Math.round(nav.targetAlt + s.world.map.altitudeOffset)} m`;
-      navHtml = `<div class="nav-main"><span class="nav-path">${nav.pathLabel}</span> 下一点：<b>${nav.label}</b> · ${dist} · ${dirTxt}</div>
-        <div class="nav-sub">建议高度 ${alt}（海拔）${nav.speed ? ` · 建议速度 ${Math.round(nav.speed * k)} ${u}` : ''}${nav.mode === 'optional' ? ' · 可选任务' : ''}</div>`;
+      navHtml = `<div class="nav-main"><span class="nav-path">${nav.pathLabel}</span> ${tr`下一点：<b>${nav.label}</b> · ${dist} · ${dirTxt}`}</div>
+        <div class="nav-sub">${tr`建议高度 ${alt}（海拔）`}${nav.speed ? tr` · 建议速度 ${Math.round(nav.speed * k)} ${u}` : ''}${nav.mode === 'optional' ? tr(' · 可选任务') : ''}</div>`;
       if (nav.turn) {
         const tt = nav.turn;
-        navHtml += `<div class="nav-turn">前方 ${Math.round(tt.distance)} m ${tt.angle > 0 ? '右' : '左'}转 ${Math.abs(Math.round(tt.angle))}°${tt.speed ? ` · 建议减速至 ${Math.round(tt.speed * k)} ${u}` : ''}</div>`;
+        navHtml += `<div class="nav-turn">${tr`前方 ${Math.round(tt.distance)} m ${tt.angle > 0 ? tr('右') : tr('左')}转 ${Math.abs(Math.round(tt.angle))}°`}${tt.speed ? tr` · 建议减速至 ${Math.round(tt.speed * k)} ${u}` : ''}</div>`;
       }
       if (nav.message) navHtml += `<div class="nav-warn">${nav.message}</div>`;
     }
@@ -375,17 +376,17 @@ export class Hud {
     if (nav.forks) {
       this.forks.classList.remove('hidden');
       setMarkup(this.forks,
-        `<div class="hud-label">路线选择（飞向其中一条即可<span class="fork-key">；按 ${[...new Set(set.bindings.nav.map(keyName))].join(' / ')} 切换推荐</span><span class="fork-tap">；点卡片设为推荐</span>）</div>` +
+        `<div class="hud-label">${tr`路线选择（飞向其中一条即可`}<span class="fork-key">${tr`；按 ${[...new Set(set.bindings.nav.map(keyName))].join(' / ')} 切换推荐`}</span><span class="fork-tap">${tr`；点卡片设为推荐`}</span>${tr`）`}</div>` +
         nav.forks
           .map((f, i) => {
             const r = headingDelta(wrap360(tel.heading * RAD), f.bearing);
-            return `<div class="fork ${f.preferred ? 'pref' : ''} tag-${f.tag}" data-i="${i}"><b>${f.label}</b><span>${f.detail}</span><em>${Math.round(f.distance)} m · ${Math.abs(r) < 8 ? '正前方' : (r > 0 ? '右 ' : '左 ') + Math.abs(Math.round(r)) + '°'}</em></div>`;
+            return `<div class="fork ${f.preferred ? 'pref' : ''} tag-${f.tag}" data-i="${i}"><b>${f.label}</b><span>${f.detail}</span><em>${Math.round(f.distance)} m · ${Math.abs(r) < 8 ? tr('正前方') : (r > 0 ? tr('右 ') : tr('左 ')) + Math.abs(Math.round(r)) + '°'}</em></div>`;
           })
           .join(''));
     } else this.forks.classList.add('hidden');
     // 告警
     const warns: string[] = [];
-    if (s.terrainWarning !== null) warns.push(`<div class="w red">地形！ ${s.terrainWarning} 秒内接近地面 — 拉升或减速</div>`);
+    if (s.terrainWarning !== null) warns.push(`<div class="w red">${tr`地形！ ${s.terrainWarning} 秒内接近地面 — 拉升或减速`}</div>`);
     // 动力到顶只在刚碰到时提醒一下，之后看右边面板：高原上爬升经常顶着上限飞，横幅一直挂着很烦。自动巡航时不是玩家在飞，不用提醒
     if (!tel.torqueLimited) {
       if (t - this.limitT > 4) this.limitOn = false;
@@ -394,10 +395,10 @@ export class Hud {
       this.limitOn = true;
       this.limitT = t;
     }
-    if (tel.torqueLimited && s.agl > 3 && !this.tut && !this.autoFlight && t - this.limitAt < 3) warns.push('<div class="w amber">动力已达上限</div>');
-    if (vs < -4 && s.agl < 12 && s.agl > 0.5) warns.push('<div class="w amber">下降过快</div>');
-    if (s.weatherInCloud > 0.5) warns.push('<div class="w amber">在云中：依靠仪表与导航飞行</div>');
-    if (st === 'critical') warns.push('<div class="w red">严重受损：前往维修点或谨慎飞行</div>');
+    if (tel.torqueLimited && s.agl > 3 && !this.tut && !this.autoFlight && t - this.limitAt < 3) warns.push(`<div class="w amber">${tr`动力已达上限`}</div>`);
+    if (vs < -4 && s.agl < 12 && s.agl > 0.5) warns.push(`<div class="w amber">${tr`下降过快`}</div>`);
+    if (s.weatherInCloud > 0.5) warns.push(`<div class="w amber">${tr`在云中：依靠仪表与导航飞行`}</div>`);
+    if (st === 'critical') warns.push(`<div class="w red">${tr`严重受损：前往维修点或谨慎飞行`}</div>`);
     setMarkup(this.warn, warns.join(''));
     this.updateLanding(s, set);
     const busy = this.free ? warns.length > 0 : warns.length > 0 || !this.forks.classList.contains('hidden') || !this.landing.classList.contains('hidden') || s.groundSpeed < 8 || this.toasts.children.length > 0;
@@ -445,16 +446,16 @@ export class Hud {
     const safe = descent <= L.descent && drift <= L.horizontal && att <= L.attitude && onPad;
     setMarkup(this.landInfo, target.hover
       ? `<div><b>${target.name}</b></div>
-        <div>相对目标高度 <b>${relH.toFixed(1)} m</b>（需 ${hoverObj!.minH}–${hoverObj!.maxH} m）</div>
-        <div>水平偏移 <b>${off.toFixed(1)} m</b>（半径 ${hoverObj!.radius} m）</div>
-        <div>水平速度 <b>${drift.toFixed(1)} m/s</b>（< ${hoverObj!.maxSpeed}）</div>`
+        <div>${tr`相对目标高度 <b>${relH.toFixed(1)} m</b>（需 ${hoverObj!.minH}–${hoverObj!.maxH} m）`}</div>
+        <div>${tr`水平偏移 <b>${off.toFixed(1)} m</b>（半径 ${hoverObj!.radius} m）`}</div>
+        <div>${tr`水平速度 <b>${drift.toFixed(1)} m/s</b>（< ${hoverObj!.maxSpeed}）`}</div>`
       : `<div><b>${target.name}</b></div>
-        <div>相对高度 <b>${relH.toFixed(1)} m</b></div>
-        <div>${ok(descent <= L.descent)} 下降速度 <b>${descent.toFixed(1)}</b> m/s（≤ ${L.descent}）</div>
-        <div>${ok(drift <= L.horizontal)} 水平漂移 <b>${drift.toFixed(1)}</b> m/s（≤ ${L.horizontal}）</div>
-        <div>${ok(att <= L.attitude)} 机身姿态 <b>${att.toFixed(0)}</b>°（≤ ${L.attitude}°）</div>
-        <div>${ok(onPad)} 位于坪内 偏移 <b>${off.toFixed(1)}</b> m</div>
-        <div class="land-verdict ${safe ? 'ok' : 'bad'}">${safe ? '符合安全着陆条件' : '暂不符合安全着陆条件'}</div>`);
+        <div>${tr`相对高度 <b>${relH.toFixed(1)} m</b>`}</div>
+        <div>${tr`${ok(descent <= L.descent)} 下降速度 <b>${descent.toFixed(1)}</b> m/s（≤ ${L.descent}）`}</div>
+        <div>${tr`${ok(drift <= L.horizontal)} 水平漂移 <b>${drift.toFixed(1)}</b> m/s（≤ ${L.horizontal}）`}</div>
+        <div>${tr`${ok(att <= L.attitude)} 机身姿态 <b>${att.toFixed(0)}</b>°（≤ ${L.attitude}°）`}</div>
+        <div>${tr`${ok(onPad)} 位于坪内 偏移 <b>${off.toFixed(1)}</b> m`}</div>
+        <div class="land-verdict ${safe ? 'ok' : 'bad'}">${safe ? tr('符合安全着陆条件') : tr('暂不符合安全着陆条件')}</div>`);
     void k;
     // 俯视悬停显示：机头朝上
     const g = this.landCv.getContext('2d')!;
@@ -562,7 +563,7 @@ export class Hud {
       g.beginPath();
       g.arc(p.x, p.y, 8, 0, Math.PI * 2);
       g.stroke();
-      this.overlayLabel(`${pk.kind === 'boost' ? '动力' : pk.kind === 'shield' ? '护盾' : '维修'} ${Math.round(dist)} m`, p.x, p.y - 14, W, p.y + 24);
+      this.overlayLabel(`${pk.kind === 'boost' ? tr('动力') : pk.kind === 'shield' ? tr('护盾') : tr('维修')} ${Math.round(dist)} m`, p.x, p.y - 14, W, p.y + 24);
     }
     if (nav.mode === 'complete') return;
     const count = nav.forks?.length ?? 1;

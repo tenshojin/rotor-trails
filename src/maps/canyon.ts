@@ -8,6 +8,7 @@ import type { Vec2 } from '../sim/terrain';
 import type { RockFormDef } from '../world/rockForm';
 import { farRiverLine, PathSampler, polylineDist, riverLine, smoothPath } from './routeUtil';
 import type { MapDef, RouteNodeDef, V3 } from './types';
+import { tr, trKey } from '../i18n';
 
 /**
  * 地层（从谷底往上）：深色基岩 → 褐色砂岩崖 → 灰绿页岩缓坡 → 石灰岩 → 一整层红色的大崖 → 红色的薄层岩架 →
@@ -235,38 +236,38 @@ const ALT = (s: number) => floorAt(s) + 76;
 const LOW = (s: number) => floorAt(s) + 32;
 
 // ---------- 航点 ----------
-const canyonNodes = MAINP.nodes('c-k', S_ENTRY, S_STATION - 160, 230, ALT, { label: '峡谷', radius: 45, speed: 24, clearance: 20 });
-canyonNodes[0].label = '峡谷入口';
+const canyonNodes = MAINP.nodes('c-k', S_ENTRY, S_STATION - 160, 230, ALT, { label: tr('峡谷'), radius: 45, speed: 24, clearance: 20 });
+canyonNodes[0].label = tr('峡谷入口');
 canyonNodes[0].pos = [canyonNodes[0].pos[0], 365, canyonNodes[0].pos[2]];
 canyonNodes[0].clearance = 25;
 const narrowIdx = canyonNodes.reduce((bi, nd, i) => (Math.hypot(nd.pos[0] + 600, nd.pos[2] - 440) < Math.hypot(canyonNodes[bi].pos[0] + 600, canyonNodes[bi].pos[2] - 440) ? i : bi), 0);
-canyonNodes[narrowIdx].label = '窄峡';
+canyonNodes[narrowIdx].label = tr('窄峡');
 canyonNodes[narrowIdx].checkpoint = true;
 canyonNodes[narrowIdx].speed = 18;
 canyonNodes[1].pos = [canyonNodes[1].pos[0], 210, canyonNodes[1].pos[2]];
 
-const sensorLeg = MAINP.nodes('c-s', S_STATION + 140, S_SENS[0] - 120, 200, ALT, { label: '下游峡谷', radius: 45, speed: 24, clearance: 20 });
-const archNodes = MAINP.nodes('c-a', S_SENS[2] + 160, S_LEDGE - 170, 110, LOW, { label: '岩拱峡', radius: 30, speed: 14, clearance: 14 });
+const sensorLeg = MAINP.nodes('c-s', S_STATION + 140, S_SENS[0] - 120, 200, ALT, { label: tr('下游峡谷'), radius: 45, speed: 24, clearance: 20 });
+const archNodes = MAINP.nodes('c-a', S_SENS[2] + 160, S_LEDGE - 170, 110, LOW, { label: tr('岩拱峡'), radius: 30, speed: 14, clearance: 14 });
 const archIdx = archNodes.reduce((bi, nd, i) => (Math.hypot(nd.pos[0] - ARCH_X, nd.pos[2] - ARCH_Z) < Math.hypot(archNodes[bi].pos[0] - ARCH_X, archNodes[bi].pos[2] - ARCH_Z) ? i : bi), 0);
 archNodes[archIdx].pos = [Math.round(ARCH_X), Math.round(LOW(S_ARCH)), Math.round(ARCH_Z)];
-archNodes[archIdx].label = '大岩拱';
+archNodes[archIdx].label = tr('大岩拱');
 archNodes[0].checkpoint = true;
-archNodes[0].label = '岩拱峡入口';
+archNodes[0].label = tr('岩拱峡入口');
 
 const S3 = MAINP.point(S_SENS[2], ALT(S_SENS[2]));
 const RANGER: V3 = [420, 301.35, -760];
 const NODES: RouteNodeDef[] = [
   ...canyonNodes,
-  { id: 'c-r1', pos: [-1150, 380, 520], radius: 70, speed: 45, label: '北缘高空' },
-  { id: 'c-r2', pos: [-640, 380, 60], radius: 70, speed: 45, label: '石林上空', checkpoint: true },
-  { id: 'c-r3', pos: [STATION[0] - 60, 345, STATION[2] - 40], radius: 60, speed: 25, label: '研究站上空' },
+  { id: 'c-r1', pos: [-1150, 380, 520], radius: 70, speed: 45, label: tr('北缘高空') },
+  { id: 'c-r2', pos: [-640, 380, 60], radius: 70, speed: 45, label: tr('石林上空'), checkpoint: true },
+  { id: 'c-r3', pos: [STATION[0] - 60, 345, STATION[2] - 40], radius: 60, speed: 25, label: tr('研究站上空') },
   ...sensorLeg,
   ...archNodes,
-  { id: 'c-b1', pos: [S3[0], 370, S3[2]], radius: 60, speed: 15, label: '爬出峡谷' },
-  { id: 'c-b2', pos: [RANGER[0] + 120, 370, RANGER[2] - 80], radius: 70, speed: 40, label: '护林站上空', checkpoint: true },
-  { id: 'c-b3', pos: [Math.round(LEDGE[0] - LEDGE_N[0] * 30), 370, Math.round(LEDGE[2] - LEDGE_N[1] * 30)], radius: 50, speed: 15, label: '岩架上空' },
-  { id: 'c-m1', pos: [Math.round(LEDGE[0] - LEDGE_N[0] * 20), 350, Math.round(LEDGE[2] - LEDGE_N[1] * 20)], radius: 50, speed: 12, label: '垂直爬升出谷', checkpoint: true },
-  { id: 'c-m2', pos: [Math.round((LEDGE[0] + MESA[0]) / 2 + 60), 485, Math.round((LEDGE[2] + MESA[2]) / 2)], radius: 60, speed: 25, label: '台地边缘' },
+  { id: 'c-b1', pos: [S3[0], 370, S3[2]], radius: 60, speed: 15, label: tr('爬出峡谷') },
+  { id: 'c-b2', pos: [RANGER[0] + 120, 370, RANGER[2] - 80], radius: 70, speed: 40, label: tr('护林站上空'), checkpoint: true },
+  { id: 'c-b3', pos: [Math.round(LEDGE[0] - LEDGE_N[0] * 30), 370, Math.round(LEDGE[2] - LEDGE_N[1] * 30)], radius: 50, speed: 15, label: tr('岩架上空') },
+  { id: 'c-m1', pos: [Math.round(LEDGE[0] - LEDGE_N[0] * 20), 350, Math.round(LEDGE[2] - LEDGE_N[1] * 20)], radius: 50, speed: 12, label: tr('垂直爬升出谷'), checkpoint: true },
+  { id: 'c-m2', pos: [Math.round((LEDGE[0] + MESA[0]) / 2 + 60), 485, Math.round((LEDGE[2] + MESA[2]) / 2)], radius: 60, speed: 25, label: tr('台地边缘') },
 ];
 
 /** 谷底的河（两头接着流到地图外面，见 farRivers） */
@@ -293,10 +294,10 @@ const MAIN_RIVER = riverLine(
 
 export const CANYON: MapDef = {
   id: 'canyon',
-  name: '赤岩峡谷',
-  subtitle: '美国西南部 · 峡谷与台地',
-  region: '科罗拉多高原（虚构）',
-  description: '红色砂岩台地上切出一条蜿蜒的大峡谷。为谷底研究站运送补给、巡查传感器、在峭壁岩架投放设备，最后降落在高耸的天空台地之巅。',
+  name: tr('赤岩峡谷'),
+  subtitle: tr('美国西南部 · 峡谷与台地'),
+  region: tr('科罗拉多高原（虚构）'),
+  description: tr('红色砂岩台地上切出一条蜿蜒的大峡谷。为谷底研究站运送补给、巡查传感器、在峭壁岩架投放设备，最后降落在高耸的天空台地之巅。'),
   difficulty: 3,
   recommendedAssist: 'standard',
   size: 4096,
@@ -366,11 +367,11 @@ export const CANYON: MapDef = {
   farExtent: 18,
   spawn: { padId: 'C-visitor', heading: 110 },
   pads: [
-    { id: 'C-visitor', name: '峡谷游客中心', pos: [-1480, 301.95, 820], size: 22, kind: 'start', style: 'ground' },
-    { id: 'C-station', name: '谷底研究站', pos: STATION, size: 20, kind: 'delivery', style: 'ground' },
-    { id: 'C-mesa', name: '天空台地研究站', pos: [MESA[0], MESA[1] + 0.45, MESA[2]], size: 18, kind: 'final', style: 'ground' },
-    { id: 'C-ranger', name: '护林站维修坪', pos: RANGER, size: 18, kind: 'repair', style: 'ground', repair: { amount: 100, uses: 2 } },
-    { id: 'C-view', name: '石林观景台', pos: [-760, 301.05, 160], size: 16, kind: 'helipad', style: 'ground' },
+    { id: 'C-visitor', name: tr('峡谷游客中心'), pos: [-1480, 301.95, 820], size: 22, kind: 'start', style: 'ground' },
+    { id: 'C-station', name: tr('谷底研究站'), pos: STATION, size: 20, kind: 'delivery', style: 'ground' },
+    { id: 'C-mesa', name: tr('天空台地研究站'), pos: [MESA[0], MESA[1] + 0.45, MESA[2]], size: 18, kind: 'final', style: 'ground' },
+    { id: 'C-ranger', name: tr('护林站维修坪'), pos: RANGER, size: 18, kind: 'repair', style: 'ground', repair: { amount: 100, uses: 2 } },
+    { id: 'C-view', name: tr('石林观景台'), pos: [-760, 301.05, 160], size: 16, kind: 'helipad', style: 'ground' },
   ],
   props: [
     { type: 'visitorCenter', pos: [-1525, 0, 775], rotY: 0.3, ground: true },
@@ -424,30 +425,30 @@ export const CANYON: MapDef = {
     {
       to: 'cm-station',
       paths: [
-        { id: 'canyon', label: '峡谷内低空', detail: '下降进入峡谷，沿蜿蜒的谷底前进：弯道连续、窄峡有阵风，需要提前减速', tag: 'short', nodes: canyonNodes.map((x) => x.id) },
-        { id: 'rim', label: '高处绕行', detail: '在台地上空直线飞行，开阔但高处风大，最后需要垂直下降约 240 m 进入峡谷', tag: 'safe', nodes: ['c-r1', 'c-r2', 'c-r3'] },
+        { id: 'canyon', label: tr('峡谷内低空'), detail: tr('下降进入峡谷，沿蜿蜒的谷底前进：弯道连续、窄峡有阵风，需要提前减速'), tag: 'short', nodes: canyonNodes.map((x) => x.id) },
+        { id: 'rim', label: tr('高处绕行'), detail: tr('在台地上空直线飞行，开阔但高处风大，最后需要垂直下降约 240 m 进入峡谷'), tag: 'safe', nodes: ['c-r1', 'c-r2', 'c-r3'] },
       ],
     },
-    { to: 'cm-sensors', paths: [{ id: 'main', label: '下游峡谷', detail: '', tag: 'main', nodes: sensorLeg.map((x) => x.id) }] },
+    { to: 'cm-sensors', paths: [{ id: 'main', label: tr('下游峡谷'), detail: '', tag: 'main', nodes: sensorLeg.map((x) => x.id) }] },
     {
       to: 'cm-ledge',
       paths: [
-        { id: 'arch', label: '穿越岩拱峡', detail: '低空穿过狭窄峡口和大岩拱下方：距离短，有护盾奖励，峡口阵风有规律', tag: 'short', nodes: archNodes.map((x) => x.id) },
-        { id: 'rim', label: '东缘高空绕行', detail: '垂直爬出峡谷沿台地飞行，较长但没有狭窄通道，途经护林站维修坪', tag: 'safe', nodes: ['c-b1', 'c-b2', 'c-b3'] },
+        { id: 'arch', label: tr('穿越岩拱峡'), detail: tr('低空穿过狭窄峡口和大岩拱下方：距离短，有护盾奖励，峡口阵风有规律'), tag: 'short', nodes: archNodes.map((x) => x.id) },
+        { id: 'rim', label: tr('东缘高空绕行'), detail: tr('垂直爬出峡谷沿台地飞行，较长但没有狭窄通道，途经护林站维修坪'), tag: 'safe', nodes: ['c-b1', 'c-b2', 'c-b3'] },
       ],
     },
-    { to: 'cm-mesa', paths: [{ id: 'main', label: '天空台地', detail: '', tag: 'main', nodes: ['c-m1', 'c-m2'] }] },
+    { to: 'cm-mesa', paths: [{ id: 'main', label: tr('天空台地'), detail: '', tag: 'main', nodes: ['c-m1', 'c-m2'] }] },
   ],
   mission: {
     startCargo: 2,
     main: [
-      { id: 'cm-station', kind: 'land', title: '向谷底研究站运送补给', detail: '研究站位于两条峡谷的汇流口，四周是阶梯状峭壁。提前减速，垂直下降并卸货。', padId: 'C-station', dwell: 4, cargo: 'unload', approach: [STATION[0], STATION[1] + 55, STATION[2]] },
+      { id: 'cm-station', kind: 'land', title: tr('向谷底研究站运送补给'), detail: tr('研究站位于两条峡谷的汇流口，四周是阶梯状峭壁。提前减速，垂直下降并卸货。'), padId: 'C-station', dwell: 4, cargo: 'unload', approach: [STATION[0], STATION[1] + 55, STATION[2]] },
       {
         id: 'cm-sensors',
         kind: 'inspect',
-        title: '巡查下游传感器',
-        detail: '沿峡谷依次低速飞过 3 个传感器桩（速度 < 25 m/s，半径 32 m 内）。',
-        points: S_SENS.map((s, i) => ({ pos: MAINP.point(s, floorAt(s) + 36), radius: 32, label: `传感器 ${'ABC'[i]}` })),
+        title: tr('巡查下游传感器'),
+        detail: tr('沿峡谷依次低速飞过 3 个传感器桩（速度 < 25 m/s，半径 32 m 内）。'),
+        points: S_SENS.map((s, i) => ({ pos: MAINP.point(s, floorAt(s) + 36), radius: 32, label: tr`传感器 ${'ABC'[i]}` })),
         maxSpeed: 25,
         approach: MAINP.point(S_SENS[0], floorAt(S_SENS[0]) + 40),
         route: MAINP.nodes('r', S_SENS[0], S_SENS[2], 90, (s) => floorAt(s) + 36, { label: '' }).map((x) => x.pos),
@@ -455,8 +456,8 @@ export const CANYON: MapDef = {
       {
         id: 'cm-ledge',
         kind: 'hover',
-        title: '在峭壁岩架投放设备',
-        detail: '岩架位于峭壁中段。在岩架上方 5–12 m 稳定悬停 5 秒放下设备，注意旋翼与峭壁的距离。',
+        title: tr('在峭壁岩架投放设备'),
+        detail: tr('岩架位于峭壁中段。在岩架上方 5–12 m 稳定悬停 5 秒放下设备，注意旋翼与峭壁的距离。'),
         center: LEDGE,
         radius: 9,
         minH: 5,
@@ -466,19 +467,19 @@ export const CANYON: MapDef = {
         cargo: 'drop',
         approach: [LEDGE[0] - LEDGE_N[0] * 30, LEDGE[1] + 30, LEDGE[2] - LEDGE_N[1] * 30],
       },
-      { id: 'cm-mesa', kind: 'land', title: '降落在天空台地研究站', detail: '台地高出周围约 150 m，顶部风大，背风侧有下沉气流。精确降落。', padId: 'C-mesa', dwell: 3, approach: [MESA[0], MESA[1] + 38, MESA[2]] },
+      { id: 'cm-mesa', kind: 'land', title: tr('降落在天空台地研究站'), detail: tr('台地高出周围约 150 m，顶部风大，背风侧有下沉气流。精确降落。'), padId: 'C-mesa', dwell: 3, approach: [MESA[0], MESA[1] + 38, MESA[2]] },
     ],
     optional: [
       {
         id: 'co-arch',
         kind: 'inspect',
-        title: '穿越大岩拱',
-        detail: '以低于 30 m/s 的速度从大岩拱下方穿过。',
-        points: [{ pos: [ARCH_X, LOW(S_ARCH), ARCH_Z], radius: 24, label: '岩拱下方' }],
+        title: tr('穿越大岩拱'),
+        detail: tr('以低于 30 m/s 的速度从大岩拱下方穿过。'),
+        points: [{ pos: [ARCH_X, LOW(S_ARCH), ARCH_Z], radius: 24, label: tr('岩拱下方') }],
         maxSpeed: 30,
         approach: [ARCH_X, LOW(S_ARCH), ARCH_Z],
       },
-      { id: 'co-view', kind: 'land', title: '石林观景台降落', detail: '降落在石林边缘的观景台（停稳 3 秒）。', padId: 'C-view', dwell: 3, approach: [-760, 345, 160] },
+      { id: 'co-view', kind: 'land', title: tr('石林观景台降落'), detail: tr('降落在石林边缘的观景台（停稳 3 秒）。'), padId: 'C-view', dwell: 3, approach: [-760, 345, 160] },
     ],
   },
   pickups: [
@@ -489,18 +490,18 @@ export const CANYON: MapDef = {
     { id: 'cb2', kind: 'boost', pos: [Math.round(LEDGE[0] - LEDGE_N[0] * 20), 300, Math.round(LEDGE[2] - LEDGE_N[1] * 20)], note: '长距离爬升途中的动力补给' },
   ],
   windZones: [
-    { id: 'c-v1', name: '峡谷顺谷风', a: MAINP.at(S_ENTRY), b: MAINP.at(S_CONF - 600), radius: 150, feather: 110, yMax: 280, kind: 'channel', dirFrom: 245, speed: 8 },
-    { id: 'c-narrows', name: '窄峡阵风', a: [-860, 470], b: [-380, 450], radius: 110, feather: 80, kind: 'gust', gust: { amp: 7, period: 10, dirFrom: 270 } },
-    { id: 'c-v2', name: '下游顺谷风', a: MAINP.at(S_STATION + 200), b: MAINP.at(S_SENS[2]), radius: 150, feather: 110, yMax: 280, kind: 'channel', dirFrom: 280, speed: 8 },
-    { id: 'c-gorge', name: '岩拱峡口阵风', a: MAINP.at(S_ARCH - 200), b: MAINP.at(S_ARCH + 200), radius: 100, feather: 80, kind: 'gust', gust: { amp: 6, period: 9, phase: 3, dirFrom: 230 } },
-    { id: 'c-rim', name: '台地高空风', a: [-1400, 700], b: [900, -900], radius: 650, feather: 300, yMin: 320, kind: 'channel', dirFrom: 255, speed: 12 },
-    { id: 'c-lift', name: '台地迎风坡上升气流', a: [MESA[0] - 260, MESA[2] - 40], b: [MESA[0] - 230, MESA[2] + 120], radius: 90, feather: 80, kind: 'lift', vertical: 3 },
-    { id: 'c-sink', name: '台地背风下沉气流', a: [MESA[0] + 230, MESA[2] - 40], b: [MESA[0] + 210, MESA[2] + 120], radius: 110, feather: 90, kind: 'lift', vertical: -3 },
+    { id: 'c-v1', name: tr('峡谷顺谷风'), a: MAINP.at(S_ENTRY), b: MAINP.at(S_CONF - 600), radius: 150, feather: 110, yMax: 280, kind: 'channel', dirFrom: 245, speed: 8 },
+    { id: 'c-narrows', name: tr('窄峡阵风'), a: [-860, 470], b: [-380, 450], radius: 110, feather: 80, kind: 'gust', gust: { amp: 7, period: 10, dirFrom: 270 } },
+    { id: 'c-v2', name: tr('下游顺谷风'), a: MAINP.at(S_STATION + 200), b: MAINP.at(S_SENS[2]), radius: 150, feather: 110, yMax: 280, kind: 'channel', dirFrom: 280, speed: 8 },
+    { id: 'c-gorge', name: tr('岩拱峡口阵风'), a: MAINP.at(S_ARCH - 200), b: MAINP.at(S_ARCH + 200), radius: 100, feather: 80, kind: 'gust', gust: { amp: 6, period: 9, phase: 3, dirFrom: 230 } },
+    { id: 'c-rim', name: tr('台地高空风'), a: [-1400, 700], b: [900, -900], radius: 650, feather: 300, yMin: 320, kind: 'channel', dirFrom: 255, speed: 12 },
+    { id: 'c-lift', name: tr('台地迎风坡上升气流'), a: [MESA[0] - 260, MESA[2] - 40], b: [MESA[0] - 230, MESA[2] + 120], radius: 90, feather: 80, kind: 'lift', vertical: 3 },
+    { id: 'c-sink', name: tr('台地背风下沉气流'), a: [MESA[0] + 230, MESA[2] - 40], b: [MESA[0] + 210, MESA[2] + 120], radius: 110, feather: 90, kind: 'lift', vertical: -3 },
   ],
   weathers: [
-    { id: 'clear', label: '晴天', kind: 'clear', desc: '晴朗干燥，西风 5 m/s。', params: makeWeather({ windDirFrom: 260, windSpeed: 5, gustAmp: 1.2, cloudCover: 0.15, visibility: 14000 }) },
-    { id: 'gusty', label: '局部阵风', kind: 'wind', desc: '峡谷窄口与岩拱处阵风增强（有规律，约每 10 秒一次），注意 HUD 阵风预警。', params: makeWeather({ windDirFrom: 250, windSpeed: 7, gustAmp: 3, zoneScale: 1.5, cloudCover: 0.35, visibility: 11000 }) },
-    { id: 'windy', label: '山谷大风', kind: 'wind', desc: '西南风 11 m/s，台地顶部更强，空气中有扬尘。', params: makeWeather({ windDirFrom: 235, windSpeed: 11, gustAmp: 4.5, zoneScale: 1.3, cloudCover: 0.4, overcast: 0.15, visibility: 5500 }) },
+    { id: 'clear', label: tr('晴天'), kind: 'clear', desc: tr('晴朗干燥，西风 5 m/s。'), params: makeWeather({ windDirFrom: 260, windSpeed: 5, gustAmp: 1.2, cloudCover: 0.15, visibility: 14000 }) },
+    { id: 'gusty', label: tr('局部阵风'), kind: 'wind', desc: tr('峡谷窄口与岩拱处阵风增强（有规律，约每 10 秒一次），注意 HUD 阵风预警。'), params: makeWeather({ windDirFrom: 250, windSpeed: 7, gustAmp: 3, zoneScale: 1.5, cloudCover: 0.35, visibility: 11000 }) },
+    { id: 'windy', label: tr('山谷大风'), kind: 'wind', desc: tr('西南风 11 m/s，台地顶部更强，空气中有扬尘。'), params: makeWeather({ windDirFrom: 235, windSpeed: 11, gustAmp: 4.5, zoneScale: 1.3, cloudCover: 0.4, overcast: 0.15, visibility: 5500 }) },
   ],
   defaultWeather: 'clear',
   biome: {
@@ -531,21 +532,21 @@ export const CANYON: MapDef = {
   ambience: { wind: 0.9, birds: 0.15 },
   birds: { condor: 6, raven: 8 },
   landmarks: [
-    { name: '大岩拱', pos: [ARCH_X, 140, ARCH_Z] },
-    { name: '天空台地', pos: MESA },
-    { name: '石林', pos: [-640, 300, 220] },
+    { name: trKey('大岩拱'), pos: [ARCH_X, 140, ARCH_Z] },
+    { name: trKey('天空台地'), pos: MESA },
+    { name: trKey('石林'), pos: [-640, 300, 220] },
   ],
   vistas: [
-    { name: '峡谷深处', at: [-949, 100, 626], look: [-805, 457] },
-    { name: '石林与远方的台地', at: [-1150, 100, 520], look: [-640, 60] },
-    { name: '大岩拱', at: [802, 100, -603], look: [783, -712] },
-    { name: '天空台地', at: [783, 100, -712], look: [771, -850] },
-    { name: '河流转弯处', at: [-594, 100, 441], look: [-378, 440] },
+    { name: trKey('峡谷深处'), at: [-949, 100, 626], look: [-805, 457] },
+    { name: trKey('石林与远方的台地'), at: [-1150, 100, 520], look: [-640, 60] },
+    { name: trKey('大岩拱'), at: [802, 100, -603], look: [783, -712] },
+    { name: trKey('天空台地'), at: [783, 100, -712], look: [771, -850] },
+    { name: trKey('河流转弯处'), at: [-594, 100, 441], look: [-378, 440] },
   ],
   briefing: [
-    '峡谷内风小但弯道连续、通道狭窄；台地上空开阔但风大。高速进入急弯会冲出航线——注意 HUD 的转弯预告并提前减速。',
-    '阵风是有节奏的（约每 9–10 秒一次），HUD 会提前 2–3 秒提示“阵风将至”。',
-    '高原海拔约 1500–2000 m，空气稍稀薄，可用动力略低于海平面。',
+    tr('峡谷内风小但弯道连续、通道狭窄；台地上空开阔但风大。高速进入急弯会冲出航线——注意 HUD 的转弯预告并提前减速。'),
+    tr('阵风是有节奏的（约每 9–10 秒一次），HUD 会提前 2–3 秒提示“阵风将至”。'),
+    tr('高原海拔约 1500–2000 m，空气稍稀薄，可用动力略低于海平面。'),
   ],
   estMinutes: [9, 11],
 };

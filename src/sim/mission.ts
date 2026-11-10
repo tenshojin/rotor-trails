@@ -2,15 +2,16 @@
 // 降落任务综合判断位置、下降速度、水平速度、姿态与稳定程度，“碰到停机坪”不算完成。
 
 import type { MissionDef, ObjectiveDef, V3 } from '../maps/types';
+import { tr } from '../i18n';
 
 export type LandingGrade = 'perfect' | 'good' | 'ok' | 'rough' | 'unsafe';
 
 export const GRADE_LABEL: Record<LandingGrade, string> = {
-  perfect: '完美',
-  good: '良好',
-  ok: '合格',
-  rough: '粗糙',
-  unsafe: '不合格',
+  perfect: tr('完美'),
+  good: tr('良好'),
+  ok: tr('合格'),
+  rough: tr('粗糙'),
+  unsafe: tr('不合格'),
 };
 
 export interface LandingMetrics {
@@ -29,13 +30,13 @@ export const LANDING_LIMITS = { descent: 2.5, horizontal: 2.5, attitude: 12, off
 
 export function gradeLanding(descent: number, horizontal: number, attitudeDeg: number, offset: number, padHalf: number): LandingMetrics {
   if (![descent, horizontal, attitudeDeg, offset, padHalf].every(Number.isFinite) || padHalf <= 0) {
-    return { descent, horizontal, attitudeDeg, offset, score: 0, grade: 'unsafe', safe: false, reasons: ['着陆数据无效，请重新进近'] };
+    return { descent, horizontal, attitudeDeg, offset, score: 0, grade: 'unsafe', safe: false, reasons: [tr('着陆数据无效，请重新进近')] };
   }
   const reasons: string[] = [];
-  if (descent > LANDING_LIMITS.descent) reasons.push(`下降速度过大（${descent.toFixed(1)} m/s）`);
-  if (horizontal > LANDING_LIMITS.horizontal) reasons.push(`水平漂移过大（${horizontal.toFixed(1)} m/s）`);
-  if (attitudeDeg > LANDING_LIMITS.attitude) reasons.push(`机身姿态过大（${attitudeDeg.toFixed(0)}°）`);
-  if (offset > padHalf + LANDING_LIMITS.offsetMargin) reasons.push('未落在停机坪范围内');
+  if (descent > LANDING_LIMITS.descent) reasons.push(tr`下降速度过大（${descent.toFixed(1)} m/s）`);
+  if (horizontal > LANDING_LIMITS.horizontal) reasons.push(tr`水平漂移过大（${horizontal.toFixed(1)} m/s）`);
+  if (attitudeDeg > LANDING_LIMITS.attitude) reasons.push(tr`机身姿态过大（${attitudeDeg.toFixed(0)}°）`);
+  if (offset > padHalf + LANDING_LIMITS.offsetMargin) reasons.push(tr('未落在停机坪范围内'));
   let score = 100;
   score -= Math.max(0, descent - 0.8) * 22;
   score -= Math.max(0, horizontal - 0.5) * 16;
@@ -184,7 +185,7 @@ export class MissionRuntime {
       const isOpt = this.optional.some((o) => o.status === 'active' && o.def.kind === 'land' && o.def.padId === pid);
       if (future >= 0 && !isCurrent && !isOpt && ctx.t - this.lockedMsgT > 4) {
         this.lockedMsgT = ctx.t;
-        out.push({ type: 'lockedPad', message: `这里是后续任务的降落点，请先完成：${cur?.def.title ?? ''}` });
+        out.push({ type: 'lockedPad', message: tr`这里是后续任务的降落点，请先完成：${cur?.def.title ?? ''}` });
       }
     }
   }
@@ -219,11 +220,11 @@ export class MissionRuntime {
       }
       if (o.landing && ctx.settledPad === d.padId) {
         o.progress = Math.min(1, o.progress + ctx.dt / Math.max(0.1, d.dwell));
-        o.hint = d.cargo === 'load' ? '装载物资中…保持停稳' : d.cargo === 'unload' ? '卸载物资中…保持停稳' : '保持停稳…';
+        o.hint = d.cargo === 'load' ? tr('装载物资中…保持停稳') : d.cargo === 'unload' ? tr('卸载物资中…保持停稳') : tr('保持停稳…');
         if (o.progress >= 1) this.finish(o, isOpt, o.landing, out);
       } else if (!o.landing) {
         const dist = Math.hypot(ctx.pos.x - c[0], ctx.pos.z - c[2]);
-        o.hint = dist < 120 ? '平稳降落：下降 < 2.5 m/s，水平漂移 < 2.5 m/s，姿态 < 12°' : '';
+        o.hint = dist < 120 ? tr('平稳降落：下降 < 2.5 m/s，水平漂移 < 2.5 m/s，姿态 < 12°') : '';
       }
     } else if (d.kind === 'hover') {
       const dx = ctx.pos.x - d.center[0];
@@ -235,11 +236,11 @@ export class MissionRuntime {
       else o.progress = Math.max(0, o.progress - ctx.dt / (d.duration * 2.5));
       if (horiz < d.radius * 6) {
         const parts: string[] = [];
-        if (h < d.minH) parts.push(`升高 ${(d.minH - h).toFixed(1)} m`);
-        else if (h > d.maxH) parts.push(`降低 ${(h - d.maxH).toFixed(1)} m`);
-        if (horiz >= d.radius) parts.push(`靠近目标 ${(horiz - d.radius + 0.5).toFixed(0)} m`);
-        if (ctx.speed >= d.maxSpeed) parts.push(`减速至 ${d.maxSpeed} m/s 以下`);
-        o.hint = inside ? `保持悬停… ${Math.round(o.progress * 100)}%` : parts.join(' · ');
+        if (h < d.minH) parts.push(tr`升高 ${(d.minH - h).toFixed(1)} m`);
+        else if (h > d.maxH) parts.push(tr`降低 ${(h - d.maxH).toFixed(1)} m`);
+        if (horiz >= d.radius) parts.push(tr`靠近目标 ${(horiz - d.radius + 0.5).toFixed(0)} m`);
+        if (ctx.speed >= d.maxSpeed) parts.push(tr`减速至 ${d.maxSpeed} m/s 以下`);
+        o.hint = inside ? tr`保持悬停… ${Math.round(o.progress * 100)}%` : parts.join(' · ');
       } else o.hint = '';
       if (o.progress >= 1) this.finish(o, isOpt, null, out);
     } else {
@@ -255,14 +256,14 @@ export class MissionRuntime {
           if (ctx.speed <= d.maxSpeed) {
             o.visited[i] = true;
             out.push({ type: 'inspectPoint', obj: o, label: p.label, remaining: o.visited.filter((v) => !v).length });
-          } else o.hint = `速度过快：低于 ${d.maxSpeed} m/s 才能看清`;
+          } else o.hint = tr`速度过快：低于 ${d.maxSpeed} m/s 才能看清`;
         }
         if (!o.visited[i]) remaining++;
       });
       o.progress = 1 - remaining / d.points.length;
       if (remaining === 0) this.finish(o, isOpt, null, out);
-      else if (!o.hint.startsWith('速度')) o.hint = `剩余 ${remaining} 个巡查点`;
-      if (o.hint.startsWith('速度') && ctx.speed <= d.maxSpeed) o.hint = `剩余 ${remaining} 个巡查点`;
+      else if (!o.hint.startsWith(tr('速度'))) o.hint = tr`剩余 ${remaining} 个巡查点`;
+      if (o.hint.startsWith(tr('速度')) && ctx.speed <= d.maxSpeed) o.hint = tr`剩余 ${remaining} 个巡查点`;
     }
   }
 

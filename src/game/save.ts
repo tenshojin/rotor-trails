@@ -3,6 +3,7 @@
 
 import type { MapId } from '../maps/types';
 import { defaultSettings, sanitizeSettings, upgradeDescendBindings, upgradeLegacyBindings, type Settings } from './settings';
+import { tr } from '../i18n';
 
 export const SAVE_KEY = 'rotorTrails.save';
 /** v2：默认键位调整（下降键由 Ctrl/X 改为 C，视角回正由 C 改为 Z） */
@@ -129,7 +130,7 @@ export class SaveStore {
     this.storage = st;
     if (!st) {
       this.available = false;
-      this.warning = '浏览器本地存储不可用：本次游戏的设置与进度不会被保存。';
+      this.warning = tr('浏览器本地存储不可用：本次游戏的设置与进度不会被保存。');
       this.data = defaults();
       this.fresh = true;
       return;
@@ -141,7 +142,7 @@ export class SaveStore {
       // Do not replace an unreadable existing save with fresh defaults.
       this.storage = null;
       this.available = false;
-      this.warning = '浏览器本地存储不可用：无法读取进度，本次游戏不会覆盖原存档。';
+      this.warning = tr('浏览器本地存储不可用：无法读取进度，本次游戏不会覆盖原存档。');
       this.data = defaults();
       return;
     }
@@ -161,14 +162,14 @@ export class SaveStore {
         // downgrade the version or delete fields that it does not understand.
         this.storage = null;
         this.available = false;
-        this.warning = '存档来自更新版本：已读取兼容的设置与进度，本次游戏不会覆盖原存档。';
+        this.warning = tr('存档来自更新版本：已读取兼容的设置与进度，本次游戏不会覆盖原存档。');
       }
     } catch {
       try {
         st.setItem(SAVE_KEY + '.corrupt', raw);
-        this.warning = '检测到损坏的存档，已恢复为默认设置（原数据已备份）。';
+        this.warning = tr('检测到损坏的存档，已恢复为默认设置（原数据已备份）。');
       } catch {
-        this.warning = '检测到损坏的存档，已恢复为默认设置；原数据备份失败，暂不覆盖原存档。';
+        this.warning = tr('检测到损坏的存档，已恢复为默认设置；原数据备份失败，暂不覆盖原存档。');
         this.storage = null;
         this.available = false;
       }
@@ -181,11 +182,11 @@ export class SaveStore {
     try {
       this.storage.setItem(SAVE_KEY, JSON.stringify({ ...this.data, version: SAVE_VERSION }));
       this.available = true;
-      if (this.warning === '保存失败（存储空间已满或被禁止）。') this.warning = null;
+      if (this.warning === tr('保存失败（存储空间已满或被禁止）。')) this.warning = null;
       return true;
     } catch {
       this.available = false;
-      this.warning = '保存失败（存储空间已满或被禁止）。';
+      this.warning = tr('保存失败（存储空间已满或被禁止）。');
       return false;
     }
   }

@@ -6,6 +6,7 @@
 // 悬停、增强这种开关键自己亮着显示状态：手机屏幕矮，写状态的大面板放不下。
 
 import { shape } from '../game/gamepad';
+import { tr } from '../i18n';
 
 export type TouchEdge = 'hover' | 'boost' | 'view' | 'center' | 'pause' | 'cruise' | 'nav';
 
@@ -63,18 +64,18 @@ export class TouchControls {
     const root = (this.root = document.createElement('div'));
     root.className = 'touch-ui hidden';
     root.innerHTML = `<div class="t-look"></div>
-      <div class="t-stick t-left"><i class="t-base"><b class="t-knob"></b><span class="t-fly">升降 · 转向</span><span class="t-photo">升降 · 左右</span></i></div>
-      <div class="t-stick t-right"><i class="t-base"><b class="t-knob"></b><span class="t-fly">前后 · 平移</span><span class="t-photo">前后 · 左右</span></i></div>
+      <div class="t-stick t-left"><i class="t-base"><b class="t-knob"></b><span class="t-fly">${tr`升降 · 转向`}</span><span class="t-photo">${tr`升降 · 左右`}</span></i></div>
+      <div class="t-stick t-right"><i class="t-base"><b class="t-knob"></b><span class="t-fly">${tr`前后 · 平移`}</span><span class="t-photo">${tr`前后 · 左右`}</span></i></div>
       <div class="t-keys t-keys-l">
-        <button type="button" class="t-key" data-k="pause" aria-label="暂停">暂停</button>
-        <button type="button" class="t-key" data-k="view" aria-label="切换视角">视角</button>
-        <button type="button" class="t-key hidden" data-k="nav" aria-label="切换导航目标或推荐路线">导航</button>
-        <button type="button" class="t-key" data-k="center" aria-label="视角回正">回正</button>
+        <button type="button" class="t-key" data-k="pause" aria-label="${tr`暂停`}">${tr`暂停`}</button>
+        <button type="button" class="t-key" data-k="view" aria-label="${tr`切换视角`}">${tr`视角`}</button>
+        <button type="button" class="t-key hidden" data-k="nav" aria-label="${tr`切换导航目标或推荐路线`}">${tr`导航`}</button>
+        <button type="button" class="t-key" data-k="center" aria-label="${tr`视角回正`}">${tr`回正`}</button>
       </div>
       <div class="t-keys t-keys-r">
-        <button type="button" class="t-key hidden" data-k="cruise" aria-label="自动巡航" aria-pressed="false">巡航</button>
-        <button type="button" class="t-key" data-k="boost" aria-label="动力增强">增强</button>
-        <button type="button" class="t-key" data-k="hover" aria-label="悬停辅助" aria-pressed="false">悬停</button>
+        <button type="button" class="t-key hidden" data-k="cruise" aria-label="${tr`自动巡航`}" aria-pressed="false">${tr`巡航`}</button>
+        <button type="button" class="t-key" data-k="boost" aria-label="${tr`动力增强`}">${tr`增强`}</button>
+        <button type="button" class="t-key" data-k="hover" aria-label="${tr`悬停辅助`}" aria-pressed="false">${tr`悬停`}</button>
       </div>`;
     parent.appendChild(root);
     this.lookLayer = root.querySelector('.t-look') as HTMLElement;

@@ -4,6 +4,7 @@
 // 启动程序按全权数字控制的涡轴发动机来：主开关打到 IDLE 自动起动，打到 FLIGHT 调速器把旋翼带到 100%。
 
 import { approach, clamp, smoothstep } from '../core/math';
+import { tr } from '../i18n';
 
 /** 所有按钮和开关的当前位置（数值含义见 controls.ts），存档点恢复时整份复制 */
 export type ControlState = Record<string, number>;
@@ -560,16 +561,16 @@ export class Systems {
     const c = this.c;
     const started = this.lit && this.n1 >= ENGINE.idleN1 - 1;
     return [
-      { text: '旋翼刹车 松开', done: c.rotorBrake > 0.5, spot: 'rotor_brake', key: 'rotorBrake', want: 1 },
-      { text: '燃油阀 打开', done: c.fuelValve > 0.5, spot: 'fuel_lever', key: 'fuelValve', want: 1 },
-      { text: '电瓶 BATT 开', done: c.batt > 0.5, spot: 'rk_batt', key: 'batt', want: 1 },
-      { text: '防撞灯 A-COL 开', done: c.acol > 0.5, spot: 'rk_acol', key: 'acol', want: 1 },
-      { text: '燃油泵 FUEL P 开', done: c.fuelP > 0.5 && this.fuelPress > 0.7, spot: 'rk_fuelP', key: 'fuelP', want: 1 },
-      { text: '发动机主开关 → IDLE（等 N1 稳在 68%）', done: started, spot: 'eng_main', key: 'engMain', want: 1 },
-      { text: '发电机 GEN 开', done: this.genOnline, spot: 'rk_gen', key: 'gen', want: 1 },
-      { text: '皮托加温 PITOT 开', done: c.pitot > 0.5, spot: 'rk_pitot', key: 'pitot', want: 1 },
-      { text: '增稳 SAS 开（键盘飞行建议打开）', done: c.sas > 0.5, spot: 'rk_sas', key: 'sas', want: 1 },
-      { text: '发动机主开关 → FLIGHT（等旋翼 100%）', done: c.engMain >= 2 && nr > 0.97, spot: 'eng_main', key: 'engMain', want: 2 },
+      { text: tr('旋翼刹车 松开'), done: c.rotorBrake > 0.5, spot: 'rotor_brake', key: 'rotorBrake', want: 1 },
+      { text: tr('燃油阀 打开'), done: c.fuelValve > 0.5, spot: 'fuel_lever', key: 'fuelValve', want: 1 },
+      { text: tr('电瓶 BATT 开'), done: c.batt > 0.5, spot: 'rk_batt', key: 'batt', want: 1 },
+      { text: tr('防撞灯 A-COL 开'), done: c.acol > 0.5, spot: 'rk_acol', key: 'acol', want: 1 },
+      { text: tr('燃油泵 FUEL P 开'), done: c.fuelP > 0.5 && this.fuelPress > 0.7, spot: 'rk_fuelP', key: 'fuelP', want: 1 },
+      { text: tr('发动机主开关 → IDLE（等 N1 稳在 68%）'), done: started, spot: 'eng_main', key: 'engMain', want: 1 },
+      { text: tr('发电机 GEN 开'), done: this.genOnline, spot: 'rk_gen', key: 'gen', want: 1 },
+      { text: tr('皮托加温 PITOT 开'), done: c.pitot > 0.5, spot: 'rk_pitot', key: 'pitot', want: 1 },
+      { text: tr('增稳 SAS 开（键盘飞行建议打开）'), done: c.sas > 0.5, spot: 'rk_sas', key: 'sas', want: 1 },
+      { text: tr('发动机主开关 → FLIGHT（等旋翼 100%）'), done: c.engMain >= 2 && nr > 0.97, spot: 'eng_main', key: 'engMain', want: 2 },
     ];
   }
 }

@@ -42,6 +42,7 @@ import { isTimeOfDay, type TimeOfDay } from '../render/timeOfDay';
 import { waitForOperation } from './pending';
 import { InstrumentLists } from './instrumentLists';
 import { nextView } from './views';
+import { tr } from '../i18n';
 
 /** claude.ai 的私有试玩页（Artifact）放不下大峡谷的数据（单个文件超过 20 MiB），那里不列出真实地形的地图（见 tools/artifact-page.mjs） */
 const PLAYABLE_REAL_MAPS = (globalThis as { __artifact?: boolean }).__artifact ? [] : REAL_MAPS;
@@ -107,7 +108,7 @@ function pickQuality(gpu: string): Settings['quality'] {
 /** 浏览器跑在集成显卡上时的提示（笔记本常见：有独显但浏览器默认用核显） */
 function gpuWarning(gpu: string): string | null {
   if (!isIntegrated(gpu)) return null;
-  return '浏览器当前使用集成显卡（' + gpu.replace(/^ANGLE \(|\)$/g, '').slice(0, 60) + '），画面可能卡顿。电脑有独立显卡时：Windows 设置 → 系统 → 屏幕 → 显示卡，把浏览器设为“高性能”，重启浏览器即可。';
+  return tr('浏览器当前使用集成显卡（') + gpu.replace(/^ANGLE \(|\)$/g, '').slice(0, 60) + tr('），画面可能卡顿。电脑有独立显卡时：Windows 设置 → 系统 → 屏幕 → 显示卡，把浏览器设为“高性能”，重启浏览器即可。');
 }
 
 
@@ -394,7 +395,7 @@ export class App {
       // 菜单背景：训练场的黄昏
       this.view.setTimeOfDay('dusk');
       const home = getMap('training');
-      this.ui.loading('生成地形', 0.1, home);
+      this.ui.loading(tr('生成地形'), 0.1, home);
       const w = await generateWorld(home, true, (p, l) => this.ui.loading(l, p * 0.9, home));
       this.assertActive();
       await this.view.load(w, (p, l) => this.ui.loading(l, p, home));
@@ -503,7 +504,7 @@ export class App {
     const got = newMedals(this.save.data, this.medalWorld());
     if (!got.length) return;
     this.save.save();
-    for (const m of got) this.hud.toast(`获得勋章：${m.name}（${m.how}）`, 'good', 5000);
+    for (const m of got) this.hud.toast(tr`获得勋章：${m.name}（${m.how}）`, 'good', 5000);
     this.audio.checkpoint();
   }
 
@@ -525,7 +526,7 @@ export class App {
     const seen = (m: MapDef) => {
       const total = placesOf(m).length;
       const n = this.save.data.visited[m.id]?.length ?? 0;
-      return n === 0 ? `${total} 个地方等你去` : n >= total ? `${total} 个地方都到过了` : `到过 ${n} / ${total} 个地方`;
+      return n === 0 ? tr`${total} 个地方等你去` : n >= total ? tr`${total} 个地方都到过了` : tr`到过 ${n} / ${total} 个地方`;
     };
     this.ui.mapSelect([...PLAYABLE_REAL_MAPS, ...list], {}, { pick: (m) => this.freeBrief(m), back: () => this.mainMenu() }, true, seen);
   }
@@ -591,11 +592,11 @@ export class App {
     const html = this.settings.hints && !this.tutorial && this.state === 'playing'
       ? this.input.sim
         ? this.input.device === 'pad'
-          ? `准星对准开关 <kbd>A</kbd> 往前拨、<kbd>X</kbd> 往回拨，按住转旋钮 · <kbd>${k('trim')}</kbd> 配平 · <kbd>${k('hud')}</kbd> 显示 HUD · <kbd>${k('pause')}</kbd> 暂停`
-          : `<kbd>${k('down')}</kbd> 下降 · <kbd>${k('boost')}</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平 · <kbd>${k('hover')}</kbd> 增稳 · <kbd>${k('hud')}</kbd> 显示 HUD · <kbd>${k('pause')}</kbd> 暂停`
+          ? tr`准星对准开关 <kbd>A</kbd> 往前拨、<kbd>X</kbd> 往回拨，按住转旋钮 · <kbd>${k('trim')}</kbd> 配平 · <kbd>${k('hud')}</kbd> 显示 HUD · <kbd>${k('pause')}</kbd> 暂停`
+          : tr`<kbd>${k('down')}</kbd> 下降 · <kbd>${k('boost')}</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平 · <kbd>${k('hover')}</kbd> 增稳 · <kbd>${k('hud')}</kbd> 显示 HUD · <kbd>${k('pause')}</kbd> 暂停`
         : this.run?.free
-        ? `<kbd>${k('cruise')}</kbd> 自动巡航 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('hud')}</kbd> 显示仪表 · <kbd>${k('photo')}</kbd> 截图 · <kbd>${k('pause')}</kbd> 换时段、天气、景点`
-        : `<kbd>${k('hover')}</kbd> 悬停 · <kbd>${k('nav')}</kbd> 导航 · <kbd>${k('pause')}</kbd> 暂停`
+        ? tr`<kbd>${k('cruise')}</kbd> 自动巡航 · <kbd>${k('view')}</kbd> 切换视角 · <kbd>${k('hud')}</kbd> 显示仪表 · <kbd>${k('photo')}</kbd> 截图 · <kbd>${k('pause')}</kbd> 换时段、天气、景点`
+        : tr`<kbd>${k('hover')}</kbd> 悬停 · <kbd>${k('nav')}</kbd> 导航 · <kbd>${k('pause')}</kbd> 暂停`
       : '';
     if (html === this.controlHintHtml) return;
     this.controlHintHtml = html;
@@ -616,11 +617,11 @@ export class App {
   /** 手柄接上、断开。飞着的时候用的就是手柄却断了（没电、线松了）：先暂停，别让飞机自己掉下去 */
   private onPadConnection(connected: boolean): void {
     if (this.state !== 'playing') return;
-    if (connected) this.hud.toast('手柄已连接', 'info', 2200);
+    if (connected) this.hud.toast(tr('手柄已连接'), 'info', 2200);
     else if (this.input.device === 'pad') {
-      this.hud.toast('手柄断开了，已暂停', 'warn', 4000);
+      this.hud.toast(tr('手柄断开了，已暂停'), 'warn', 4000);
       this.pause();
-    } else this.hud.toast('手柄断开了', 'info', 2200);
+    } else this.hud.toast(tr('手柄断开了'), 'info', 2200);
   }
 
   async startRun(cfg: RunConfig): Promise<void> {
@@ -646,7 +647,7 @@ export class App {
       // A partly loaded scene must be rebuilt on retry, even on the same map.
       this.world = null;
       this.audio.setAmbience({});
-      this.loadWarning = '关卡未能加载完成。请稍后重新选择任务；也可以在设置中降低画质后重试。已保存的进度不受影响。';
+      this.loadWarning = tr('关卡未能加载完成。请稍后重新选择任务；也可以在设置中降低画质后重试。已保存的进度不受影响。');
       this.mainMenu();
     } finally {
       this.loadingRun = false;
@@ -666,12 +667,12 @@ export class App {
     this.run = cfg;
     this.view.setTimeOfDay(cfg.time ?? 'day');
     if (!this.world || this.world.map.id !== cfg.map.id) {
-      this.ui.loading('生成地形', 0.02, cfg.map);
+      this.ui.loading(tr('生成地形'), 0.02, cfg.map);
       this.view.prefetch(cfg.map);
       // 真实地形的数据大：下载占进度条的前一半
       const dl = cfg.map.real ? 0.5 : 0;
       if (cfg.map.real) {
-        await downloadRealFiles(cfg.map.real, (done, total) => this.ui.loading(`下载地形数据 ${Math.round(done / 1e6)} / ${Math.round(total / 1e6)} MB`, (done / total) * dl, cfg.map));
+        await downloadRealFiles(cfg.map.real, (done, total) => this.ui.loading(tr`下载地形数据 ${Math.round(done / 1e6)} / ${Math.round(total / 1e6)} MB`, (done / total) * dl, cfg.map));
         this.assertActive();
       }
       const stage = (p: number, l: string): void => this.ui.loading(l, dl + p * (1 - dl), cfg.map);
@@ -681,7 +682,7 @@ export class App {
       this.assertActive();
       this.world = w;
     }
-    this.ui.loading('初始化物理', 0.98, cfg.map);
+    this.ui.loading(tr('初始化物理'), 0.98, cfg.map);
     // 人物模型先全部撤下（2026-11-08 用户：“还是把人物相关建模先全部去掉吧，这个我之后再想办法”）：
     // 不加载飞行员。超仿真里点控件就直接生效（useControl 在没有飞行员时不等手伸过去）
     this.eyeDof = cfg.assist === 'sim' && !cfg.tutorial;
@@ -718,7 +719,7 @@ export class App {
     this.autoStart = false;
     this.presses.clear();
     this.state = 'ready';
-    this.ui.loading('编译着色器（第一次进入会慢一些）', 0.99, cfg.map);
+    this.ui.loading(tr('编译着色器（第一次进入会慢一些）'), 0.99, cfg.map);
     await this.warmUp();
     this.assertActive();
     this.hud.show(true);
@@ -729,14 +730,14 @@ export class App {
       ? ''
       : cfg.assist === 'sim'
         ? pad
-          ? `<br>冷舱启动：照左上角的检查单操作，右摇杆转头，屏幕中间的准星对准按钮按 <kbd>A</kbd>（<kbd>X</kbd> 往回拨）· <kbd>左摇杆</kbd> 杆 · <kbd>RT</kbd>/<kbd>LT</kbd> 总距 · <kbd>${k('trim')}</kbd> 配平`
-          : `<br>冷舱启动：照左上角的检查单操作，鼠标点按钮 · 鼠标移到屏幕边转头 · <kbd>${k('forward')}</kbd><kbd>${k('left')}</kbd><kbd>${k('back')}</kbd><kbd>${k('right')}</kbd> 杆 · <kbd>${k('up')}</kbd>/<kbd>${k('down')}</kbd> 总距 · <kbd>${k('boost')}</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平`
+          ? `<br>${tr`冷舱启动：照左上角的检查单操作，右摇杆转头，屏幕中间的准星对准按钮按 <kbd>A</kbd>（<kbd>X</kbd> 往回拨）· <kbd>左摇杆</kbd> 杆 · <kbd>RT</kbd>/<kbd>LT</kbd> 总距 · <kbd>${k('trim')}</kbd> 配平`}`
+          : `<br>${tr`冷舱启动：照左上角的检查单操作，鼠标点按钮 · 鼠标移到屏幕边转头 · <kbd>${k('forward')}</kbd><kbd>${k('left')}</kbd><kbd>${k('back')}</kbd><kbd>${k('right')}</kbd> 杆 · <kbd>${k('up')}</kbd>/<kbd>${k('down')}</kbd> 总距 · <kbd>${k('boost')}</kbd> 动力增强 · <kbd>${k('trim')}</kbd> 配平`}`
         : pad
-          ? `<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>左摇杆</kbd> 飞行 · <kbd>右摇杆</kbd> 观察 · <kbd>${k('pause')}</kbd> 暂停`
-          : `<br>按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>${k('pause')}</kbd> 暂停`;
+          ? `<br>${tr`按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>左摇杆</kbd> 飞行 · <kbd>右摇杆</kbd> 观察 · <kbd>${k('pause')}</kbd> 暂停`}`
+          : `<br>${tr`按住 <kbd>${k('up')}</kbd> 起飞 · <kbd>${k('forward')}</kbd><kbd>${k('back')}</kbd><kbd>${k('left')}</kbd><kbd>${k('right')}</kbd> 飞行 · 鼠标观察 · <kbd>${k('pause')}</kbd> 暂停`}`;
     this.ui.clickToStart(
-      this.tutorial ? `第 ${(cfg.lesson ?? 0) + 1} 课 · ${this.tutorial.lessons[cfg.lesson ?? 0].title}` : cfg.free ? `休闲飞行 · ${cfg.map.name}` : cfg.map.name,
-      cfg.tutorial ? '跟着屏幕下方的提示做，每次只学一个动作。' : cfg.free ? `没有任务，没有计时。想去哪儿就去哪儿，懒得飞就按 <kbd>${k('cruise')}</kbd> 让它自己飞。` : `${this.session.mission.current()?.def.title ?? ''}${controls}`,
+      this.tutorial ? tr`第 ${(cfg.lesson ?? 0) + 1} 课 · ${this.tutorial.lessons[cfg.lesson ?? 0].title}` : cfg.free ? tr`休闲飞行 · ${cfg.map.name}` : cfg.map.name,
+      cfg.tutorial ? tr('跟着屏幕下方的提示做，每次只学一个动作。') : cfg.free ? tr`没有任务，没有计时。想去哪儿就去哪儿，懒得飞就按 <kbd>${k('cruise')}</kbd> 让它自己飞。` : `${this.session.mission.current()?.def.title ?? ''}${controls}`,
       () => this.beginFlight(),
     );
   }
@@ -799,10 +800,10 @@ export class App {
     try {
       compiled = v.parallelCompile();
       await frames(6);
-      await waitForOperation(compiled(), this.lifetime.signal, 60000, '着色器编译');
+      await waitForOperation(compiled(), this.lifetime.signal, 60000, tr('着色器编译'));
       v.refreshEnv?.();
       await frames(3);
-      await waitForOperation(v.gpuIdle(), this.lifetime.signal, 60000, '显卡准备');
+      await waitForOperation(v.gpuIdle(), this.lifetime.signal, 60000, tr('显卡准备'));
     } finally {
       compiled?.cancel();
       v.setWarm(false);
@@ -828,7 +829,7 @@ export class App {
       const t = this.tutorial;
       // 每一课开头都是安全的状态（悬停或停在地面）：撞了回到这里
       t.onStep = (i) => {
-        if (t.steps[i]?.anchor) s.saveCheckpoint('教学', true);
+        if (t.steps[i]?.anchor) s.saveCheckpoint(tr('教学'), true);
       };
       t.onLesson = (lesson) => {
         this.audio.success();
@@ -843,7 +844,7 @@ export class App {
       // 超仿真要低头看仪表板：卡片放到上面，别挡住开关
       this.tutBox.classList.toggle('top', this.run?.course === 'sim');
     }
-    if (this.input.lockFailed && !this.input.pad.connected && !this.touch) this.hud.toast('鼠标锁定不可用：按住鼠标拖动或使用方向键观察', 'warn', 6000);
+    if (this.input.lockFailed && !this.input.pad.connected && !this.touch) this.hud.toast(tr('鼠标锁定不可用：按住鼠标拖动或使用方向键观察'), 'warn', 6000);
   }
 
   pause(): void {
@@ -902,7 +903,7 @@ export class App {
         go: (i) => {
           const p = todo[i];
           this.cruise = new ScenicCruise(s, vistas, [p.x, p.z]);
-          this.hud.toast(`自动巡航：去${p.name}。动任何一个飞行键就交回给你`, 'info', 3500);
+          this.hud.toast(tr`自动巡航：去${p.name}。动任何一个飞行键就交回给你`, 'info', 3500);
           this.resume();
         },
         replay: () => this.replayFromPause(),
@@ -962,7 +963,7 @@ export class App {
     this.placeT = 30;
     const id = this.run.map.id;
     const first = this.save.visit(id, p.name);
-    this.hud.place?.(p.name, p.note, first ? `到过 ${this.save.data.visited[id]?.length ?? 1} / ${w.places.length}` : '');
+    this.hud.place?.(p.name, p.note, first ? tr`到过 ${this.save.data.visited[id]?.length ?? 1} / ${w.places.length}` : '');
   }
 
   /** 左右的山壁有多远：一秒四次就够了 */
@@ -1000,10 +1001,10 @@ export class App {
     // 手柄的十字键走下面这排面板（左右挑、上下调，一进来挑的是焦距），A 按下
     const pad = this.input.device === 'pad';
     const keys = this.touch && !pad
-      ? '左摇杆升降 · 右摇杆前后左右 · 拖动屏幕转镜头 · 下面调焦距、曝光、倾斜 · 点“存图”保存，“返回”回到暂停菜单'
+      ? tr('左摇杆升降 · 右摇杆前后左右 · 拖动屏幕转镜头 · 下面调焦距、曝光、倾斜 · 点“存图”保存，“返回”回到暂停菜单')
       : pad
-        ? `右摇杆转镜头 · 左摇杆移动 · ${k('up')} / ${k('down')} 升降 · 按住 ${k('boost')} 走得快 · ${k('strafeLeft')} / ${k('strafeRight')} 倾斜 · 十字键左右挑、上下调（焦距、曝光……） · A 勾选、按按钮 · ${k('cruise')} 收起面板 · ${k('photo')} 存图 · ${k('pause')} 返回`
-        : `按住鼠标转镜头 · ${k('forward')}${k('left')}${k('back')}${k('right')} 移动 · ${k('up')} / ${k('down')} 升降 · 按住 ${k('boost')} 走得快 · 滚轮变焦 · ${k('strafeLeft')} / ${k('strafeRight')} 倾斜 · ${k('hud')} 收起面板 · ${k('photo')} 存图 · ${k('pause')} 返回`;
+        ? tr`右摇杆转镜头 · 左摇杆移动 · ${k('up')} / ${k('down')} 升降 · 按住 ${k('boost')} 走得快 · ${k('strafeLeft')} / ${k('strafeRight')} 倾斜 · 十字键左右挑、上下调（焦距、曝光……） · A 勾选、按按钮 · ${k('cruise')} 收起面板 · ${k('photo')} 存图 · ${k('pause')} 返回`
+        : tr`按住鼠标转镜头 · ${k('forward')}${k('left')}${k('back')}${k('right')} 移动 · ${k('up')} / ${k('down')} 升降 · 按住 ${k('boost')} 走得快 · 滚轮变焦 · ${k('strafeLeft')} / ${k('strafeRight')} 倾斜 · ${k('hud')} 收起面板 · ${k('photo')} 存图 · ${k('pause')} 返回`;
     this.input.padPanel = true;
     this.photoPanel = new PhotoPanel(this.root, rig.photoFov, keys, this.settings.quality !== 'low', {
       fov: (v) => {
@@ -1118,10 +1119,10 @@ export class App {
     // 触屏上没有收起面板、截图这些键，面板上的按钮就是全部操作；手柄和键盘每个按钮都有对应的键
     const pad = this.input.device === 'pad';
     const keys = this.touch && !pad
-      ? '拖动进度条看任意一刻 · 点“拍这一帧”进拍照模式'
+      ? tr('拖动进度条看任意一刻 · 点“拍这一帧”进拍照模式')
       : pad
-        ? `${k('hover')} 暂停 / 继续 · ${k('strafeLeft')} / ${k('strafeRight')} 退 / 进 5 秒 · ${k('center')} 慢放 · ${k('view')} 换镜头 · ${k('nav')} 拍这一帧 · ${k('hud')} 收起面板 · ${k('photo')} 截图 · ${k('boost')} 结束`
-        : `${k('up')} 暂停 / 继续 · ${k('strafeLeft')} / ${k('strafeRight')} 退 / 进 5 秒 · ${k('center')} 慢放 · ${k('view')} 换镜头 · ${k('nav')} 拍这一帧 · ${k('hud')} 收起面板 · ${k('photo')} 截图 · ${k('pause')} 结束`;
+        ? tr`${k('hover')} 暂停 / 继续 · ${k('strafeLeft')} / ${k('strafeRight')} 退 / 进 5 秒 · ${k('center')} 慢放 · ${k('view')} 换镜头 · ${k('nav')} 拍这一帧 · ${k('hud')} 收起面板 · ${k('photo')} 截图 · ${k('boost')} 结束`
+        : tr`${k('up')} 暂停 / 继续 · ${k('strafeLeft')} / ${k('strafeRight')} 退 / 进 5 秒 · ${k('center')} 慢放 · ${k('view')} 换镜头 · ${k('nav')} 拍这一帧 · ${k('hud')} 收起面板 · ${k('photo')} 截图 · ${k('pause')} 结束`;
     this.replaySideHeld = this.replaySpaceHeld = false;
     const r: ReplayRun = {
       t: Math.max(0, this.tape.seconds - lead),
@@ -1278,15 +1279,15 @@ export class App {
     const run = this.run;
     if (!s || !run?.free) return;
     if (s.sys) {
-      this.hud.toast('超仿真没有自动巡航：飞机只听你的', 'info', 2500);
+      this.hud.toast(tr('超仿真没有自动巡航：飞机只听你的'), 'info', 2500);
       return;
     }
     if (this.cruise) {
       this.cruise = null;
-      this.hud.toast('自动巡航：关闭，你来飞', 'info', 2500);
+      this.hud.toast(tr('自动巡航：关闭，你来飞'), 'info', 2500);
     } else {
       this.cruise = new ScenicCruise(s, vistasOf(run.map));
-      this.hud.toast('自动巡航：开启。动任何一个飞行键就交回给你', 'info', 3500);
+      this.hud.toast(tr('自动巡航：开启。动任何一个飞行键就交回给你'), 'info', 3500);
     }
   }
 
@@ -1354,8 +1355,8 @@ export class App {
   private tellIgnoredPad(): void {
     if (this.ignoredPadTold || !this.ignoredPad) return;
     this.ignoredPadTold = true;
-    const name = this.ignoredPad.replace(/\s*\(.*$/, '').slice(0, 40) || '这个设备';
-    this.hud.toast(`接着“${name}”，但浏览器没有按标准手柄布局识别它，游戏读不了它的按键。Xbox / PS 手柄在 Chrome、Edge 里最稳`, 'warn', 7000);
+    const name = this.ignoredPad.replace(/\s*\(.*$/, '').slice(0, 40) || tr('这个设备');
+    this.hud.toast(tr`接着“${name}”，但浏览器没有按标准手柄布局识别它，游戏读不了它的按键。Xbox / PS 手柄在 Chrome、Edge 里最稳`, 'warn', 7000);
   }
 
   restoreCheckpoint(i: number, mode: 'exact' | 'safe'): void {
@@ -1363,7 +1364,7 @@ export class App {
     this.session.restoreCheckpoint(i, mode);
     this.failTimer = this.completeTimer = -1;
     this.tutorial?.resumeStep(this.session);
-    this.hud.toast(mode === 'safe' ? '安全恢复：以稳定悬停状态继续' : '已从检查点继续', 'info');
+    this.hud.toast(mode === 'safe' ? tr('安全恢复：以稳定悬停状态继续') : tr('已从检查点继续'), 'info');
     this.resume();
   }
 
@@ -1513,8 +1514,8 @@ export class App {
     const dx = q.behind ? 1 : q.x < w ? -1 : q.x > innerWidth - w ? 1 : 0;
     const dy = q.behind ? 0 : q.y < h ? -1 : q.y > innerHeight - h ? 1 : 0;
     if (!dx && !dy) return '';
-    const way = `${dx < 0 ? '左' : dx > 0 ? '右' : ''}${dy < 0 ? '上' : dy > 0 ? '下' : ''}`;
-    return this.input.device === 'pad' ? `光圈在视野外：推右摇杆往${way}看。` : `光圈在视野外：把鼠标移到屏幕${way}边，往${way}看。`;
+    const way = `${dx < 0 ? tr('左') : dx > 0 ? tr('右') : ''}${dy < 0 ? tr('上') : dy > 0 ? tr('下') : ''}`;
+    return this.input.device === 'pad' ? tr`光圈在视野外：推右摇杆往${way}看。` : tr`光圈在视野外：把鼠标移到屏幕${way}边，往${way}看。`;
   }
 
   private readEnv(s: GameSession): ReadEnv {
@@ -1600,7 +1601,7 @@ export class App {
       if (s.sys) {
         s.flight.setTrim();
         this.audio.control('button');
-        this.hud.toast('已配平', 'info', 900);
+        this.hud.toast(tr('已配平'), 'info', 900);
       }
       return;
     }
@@ -1624,21 +1625,21 @@ export class App {
         const now = performance.now();
         if (now - this.viewLockToastT > 2500) {
           this.viewLockToastT = now;
-          this.hud.toast('任务和训练只用座舱视角，休闲飞行可以换镜头', 'info', 2200);
+          this.hud.toast(tr('任务和训练只用座舱视角，休闲飞行可以换镜头'), 'info', 2200);
         }
         return;
       }
       rig.setMode(next);
       this.hud.setCinema?.(next === 'cinema');
-      if (next === 'cinema') this.hud.toast('电影镜头', 'info', 1500);
+      if (next === 'cinema') this.hud.toast(tr('电影镜头'), 'info', 1500);
     }
     else if (a === 'nav') s.cycleNav();
-    else if (a === 'hud') this.hud.toast(`HUD：${this.hud.cycleMode()}`, 'info', 1500);
+    else if (a === 'hud') this.hud.toast(tr`HUD：${this.hud.cycleMode()}`, 'info', 1500);
     else if (a === 'mapRange') {
       const r = [1000, 2000, 4000];
       const c = this.view.cockpit;
       c.mapRange = r[(r.indexOf(c.mapRange) + 1) % r.length];
-      this.hud.toast(`地图范围 ${c.mapRange / 1000} km`, 'info', 1500);
+      this.hud.toast(tr`地图范围 ${c.mapRange / 1000} km`, 'info', 1500);
     }
   }
 
@@ -1646,7 +1647,7 @@ export class App {
   private savePhoto(): void {
     this.canvas.toBlob((blob) => {
       if (!blob) {
-        this.hud.toast('这个浏览器存不了截图', 'warn', 2000);
+        this.hud.toast(tr('这个浏览器存不了截图'), 'warn', 2000);
         return;
       }
       const p = (n: number): string => String(n).padStart(2, '0');
@@ -1659,11 +1660,11 @@ export class App {
       this.save.data.log.photos++;
       this.save.save();
       if (this.photoPanel) {
-        this.photoPanel.saved('已存到下载文件夹');
+        this.photoPanel.saved(tr('已存到下载文件夹'));
         this.audio.click();
       }
       else if (this.replay) this.audio.click();
-      else this.hud.toast('截图已存到下载文件夹', 'good', 1800);
+      else this.hud.toast(tr('截图已存到下载文件夹'), 'good', 1800);
     }, 'image/png');
   }
 
@@ -1678,7 +1679,7 @@ export class App {
       // A failed frame must not keep throwing and advancing flight every refresh.
       console.error('游戏运行中断', error);
       this.dispose();
-      new UI(this.root).compatError('游戏运行中断，请刷新页面后重试。已保存的进度不受影响。');
+      new UI(this.root).compatError(tr('游戏运行中断，请刷新页面后重试。已保存的进度不受影响。'));
     }
   };
 
@@ -1779,7 +1780,7 @@ export class App {
           this.failTimer = -1;
           this.cruise = null;
           s.hoverAt(s.body.pos.x, 60, s.body.pos.z, s.flight.telemetry.heading * 57.29578);
-          this.hud.toast('没关系，继续飞', 'info', 2500);
+          this.hud.toast(tr('没关系，继续飞'), 'info', 2500);
         } else this.showFailure();
       }
     }
@@ -1834,7 +1835,7 @@ export class App {
     else return;
     this.view.applySettings(s);
     this.save.save();
-    this.hud.toast(`帧率偏低，画质已自动调到“${QUALITY[s.quality].label}”${s.rayTracing ? '' : '（光线追踪关闭）'}`, 'info', 5000);
+    this.hud.toast(tr`帧率偏低，画质已自动调到“${QUALITY[s.quality].label}”${s.rayTracing ? '' : tr('（光线追踪关闭）')}`, 'info', 5000);
   }
 
   private readInput(s: GameSession, dt: number): void {
@@ -1847,7 +1848,7 @@ export class App {
     if (this.cruise) {
       if (s.input.pitch || s.input.turn || s.input.lateral || s.input.vertical) {
         this.cruise = null;
-        this.hud.toast('已取消自动巡航，你来飞', 'info', 2500);
+        this.hud.toast(tr('已取消自动巡航，你来飞'), 'info', 2500);
       } else this.cruise.update();
     }
     this.hud.autoFlight = this.cruise !== null;
@@ -1865,7 +1866,7 @@ export class App {
     if (!t) return;
     const b = s.buffs;
     t.setKey('hover', s.flight.telemetry.hover !== 'off');
-    t.setKey('boost', b.boostActive, !b.boostActive && b.boostCharges <= 0, b.boostCharges > 1 ? `增强 ×${b.boostCharges}` : '增强');
+    t.setKey('boost', b.boostActive, !b.boostActive && b.boostCharges <= 0, b.boostCharges > 1 ? tr`增强 ×${b.boostCharges}` : tr('增强'));
     t.setKey('cruise', this.cruise !== null);
   }
 
@@ -2002,7 +2003,7 @@ export class App {
       hoverPowerFrac: tel.hoverPowerFrac,
       rpm: tel.rotorRpm,
       durability: s.damage.durability,
-      statusLabel: { normal: '正常', damaged: '受损', critical: '严重受损', destroyed: '坠毁' }[s.damage.status],
+      statusLabel: { normal: tr('正常'), damaged: tr('受损'), critical: tr('严重受损'), destroyed: tr('坠毁') }[s.damage.status],
       torqueLimited: tel.torqueLimited,
       hover: tel.hover,
       boost: s.buffs.boostActive,
@@ -2036,12 +2037,12 @@ export class App {
             A.impact(d.severity * 0.5);
             this.shake(Math.min(1, d.amount / 20));
           } else if (d.blocked) {
-            if (this.t - this.lastBlocked > 1.5) hud.toast(`护盾吸收了碰撞（${CAUSE_LABEL[d.cause]}）`, 'info', 2000);
+            if (this.t - this.lastBlocked > 1.5) hud.toast(tr`护盾吸收了碰撞（${CAUSE_LABEL[d.cause]}）`, 'info', 2000);
             this.lastBlocked = this.t;
             A.impact(d.severity * 0.5);
             this.shake(Math.min(1, d.severity / 10));
           } else {
-            hud.toast(`耐久 -${Math.round(d.amount)}：${CAUSE_LABEL[d.cause]}`, d.amount > 15 ? 'bad' : 'warn', 2600);
+            hud.toast(tr`耐久 -${Math.round(d.amount)}：${CAUSE_LABEL[d.cause]}`, d.amount > 15 ? 'bad' : 'warn', 2600);
             if (d.cause === 'rotor' || d.cause === 'tailRotor') A.rotorStrike();
             else if (d.cause === 'scrape') A.scrape();
             else A.impact(d.severity);
@@ -2052,17 +2053,17 @@ export class App {
         case 'pickup':
           A.pickup(e.kind);
           hud.toast(
-            e.kind === 'boost' ? `获得动力增强（按 ${keyName(this.settings.bindings.boost[0])} 使用）` : e.kind === 'shield' ? (e.result === 'shieldExtended' ? '护盾时间延长' : '免伤护盾已生效') : '维修补给：耐久 +25',
+            e.kind === 'boost' ? tr`获得动力增强（按 ${keyName(this.settings.bindings.boost[0])} 使用）` : e.kind === 'shield' ? (e.result === 'shieldExtended' ? tr('护盾时间延长') : tr('免伤护盾已生效')) : tr('维修补给：耐久 +25'),
             'good',
           );
           break;
         case 'boost':
           A.boost();
-          hud.toast('动力增强启动：可用动力提高 25%', 'good', 2500);
+          hud.toast(tr('动力增强启动：可用动力提高 25%'), 'good', 2500);
           break;
         case 'checkpoint':
           A.checkpoint();
-          hud.toast(`检查点：${e.label}`, 'info', 2200);
+          hud.toast(tr`检查点：${e.label}`, 'info', 2200);
           break;
         case 'touchdown':
           A.touchdown(e.metrics.descent);
@@ -2070,54 +2071,54 @@ export class App {
             const log = this.save.data.log;
             log.landings++;
             const soft = Math.max(0.01, e.metrics.descent);
-            if (log.softest !== null && soft < log.softest && !this.tutorial) hud.toast(`最轻的一次接地：${soft.toFixed(2)} m/s`, 'good', 3000);
+            if (log.softest !== null && soft < log.softest && !this.tutorial) hud.toast(tr`最轻的一次接地：${soft.toFixed(2)} m/s`, 'good', 3000);
             log.softest = Math.min(log.softest ?? Infinity, soft);
             this.checkMedals();
           }
-          if (e.padId && e.metrics.safe) hud.toast(`接地：${GRADE_LABEL[e.metrics.grade]}（下降 ${e.metrics.descent.toFixed(1)} m/s）`, 'info', 2200);
+          if (e.padId && e.metrics.safe) hud.toast(tr`接地：${GRADE_LABEL[e.metrics.grade]}（下降 ${e.metrics.descent.toFixed(1)} m/s）`, 'info', 2200);
           break;
         case 'status':
           if (this.run?.free) break;
           if (e.status === 'damaged' && e.prev === 'normal') {
             A.alert('damaged');
-            hud.toast('机体受损：动力与爬升性能开始下降', 'warn', 4000);
+            hud.toast(tr('机体受损：动力与爬升性能开始下降'), 'warn', 4000);
           } else if (e.status === 'critical') {
             A.alert('critical');
-            hud.toast('严重受损：性能明显下降，仍可控制，请前往维修点', 'bad', 5000);
-          } else if (e.status === 'normal' || (e.status === 'damaged' && e.prev === 'critical')) hud.toast('维修完成，性能恢复', 'good');
+            hud.toast(tr('严重受损：性能明显下降，仍可控制，请前往维修点'), 'bad', 5000);
+          } else if (e.status === 'normal' || (e.status === 'damaged' && e.prev === 'critical')) hud.toast(tr('维修完成，性能恢复'), 'good');
           break;
         case 'crash':
           if (!this.tutorial && this.session) A.crash?.(this.session.body.pos.y < (this.session.world.map.waterLevel ?? -1e9) + 3);
           A.fail();
-          hud.toast(`坠毁：${e.label}`, 'bad', 3000);
+          hud.toast(tr`坠毁：${e.label}`, 'bad', 3000);
           break;
         case 'weather':
-          hud.toast(`天气变化：${e.label}`, 'warn', 4000);
+          hud.toast(tr`天气变化：${e.label}`, 'warn', 4000);
           break;
         case 'message':
           hud.toast(e.text, e.level === 'good' ? 'good' : e.level === 'warn' ? 'warn' : 'info');
           break;
         case 'repair':
           A.pickup('repair');
-          hud.toast(`${e.station ? '维修站' : '维修补给'}：耐久 +${Math.round(e.amount)}`, 'good');
+          hud.toast(tr`${e.station ? tr('维修站') : tr('维修补给')}：耐久 +${Math.round(e.amount)}`, 'good');
           break;
         case 'hover':
-          hud.toast(e.on ? '悬停辅助：开启（逐渐减速并保持位置）' : e.auto ? '已着陆，悬停辅助自动关闭' : '悬停辅助：关闭', 'info', 2000);
+          hud.toast(e.on ? tr('悬停辅助：开启（逐渐减速并保持位置）') : e.auto ? tr('已着陆，悬停辅助自动关闭') : tr('悬停辅助：关闭'), 'info', 2000);
           break;
         case 'hoverHint':
           // 教学有自己的说明；自动巡航和回放里的输入不是玩家的
-          if (!this.tutorial && !this.cruise && !this.replay) hud.toast(`想停稳一点？按 ${keyName(this.settings.bindings.hover[0])} 开启悬停辅助：它会帮你刹车，顶着风把飞机定在原地`, 'info', 6000);
+          if (!this.tutorial && !this.cruise && !this.replay) hud.toast(tr`想停稳一点？按 ${keyName(this.settings.bindings.hover[0])} 开启悬停辅助：它会帮你刹车，顶着风把飞机定在原地`, 'info', 6000);
           break;
         case 'mission': {
           const m = e.ev;
           if (m.type === 'objectiveDone') {
             A.success();
-            hud.toast(`${m.optional ? '可选任务完成' : '任务完成'}：${m.obj.def.title}${m.landing ? `（降落${GRADE_LABEL[m.landing.grade]}）` : ''}`, 'good', 4000);
-          } else if (m.type === 'objectiveStart') hud.toast(`新任务：${m.obj.def.title}`, 'info', 4000);
-          else if (m.type === 'landingRejected') hud.toast(`着陆不合格：${m.metrics.reasons.join('，')}。请起飞后重新降落`, 'bad', 5000);
-          else if (m.type === 'landingAccepted') hud.toast(`着陆合格（${GRADE_LABEL[m.metrics.grade]}），保持停稳…`, 'good', 2500);
-          else if (m.type === 'inspectPoint') hud.toast(`巡查完成：${m.label}（剩余 ${m.remaining}）`, 'good');
-          else if (m.type === 'cargo') hud.toast(m.action === 'load' ? '物资已装载' : m.action === 'drop' ? '物资已投放' : '物资已卸载', 'good');
+            hud.toast(tr`${m.optional ? tr('可选任务完成') : tr('任务完成')}：${m.obj.def.title}${m.landing ? tr`（降落${GRADE_LABEL[m.landing.grade]}）` : ''}`, 'good', 4000);
+          } else if (m.type === 'objectiveStart') hud.toast(tr`新任务：${m.obj.def.title}`, 'info', 4000);
+          else if (m.type === 'landingRejected') hud.toast(tr`着陆不合格：${m.metrics.reasons.join(tr('，'))}。请起飞后重新降落`, 'bad', 5000);
+          else if (m.type === 'landingAccepted') hud.toast(tr`着陆合格（${GRADE_LABEL[m.metrics.grade]}），保持停稳…`, 'good', 2500);
+          else if (m.type === 'inspectPoint') hud.toast(tr`巡查完成：${m.label}（剩余 ${m.remaining}）`, 'good');
+          else if (m.type === 'cargo') hud.toast(m.action === 'load' ? tr('物资已装载') : m.action === 'drop' ? tr('物资已投放') : tr('物资已卸载'), 'good');
           else if (m.type === 'lockedPad') hud.toast(m.message, 'warn', 4000);
           break;
         }
@@ -2139,7 +2140,7 @@ export class App {
     s.damage.repair(100);
     this.failTimer = -1;
     t.rewind(s);
-    this.hud.toast('没关系，回到这一课的开头，再来一次', 'info', 4000);
+    this.hud.toast(tr('没关系，回到这一课的开头，再来一次'), 'info', 4000);
   }
 
   private showFailure(): void {
@@ -2151,18 +2152,18 @@ export class App {
     this.input.exitLock();
     const cause = s.crashCause ?? 'impact';
     const detail: Record<string, string> = {
-      rotor: '旋翼撞到了障碍物。注意旋翼半径约 5.3 m，靠近峭壁、树冠和建筑时要留足余量。',
-      tailRotor: '尾桨撞击。转弯和倒飞时注意机尾方向的障碍物。',
-      impact: '机身与地形或障碍物发生了严重撞击。高速时提前减速，转弯半径会随速度增大。',
-      scrape: '持续擦碰导致耐久耗尽。',
-      hardLanding: '接地时下降速度过大。降落时把下降速度控制在 2.5 m/s 以内。',
-      sideLoad: '接地时水平速度过大。降落前先悬停稳定。',
-      attitude: '接地时机身倾斜过大，导致事故。',
-      rollover: '机体侧翻。在坡地或带着侧向速度接地时容易发生。',
-      water: '机体落水。在水面附近飞行时保持安全高度。',
+      rotor: tr('旋翼撞到了障碍物。注意旋翼半径约 5.3 m，靠近峭壁、树冠和建筑时要留足余量。'),
+      tailRotor: tr('尾桨撞击。转弯和倒飞时注意机尾方向的障碍物。'),
+      impact: tr('机身与地形或障碍物发生了严重撞击。高速时提前减速，转弯半径会随速度增大。'),
+      scrape: tr('持续擦碰导致耐久耗尽。'),
+      hardLanding: tr('接地时下降速度过大。降落时把下降速度控制在 2.5 m/s 以内。'),
+      sideLoad: tr('接地时水平速度过大。降落前先悬停稳定。'),
+      attitude: tr('接地时机身倾斜过大，导致事故。'),
+      rollover: tr('机体侧翻。在坡地或带着侧向速度接地时容易发生。'),
+      water: tr('机体落水。在水面附近飞行时保持安全高度。'),
     };
     this.ui.failed(
-      { cause: `失败原因：${CAUSE_LABEL[cause]}`, detail: detail[cause] ?? '', checkpoints: s.restoreOptions() },
+      { cause: tr`失败原因：${CAUSE_LABEL[cause]}`, detail: detail[cause] ?? '', checkpoints: s.restoreOptions() },
       {
         checkpoint: (i, mode) => this.restoreCheckpoint(i, mode),
         restart: () => void this.restart(),

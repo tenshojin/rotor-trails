@@ -21,6 +21,7 @@ import { PlaneMover, type Mover } from './movers';
 import { obstacleTop } from './routeCheck';
 import { Heightfield } from './terrain';
 import type RAPIER from '@dimforge/rapier3d-compat';
+import { tr } from '../i18n';
 
 export const STEP = 1 / 60;
 
@@ -241,7 +242,7 @@ export class GameSession {
       this.gear.reset(true);
       this.nav.setLeg(0, [pos.x, pos.y, pos.z]);
       this.windInfo = this.wind.info(pos.x, pos.y, pos.z, 0);
-      this.saveCheckpoint('起点');
+      this.saveCheckpoint(tr('起点'));
     } catch (error) {
       P.dispose();
       throw error;
@@ -443,8 +444,8 @@ export class GameSession {
     if (this.boostEdge) {
       this.boostEdge = false;
       if (this.buffs.activateBoost()) this.events.push({ type: 'boost' });
-      else if (this.buffs.boostActive) this.msg('动力增强正在生效', 'info', 'boost', 1);
-      else this.msg('没有可用的动力增强（拾取黄色动力补给后可用）', 'warn', 'boost', 2);
+      else if (this.buffs.boostActive) this.msg(tr('动力增强正在生效'), 'info', 'boost', 1);
+      else this.msg(tr('没有可用的动力增强（拾取黄色动力补给后可用）'), 'warn', 'boost', 2);
     }
 
     // ---------- 天气与风 ----------
@@ -539,7 +540,7 @@ export class GameSession {
     const shield = this.buffs.shieldActive;
     this.damage.processContacts(this.contacts, this.t, dt, speed, shield, dmg);
     for (const c of this.contacts) if (c.part !== 'skid' && c.tag.kind !== 'boundary') this.bodyContactT = this.t;
-    if (this.contacts.some((c) => c.tag.kind === 'boundary')) this.msg(this.free ? '已经飞到地图的边上了，掉头吧' : '已到达任务区域边界，请返回', 'warn', 'boundary', 3);
+    if (this.contacts.some((c) => c.tag.kind === 'boundary')) this.msg(this.free ? tr('已经飞到地图的边上了，掉头吧') : tr('已到达任务区域边界，请返回'), 'warn', 'boundary', 3);
     let touchdown: { padId: string | null; metrics: LandingMetrics } | null = null;
     const td = this.gear.touchdown;
     if (td) {
@@ -557,7 +558,7 @@ export class GameSession {
     const onWater = (this.gear.surface?.kind === 'water' && this.gear.weightOnSkids > 0.25) || this.contacts.some((c) => c.tag.kind === 'water' && c.part !== 'rotor');
     if (onWater || (map.waterLevel !== null && b.pos.y < map.waterLevel + 0.3)) this.ditchT += dt;
     else this.ditchT = Math.max(0, this.ditchT - dt * 2);
-    if (this.ditchT > 0.3 && this.ditchT < 0.32) this.msg('机体触水！立即拉升', 'warn', 'water', 2);
+    if (this.ditchT > 0.3 && this.ditchT < 0.32) this.msg(tr('机体触水！立即拉升'), 'warn', 'water', 2);
     if (this.ditchT > 1.6) this.damage.destroy('water', dmg);
     const touching = this.gear.contactCount > 0 || this.t - this.bodyContactT < 0.5;
     if (_up.set(0, 1, 0).applyQuaternion(b.quat).y < 0.4 && touching) this.invertT += dt;
@@ -584,7 +585,7 @@ export class GameSession {
     }
 
     // 超仿真：增稳关着，机头被反扭矩带着转，告诉玩家这不是 bug
-    if (this.sys && !this.sys.sasActive && this.gear.contactCount === 0 && -b.angVel.y > 0.2) this.msg(`机头在往右转：这是主旋翼的反扭矩。点按左脚蹬抵消，或者打开增稳`, 'info', 'torque', 60);
+    if (this.sys && !this.sys.sasActive && this.gear.contactCount === 0 && -b.angVel.y > 0.2) this.msg(tr`机头在往右转：这是主旋翼的反扭矩。点按左脚蹬抵消，或者打开增稳`, 'info', 'torque', 60);
 
     // ---------- 停稳判定 ----------
     const settled = this.gear.contactCount >= 3 && this.gear.weightOnSkids > 0.72 && speed < 0.5 && b.angVel.length() < 0.15;
@@ -609,11 +610,11 @@ export class GameSession {
       if (d > BUFFS.pickupRadius) continue;
       const res = this.buffs.pickup(p.kind, this.damage.durability);
       if (res === 'alreadyHolding') {
-        this.msg('已持有一次动力增强，请先使用储备', 'info', 'hold', 3);
+        this.msg(tr('已持有一次动力增强，请先使用储备'), 'info', 'hold', 3);
         continue;
       }
       if (res === 'full') {
-        this.msg('耐久已满，维修补给保留在原处', 'info', 'full', 3);
+        this.msg(tr('耐久已满，维修补给保留在原处'), 'info', 'full', 3);
         continue;
       }
       this.pickupsTaken.add(p.id);
@@ -631,7 +632,7 @@ export class GameSession {
       if (this.damage.durability >= 99.5) {
         this.repairProgress = 0;
       } else if (uses <= 0) {
-        this.msg('该维修站的备件已用完', 'warn', 'repairEmpty', 6);
+        this.msg(tr('该维修站的备件已用完'), 'warn', 'repairEmpty', 6);
         this.repairProgress = 0;
       } else {
         this.repairProgress += dt / 4;
@@ -666,7 +667,7 @@ export class GameSession {
         this.events.push({ type: 'complete' });
         return;
       }
-      this.saveCheckpoint(`完成：${done.def.title}`);
+      this.saveCheckpoint(tr`完成：${done.def.title}`);
     }
 
     // ---------- 导航 ----------
@@ -676,7 +677,7 @@ export class GameSession {
     const focusObj = this.nav.focus > 0 ? opts[this.nav.focus - 1] : undefined;
     if (this.nav.focus > opts.length) this.nav.focus = 0;
     this.nav.update(b.pos, speed, goal, cur?.def.title ?? '', focusObj ? { pos: this.mission.goalOf(focusObj, b.pos), label: focusObj.def.title } : null);
-    if (this.nav.passedCheckpoint) this.saveCheckpoint(this.nav.passedCheckpoint.label ?? '检查点');
+    if (this.nav.passedCheckpoint) this.saveCheckpoint(this.nav.passedCheckpoint.label ?? tr('检查点'));
 
     this.warnTerrain(speed);
 

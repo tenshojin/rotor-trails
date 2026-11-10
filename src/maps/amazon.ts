@@ -6,6 +6,7 @@ import { makeWeather } from '../sim/weather';
 import type { Vec2 } from '../sim/terrain';
 import { polylineDist, PathSampler, smoothPath } from './routeUtil';
 import type { MapDef, RouteNodeDef, V3 } from './types';
+import { tr, trKey } from '../i18n';
 
 const SEED = 4401;
 const n = new Perlin2(SEED);
@@ -183,35 +184,35 @@ const RIVER_AT_START = RP.at(RP.arcOf(-1750, 520));
 
 // ---------- 航点 ----------
 const CRUISE = 110;
-const riverNodes = RP.nodes('a-r', RP.arcOf(-1650, 470), S_A - 220, 260, () => 34, { label: '主河道', radius: 60, speed: 32, clearance: 20 });
+const riverNodes = RP.nodes('a-r', RP.arcOf(-1650, 470), S_A - 220, 260, () => 34, { label: tr('主河道'), radius: 60, speed: 32, clearance: 20 });
 riverNodes[Math.floor(riverNodes.length / 2)].checkpoint = true;
-const tribNodes = TP.nodes('a-t', S_B + 90, TP.len - 120, 100, () => 22, { label: '狭窄支流', radius: 32, speed: 18, clearance: 12 });
-tribNodes[0].label = '支流入口';
+const tribNodes = TP.nodes('a-t', S_B + 90, TP.len - 120, 100, () => 22, { label: tr('狭窄支流'), radius: 32, speed: 18, clearance: 12 });
+tribNodes[0].label = tr('支流入口');
 tribNodes[0].checkpoint = true;
 
 const NODES: RouteNodeDef[] = [
-  { id: 'a-up', pos: [START[0], 78, START[2]], radius: 40, speed: 10, label: '垂直爬升离开营地' },
-  { id: 'a-up2', pos: [CLEAR_B[0], 95, CLEAR_B[2]], radius: 35, speed: 8, label: '垂直爬升出空地' },
-  { id: 'a-up1', pos: [CAMP_A[0], 90, CAMP_A[2]], radius: 40, speed: 10, label: '爬升离开营地' },
-  { id: 'a-tin', pos: [tribNodes[0].pos[0], 82, tribNodes[0].pos[2]], radius: 35, speed: 8, label: '下降进入支流' },
+  { id: 'a-up', pos: [START[0], 78, START[2]], radius: 40, speed: 10, label: tr('垂直爬升离开营地') },
+  { id: 'a-up2', pos: [CLEAR_B[0], 95, CLEAR_B[2]], radius: 35, speed: 8, label: tr('垂直爬升出空地') },
+  { id: 'a-up1', pos: [CAMP_A[0], 90, CAMP_A[2]], radius: 40, speed: 10, label: tr('爬升离开营地') },
+  { id: 'a-tin', pos: [tribNodes[0].pos[0], 82, tribNodes[0].pos[2]], radius: 35, speed: 8, label: tr('下降进入支流') },
   ...riverNodes,
-  { id: 'a-c1', pos: [-1250, CRUISE + 10, 380], radius: 70, speed: 40, label: '林冠上空', autoAlt: 30 },
-  { id: 'a-c2', pos: [-850, CRUISE + 10, 300], radius: 70, speed: 40, label: '林冠上空', checkpoint: true, autoAlt: 30 },
-  { id: 'a-m1', pos: [-200, CRUISE, 150], radius: 70, speed: 40, label: '河湾', autoAlt: 30 },
-  { id: 'a-m2', pos: [150, CRUISE, -350], radius: 70, speed: 35, label: '支流上空', checkpoint: true, autoAlt: 30 },
+  { id: 'a-c1', pos: [-1250, CRUISE + 10, 380], radius: 70, speed: 40, label: tr('林冠上空'), autoAlt: 30 },
+  { id: 'a-c2', pos: [-850, CRUISE + 10, 300], radius: 70, speed: 40, label: tr('林冠上空'), checkpoint: true, autoAlt: 30 },
+  { id: 'a-m1', pos: [-200, CRUISE, 150], radius: 70, speed: 40, label: tr('河湾'), autoAlt: 30 },
+  { id: 'a-m2', pos: [150, CRUISE, -350], radius: 70, speed: 35, label: tr('支流上空'), checkpoint: true, autoAlt: 30 },
   ...tribNodes,
-  { id: 'a-o1', pos: [CLEAR_B[0] + 200, CRUISE + 8, CLEAR_B[2] + 60], radius: 70, speed: 40, label: '林冠上空', autoAlt: 30 },
-  { id: 'a-o2', pos: [800, CRUISE + 8, -280], radius: 70, speed: 40, label: '林冠上空', checkpoint: true, autoAlt: 30 },
-  { id: 'a-f1', pos: [BOAT[0] + 120, CRUISE, BOAT[2] - 120], radius: 70, speed: 35, label: '离开河道', checkpoint: true, autoAlt: 30 },
-  { id: 'a-f2', pos: [1450, CRUISE + 5, -650], radius: 60, speed: 30, label: '观测塔附近', autoAlt: 30 },
+  { id: 'a-o1', pos: [CLEAR_B[0] + 200, CRUISE + 8, CLEAR_B[2] + 60], radius: 70, speed: 40, label: tr('林冠上空'), autoAlt: 30 },
+  { id: 'a-o2', pos: [800, CRUISE + 8, -280], radius: 70, speed: 40, label: tr('林冠上空'), checkpoint: true, autoAlt: 30 },
+  { id: 'a-f1', pos: [BOAT[0] + 120, CRUISE, BOAT[2] - 120], radius: 70, speed: 35, label: tr('离开河道'), checkpoint: true, autoAlt: 30 },
+  { id: 'a-f2', pos: [1450, CRUISE + 5, -650], radius: 60, speed: 30, label: tr('观测塔附近'), autoAlt: 30 },
 ];
 
 export const AMAZON: MapDef = {
   id: 'amazon',
-  name: '雨林河湾',
-  subtitle: '巴西 · 亚马孙雨林',
-  region: '亚马孙流域（虚构）',
-  description: '沿着蜿蜒的大河为科考营地运送物资：在林间小空地垂直起降、在科考船上方悬停投放，最后降落在高出树冠的观测平台。暴雨会让能见度骤降。',
+  name: tr('雨林河湾'),
+  subtitle: tr('巴西 · 亚马孙雨林'),
+  region: tr('亚马孙流域（虚构）'),
+  description: tr('沿着蜿蜒的大河为科考营地运送物资：在林间小空地垂直起降、在科考船上方悬停投放，最后降落在高出树冠的观测平台。暴雨会让能见度骤降。'),
   difficulty: 3,
   recommendedAssist: 'standard',
   size: 4096,
@@ -250,11 +251,11 @@ export const AMAZON: MapDef = {
   farBlend: 200,
   spawn: { padId: 'A-base', heading: Math.round(headingOf(RIVER_AT_START[0] - START[0], RIVER_AT_START[1] - START[2])) },
   pads: [
-    { id: 'A-base', name: '河岸基地', pos: [START[0], 5.45, START[2]], size: 20, kind: 'start', style: 'ground' },
-    { id: 'A-camp', name: '河湾科考营地', pos: [CAMP_A[0], 4.45, CAMP_A[2]], size: 18, kind: 'delivery', style: 'ground' },
-    { id: 'A-clear', name: '林间空地营地', pos: [CLEAR_B[0], 8.45, CLEAR_B[2]], size: 13, kind: 'delivery', style: 'ground' },
-    { id: 'A-village', name: '河畔村庄维修坪', pos: [VILLAGE[0], 5.45, VILLAGE[2]], size: 16, kind: 'repair', style: 'ground', repair: { amount: 100, uses: 2 } },
-    { id: 'A-final', name: '林冠观测平台', pos: [FINAL[0], 38.4, FINAL[2]], size: 14, kind: 'final', style: 'raised' },
+    { id: 'A-base', name: tr('河岸基地'), pos: [START[0], 5.45, START[2]], size: 20, kind: 'start', style: 'ground' },
+    { id: 'A-camp', name: tr('河湾科考营地'), pos: [CAMP_A[0], 4.45, CAMP_A[2]], size: 18, kind: 'delivery', style: 'ground' },
+    { id: 'A-clear', name: tr('林间空地营地'), pos: [CLEAR_B[0], 8.45, CLEAR_B[2]], size: 13, kind: 'delivery', style: 'ground' },
+    { id: 'A-village', name: tr('河畔村庄维修坪'), pos: [VILLAGE[0], 5.45, VILLAGE[2]], size: 16, kind: 'repair', style: 'ground', repair: { amount: 100, uses: 2 } },
+    { id: 'A-final', name: tr('林冠观测平台'), pos: [FINAL[0], 38.4, FINAL[2]], size: 14, kind: 'final', style: 'raised' },
   ],
   props: [
     { type: 'camp', pos: [START[0], 0, START[2]], ground: true, p: { r: 45, n: 6, jetty: 0 } },
@@ -300,30 +301,30 @@ export const AMAZON: MapDef = {
     {
       to: 'am-camp',
       paths: [
-        { id: 'river', label: '沿主河道', detail: '沿宽阔的主河道低空飞行：最安全，河道是天然的导航线，但弯道多、距离长', tag: 'safe', nodes: ['a-up', ...riverNodes.map((x) => x.id)] },
-        { id: 'canopy', label: '林冠直飞', detail: '在树冠上空直线飞行：距离短，但下方没有备降场地，雨天能见度差', tag: 'short', nodes: ['a-up', 'a-c1', 'a-c2'] },
+        { id: 'river', label: tr('沿主河道'), detail: tr('沿宽阔的主河道低空飞行：最安全，河道是天然的导航线，但弯道多、距离长'), tag: 'safe', nodes: ['a-up', ...riverNodes.map((x) => x.id)] },
+        { id: 'canopy', label: tr('林冠直飞'), detail: tr('在树冠上空直线飞行：距离短，但下方没有备降场地，雨天能见度差'), tag: 'short', nodes: ['a-up', 'a-c1', 'a-c2'] },
       ],
     },
-    { to: 'am-clear', paths: [{ id: 'main', label: '河湾航线', detail: '', tag: 'main', nodes: ['a-up1', 'a-m1', 'a-m2'] }] },
+    { to: 'am-clear', paths: [{ id: 'main', label: tr('河湾航线'), detail: '', tag: 'main', nodes: ['a-up1', 'a-m1', 'a-m2'] }] },
     {
       to: 'am-boat',
       paths: [
-        { id: 'trib', label: '狭窄支流', detail: '贴着水面沿蜿蜒支流飞行：两岸树冠很近，弯道急，有动力与护盾补给', tag: 'short', nodes: ['a-up2', 'a-tin', ...tribNodes.map((x) => x.id)] },
-        { id: 'canopy', label: '林冠绕行', detail: '爬升到树冠上空飞向主河道，较安全，途经河畔村庄维修坪', tag: 'safe', nodes: ['a-up2', 'a-o1', 'a-o2'] },
+        { id: 'trib', label: tr('狭窄支流'), detail: tr('贴着水面沿蜿蜒支流飞行：两岸树冠很近，弯道急，有动力与护盾补给'), tag: 'short', nodes: ['a-up2', 'a-tin', ...tribNodes.map((x) => x.id)] },
+        { id: 'canopy', label: tr('林冠绕行'), detail: tr('爬升到树冠上空飞向主河道，较安全，途经河畔村庄维修坪'), tag: 'safe', nodes: ['a-up2', 'a-o1', 'a-o2'] },
       ],
     },
-    { to: 'am-final', paths: [{ id: 'main', label: '观测平台', detail: '', tag: 'main', nodes: ['a-f1', 'a-f2'] }] },
+    { to: 'am-final', paths: [{ id: 'main', label: tr('观测平台'), detail: '', tag: 'main', nodes: ['a-f1', 'a-f2'] }] },
   ],
   mission: {
     startCargo: 3,
     main: [
-      { id: 'am-camp', kind: 'land', title: '向河湾科考营地运送物资', detail: '营地建在河湾的沙洲旁。降落并卸下第一箱物资。', padId: 'A-camp', dwell: 4, cargo: 'unload', approach: [CAMP_A[0], 55, CAMP_A[2]] },
-      { id: 'am-clear', kind: 'land', title: '在林间空地营地降落', detail: '空地很小（停机坪 13 m），四周树冠高约 30 m。在树冠上方悬停对准，再垂直下降。', padId: 'A-clear', dwell: 4, cargo: 'unload', approach: [CLEAR_B[0], 72, CLEAR_B[2]] },
+      { id: 'am-camp', kind: 'land', title: tr('向河湾科考营地运送物资'), detail: tr('营地建在河湾的沙洲旁。降落并卸下第一箱物资。'), padId: 'A-camp', dwell: 4, cargo: 'unload', approach: [CAMP_A[0], 55, CAMP_A[2]] },
+      { id: 'am-clear', kind: 'land', title: tr('在林间空地营地降落'), detail: tr('空地很小（停机坪 13 m），四周树冠高约 30 m。在树冠上方悬停对准，再垂直下降。'), padId: 'A-clear', dwell: 4, cargo: 'unload', approach: [CLEAR_B[0], 72, CLEAR_B[2]] },
       {
         id: 'am-boat',
         kind: 'hover',
-        title: '向科考船投放样本箱',
-        detail: '在科考船甲板上方 6–15 m 稳定悬停 6 秒（水平速度 < 1.5 m/s）。',
+        title: tr('向科考船投放样本箱'),
+        detail: tr('在科考船甲板上方 6–15 m 稳定悬停 6 秒（水平速度 < 1.5 m/s）。'),
         center: [BOAT[0], 2.5, BOAT[2]],
         radius: 8,
         minH: 6,
@@ -333,17 +334,17 @@ export const AMAZON: MapDef = {
         cargo: 'drop',
         approach: [BOAT[0], 32, BOAT[2]],
       },
-      { id: 'am-final', kind: 'land', title: '降落在林冠观测平台', detail: '平台高出地面 38 m，略高于周围树冠。精确降落在 14 m 的平台上。', padId: 'A-final', dwell: 3, approach: [FINAL[0], 88, FINAL[2]] },
+      { id: 'am-final', kind: 'land', title: tr('降落在林冠观测平台'), detail: tr('平台高出地面 38 m，略高于周围树冠。精确降落在 14 m 的平台上。'), padId: 'A-final', dwell: 3, approach: [FINAL[0], 88, FINAL[2]] },
     ],
     optional: [
       {
         id: 'ao-oxbow',
         kind: 'inspect',
-        title: '巡查牛轭湖',
-        detail: '以低于 25 m/s 的速度飞过牛轭湖上空的两个观测点。',
+        title: tr('巡查牛轭湖'),
+        detail: tr('以低于 25 m/s 的速度飞过牛轭湖上空的两个观测点。'),
         points: [
-          { pos: [140, 25, 930], radius: 35, label: '牛轭湖西段' },
-          { pos: [420, 25, 880], radius: 35, label: '牛轭湖东段' },
+          { pos: [140, 25, 930], radius: 35, label: tr('牛轭湖西段') },
+          { pos: [420, 25, 880], radius: 35, label: tr('牛轭湖东段') },
         ],
         maxSpeed: 25,
         approach: [140, 40, 930],
@@ -351,8 +352,8 @@ export const AMAZON: MapDef = {
       {
         id: 'ao-kapok',
         kind: 'hover',
-        title: '观察巨型木棉树',
-        detail: '在河湾北岸的巨木林冠上方 8–30 m 悬停 4 秒（巨木高约 55 m）。',
+        title: tr('观察巨型木棉树'),
+        detail: tr('在河湾北岸的巨木林冠上方 8–30 m 悬停 4 秒（巨木高约 55 m）。'),
         center: [-250, 52, -120],
         radius: 40,
         minH: 8,
@@ -371,24 +372,24 @@ export const AMAZON: MapDef = {
     { id: 'ab2', kind: 'boost', pos: [1450, CRUISE + 5, -650], note: '观测平台附近' },
   ],
   windZones: [
-    { id: 'a-river', name: '河道顺风', a: RP.at(RP.arcOf(-1300, 300)), b: RP.at(S_BOAT), radius: 180, feather: 120, yMax: 120, kind: 'channel', dirFrom: 280, speed: 5 },
-    { id: 'a-storm', name: '雷暴下击暴流区', a: [600, -600], b: [1300, -500], radius: 300, feather: 200, kind: 'gust', gust: { amp: 6, period: 14, dirFrom: 40 } },
+    { id: 'a-river', name: tr('河道顺风'), a: RP.at(RP.arcOf(-1300, 300)), b: RP.at(S_BOAT), radius: 180, feather: 120, yMax: 120, kind: 'channel', dirFrom: 280, speed: 5 },
+    { id: 'a-storm', name: tr('雷暴下击暴流区'), a: [600, -600], b: [1300, -500], radius: 300, feather: 200, kind: 'gust', gust: { amp: 6, period: 14, dirFrom: 40 } },
   ],
   weathers: [
-    { id: 'clear', label: '晴天', kind: 'clear', desc: '闷热晴朗，微风，远处有积云。', params: makeWeather({ windDirFrom: 90, windSpeed: 2.5, gustAmp: 0.8, cloudCover: 0.45, visibility: 9000, zoneScale: 0.3 }) },
-    { id: 'rain', label: '小雨', kind: 'lightRain', desc: '小雨，能见度约 2.5 km，树冠与河面湿润。', params: makeWeather({ rain: 0.4, overcast: 0.7, cloudCover: 0.8, visibility: 2500, windDirFrom: 70, windSpeed: 4, gustAmp: 1.8, wetness: 0.9, zoneScale: 0.6 }) },
+    { id: 'clear', label: tr('晴天'), kind: 'clear', desc: tr('闷热晴朗，微风，远处有积云。'), params: makeWeather({ windDirFrom: 90, windSpeed: 2.5, gustAmp: 0.8, cloudCover: 0.45, visibility: 9000, zoneScale: 0.3 }) },
+    { id: 'rain', label: tr('小雨'), kind: 'lightRain', desc: tr('小雨，能见度约 2.5 km，树冠与河面湿润。'), params: makeWeather({ rain: 0.4, overcast: 0.7, cloudCover: 0.8, visibility: 2500, windDirFrom: 70, windSpeed: 4, gustAmp: 1.8, wetness: 0.9, zoneScale: 0.6 }) },
     {
       id: 'storm',
-      label: '暴雨',
+      label: tr('暴雨'),
       kind: 'storm',
-      desc: '热带暴雨：能见度约 700 m，雷电，阵风 6 m/s。暴雨本身不会扣耐久，但需要降低速度、依靠导航。',
+      desc: tr('热带暴雨：能见度约 700 m，雷电，阵风 6 m/s。暴雨本身不会扣耐久，但需要降低速度、依靠导航。'),
       params: makeWeather({ rain: 1, overcast: 1, cloudCover: 1, visibility: 700, lightning: 0.7, windDirFrom: 40, windSpeed: 7, gustAmp: 4.5, turbulence: 0.9, wetness: 1, zoneScale: 1.2 }),
     },
     {
       id: 'dynamic',
-      label: '晴转暴雨',
+      label: tr('晴转暴雨'),
       kind: 'storm',
-      desc: '起飞时晴朗；完成第二个任务后约一分钟内雷暴移入，最后一段在暴雨中飞行。',
+      desc: tr('起飞时晴朗；完成第二个任务后约一分钟内雷暴移入，最后一段在暴雨中飞行。'),
       params: makeWeather({ windDirFrom: 90, windSpeed: 2.5, gustAmp: 0.8, cloudCover: 0.5, visibility: 9000, zoneScale: 0.3 }),
       schedule: [{ afterObjective: 2, to: 'storm', duration: 60 }],
     },
@@ -418,19 +419,19 @@ export const AMAZON: MapDef = {
   vessels: [{ model: 'river_boat', len: 26, speed: 4.2, route: riverLoop(0.34) }, { model: 'river_boat', len: 26, speed: 3.6, route: riverLoop(-0.3) }],
   birds: { egret: 10, macaw: 10 },
   landmarks: [
-    { name: '林冠观测塔', pos: [FINAL[0] + 26, 55, FINAL[2] + 18] },
-    { name: '牛轭湖', pos: [250, 0, 880] },
+    { name: trKey('林冠观测塔'), pos: [FINAL[0] + 26, 55, FINAL[2] + 18] },
+    { name: trKey('牛轭湖'), pos: [250, 0, 880] },
   ],
   vistas: [
-    { name: '大河拐弯', at: [-1642, 100, 480], look: [-1413, 324] },
-    { name: '河面上空', at: [-1250, 100, 380], look: [-850, 300] },
-    { name: '雾里的林海', at: [-480, 100, 266], look: [-200, 150] },
-    { name: '支流', at: [717, 100, -486], look: [780, -411] },
+    { name: trKey('大河拐弯'), at: [-1642, 100, 480], look: [-1413, 324] },
+    { name: trKey('河面上空'), at: [-1250, 100, 380], look: [-850, 300] },
+    { name: trKey('雾里的林海'), at: [-480, 100, 266], look: [-200, 150] },
+    { name: trKey('支流'), at: [717, 100, -486], look: [780, -411] },
   ],
   briefing: [
-    '主河道是最可靠的导航参照。支流狭窄弯曲，两岸树冠离旋翼很近，需要低速飞行。',
-    '林间空地只有 13 m 宽：在树冠上方悬停对准后再垂直下降，下降时注意水平漂移。',
-    '选择“晴转暴雨”时，雷暴会在中途移入：能见度降到约 700 m，可降低速度、开启悬停辅助等待或依靠 HUD 导航。',
+    tr('主河道是最可靠的导航参照。支流狭窄弯曲，两岸树冠离旋翼很近，需要低速飞行。'),
+    tr('林间空地只有 13 m 宽：在树冠上方悬停对准后再垂直下降，下降时注意水平漂移。'),
+    tr('选择“晴转暴雨”时，雷暴会在中途移入：能见度降到约 700 m，可降低速度、开启悬停辅助等待或依靠 HUD 导航。'),
   ],
   estMinutes: [9, 12],
 };

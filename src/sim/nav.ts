@@ -4,6 +4,7 @@
 import { DEG, clamp, headingDelta, headingOf, segDist2D } from '../core/math';
 import type { MapDef, RouteNodeDef, RoutePathDef, V3 } from '../maps/types';
 import type { Heightfield } from './terrain';
+import { tr } from '../i18n';
 
 export interface ForkOption {
   label: string;
@@ -142,10 +143,10 @@ export class Navigator {
     const leg = this.map.legs[this.leg];
     if (this.path === null && leg && leg.paths.length > 1 && this.focus === 0) {
       this.preferred = (this.preferred + 1) % leg.paths.length;
-      return `推荐路线：${leg.paths[this.preferred].label}`;
+      return tr`推荐路线：${leg.paths[this.preferred].label}`;
     }
     this.focus = optionalCount > 0 ? (this.focus + 1) % (optionalCount + 1) : 0;
-    return this.focus === 0 ? '导航：主线任务' : `导航：可选任务 ${this.focus}`;
+    return this.focus === 0 ? tr('导航：主线任务') : tr`导航：可选任务 ${this.focus}`;
   }
 
   /** 点了某张路线卡片（触屏）：把这条设成推荐路线。不在分岔处、或者在导航可选任务时不管 */
@@ -153,7 +154,7 @@ export class Navigator {
     const leg = this.map.legs[this.leg];
     if (this.path !== null || !leg || this.focus !== 0 || index < 0 || index >= leg.paths.length || index === this.preferred) return null;
     this.preferred = index;
-    return `推荐路线：${leg.paths[index].label}`;
+    return tr`推荐路线：${leg.paths[index].label}`;
   }
 
   snapshot(): NavSnapshot {
@@ -192,13 +193,13 @@ export class Navigator {
 
     if (this.focus > 0 && optionalGoal) {
       this.direct(pos, optionalGoal.pos, optionalGoal.label, 'optional');
-      info.pathLabel = '可选任务';
+      info.pathLabel = tr('可选任务');
       return info;
     }
     if (!goal) {
       info.mode = 'complete';
       info.preview = [];
-      info.label = '任务完成';
+      info.label = tr('任务完成');
       info.pathLabel = '';
       info.distance = 0;
       return info;
@@ -225,7 +226,7 @@ export class Navigator {
         const nd = paths[0].nodes[this.node];
         this.aimAt(pos, nd.pos, nd.label ?? goalLabel);
         info.mode = 'route';
-        info.pathLabel = '共用航段';
+        info.pathLabel = tr('共用航段');
         info.speed = nd.speed ?? null;
         info.preview = [{ pos: nd.pos, radius: nd.radius }];
         return info;
@@ -254,7 +255,7 @@ export class Navigator {
         const first = pref.nodes[prefix]?.pos ?? goal;
         this.aimAt(pos, first, pref.nodes[prefix]?.label ?? goalLabel);
         info.mode = 'fork';
-        info.pathLabel = '路线选择';
+        info.pathLabel = tr('路线选择');
         info.speed = pref.nodes[prefix]?.speed ?? null;
         info.forks = paths.map((p, i) => {
           const t = p.nodes[prefix]?.pos ?? goal;
@@ -297,9 +298,9 @@ export class Navigator {
     const target = seq[idx];
     const prev = seq[idx - 1].pos;
     const isGoal = idx === seq.length - 1;
-    const label = isGoal ? goalLabel : (target.node?.label ?? '航点');
+    const label = isGoal ? goalLabel : (target.node?.label ?? tr('航点'));
     this.aimAt(pos, target.pos, label);
-    info.pathLabel = p.def.tag === 'main' ? '主航线' : p.def.label;
+    info.pathLabel = p.def.tag === 'main' ? tr('主航线') : p.def.label;
     info.mode = isGoal && info.distance < 320 ? 'approach' : 'route';
     info.speed = target.node?.speed ?? null;
 
@@ -317,8 +318,8 @@ export class Navigator {
       info.recoverAlt = Math.max(safe, target.pos[1]);
       info.message =
         info.recoverAlt > pos.y + 15
-          ? `已偏离航线：先爬升至 ${Math.round(info.recoverAlt)} m 以上，再飞向「${label}」`
-          : `已偏离航线：转向「${label}」重新加入航线`;
+          ? tr`已偏离航线：先爬升至 ${Math.round(info.recoverAlt)} m 以上，再飞向「${label}」`
+          : tr`已偏离航线：转向「${label}」重新加入航线`;
     }
 
     // 转弯预告：沿路线向前查找第一个明显转弯；高速时更早提示
@@ -360,7 +361,7 @@ export class Navigator {
     if (horiz > 400) {
       const safe = this.terrain.maxAlongSegment(pos.x, pos.z, t[0], t[2], 45, 16) + 55;
       info.targetAlt = Math.max(safe, t[1]);
-      if (safe > pos.y + 15) info.message = `直飞前建议先爬升至 ${Math.round(safe)} m 以上`;
+      if (safe > pos.y + 15) info.message = tr`直飞前建议先爬升至 ${Math.round(safe)} m 以上`;
     }
     info.preview = [{ pos: t, radius: 50 }];
   }
