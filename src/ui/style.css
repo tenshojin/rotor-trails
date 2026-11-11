@@ -182,6 +182,67 @@ a {
 .btn.ghost {
   background: transparent;
 }
+/* 两行的按钮：上面是做什么，下面一行小字写细节（继续飞行、从存档继续、读档） */
+.btn.cont,
+.btn.resume,
+.btn.two-line {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+}
+/* 标题一行（放不下就省略号）；下面的小字最多两行：英文的“Objective 2/4 · Airframe 86 · 3 min ago”一行放不下，折成两行，不丢掉后面的时间 */
+.btn.cont > span,
+.btn.resume > span,
+.btn.two-line > span {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.btn.cont small,
+.btn.resume small,
+.btn.two-line small {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.3;
+  opacity: 0.78;
+  max-width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.btn:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+.btn:disabled:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+/* 刚存过档 */
+.btn.done {
+  border-color: rgba(76, 255, 154, 0.6);
+  color: #b9ffd6;
+}
+.btn kbd {
+  font-size: 11px;
+  margin-left: 4px;
+  vertical-align: 1px;
+}
+/* 暂停菜单、失败页：次要的按钮两个一排 */
+.btn-pair {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+.btn-pair > .btn {
+  flex: 1 1 0;
+  min-width: 0;
+  margin-bottom: 0;
+}
 .btn.big {
   font-size: 19px;
   padding: 15px 22px;
@@ -445,11 +506,35 @@ a {
 .brief-side .card h3 {
   margin-top: 0;
 }
-.brief-side > .btn.big {
+.brief-side > .brief-go {
   position: sticky;
   bottom: 0;
   z-index: 3;
+  display: flex;
+  gap: 8px;
   box-shadow: 0 -14px 28px rgba(4, 8, 12, 0.85);
+  border-radius: 8px;
+}
+.brief-go > .btn.big {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+}
+/* 有存档：左边是“从存档继续”（下面一行小字写进度和多久以前存的） */
+.brief-go > .btn.resume {
+  flex: 0 1 46%;
+  background: #14202c;
+}
+/* 手机（高 ≤ 520）：右栏窄，两个按钮的字收小，不然“从存档继续”折成三行，盖住一大块选项 */
+@media (max-height: 520px) {
+  .brief-go > .btn.big {
+    font-size: 15px;
+    padding: 8px 10px;
+  }
+  .brief-go > .btn.resume {
+    flex-basis: 52%;
+    text-align: left;
+  }
 }
 /* 矮一些的屏幕（笔记本浏览器常见 650～1000 px 高）：右栏排紧，天气、时段、辅助和开始按钮一屏放得下，
    不然贴底的开始按钮正好盖住最下面的“飞行辅助”“飞行方式”。说明截成两行（再矮截成一行），鼠标停上去看全文 */

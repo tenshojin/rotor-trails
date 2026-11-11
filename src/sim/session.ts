@@ -9,8 +9,8 @@ import type { WorldData } from '../world/worldgen';
 import { TREE_SPECS, TREE_TYPES, forTreesNear } from '../world/vegetation';
 import { BuffSystem, BUFFS, type BuffKind, type BuffSnapshot, type PickupResult } from './buffs';
 import { CAUSE_LABEL, DamageModel, statusOf, type DamageCause, type DamageEvent, type DamageSnapshot, type DamageStatus } from './damage';
-import { FlightModel, type BodyState, type PilotInput } from './flight';
-import { Systems } from './systems';
+import { FlightModel, type BodyState, type FlightSimState, type PilotInput } from './flight';
+import { Systems, type SystemsSnapshot } from './systems';
 import { Gear } from './gear';
 import { MissionRuntime, gradeLanding, type LandingMetrics, type MissionEvent, type MissionSnapshot } from './mission';
 import { Navigator, type NavSnapshot } from './nav';
@@ -67,6 +67,24 @@ export interface SessionSnapshot {
   repairUses: Record<string, number>;
   grounded: boolean;
 }
+
+/**
+ * 存档（玩家随时存的、离开时自动存的）：此刻的完整状态、最近几个检查点、统计。
+ * 读档后撞了照样能回检查点，结算页的统计也接得上。超仿真另外存开关、发动机和杆舵配平
+ */
+export interface SessionSave {
+  snap: SessionSnapshot;
+  checkpoints: Checkpoint[];
+  stats: SessionStats;
+  sys?: SystemsSnapshot;
+  sim?: FlightSimState;
+}
+
+/** 存档里最多留几个检查点（起点 + 最近的几个）：一个检查点就是一份完整状态，全留的话存档太大 */
+const SAVE_CHECKPOINTS = 8;
+
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isVec = (v: unknown, n: number): boolean => Array.isArray(v) && v.length === n && v.every(isNum);
 
 export interface Checkpoint {
   id: number;
@@ -540,7 +558,13 @@ export class GameSession {
     const shield = this.buffs.shieldActive;
     this.damage.processContacts(this.contacts, this.t, dt, speed, shield, dmg);
     for (const c of this.contacts) if (c.part !== 'skid' && c.tag.kind !== 'boundary') this.bodyContactT = this.t;
-    if (this.contacts.some((c) => c.tag.kind === 'boundary')) this.msg(this.free ? tr('已经飞到地图的边上了，掉头吧') : tr('已到达任务区域边界，请返回'), 'warn', 'boundary', 3);
+    // 地图边上是一堵看不见的墙：离墙 150 米还往外飞就先提醒，别等撞上了才说
+    const half = (this.world.map.flightSize ?? this.world.map.size) / 2;
+    const ax = Math.abs(b.pos.x);
+    const az = Math.abs(b.pos.z);
+    const outward = ax > az ? Math.sign(b.pos.x) * b.vel.x : Math.sign(b.pos.z) * b.vel.z;
+    const nearEdge = half - Math.max(ax, az) < 150 && outward > 2;
+    if (nearEdge || this.contacts.some((c) => c.tag.kind === 'boundary')) this.msg(this.free ? tr('已经飞到地图的边上了，掉头吧') : tr('已到达任务区域边界，请返回'), 'warn', 'boundary', 3);
     let touchdown: { padId: string | null; metrics: LandingMetrics } | null = null;
     const td = this.gear.touchdown;
     if (td) {
@@ -829,9 +853,73 @@ export class GameSession {
     if (this.disposed) return;
     const cp = this.checkpoints[index];
     if (!cp) return;
-    const s = cp.snap;
     // 丢弃之后的检查点
     this.checkpoints = this.checkpoints.slice(0, index + 1);
+    this.applySnapshot(cp.snap, mode);
+    if (mode === 'safe') this.stats.safeRecoveries++;
+    this.stats.restores++;
+  }
+
+  /** 存档：见 SessionSave */
+  saveState(): SessionSave {
+    const cps = this.checkpoints.length <= SAVE_CHECKPOINTS ? this.checkpoints : [this.checkpoints[0], ...this.checkpoints.slice(-(SAVE_CHECKPOINTS - 1))];
+    return structuredClone({
+      snap: this.snapshot(),
+      checkpoints: cps,
+      stats: this.stats,
+      sys: this.sys?.snapshot(),
+      sim: this.sys ? this.flight.simState() : undefined,
+    });
+  }
+
+  /** 这份存档能不能读进这一局：结构完整、数值正常、任务的目标数对得上（地图改过以后的旧档不读，免得任务进度错位） */
+  canRestore(s: SessionSave | null | undefined): s is SessionSave {
+    if (!s || typeof s !== 'object' || !s.snap || !Array.isArray(s.checkpoints)) return false;
+    const ok = (x: SessionSnapshot | undefined): boolean =>
+      !!x &&
+      isNum(x.t) &&
+      !!x.body &&
+      isVec(x.body.pos, 3) &&
+      isVec(x.body.quat, 4) &&
+      isVec(x.body.vel, 3) &&
+      isVec(x.body.angVel, 3) &&
+      !!x.damage &&
+      isNum(x.damage.durability) &&
+      !!x.buffs &&
+      !!x.nav &&
+      !!x.weather &&
+      !!x.mission &&
+      Array.isArray(x.mission.main) &&
+      Array.isArray(x.mission.optional) &&
+      x.mission.main.length === this.mission.main.length &&
+      x.mission.optional.length === this.mission.optional.length &&
+      Array.isArray(x.pickupsTaken);
+    return ok(s.snap) && s.checkpoints.every((c) => !!c && isNum(c.id) && typeof c.label === 'string' && ok(c.snap));
+  }
+
+  /** 读档：回到存档那一刻（和“从检查点继续”一样完整恢复，不算一次恢复、不扣分）。读不了返回 false，这一局不动 */
+  restoreState(s: SessionSave): boolean {
+    if (this.disposed || !this.canRestore(s)) return false;
+    const save = structuredClone(s);
+    this.checkpoints = save.checkpoints;
+    this.cpId = this.checkpoints.reduce((m, c) => Math.max(m, c.id), 0);
+    const st = save.stats ?? ({} as Partial<SessionStats>);
+    this.stats = {
+      distance: isNum(st.distance) ? st.distance : 0,
+      maxSpeed: isNum(st.maxSpeed) ? st.maxSpeed : 0,
+      restores: isNum(st.restores) ? st.restores : 0,
+      safeRecoveries: isNum(st.safeRecoveries) ? st.safeRecoveries : 0,
+      flightTime: isNum(st.flightTime) ? st.flightTime : 0,
+    };
+    this.applySnapshot(save.snap, 'exact');
+    // 超仿真：applySnapshot 先把系统放到“在飞”的状态，这里再换成存档时的样子（冷舱没启动完就存的，读回来发动机还是停着的）
+    if (this.sys && save.sys) this.sys.restore(save.sys);
+    if (this.sys && save.sim) this.flight.setSimState(save.sim);
+    return true;
+  }
+
+  /** 把一份快照放回来。exact：原样；safe：原地稳定悬停、耐久至少 40 */
+  private applySnapshot(s: SessionSnapshot, mode: 'exact' | 'safe'): void {
     this.t = s.t;
     this.steps = Math.round(this.t / STEP);
     const b = this.body;
@@ -859,9 +947,7 @@ export class GameSession {
         b.pos.y = Math.max(b.pos.y, gh + 25);
       }
       if (this.damage.durability < 40) this.damage.durability = 40;
-      this.stats.safeRecoveries++;
     }
-    this.stats.restores++;
     this.massApplied = this.totalMass();
     this.phys.setHeliMass(this.massApplied);
     this.phys.writeBody(b);

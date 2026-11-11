@@ -4,6 +4,7 @@
 import type { MapId } from '../maps/types';
 import { defaultSettings, sanitizeSettings, upgradeDescendBindings, upgradeLegacyBindings, type Settings } from './settings';
 import { tr } from '../i18n';
+import { FlightSaves } from './flightSave';
 
 export const SAVE_KEY = 'rotorTrails.save';
 /** v2：默认键位调整（下降键由 Ctrl/X 改为 C，视角回正由 C 改为 Z） */
@@ -119,6 +120,7 @@ export class SaveStore {
   /** 旧存档：重新按显卡选一次画质 */
   requalify = false;
   private storage: StorageLike | null;
+  private flightSaves: FlightSaves | null = null;
 
   constructor(storage?: StorageLike | null) {
     let st: StorageLike | null = null;
@@ -189,6 +191,11 @@ export class SaveStore {
       this.warning = tr('保存失败（存储空间已满或被禁止）。');
       return false;
     }
+  }
+
+  /** 飞到一半的存档（见 flightSave.ts）。和主存档同一个存储：主存档读不了、不让写的时候它也不写 */
+  get flights(): FlightSaves {
+    return (this.flightSaves ??= new FlightSaves(this.storage));
   }
 
   record(map: MapId): MapRecord {

@@ -4,8 +4,8 @@
 import { PadReader, type PadEdge, type PadMode, type PadNav } from './gamepad';
 import { isBindingCode, type Action, type Settings } from './settings';
 
-type EdgeAction = 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim' | 'photo';
-const EDGE: EdgeAction[] = ['hover', 'boost', 'center', 'pause', 'view', 'nav', 'mapRange', 'hud', 'cruise', 'trim', 'photo'];
+type EdgeAction = 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim' | 'photo' | 'quickSave' | 'quickLoad';
+const EDGE: EdgeAction[] = ['hover', 'boost', 'center', 'pause', 'view', 'nav', 'mapRange', 'hud', 'cruise', 'trim', 'photo', 'quickSave', 'quickLoad'];
 
 /** 手柄上按住哪个键算按住这个动作（拍照模式“按住 B 走得快”这类要看按住没有，不是按了一下） */
 const PAD_HOLD: Partial<Record<Action, number>> = { hover: 0, boost: 1, view: 2, center: 3, cruise: 8, pause: 9, trim: 10, photo: 11, nav: 12, hud: 13, mapRange: 14 };

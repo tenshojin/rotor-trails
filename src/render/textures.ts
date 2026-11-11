@@ -198,6 +198,34 @@ function hexRgb(hex: number): [number, number, number] {
   return [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255];
 }
 
+/** 小地图的配色：水按深浅，陆地按沙滩、草、林、岩、雪，再乘上高度和山坡的明暗。地图里面、外面的远景用同一套，接缝看不出来 */
+function minimapPainter(map: MapDef, minH: number, maxH: number): (h: number, slope: number, gx: number, gz: number, forest: number) => [number, number, number] {
+  const B = map.biome;
+  const grass = hexRgb(B.grass);
+  const rock = hexRgb(B.rock);
+  const snow = hexRgb(B.snow);
+  const sand = hexRgb(B.sand);
+  const forestC = hexRgb(B.forestFloor);
+  const water = hexRgb(B.waterDeep);
+  const shallow = hexRgb(B.waterShallow);
+  const span = Math.max(1, maxH - Math.min(minH, map.waterLevel ?? minH));
+  return (h, slope, gx, gz, forest) => {
+    if (map.waterLevel !== null && h < map.waterLevel) {
+      const d = Math.min(1, (map.waterLevel - h) / 15);
+      return [shallow[0] + (water[0] - shallow[0]) * d, shallow[1] + (water[1] - shallow[1]) * d, shallow[2] + (water[2] - shallow[2]) * d];
+    }
+    const shade = Math.max(0.35, Math.min(1.25, 0.85 - (gx * 0.6 + gz * 0.8)));
+    const t = Math.min(1.4, Math.max(0, (h - minH) / span));
+    let c: [number, number, number] = h < B.beachTop ? [...sand] : [...grass];
+    const f = Math.min(1, forest);
+    c = [c[0] + (forestC[0] - c[0]) * f, c[1] + (forestC[1] - c[1]) * f, c[2] + (forestC[2] - c[2]) * f];
+    if (slope > B.rockSlope) c = [...rock];
+    if (h > B.snowLine && slope < 0.55) c = [...snow];
+    const k = (0.9 + t * 0.25) * shade;
+    return [c[0] * k, c[1] * k, c[2] * k];
+  };
+}
+
 /** 小地图底图：地形晕渲 + 水体 + 森林，返回 canvas。 */
 export function makeMinimapCanvas(map: MapDef, terrain: Heightfield, trees: TreeSet, N = 512): HTMLCanvasElement {
   const cv = document.createElement('canvas');
@@ -211,42 +239,46 @@ export function makeMinimapCanvas(map: MapDef, terrain: Heightfield, trees: Tree
     const z = Math.floor((trees.z[i] + map.size / 2) * k);
     if (x >= 0 && z >= 0 && x < N && z < N) forest[z * N + x] += 0.25;
   }
-  const B = map.biome;
-  const grass = hexRgb(B.grass);
-  const rock = hexRgb(B.rock);
-  const snow = hexRgb(B.snow);
-  const sand = hexRgb(B.sand);
-  const forestC = hexRgb(B.forestFloor);
-  const water = hexRgb(B.waterDeep);
-  const shallow = hexRgb(B.waterShallow);
-  const span = Math.max(1, terrain.maxH - Math.min(terrain.minH, map.waterLevel ?? terrain.minH));
+  const paint = minimapPainter(map, terrain.minH, terrain.maxH);
   for (let z = 0; z < N; z++)
     for (let x = 0; x < N; x++) {
       const wx = -terrain.half + ((x + 0.5) / N) * terrain.size;
       const wz = -terrain.half + ((z + 0.5) / N) * terrain.size;
       const h = terrain.heightAt(wx, wz);
       const e = terrain.cell * 2;
-      const dx = terrain.heightAt(wx + e, wz) - terrain.heightAt(wx - e, wz);
-      const dz = terrain.heightAt(wx, wz + e) - terrain.heightAt(wx, wz - e);
-      const shade = Math.max(0.35, Math.min(1.25, 0.85 - (dx * 0.6 + dz * 0.8) / (e * 2)));
-      let c: [number, number, number];
-      if (map.waterLevel !== null && h < map.waterLevel) {
-        const d = Math.min(1, (map.waterLevel - h) / 15);
-        c = [shallow[0] + (water[0] - shallow[0]) * d, shallow[1] + (water[1] - shallow[1]) * d, shallow[2] + (water[2] - shallow[2]) * d];
-      } else {
-        const slope = terrain.slopeAt(wx, wz);
-        const t = (h - terrain.minH) / span;
-        c = [...grass];
-        if (h < B.beachTop) c = [...sand];
-        const f = Math.min(1, forest[z * N + x]);
-        c = [c[0] + (forestC[0] - c[0]) * f, c[1] + (forestC[1] - c[1]) * f, c[2] + (forestC[2] - c[2]) * f];
-        if (slope > B.rockSlope) c = [...rock];
-        if (h > B.snowLine && slope < 0.55) c = [...snow];
-        const tint = 0.9 + t * 0.25;
-        c = [c[0] * tint, c[1] * tint, c[2] * tint];
-        c = [c[0] * shade, c[1] * shade, c[2] * shade];
-      }
+      const gx = (terrain.heightAt(wx + e, wz) - terrain.heightAt(wx - e, wz)) / (e * 2);
+      const gz = (terrain.heightAt(wx, wz + e) - terrain.heightAt(wx, wz - e)) / (e * 2);
+      const c = paint(h, terrain.slopeAt(wx, wz), gx, gz, forest[z * N + x]);
       const i = (z * N + x) * 4;
+      img.data[i] = Math.min(255, c[0]);
+      img.data[i + 1] = Math.min(255, c[1]);
+      img.data[i + 2] = Math.min(255, c[2]);
+      img.data[i + 3] = 255;
+    }
+  g.putImageData(img, 0, 0);
+  return cv;
+}
+
+/**
+ * 小地图的外圈：地图外面的远景地形（飞不过去，但看得见）。座舱的导航仪、平板先画它，再把地图本身盖在中间：
+ * 飞到地图边上，旁边不再是一片空白。高度用现成的远景网格（水面倒影、山影也是它），不多算一遍。
+ * minH / maxH 用地图里面的，颜色才接得上
+ */
+export function makeMinimapOuter(map: MapDef, far: { h: Float32Array; res: number; size: number }, minH: number, maxH: number): HTMLCanvasElement {
+  const R = far.res;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = R;
+  const g = cv.getContext('2d')!;
+  const img = g.createImageData(R, R);
+  const paint = minimapPainter(map, minH, maxH);
+  const cell = far.size / R;
+  const H = (x: number, z: number): number => far.h[Math.min(R - 1, Math.max(0, z)) * R + Math.min(R - 1, Math.max(0, x))];
+  for (let z = 0; z < R; z++)
+    for (let x = 0; x < R; x++) {
+      const gx = (H(x + 1, z) - H(x - 1, z)) / (2 * cell);
+      const gz = (H(x, z + 1) - H(x, z - 1)) / (2 * cell);
+      const c = paint(H(x, z), 1 - 1 / Math.hypot(gx, 1, gz), gx, gz, 0);
+      const i = (z * R + x) * 4;
       img.data[i] = Math.min(255, c[0]);
       img.data[i + 1] = Math.min(255, c[1]);
       img.data[i + 2] = Math.min(255, c[2]);

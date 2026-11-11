@@ -6,6 +6,7 @@ import type { Table } from '../index.ts';
 import boot from './boot.ts';
 import config_flight from './config_flight.ts';
 import game_app from './game_app.ts';
+import game_flightSave from './game_flightSave.ts';
 import game_medals from './game_medals.ts';
 import game_places from './game_places.ts';
 import game_save from './game_save.ts';
@@ -21,6 +22,7 @@ import maps_himalaya from './maps_himalaya.ts';
 import maps_japan from './maps_japan.ts';
 import maps_placeNotes from './maps_placeNotes.ts';
 import maps_training from './maps_training.ts';
+import render_instruments from './render_instruments.ts';
 import render_timeOfDay from './render_timeOfDay.ts';
 import render_worldView from './render_worldView.ts';
 import sim_controls from './sim_controls.ts';
@@ -42,6 +44,7 @@ const ALL: Table = {
   ...boot,
   ...config_flight,
   ...game_app,
+  ...game_flightSave,
   ...game_medals,
   ...game_places,
   ...game_save,
@@ -57,6 +60,7 @@ const ALL: Table = {
   ...maps_japan,
   ...maps_placeNotes,
   ...maps_training,
+  ...render_instruments,
   ...render_timeOfDay,
   ...render_worldView,
   ...sim_controls,

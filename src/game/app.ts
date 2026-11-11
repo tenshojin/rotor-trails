@@ -43,6 +43,8 @@ import { waitForOperation } from './pending';
 import { InstrumentLists } from './instrumentLists';
 import { nextView } from './views';
 import { currentLang, tr } from '../i18n';
+import { ageText, FLIGHT_FORMAT, mapSig, progressText, RESUME_SLOT, slotOf, stepText, type FlightSave } from './flightSave';
+import { VERSION } from './version';
 
 /** claude.ai 的私有试玩页（Artifact）放不下大峡谷的数据（单个文件超过 20 MiB），那里不列出真实地形的地图（见 tools/artifact-page.mjs） */
 const PLAYABLE_REAL_MAPS = (globalThis as { __artifact?: boolean }).__artifact ? [] : REAL_MAPS;
@@ -81,6 +83,8 @@ interface RunConfig {
   time?: TimeOfDay;
   /** 制作人员名单：加载完直接起飞，自动巡航 + 电影镜头，名单从画面上走过 */
   credits?: boolean;
+  /** 读档：加载完回到存档那一刻（用一次就清掉，之后“从关卡起点重新开始”是真的从头开始） */
+  resume?: FlightSave;
 }
 
 type Course = 'flight' | 'sim';
@@ -171,6 +175,8 @@ export class App {
   private leaving = false;
   /** 正在放制作人员名单（一段自动巡航的飞行）：不接受操纵，不暂停 */
   private creditsOn = false;
+  /** 读档键按了第一下：这个时间之前再按一下就读（performance.now 的毫秒） */
+  private loadArmedT = 0;
   private medalT = 0;
   private photoPending = false;
   /** 电影镜头里耳朵离飞机多远、飞机朝耳朵过来的速度 */
@@ -285,6 +291,8 @@ export class App {
         if (document.hidden) {
           this.flushSettingsSave();
           if (this.state === 'playing') this.pause();
+          // 手机切到后台，系统可能直接把网页收掉：先替玩家存一份（离开时自动存的那一格，不碰玩家自己存的）
+          this.autoSaveFlight();
           this.audio.suspend();
         } else if (this.state !== 'playing') this.audio.resume();
       }, listenerOptions);
@@ -296,7 +304,9 @@ export class App {
       window.addEventListener('popstate', () => this.onBrowserBack(), listenerOptions);
       window.addEventListener('beforeunload', (e) => {
         this.flushSettingsSave();
-        if (!this.leaving && (this.state === 'playing' || this.state === 'paused')) {
+        // 飞到一半关掉、刷新网页：先自动存一份，下次主菜单“继续飞行”。存上了就不弹“确认离开”
+        const saved = this.autoSaveFlight();
+        if (!this.leaving && !saved && (this.state === 'playing' || this.state === 'paused')) {
           e.preventDefault();
           e.returnValue = '';
         }
@@ -483,9 +493,13 @@ export class App {
     const d = this.save.data;
     // 一课没学过、一张图没飞完：主菜单把“飞行训练”放在最上面
     const newcomer = !d.tutorialDone && d.lessonsDone.length === 0 && d.simLessonsDone.length === 0 && !Object.values(d.maps).some((r) => r?.completed);
+    // 有飞到一半的存档：最上面是“继续飞行”（所有存档里最新的那一份）
+    const last = this.save.flights.latest((f) => this.usableSave(f));
+    const cont = last ? { title: tr('继续飞行@@主菜单'), sub: `${getMap(last.save.run.map).name} · ${stepText(last.save)} · ${ageText(last.save.savedAt)}` } : null;
     this.ui.main(
-      { warning: [this.loadWarning, gpuWarning(this.gpu), this.save.warning].filter(Boolean).join('<br>') || null, tutorialDone: d.tutorialDone, newcomer, lang: currentLang() },
+      { warning: [this.loadWarning, gpuWarning(this.gpu), this.save.warning].filter(Boolean).join('<br>') || null, tutorialDone: d.tutorialDone, newcomer, lang: currentLang(), cont },
       {
+        cont: () => last && this.loadFlight(last.save),
         lang: (l) => this.applySettings({ ...this.settings, lang: l }),
         play: () => this.mapSelect(),
         free: () => this.freeSelect(),
@@ -550,10 +564,12 @@ export class App {
 
   freeBrief(m: MapDef): void {
     const been = this.save.data.visited[m.id] ?? [];
+    const saved = this.save.flights.forRun(m.id, true, (f) => this.usableSave(f));
     this.ui.freeBrief(m, this.settings, vistasOf(m).map((v) => `${been.includes(v.name) ? '✓ ' : ''}${tr(v.name)}`), {
       start: (weather, time, sim) => void this.startRun({ map: m, weather, assist: sim ? 'sim' : 'novice', tutorial: false, free: true, time }),
       back: () => this.freeSelect(),
-    });
+      resume: saved ? () => this.loadFlight(saved.save) : undefined,
+    }, saved ? this.savedText(saved.save) : null);
   }
 
   mapSelect(): void {
@@ -564,10 +580,124 @@ export class App {
   }
 
   briefing(m: MapDef): void {
+    const saved = this.save.flights.forRun(m.id, false, (f) => this.usableSave(f));
     this.ui.briefing(m, this.save.data.maps[m.id], this.settings, {
       start: (weather, assist, time) => void this.startRun({ map: m, weather, assist, tutorial: false, time }),
       back: () => this.mapSelect(),
-    });
+      resume: saved ? () => this.loadFlight(saved.save) : undefined,
+    }, saved ? this.savedText(saved.save) : null);
+  }
+
+  // ---------------- 飞行存档（见 flightSave.ts） ----------------
+
+  /** 存档还能不能读：地图还在、这里玩得了（试玩页没有大峡谷）、地图没改过 */
+  private usableSave(f: FlightSave): boolean {
+    const m = MAPS.find((x) => x.id === f.run.map) ?? PLAYABLE_REAL_MAPS.find((x) => x.id === f.run.map);
+    return !!m && m.id !== 'training' && mapSig(m) === f.sig;
+  }
+
+  /** 菜单上写的：“任务 2/4 · 耐久 86 · 3 分钟前” */
+  private savedText(f: FlightSave): string {
+    return `${progressText(f)} · ${ageText(f.savedAt)}`;
+  }
+
+  /** 现在能不能存档：不能的话返回原因（给玩家看的） */
+  private saveBlock(): string | null {
+    const s = this.session;
+    const run = this.run;
+    if (!s || !run || (this.state !== 'playing' && this.state !== 'paused')) return tr('现在不能存档');
+    if (this.tutorial) return tr('教学里不用存档：撞了会自动回到这一课的开头');
+    if (run.credits || this.creditsOn || this.replay || this.photoPanel) return tr('现在不能存档');
+    if (s.state === 'crashed' || this.failTimer >= 0) return tr('飞机出事了，现在不能存档');
+    if (s.state === 'complete' || this.completeTimer >= 0) return tr('任务已经完成了');
+    return null;
+  }
+
+  /** 存一份。auto：离开飞行时自动存（单独一格，不盖掉玩家自己存的） */
+  private saveFlight(auto: boolean): boolean {
+    if (this.saveBlock()) return false;
+    const s = this.session!;
+    const run = this.run!;
+    const main = s.mission.main;
+    const save: FlightSave = {
+      format: FLIGHT_FORMAT,
+      savedAt: Date.now(),
+      version: VERSION,
+      auto,
+      run: { map: run.map.id, weather: s.weather.preset.id, assist: run.assist, free: run.free === true, time: run.time ?? 'day' },
+      sig: mapSig(run.map),
+      info: { step: Math.min(s.mission.index + 1, main.length), total: main.length, durability: s.damage.durability },
+      state: s.saveState(),
+    };
+    return this.save.flights.put(auto ? RESUME_SLOT : slotOf(run.map.id, run.free === true), save);
+  }
+
+  /** 离开飞行时（回主菜单、关网页、切到后台）自动存。存上了返回 true */
+  private autoSaveFlight(): boolean {
+    return this.saveBlock() === null && this.saveFlight(true);
+  }
+
+  /** 这一局玩家自己存的那一格 */
+  private mySave(): FlightSave | null {
+    const run = this.run;
+    if (!run || this.tutorial || run.credits) return null;
+    const f = this.save.flights.get(slotOf(run.map.id, run.free === true));
+    return f && this.usableSave(f) ? f : null;
+  }
+
+  /** 读档：重新进这张图，回到存档那一刻，停在“点击开始”上（让玩家先看清楚再飞） */
+  private loadFlight(f: FlightSave): void {
+    if (!this.usableSave(f)) {
+      this.hud.toast(tr('这个存档读不了（地图更新过，或者这里玩不了这张图）'), 'warn', 4000);
+      return;
+    }
+    this.loadArmedT = 0;
+    void this.startRun({ map: getMap(f.run.map), weather: f.run.weather, assist: f.run.assist, tutorial: false, free: f.run.free, time: f.run.time, resume: f });
+  }
+
+  private quickSave(): void {
+    const why = this.saveBlock();
+    const k = (a: keyof Settings['bindings']): string => keyName(this.settings.bindings[a][0] ?? '');
+    if (why) this.hud.toast(why, 'warn', 2500);
+    else if (this.saveFlight(false)) {
+      this.audio.checkpoint();
+      this.hud.toast(k('quickLoad') ? tr`已存档。连按两下 ${k('quickLoad')} 读档` : tr('已存档'), 'good', 2500);
+    } else this.hud.toast(tr('存档失败：浏览器不让存（存储空间满了，或者被禁止了）'), 'warn', 4000);
+  }
+
+  /** 读档键要连按两下（2.5 秒内）：按错一下不至于丢掉刚飞的这一段 */
+  private quickLoad(): void {
+    const f = this.mySave();
+    const k = (a: keyof Settings['bindings']): string => keyName(this.settings.bindings[a][0] ?? '');
+    if (!f) {
+      this.hud.toast(k('quickSave') ? tr`这里还没有存档（按 ${k('quickSave')} 存档）` : tr('这里还没有存档'), 'info', 2500);
+      return;
+    }
+    const now = performance.now();
+    if (now < this.loadArmedT) {
+      this.loadFlight(f);
+      return;
+    }
+    this.loadArmedT = now + 2500;
+    this.hud.toast(tr`再按一次 ${k('quickLoad')} 读档（${ageText(f.savedAt)}存的）`, 'info', 2500);
+  }
+
+  /** 暂停菜单上存档、读档两个按钮的样子 */
+  private saveMenu(justSaved = false): { block: string | null; load: string | null; saved: boolean } {
+    const f = this.mySave();
+    return { block: this.saveBlock(), load: f ? this.savedText(f) : null, saved: justSaved };
+  }
+
+  private menuSave(): void {
+    if (this.saveFlight(false)) {
+      this.audio.checkpoint();
+      this.pauseMenu(true);
+    } else this.hud.toast(this.saveBlock() ?? tr('存档失败：浏览器不让存（存储空间满了，或者被禁止了）'), 'warn', 4000);
+  }
+
+  private menuLoad(): void {
+    const f = this.mySave();
+    if (f) this.loadFlight(f);
   }
 
   openSettings(): void {
@@ -723,6 +853,9 @@ export class App {
   }
 
   private async loadRun(cfg: RunConfig): Promise<void> {
+    // 读档只用一次：之后“从关卡起点重新开始”用的也是这个 cfg，要真的从头开始
+    const resume = cfg.resume;
+    cfg.resume = undefined;
     this.audio.init();
     this.audio.applyVolumes({ master: this.settings.volMaster, engine: this.settings.volEngine, ambience: this.settings.volAmbience, alerts: this.settings.volAlerts, music: this.settings.volMusic });
     this.state = 'loading';
@@ -763,6 +896,14 @@ export class App {
     // 先推进一个物理步（停在坪上，无副作用），让 HUD 在“点击开始”画面里就显示真实的密度、航点等数值
     this.session.step();
     this.session.drainEvents();
+    // 读档：回到存档那一刻。读不了（地图改过、存档坏了）就当新开一局，开始卡片上说一声
+    let resumed: boolean | null = null;
+    if (resume) {
+      resumed = resume.sig === mapSig(cfg.map) && session.restoreState(resume.state);
+      // 再推一步：离地高度、下面是什么这些读数是走一步才算的，不然“点击开始”上写的还是读档前的
+      if (resumed) session.step();
+      session.drainEvents();
+    }
     this.tutorial = cfg.tutorial ? new Tutorial(this.settings, cfg.course === 'sim' ? SIM_LESSONS : LESSONS) : null;
     this.tutorialHtml = '';
     this.hud.setTutorial?.(null);
@@ -775,7 +916,7 @@ export class App {
     this.placeWatch = cfg.free ? new PlaceWatcher(placesOf(cfg.map)) : null;
     this.placeT = 4;
     // 超仿真是冷舱启动，要停在坪上；休闲飞行直接从第一个景点开始
-    if (cfg.free && cfg.assist !== 'sim') this.goToVista(session, 0);
+    if (cfg.free && cfg.assist !== 'sim' && !resumed) this.goToVista(session, 0);
     this.audio.setAmbience(cfg.map.ambience);
     this.stepper.reset();
     this.view.rig.setMode('cockpit');
@@ -807,9 +948,10 @@ export class App {
       this.rollCredits();
       return;
     }
+    const fromSave = resumed && resume ? `${tr`从存档继续 · ${progressText(resume)}`}<br>` : resumed === false ? `${tr('这个存档读不了（地图更新过），从头开始。')}<br>` : '';
     this.ui.clickToStart(
       this.tutorial ? tr`第 ${(cfg.lesson ?? 0) + 1} 课 · ${this.tutorial.lessons[cfg.lesson ?? 0].title}` : cfg.free ? tr`休闲飞行 · ${cfg.map.name}` : cfg.map.name,
-      cfg.tutorial ? tr('跟着屏幕下方的提示做，每次只学一个动作。') : cfg.free ? tr`没有任务，没有计时。想去哪儿就去哪儿，懒得飞就按 <kbd>${k('cruise')}</kbd> 让它自己飞。` : `${this.session.mission.current()?.def.title ?? ''}${controls}`,
+      cfg.tutorial ? tr('跟着屏幕下方的提示做，每次只学一个动作。') : cfg.free ? `${fromSave}${tr`没有任务，没有计时。想去哪儿就去哪儿，懒得飞就按 <kbd>${k('cruise')}</kbd> 让它自己飞。`}` : `${fromSave}${this.session.mission.current()?.def.title ?? ''}${controls}`,
       () => this.beginFlight(),
     );
   }
@@ -982,16 +1124,18 @@ export class App {
     this.pauseMenu();
   }
 
-  private pauseMenu(): void {
+  private pauseMenu(justSaved = false): void {
     if (!this.session) return;
     if (this.run?.free) {
-      this.freePause();
+      this.freePause(justSaved);
       return;
     }
     this.ui.pause(
-      // （教学里的安全点是自动的，玩家不用选）
-      { tutorial: !!this.tutorial, checkpoints: this.tutorial ? [] : this.session.restoreOptions(), replay: this.tape.seconds >= REPLAY_MIN },
+      // （教学里的安全点是自动的，玩家不用选；教学也不存档）
+      { tutorial: !!this.tutorial, checkpoints: this.tutorial ? [] : this.session.restoreOptions(), replay: this.tape.seconds >= REPLAY_MIN, save: this.tutorial ? null : this.saveMenu(justSaved) },
       {
+        save: () => this.menuSave(),
+        load: () => this.menuLoad(),
         replay: () => this.replayFromPause(),
         resume: () => this.resume(),
         checkpoint: (i, mode) => this.restoreCheckpoint(i, mode),
@@ -1009,7 +1153,7 @@ export class App {
   }
 
   /** 休闲模式的暂停菜单：时段、天气、景点都在这里换 */
-  private freePause(): void {
+  private freePause(justSaved = false): void {
     const s = this.session;
     const run = this.run;
     if (!s || !run) return;
@@ -1020,8 +1164,10 @@ export class App {
     const todo = places.filter((p) => !been.includes(p.name));
     const unseen = todo.map((p) => (here ? `${tr(p.name)} · ${directionTo(here.x, here.z, p)}` : tr(p.name)));
     this.ui.freePause(
-      { map: run.map, time: run.time ?? 'day', weather: s.weather.preset.id, vistas: vistas.map((v) => v.name), been, total: places.length, unseen, canGo: !s.sys, cruise: !!this.cruise, replay: this.tape.seconds >= REPLAY_MIN },
+      { map: run.map, time: run.time ?? 'day', weather: s.weather.preset.id, vistas: vistas.map((v) => v.name), been, total: places.length, unseen, canGo: !s.sys, cruise: !!this.cruise, replay: this.tape.seconds >= REPLAY_MIN, save: run.credits ? null : this.saveMenu(justSaved) },
       {
+        save: () => this.menuSave(),
+        load: () => this.menuLoad(),
         go: (i) => {
           const p = todo[i];
           this.cruise = new ScenicCruise(s, vistas, [p.x, p.z]);
@@ -1499,6 +1645,8 @@ export class App {
   }
 
   quitToMenu(): void {
+    // 飞到一半回主菜单：自动存一份（下次主菜单“继续飞行”）。坠毁了、任务完成了、教学里不存
+    this.autoSaveFlight();
     this.save.save();
     this.session?.dispose();
     this.session = null;
@@ -1672,7 +1820,7 @@ export class App {
     if (moved) this.audio.control(spot.def.sound);
   }
 
-  private onEdge(a: 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim' | 'photo', fromPad = false): void {
+  private onEdge(a: 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim' | 'photo' | 'quickSave' | 'quickLoad', fromPad = false): void {
     const s = this.session;
     if (this.photoPanel) {
       if (a === 'pause') this.closePhoto();
@@ -1711,6 +1859,14 @@ export class App {
       return;
     }
     if (this.state !== 'playing' || !s) return;
+    if (a === 'quickSave') {
+      this.quickSave();
+      return;
+    }
+    if (a === 'quickLoad') {
+      this.quickLoad();
+      return;
+    }
     // 教学的说明页：手柄的 A 也算“看完了”（不然只用手柄的玩家第一页就翻不过去）
     if (fromPad && a === 'hover' && this.tutorial?.step?.manual) {
       this.tutorial.click(s);
@@ -2288,9 +2444,11 @@ export class App {
       rollover: tr('机体侧翻。在坡地或带着侧向速度接地时容易发生。'),
       water: tr('机体落水。在水面附近飞行时保持安全高度。'),
     };
+    const mine = this.mySave();
     this.ui.failed(
-      { cause: tr`失败原因：${CAUSE_LABEL[cause]}`, detail: detail[cause] ?? '', checkpoints: s.restoreOptions() },
+      { cause: tr`失败原因：${CAUSE_LABEL[cause]}`, detail: detail[cause] ?? '', checkpoints: s.restoreOptions(), load: mine ? this.savedText(mine) : null },
       {
+        load: () => mine && this.loadFlight(mine),
         checkpoint: (i, mode) => this.restoreCheckpoint(i, mode),
         restart: () => void this.restart(),
         quit: () => this.quitToMenu(),
@@ -2309,6 +2467,8 @@ export class App {
     const run = this.run;
     if (!s || !run) return;
     this.state = 'result';
+    const left = this.save.flights.get(RESUME_SLOT);
+    if (left && !run.tutorial && left.run.map === run.map.id && left.run.free === (run.free === true)) this.save.flights.remove(RESUME_SLOT);
     this.refreshControlHint();
     this.input.active = false;
     this.input.exitLock();

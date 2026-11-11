@@ -30,7 +30,7 @@ import { RealScatter, scatterModels } from './realScatter';
 import { HiRing } from './hiRing';
 import { RealTerrain } from './realTerrain';
 import { loadAux, loadRealImages, loadStrata, realFarGrid } from './realImages';
-import { makeForestTexture, makeGroundHeightTexture, makeMinimapCanvas, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
+import { makeForestTexture, makeGroundHeightTexture, makeMinimapCanvas, makeMinimapOuter, makeSurfaceTexture, makeWaterDepthTexture } from './textures';
 import { fogMaps, VFOG } from './volumetricFog';
 import { addWashWind, DownwashView } from './downwash';
 import { NightLights } from './nightLights';
@@ -650,6 +650,9 @@ export class WorldView {
       // 超大地图：地图要盖住能飞的整个范围
       this.minimap = real && map.flightSize ? makeMinimapCanvas({ ...map, size: map.flightSize }, real.sunOuter, world.trees) : makeMinimapCanvas(map, lowT, world.trees);
       this.cockpit.minimap = this.minimap;
+      // 地图外面的远景：飞到地图边上，座舱地图旁边接着画远处的地形（外面盖红色斜线，表示飞不过去）
+      const inner = real ? real.sunOuter : lowT;
+      this.cockpit.minimapOuter = this.farGrid ? { canvas: makeMinimapOuter(map, this.farGrid, inner.minH, inner.maxH), size: this.farGrid.size } : null;
       if (!this.cockpit.loaded || !this.heli.extLoaded) {
         progress?.(0.92, tr('加载直升机模型'));
         await Promise.all([this.cockpit.ready, this.heli.ready]);
@@ -753,6 +756,7 @@ export class WorldView {
     this.terrainUniforms = null;
     this.minimap = null;
     this.cockpit.minimap = null;
+    this.cockpit.minimapOuter = null;
     this.scene.environment = null;
     this.envRT?.dispose();
     this.envRT = null;

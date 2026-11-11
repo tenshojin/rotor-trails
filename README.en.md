@@ -27,6 +27,7 @@ On a computer you fly with keyboard and mouse, or with a gamepad (Xbox / PlaySta
 - **Photo Mode**: open it from the pause menu. The world freezes, the camera goes anywhere, and you can adjust focal length, exposure, tilt and background blur, choose a film, warm, cool or monochrome look, and even hide the helicopter to shoot the landscape alone. Press F to save the picture, with no interface on it.
 - **Replay**: available from the pause menu, the results screen and the failure screen. The cinematic camera plays back your last four minutes. You can slow it down, switch cameras, drag the timeline, and enter Photo Mode on any frame.
 - **Logbook**: on the main menu. See how long you have flown, how many safe landings you have made, your softest touchdown and how many places you have visited, with 13 medals to earn.
+- **Save anywhere**: press K to save mid-flight and press L twice to load (both are in the pause menu too). Leave a flight halfway, by going back to the main menu, closing the page or switching apps on a phone, and it is saved for you: “Continue” at the top of the main menu picks it up, and a mission briefing offers “Continue from save”.
 - **Credits**: after the last map, or from About: an auto-cruise flight over Seto Bay at dusk while the credits roll, and you can keep flying when they end.
 - **Full Sim**: no flight assists at all, and 135 buttons and switches that are all real and all clickable.
 
@@ -92,6 +93,7 @@ During a flight, the browser's Back (the back button on a phone, a mouse side bu
 | U | HUD: auto, full, hidden |
 | F | Screenshot: saves this frame without the HUD, even while paused. To choose your angle, use Photo Mode from the pause menu |
 | J | Auto-cruise (Free Flight): flies itself from sight to sight; touch any flight control to take over |
+| K / L | Save / load (press L twice) |
 | Esc or P | Pause |
 
 Every key can be changed under Settings → Controls.

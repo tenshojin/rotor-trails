@@ -450,5 +450,50 @@ await test('制作人员名单：跳过后停在最后一张卡片，能接着�
   assert(fly === 1 && menu === 1, '最后一张卡片的按钮没有回调');
 });
 
+await test('存档：主菜单最上面是“继续飞行”，简报页能“从存档继续”', (ui) => {
+  let cont = 0;
+  let resume = 0;
+  let start = 0;
+  const on = { play: () => {}, free: () => {}, tutorial: () => {}, settings: () => {}, help: () => {}, about: () => {}, cont: () => cont++ };
+  ui.main({ warning: null, tutorialDone: false, newcomer: true, lang: 'zh', cont: { title: '继续飞行 · 濑户湾群岛', sub: '任务 2/4 · 耐久 86 · 3 分钟前' } }, on);
+  const btns = fixture.querySelectorAll<HTMLElement>('.menu-col .btn');
+  assert(btns[0].dataset.a === 'cont' && btns[0].classList.contains('primary'), '有存档时第一个按钮不是“继续飞行”');
+  assert(fixture.querySelectorAll('.menu-col .btn.primary').length === 1, '主按钮不止一个');
+  assert((btns[0].textContent ?? '').includes('3 分钟前'), '“继续飞行”没写多久以前存的');
+  click('.menu-col [data-a="cont"]');
+  assert(cont === 1, '点“继续飞行”没有回调');
+  ui.briefing(map, undefined, defaultSettings(), { start: () => start++, back: () => {}, resume: () => resume++ }, '任务 2/4 · 耐久 86 · 刚刚');
+  assert((find('.brief-go [data-a="resume"]').textContent ?? '').includes('任务 2/4'), '简报页的“从存档继续”没写进度');
+  click('.brief-go [data-a="resume"]');
+  click('.brief-go [data-a="start"]');
+  assert(resume === 1 && start === 1, '简报页两个按钮的回调不对');
+  ui.briefing(map, undefined, defaultSettings(), { start: () => {}, back: () => {} });
+  assert(!fixture.querySelector('[data-a="resume"]'), '没有存档也出了“从存档继续”');
+});
+
+await test('存档：暂停菜单的存档、读档；存不了时灰掉；失败页能读档', (ui) => {
+  let save = 0;
+  let load = 0;
+  const base = { replay: () => {}, resume: () => {}, checkpoint: () => {}, restart: () => {}, settings: () => {}, help: () => {}, quit: () => {}, photo: () => {}, save: () => save++, load: () => load++ };
+  ui.pause({ tutorial: false, checkpoints: [], replay: true, save: { block: null, load: null, saved: false } }, base);
+  assert(!find('.pause [data-a="save"]').disabled, '能存的时候存档按钮是灰的');
+  assert(find('.pause [data-a="load"]').disabled, '还没存过，读档按钮应该是灰的');
+  click('.pause [data-a="save"]');
+  assert(save === 1, '点存档没有回调');
+  ui.pause({ tutorial: false, checkpoints: [], replay: true, save: { block: null, load: '任务 2/4 · 耐久 86 · 刚刚', saved: true } }, base);
+  assert((find('.pause [data-a="save"]').textContent ?? '').includes('✓'), '刚存过档按钮上没打勾');
+  assert((find('.pause [data-a="load"]').textContent ?? '').includes('刚刚'), '读档按钮没写多久以前存的');
+  click('.pause [data-a="load"]');
+  assert(load === 1, '点读档没有回调');
+  ui.pause({ tutorial: false, checkpoints: [], save: { block: '飞机出事了，现在不能存档', load: null, saved: false } }, base);
+  const blocked = find('.pause [data-a="save"]');
+  assert(blocked.disabled && blocked.title.includes('飞机出事了'), '存不了的时候没灰掉、没说原因');
+  ui.pause({ tutorial: true, checkpoints: [], save: null }, base);
+  assert(!fixture.querySelector('.pause [data-a="save"]'), '教学里不该有存档按钮');
+  ui.failed({ cause: '坠毁', detail: '', checkpoints: [], load: '任务 2/4 · 耐久 86 · 3 分钟前' }, { checkpoint: () => {}, restart: () => {}, quit: () => {}, load: () => load++ });
+  click('.fail [data-a="load"]');
+  assert(load === 2, '失败页的读档没有回调');
+});
+
 document.querySelector('#summary')!.textContent = `${passed} 项通过，${failed} 项失败 · 当前窗口 ${innerWidth} × ${innerHeight}`;
 document.title = `${failed ? 'FAIL' : 'PASS'} ${passed}/${passed + failed} · Rotor Trails UI`;

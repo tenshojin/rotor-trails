@@ -24,6 +24,8 @@ export type Action =
   | 'cruise'
   | 'trim'
   | 'photo'
+  | 'quickSave'
+  | 'quickLoad'
   | 'lookLeft'
   | 'lookRight'
   | 'lookUp'
@@ -49,6 +51,8 @@ export const ACTION_LABEL: Record<Action, string> = {
   cruise: tr('自动巡航 开/关（休闲模式）'),
   trim: tr('配平：把现在的杆位设成中立点（超仿真）'),
   photo: tr('截图（存成图片，不带 HUD）'),
+  quickSave: tr('存档（随时存下这一刻）'),
+  quickLoad: tr('读档（连按两下）'),
   lookLeft: tr('向左看（无鼠标锁定时）'),
   lookRight: tr('向右看'),
   lookUp: tr('向上看'),
@@ -76,10 +80,19 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   cruise: ['KeyJ'],
   trim: ['KeyT'],
   photo: ['KeyF'],
+  // 存档、读档：F5 是浏览器的刷新，不能用
+  quickSave: ['KeyK'],
+  quickLoad: ['KeyL'],
   lookLeft: ['ArrowLeft'],
   lookRight: ['ArrowRight'],
   lookUp: ['ArrowUp'],
   lookDown: ['ArrowDown'],
+};
+
+/** 新动作的默认键被玩家占了时，按顺序挑一个还空着的 */
+const SPARE_KEYS: Partial<Record<Action, string[]>> = {
+  quickSave: ['KeyK', 'KeyO', 'KeyI', 'KeyY'],
+  quickLoad: ['KeyL', 'KeyG', 'KeyB', 'KeyR'],
 };
 
 export type QualityId = 'low' | 'medium' | 'high' | 'ultra';
@@ -241,12 +254,21 @@ export function sanitizeSettings(raw: unknown): Settings {
   if (!raw || typeof raw !== 'object') return d;
   const r = raw as Record<string, unknown>;
   const bindings = structuredClone(DEFAULT_BINDINGS);
+  const fromSave = new Set<Action>();
   if (r.bindings && typeof r.bindings === 'object') {
     for (const k of Object.keys(DEFAULT_BINDINGS) as Action[]) {
       const v = (r.bindings as Record<string, unknown>)[k];
       if (Array.isArray(v) && v.length > 0 && v.every(isBindingCode)) {
         bindings[k] = [...new Set(v as string[])].slice(0, 3);
+        fromSave.add(k);
       }
+    }
+    // 新加的动作（旧存档里没有）用默认键；玩家已经把这个键改给了别的动作，就换一个没人用的键，不和它抢
+    for (const k of Object.keys(DEFAULT_BINDINGS) as Action[]) {
+      if (fromSave.has(k)) continue;
+      const taken = (code: string) => (Object.keys(bindings) as Action[]).some((o) => o !== k && bindings[o].includes(code));
+      const keep = bindings[k].filter((code) => !taken(code));
+      bindings[k] = keep.length ? keep : (SPARE_KEYS[k] ?? []).filter((code) => !taken(code)).slice(0, 1);
     }
   }
   return {

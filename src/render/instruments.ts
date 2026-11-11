@@ -3,6 +3,7 @@
 // 所有数值都来自真实游戏状态（InstrumentData），没有装饰性的假数据。
 
 import type { Caution, Systems } from '../sim/systems';
+import { tr } from '../i18n';
 
 export interface InstrumentData {
   /** 超仿真的机载系统（其他模式没有，屏幕一直亮着） */
@@ -376,9 +377,108 @@ export function drawAttitude(g: CanvasRenderingContext2D, d: InstrumentData, W: 
   g.fillText(String(Math.round(d.heading) % 360).padStart(3, '0') + '°', cx, H * 0.95);
 }
 
+// ---------------------------------------------------------------- 地图边界（导航仪、平板共用）
+
+/** 地图外面的远景（见 makeMinimapOuter） */
+export interface MapOuter {
+  canvas: HTMLCanvasElement;
+  size: number;
+}
+
+/** 离地图边界多远开始提醒（米） */
+export const EDGE_WARN = 500;
+
+/** 离能飞的范围的边还有多远（米）：在里面是正的，越过了是负的。half = 能飞范围边长的一半 */
+export function edgeDistance(x: number, z: number, half: number): number {
+  return half - Math.max(Math.abs(x), Math.abs(z));
+}
+
+/** 提醒有多强：离边 EDGE_WARN 以外是 0，贴着边（或越过）是 1 */
+export function edgeWarn(dist: number): number {
+  return Math.min(1, Math.max(0, 1 - dist / EDGE_WARN));
+}
+
+let hatchTile: HTMLCanvasElement | null | undefined;
+/** 边界外面的红色斜线（一小块图案，平铺） */
+function hatch(g: CanvasRenderingContext2D): CanvasPattern | null {
+  if (hatchTile === undefined) {
+    hatchTile = null;
+    try {
+      const c = document.createElement('canvas');
+      c.width = c.height = 14;
+      const t = c.getContext('2d');
+      if (t) {
+        t.strokeStyle = 'rgba(255, 70, 60, 0.4)';
+        t.lineWidth = 2;
+        t.beginPath();
+        t.moveTo(-2, 16);
+        t.lineTo(16, -2);
+        t.moveTo(12, 16);
+        t.lineTo(16, 12);
+        t.moveTo(-2, 2);
+        t.lineTo(2, -2);
+        t.stroke();
+        hatchTile = c;
+      }
+    } catch {
+      hatchTile = null;
+    }
+  }
+  return hatchTile ? g.createPattern(hatchTile, 'repeat') : null;
+}
+
+/**
+ * 地图外面（飞不过去的地方）：先铺远景地形，再盖一层红色和斜线，边界画一圈红线。
+ * P 把世界坐标换成画布坐标；外面多大由 far 决定（看得到多远就盖多远）
+ */
+function drawOutside(g: CanvasRenderingContext2D, P: (x: number, z: number) => [number, number], half: number, far: number, line: number): void {
+  const [ax, ay] = P(-far, -far);
+  const [bx, by] = P(far, far);
+  const [ix, iy] = P(-half, -half);
+  const [jx, jy] = P(half, half);
+  g.save();
+  g.beginPath();
+  g.rect(ax, ay, bx - ax, by - ay);
+  g.rect(ix, iy, jx - ix, jy - iy);
+  g.fillStyle = 'rgba(150, 20, 20, 0.24)';
+  g.fill('evenodd');
+  const pat = hatch(g);
+  if (pat) {
+    g.fillStyle = pat;
+    g.fill('evenodd');
+  }
+  g.strokeStyle = '#ff4a3d';
+  g.lineWidth = line;
+  g.strokeRect(ix, iy, jx - ix, jy - iy);
+  g.restore();
+}
+
+/** 离边界近了：整块屏幕一闪一闪泛红，四周一圈红框，写出离边界多远 */
+function drawEdgeAlarm(g: CanvasRenderingContext2D, dist: number, x: number, y: number, w: number, h: number, font: number): void {
+  const k = edgeWarn(dist);
+  if (k <= 0) return;
+  const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 160);
+  g.save();
+  g.fillStyle = `rgba(255, 40, 30, ${((0.06 + 0.2 * k) * (0.55 + 0.45 * pulse)).toFixed(3)})`;
+  g.fillRect(x, y, w, h);
+  g.strokeStyle = `rgba(255, 70, 60, ${(0.45 + 0.5 * k * pulse).toFixed(3)})`;
+  g.lineWidth = Math.max(3, w * 0.012);
+  g.strokeRect(x + g.lineWidth / 2, y + g.lineWidth / 2, w - g.lineWidth, h - g.lineWidth);
+  const text = tr`地图边界 ${Math.max(0, Math.round(dist))} m`;
+  g.font = `bold ${font}px ${FONT}`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  const tw = g.measureText(text).width;
+  g.fillStyle = 'rgba(40, 0, 0, 0.75)';
+  g.fillRect(x + w / 2 - tw / 2 - font * 0.5, y + h - font * 2.1, tw + font, font * 1.5);
+  g.fillStyle = '#ff6a5e';
+  g.fillText(text, x + w / 2, y + h - font * 1.35);
+  g.restore();
+}
+
 // ---------------------------------------------------------------- GPS 移动地图
 
-export function drawGps(g: CanvasRenderingContext2D, d: InstrumentData, minimap: HTMLCanvasElement | null, range: number, W: number, H: number): void {
+export function drawGps(g: CanvasRenderingContext2D, d: InstrumentData, minimap: HTMLCanvasElement | null, range: number, W: number, H: number, outer: MapOuter | null = null): void {
   bg(g, W, H, '#0a1018');
   const cx = W / 2;
   const cy = H * 0.62;
@@ -389,6 +489,16 @@ export function drawGps(g: CanvasRenderingContext2D, d: InstrumentData, minimap:
   g.clip();
   g.translate(cx, cy);
   g.rotate((-d.heading * Math.PI) / 180);
+  const P = (x: number, z: number): [number, number] => [(x - d.heliX) * scale, (z - d.heliZ) * scale];
+  const half = d.mapSize / 2;
+  // 屏幕对角线能看到多远：外面至少盖到这里
+  const reach = Math.hypot(W, H) / scale + Math.hypot(d.heliX, d.heliZ);
+  if (outer) {
+    const [ox, oz] = P(-outer.size / 2, -outer.size / 2);
+    g.globalAlpha = 0.9;
+    g.drawImage(outer.canvas, ox, oz, outer.size * scale, outer.size * scale);
+    g.globalAlpha = 1;
+  }
   if (minimap) {
     const mpp = d.mapSize / minimap.width;
     const sx = (d.heliX + d.mapSize / 2) / mpp;
@@ -398,7 +508,7 @@ export function drawGps(g: CanvasRenderingContext2D, d: InstrumentData, minimap:
     g.drawImage(minimap, -sx * k, -sz * k, minimap.width * k, minimap.height * k);
     g.globalAlpha = 1;
   }
-  const P = (x: number, z: number): [number, number] => [(x - d.heliX) * scale, (z - d.heliZ) * scale];
+  drawOutside(g, P, half, Math.max(reach, (outer?.size ?? 0) / 2), Math.max(2, W / 160));
   if (d.route.length > 1) {
     g.strokeStyle = '#e050ff';
     g.lineWidth = Math.max(3, W / 110);
@@ -448,12 +558,13 @@ export function drawGps(g: CanvasRenderingContext2D, d: InstrumentData, minimap:
   g.fillStyle = '#9fe';
   g.textAlign = 'left';
   g.fillText(`${range >= 1000 ? range / 1000 + 'km' : range + 'm'}`, W * 0.02, H * 0.95);
+  drawEdgeAlarm(g, edgeDistance(d.heliX, d.heliZ, d.mapSize / 2), 0, H * 0.14, W, H * 0.86, Math.round(H * 0.06));
 }
 
 // ---------------------------------------------------------------- 电子飞行包（平板）
 
 /** 平板上的移动地图：北向上的地形图，比面板上的导航仪看得远、看得全 */
-export function drawEfb(g: CanvasRenderingContext2D, d: InstrumentData, minimap: HTMLCanvasElement | null, range: number, W: number, H: number): void {
+export function drawEfb(g: CanvasRenderingContext2D, d: InstrumentData, minimap: HTMLCanvasElement | null, range: number, W: number, H: number, outer: MapOuter | null = null): void {
   bg(g, W, H, '#0e1d2b');
   const barH = H * 0.095;
   const cx = W * 0.5;
@@ -465,15 +576,17 @@ export function drawEfb(g: CanvasRenderingContext2D, d: InstrumentData, minimap:
   g.rect(0, barH, W, H - barH);
   g.clip();
   const P = (x: number, z: number): [number, number] => [cx + (x - d.heliX) * scale, cy + (z - d.heliZ) * scale];
+  g.imageSmoothingEnabled = true;
+  if (outer) {
+    const [ox, oy] = P(-outer.size / 2, -outer.size / 2);
+    g.drawImage(outer.canvas, ox, oy, outer.size * scale, outer.size * scale);
+  }
   if (minimap) {
     const [x0, y0] = P(-d.mapSize / 2, -d.mapSize / 2);
-    g.imageSmoothingEnabled = true;
     g.drawImage(minimap, x0, y0, d.mapSize * scale, d.mapSize * scale);
-    // 地图外面
-    g.strokeStyle = 'rgba(30,40,50,.7)';
-    g.lineWidth = 2;
-    g.strokeRect(x0, y0, d.mapSize * scale, d.mapSize * scale);
   }
+  // 地图外面：飞不过去的地方盖红色斜线，边界画红线
+  drawOutside(g, P, d.mapSize / 2, Math.max(R * 3 + Math.hypot(d.heliX, d.heliZ), (outer?.size ?? 0) / 2), Math.max(2, W / 260));
   // 经纬网
   g.strokeStyle = 'rgba(255,255,255,.22)';
   g.lineWidth = 1;
@@ -573,6 +686,7 @@ export function drawEfb(g: CanvasRenderingContext2D, d: InstrumentData, minimap:
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.fillText(`${(R / 1000).toFixed(1)} km`, W * 0.112, H * 0.949);
+  drawEdgeAlarm(g, edgeDistance(d.heliX, d.heliZ, d.mapSize / 2), 0, barH, W, H - barH, Math.round(H * 0.036));
 }
 
 // ---------------------------------------------------------------- 告警灯板

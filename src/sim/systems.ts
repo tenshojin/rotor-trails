@@ -175,6 +175,13 @@ function defaults(): ControlState {
   return c;
 }
 
+/** 超仿真系统的存档（见 Systems.snapshot） */
+export interface SystemsSnapshot {
+  c: Record<string, number>;
+  v: Record<string, number | boolean>;
+  lit: string[];
+}
+
 export class Systems {
   c: ControlState = defaults();
   // ---------- 电源 ----------
@@ -316,6 +323,27 @@ export class Systems {
   /** 显示屏亮度 0..1 */
   get screenLevel(): number {
     return this.vemdOn ? 0.15 + 0.85 * this.c.vemdBrt * (this.c.nightMode > 0.5 ? 0.45 : 1) : 0;
+  }
+
+  /**
+   * 存档用：所有开关的位置，加上发动机、电源、液压这些数值状态（数字和真假值的字段一律照存，以后加字段也不用改这里）。
+   * 读档时 restore 回去：冷舱还没启动完就存的档，读回来发动机也还是停着的
+   */
+  snapshot(): SystemsSnapshot {
+    const v: Record<string, number | boolean> = {};
+    for (const [k, x] of Object.entries(this)) if (typeof x === 'number' || typeof x === 'boolean') v[k] = x;
+    return { c: { ...this.c }, v, lit: [...this.lastLit] };
+  }
+
+  restore(s: SystemsSnapshot): void {
+    if (!s || typeof s !== 'object') return;
+    const self = this as unknown as Record<string, unknown>;
+    for (const [k, x] of Object.entries(s.v ?? {})) {
+      // 只认现在还有、类型也对得上的字段：旧档里多出来的、写坏的都跳过
+      if (typeof self[k] === typeof x && (typeof x === 'number' ? Number.isFinite(x) : typeof x === 'boolean')) self[k] = x;
+    }
+    for (const [k, x] of Object.entries(s.c ?? {})) if (typeof this.c[k] === 'number' && typeof x === 'number' && Number.isFinite(x)) this.c[k] = x;
+    this.lastLit = new Set((s.lit ?? []).filter((x): x is string => typeof x === 'string'));
   }
 
   /** 把飞机放到“已经在飞”的状态：空中出生、瞬移、从检查点恢复 */

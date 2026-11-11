@@ -22,6 +22,8 @@ const table: Table = {
   '自动巡航 开/关（休闲模式）': ['Auto-cruise on / off (Free Flight)', 'オートクルーズ オン / オフ（フリーフライト）'],
   '配平：把现在的杆位设成中立点（超仿真）': ['Trim: make the current stick position the new center (Full Sim)', 'トリム：今のスティック位置を中立にする（フルシム）'],
   '截图（存成图片，不带 HUD）': ['Screenshot (saved as an image, without the HUD)', 'スクリーンショット（HUD なしの画像で保存）'],
+  '存档（随时存下这一刻）': ['Save (keep this moment)', 'セーブ（今この瞬間を保存）'],
+  '读档（连按两下）': ['Load save (press twice)', 'ロード（2 回押す）'],
   '向左看（无鼠标锁定时）': ['Look left (when the mouse isn\'t locked)', '左を見る（マウスロックなしのとき）'],
   '向右看': ['Look right', '右を見る'],
   '向上看': ['Look up', '上を見る'],

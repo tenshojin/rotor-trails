@@ -184,6 +184,8 @@ export class Cockpit {
   private detailShown = true;
   mapRange = 2000;
   minimap: HTMLCanvasElement | null = null;
+  /** 地图外面的远景（边长 size 米，中心在原点） */
+  minimapOuter: { canvas: HTMLCanvasElement; size: number } | null = null;
   private needles = new Map<string, Needle>();
   private screens: Screen[] = [];
   private ctl: Partial<Record<'cyclic' | 'collective' | 'pedalL' | 'pedalR', { obj: THREE.Object3D; base: THREE.Quaternion }>> = {};
@@ -685,9 +687,9 @@ export class Cockpit {
       else if (s.kind === 'vemd1') drawVemdTop(s.ctx, d, s.w, s.h);
       else if (s.kind === 'vemd2') drawVemdBottom(s.ctx, d, s.w, s.h);
       else if (s.kind === 'ai') drawAttitude(s.ctx, d, s.w, s.h);
-      else if (s.kind === 'gps') drawGps(s.ctx, d, this.minimap, this.mapRange, s.w, s.h);
+      else if (s.kind === 'gps') drawGps(s.ctx, d, this.minimap, this.mapRange, s.w, s.h, this.minimapOuter);
       else if (s.kind === 'ann') drawAnnunciator(s.ctx, d, s.w, s.h, t);
-      else if (s.kind === 'efb') drawEfb(s.ctx, d, this.minimap, this.mapRange, s.w, s.h);
+      else if (s.kind === 'efb') drawEfb(s.ctx, d, this.minimap, this.mapRange, s.w, s.h, this.minimapOuter);
       else if (s.kind === 'radio') drawRadio(s.ctx, d, s.w, s.h);
       else if (s.kind === 'xpdr') drawXpdr(s.ctx, d, s.w, s.h, t);
       else if (s.kind === 'hobbs') drawHobbs(s.ctx, d, s.w, s.h);

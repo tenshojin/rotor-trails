@@ -138,6 +138,18 @@ const _wB = new Vector3();
 const _tmp = new Vector3();
 const _tb = new Vector3();
 
+/** 超仿真的杆、舵、配平和旋翼转速（存档用） */
+export interface FlightSimState {
+  nr: number;
+  collective: number;
+  cycP: number;
+  cycR: number;
+  ped: number;
+  trimStickP: number;
+  trimStickR: number;
+  trimPedal: number;
+}
+
 export class FlightModel {
   assist: AssistPreset = ASSISTS.standard;
   // 平滑后的操纵输入
@@ -244,6 +256,24 @@ export class FlightModel {
     this.altRef = null;
     this.vsInt = 0;
     this.hoverIntF = this.hoverIntR = 0;
+  }
+
+  /** 超仿真存档用：杆、舵、总距、配平的位置和旋翼转速（这些在超仿真里是玩家亲手放的，读档要原样回来） */
+  simState(): FlightSimState {
+    return { nr: this.nr, collective: this.collective, cycP: this.cycP, cycR: this.cycR, ped: this.ped, trimStickP: this.trimStickP, trimStickR: this.trimStickR, trimPedal: this.trimPedal };
+  }
+
+  setSimState(s: Partial<FlightSimState> | undefined): void {
+    if (!s) return;
+    const n = (v: unknown, lo: number, hi: number, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, lo, hi) : d);
+    this.nr = n(s.nr, 0, 1.3, this.nr);
+    this.collective = n(s.collective, 0, 1, this.collective);
+    this.cycP = n(s.cycP, -1, 1, this.cycP);
+    this.cycR = n(s.cycR, -1, 1, this.cycR);
+    this.ped = n(s.ped, -1, 1, this.ped);
+    this.trimStickP = n(s.trimStickP, -1, 1, this.trimStickP);
+    this.trimStickR = n(s.trimStickR, -1, 1, this.trimStickR);
+    this.trimPedal = n(s.trimPedal, -1, 1, this.trimPedal);
   }
 
   /** 检查点恢复或重生后：把控制器状态对齐到当前机体状态，避免突变。 */

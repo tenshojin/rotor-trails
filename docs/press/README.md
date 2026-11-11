@@ -34,6 +34,7 @@ Rotor Trails puts you in the right-hand seat of a light helicopter and lets you 
 - **It flies with weight.** Lift tilts with the airframe, wind pushes you sideways, thin air at altitude takes your power away. Assists steady the aircraft but never cancel physics.
 - **Nothing is timed.** Missions are scored on how well you fly: airframe condition, collisions and the quality of the final landing.
 - **A real place.** The Grand Canyon map is not generated: every butte and rock layer is where it stands in reality, with 30 cm imagery streaming in as you fly low.
+- **Save anywhere.** K saves the flight at any moment, L (twice) loads it; leaving halfway saves automatically and “Continue” picks it up.
 - **A cockpit that works.** In Full Sim, 135 buttons, switches, knobs and breakers do what they do in the aircraft, from a cold start to an autorotation.
 - **A world that moves.** Ferries, fishing boats, cars, birds and a light aircraft in the circuit share the map, and everything you can see you can also hit.
 - **Weather you can read.** Windsocks, flags, smoke, trees, whitecaps and the slant of the rain all show the same wind that is pushing the aircraft.

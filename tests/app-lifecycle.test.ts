@@ -24,6 +24,7 @@ vi.mock('../src/ui/hud', () => ({ Hud: class {
   constructor() { constructed.huds.push(this); }
   setOpacity = vi.fn();
   setHint = vi.fn();
+  toast = vi.fn();
   resize = vi.fn(() => { if (constructed.failResize) throw new Error('HUD resize failed'); });
   show = vi.fn();
   update = vi.fn();
@@ -50,6 +51,8 @@ vi.mock('../src/world/worldgen', () => ({ generateWorld: vi.fn() }));
 import { App, gpuWarning } from '../src/game/app';
 import { SAVE_KEY } from '../src/game/save';
 import { TRAINING } from '../src/maps/training';
+import { getMap } from '../src/maps/index';
+import { FLIGHTS_KEY, FLIGHT_FORMAT, mapSig } from '../src/game/flightSave';
 import { GameSession, newBody } from '../src/sim/session';
 import { generateWorld } from '../src/world/worldgen';
 
@@ -424,5 +427,98 @@ describe('集成显卡的提示', () => {
     expect(gpuWarning('ANGLE (Qualcomm, Adreno (TM) 740, OpenGL ES 3.2)', ANDROID)).toBeNull();
     expect(gpuWarning('Mali-G78', ANDROID)).toBeNull();
     expect(gpuWarning('Intel(R) Iris(TM) Plus Graphics 655', MAC)).toBeNull();
+  });
+});
+
+describe('飞行存档：离开时自动存、读档键连按两下', () => {
+  let app: App;
+  let win: EventTarget;
+  let memory: Map<string, string>;
+  const fakeSession = (state = 'running') =>
+    ({
+      state,
+      mission: { main: [{}, {}, {}, {}], index: 1, complete: false },
+      damage: { durability: 64 },
+      weather: { preset: { id: 'clear' } },
+      saveState: () => ({ snap: { t: 12 }, checkpoints: [], stats: {} }),
+      restoreOptions: () => [],
+      dispose: vi.fn(),
+    }) as unknown as GameSession;
+  beforeEach(() => {
+    win = Object.assign(new EventTarget(), { localStorage: null });
+    vi.stubGlobal('window', win);
+    vi.stubGlobal('document', Object.assign(new EventTarget(), { hidden: false, createElement: () => new Element(), pointerLockElement: null }));
+    vi.stubGlobal('requestAnimationFrame', vi.fn().mockReturnValue(17));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    memory = new Map();
+    app = new App(new Element() as unknown as HTMLElement, { getItem: (k) => memory.get(k) ?? null, setItem: (k, v) => void memory.set(k, v) });
+    app.run = { map: getMap('japan'), weather: 'clear', assist: 'novice', tutorial: false, time: 'dusk' } as never;
+  });
+  afterEach(() => { app.dispose(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+  const slots = () => JSON.parse(memory.get(FLIGHTS_KEY) ?? '{"slots":{}}').slots;
+
+  it('飞到一半回主菜单：自动存一份（单独一格），进度写对', () => {
+    app.state = 'paused';
+    app.session = fakeSession();
+    app.quitToMenu();
+    const f = slots().resume;
+    expect(f.auto).toBe(true);
+    expect(f.info).toEqual({ step: 2, total: 4, durability: 64 });
+    expect(f.run).toMatchObject({ map: 'japan', time: 'dusk', free: false, assist: 'novice' });
+    expect(slots()['japan/mission']).toBeUndefined();
+    expect(app.ui.main).toHaveBeenLastCalledWith(expect.objectContaining({ cont: expect.objectContaining({ title: expect.stringContaining('继续飞行') }) }), expect.anything());
+  });
+
+  it('坠毁了、教学里回主菜单不存', () => {
+    app.state = 'paused';
+    app.session = fakeSession('crashed');
+    app.quitToMenu();
+    expect(slots().resume).toBeUndefined();
+    app.state = 'paused';
+    app.session = fakeSession();
+    (app as any).tutorial = {};
+    app.quitToMenu();
+    expect(slots().resume).toBeUndefined();
+  });
+
+  it('关网页、刷新：存上了就不弹“确认离开”；存不上（浏览器不让存）才弹', () => {
+    app.state = 'paused';
+    app.session = fakeSession();
+    const e = new Event('beforeunload', { cancelable: true });
+    win.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(false);
+    expect(slots().resume.auto).toBe(true);
+    app.dispose();
+    app = new App(new Element() as unknown as HTMLElement, null);
+    app.run = { map: getMap('japan'), weather: 'clear', assist: 'novice', tutorial: false } as never;
+    app.state = 'paused';
+    app.session = fakeSession();
+    const e2 = new Event('beforeunload', { cancelable: true });
+    win.dispatchEvent(e2);
+    expect(e2.defaultPrevented).toBe(true);
+  });
+
+  it('读档键按一下只提示，2.5 秒内再按一下才读；读的是这张图自己存的那一格', () => {
+    const map = getMap('japan');
+    const save = { format: FLIGHT_FORMAT, savedAt: Date.now(), version: '1.1', auto: false, run: { map: 'japan', weather: 'clear', assist: 'standard', free: false, time: 'day' }, sig: mapSig(map), info: { step: 3, total: 4, durability: 90 }, state: {} };
+    memory.set(FLIGHTS_KEY, JSON.stringify({ format: FLIGHT_FORMAT, slots: { 'japan/mission': save } }));
+    app.state = 'playing';
+    app.session = fakeSession();
+    const start = vi.spyOn(app, 'startRun').mockResolvedValue();
+    (app as any).quickLoad();
+    expect(start).not.toHaveBeenCalled();
+    expect(app.hud.toast).toHaveBeenLastCalledWith(expect.stringContaining('再按一次'), 'info', 2500);
+    (app as any).quickLoad();
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ map, assist: 'standard', free: false, resume: expect.objectContaining({ info: save.info }) }));
+  });
+
+  it('按存档键：存进这张图自己的那一格；存不了的时候说原因', () => {
+    app.state = 'playing';
+    app.session = fakeSession();
+    (app as any).quickSave();
+    expect(slots()['japan/mission'].auto).toBe(false);
+    app.session = fakeSession('crashed');
+    (app as any).quickSave();
+    expect(app.hud.toast).toHaveBeenLastCalledWith('飞机出事了，现在不能存档', 'warn', 2500);
   });
 });
