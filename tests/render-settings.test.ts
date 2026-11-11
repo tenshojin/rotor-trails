@@ -156,3 +156,77 @@ describe('shared depth copies', () => {
     expect(sceneDepthNode(true)).toBe(reversed);
   });
 });
+
+// WebGL2 的着色器只能同步编译，一个几百毫秒：一帧全编完会卡死半分钟（2026-11-11 Linux 卡顿那一轮查到的）。
+// 分批编译：每帧只新编一部分，编不完的这一帧先不画；一帧下来一个都没推迟就是编完了
+describe('WebGL2 分批编译', () => {
+  function webglView() {
+    const made: string[] = [];
+    let clock = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => clock);
+    const data = new Map<string, { pipeline?: unknown }>();
+    const pipelines = {
+      get: (ro: string) => {
+        if (!data.has(ro)) data.set(ro, {});
+        return data.get(ro)!;
+      },
+      // 原来的 getForRender：没有管线就“编译”（假装要 100 毫秒）
+      getForRender(ro: string) {
+        const d = pipelines.get(ro);
+        if (d.pipeline === undefined) {
+          clock += 100;
+          made.push(ro);
+          d.pipeline = { ro };
+        }
+        return d.pipeline;
+      },
+    };
+    const original = pipelines.getForRender;
+    const view = Object.assign(Object.create(WorldView.prototype), {
+      renderer: { _pipelines: pipelines, backend: { isWebGPUBackend: false } },
+      frames: 0,
+      compiling: false,
+    }) as WorldView;
+    const frame = (objects: string[]) => {
+      for (const ro of objects) pipelines.getForRender(ro);
+      view.frames++;
+    };
+    return { view, pipelines, original, made, frame, ready: (ro: string) => pipelines.get(ro).pipeline !== undefined };
+  }
+
+  it('每帧只新编一部分，编不完的下一帧再编；一帧下来没有推迟的就是编完了，之后换回原来的函数', async () => {
+    const t = webglView();
+    const objects = Array.from({ length: 10 }, (_, i) => `o${i}`);
+    const compiled = t.view.parallelCompile();
+    let done = false;
+    const all = compiled().then(() => (done = true));
+    t.frame(objects);
+    // 预算 250 ms，一个 100 ms：第一帧编了 3 个（第三个编完已经超了），其余推迟、这一帧不画
+    expect(t.made.length).toBe(3);
+    expect(t.ready('o3')).toBe(false);
+    expect(t.view.compiledPrograms).toBe(3);
+    t.frame(objects);
+    t.frame(objects);
+    t.frame(objects);
+    expect(t.made.length).toBe(10);
+    await Promise.resolve();
+    expect(done).toBe(false);
+    // 这一帧一个都没推迟：下一帧开头就算编完了
+    t.frame(objects);
+    await all;
+    expect(done).toBe(true);
+    expect(t.pipelines.getForRender).toBe(t.original);
+    expect(t.view.compiledPrograms).toBe(10);
+  });
+
+  it('共用同一条管线的物体只算一次', () => {
+    const t = webglView();
+    const shared = { ro: 'shared' };
+    const make = t.pipelines.getForRender;
+    t.pipelines.getForRender = (ro: string) => (ro.startsWith('s') ? shared : make(ro));
+    const compiled = t.view.parallelCompile();
+    t.frame(['s1', 's2', 's3', 'a']);
+    expect(t.view.compiledPrograms).toBe(2);
+    compiled.cancel();
+  });
+});

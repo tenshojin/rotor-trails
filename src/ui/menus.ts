@@ -696,7 +696,8 @@ export class UI {
     this.bind(el, { close: () => this.closeModal() });
   }
 
-  about(on: { credits?: () => void } = {}): void {
+  /** env：运行环境那一行（浏览器、系统、WebGPU 还是 WebGL2、显卡），玩家反馈问题时附上 */
+  about(on: { credits?: () => void; env?: string } = {}): void {
     const el = this.openModal(
       h(`<div class="modal"><div class="card wide"><div class="screen-head"><h2>${tr`关于与授权`}</h2><button class="btn ghost" data-a="close">${tr`关闭`}</button>${on.credits ? `<button class="btn" data-a="credits">${tr`制作人员名单`}</button>` : ''}</div>
       <p>${tr`<b>Rotor Trails（旋翼航迹）</b> — 第一人称拟真直升机闯关游戏。地形高度、仪表画面与音效由程序生成；驾驶舱、直升机外观、建筑与树木由本项目的 Blender 脚本建模。`}</p>
@@ -705,7 +706,8 @@ export class UI {
       <h3>${tr`第三方开源库`}</h3>
       <ul class="tips"><li>three.js — MIT License</li><li>${tr`Rapier（@dimforge/rapier3d-compat）— Apache License 2.0`}</li><li>${tr`开发工具：Vite（MIT）、TypeScript（Apache-2.0）、Vitest（MIT）`}</li></ul>
       <p class="muted">${tr`除大峡谷外，地图都是虚构地形，仅体现日本海湾、美国西南峡谷、亚马孙雨林、挪威峡湾、尼泊尔高山的地貌特色，不对应真实地理位置。`} <a href="./licenses.md" target="_blank" rel="noopener">${tr`第三方素材与开源许可`}</a></p>
-      <p class="muted">${tr`版本 ${VERSION}。飞起来哪里别扭、哪里出了问题，欢迎告诉我们：`} <a href="${FEEDBACK_URL}" target="_blank" rel="noopener">${tr`反馈问题和建议`}</a></p></div></div>`),
+      <p class="muted">${tr`版本 ${VERSION}。飞起来哪里别扭、哪里出了问题，欢迎告诉我们：`} <a href="${FEEDBACK_URL}" target="_blank" rel="noopener">${tr`反馈问题和建议`}</a></p>
+      ${on.env ? `<p class="muted env-line">${tr`运行环境（反馈问题时请附上这一行）：`}<code>${escapeHtml(on.env)}</code></p>` : ''}</div></div>`),
     );
     this.bind(el, {
       close: () => this.closeModal(),

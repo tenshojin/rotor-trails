@@ -674,6 +674,11 @@ a {
   font-size: 14px;
 }
 /* 主菜单的实时场景编译好之前，背后放一张实拍画面 */
+/* 关于页的运行环境那一行：显卡名字很长，可以在任何地方折行，方便整行复制 */
+.env-line code {
+  word-break: break-all;
+  user-select: all;
+}
 .menu-art {
   position: absolute;
   inset: 0;

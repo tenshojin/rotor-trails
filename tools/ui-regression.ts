@@ -473,6 +473,13 @@ await test('关于页：版本号、反馈入口、制作人员名单', (ui) => 
   assert(find<HTMLAnchorElement>('.modal a[href*="github.com"]').target === '_blank', '反馈入口没有在新窗口打开');
   click('.modal [data-a="credits"]');
   assert(credits === 1 && !fixture.querySelector('.modal'), '点制作人员名单没有回调，或者弹窗没关');
+  // 运行环境那一行：反馈时附上（Linux 玩家报卡顿时要知道是 WebGPU 还是 WebGL2、用没用上显卡）
+  ui.about({ env: 'v1.1 · WebGL2 · ANGLE (Intel, Mesa <UHD> 620) · Chrome 156 · Linux · high' });
+  const env = find<HTMLElement>('.modal .env-line code');
+  assert(env.textContent === 'v1.1 · WebGL2 · ANGLE (Intel, Mesa <UHD> 620) · Chrome 156 · Linux · high', `运行环境写错了：${env.textContent}`);
+  assert(!env.querySelector('*'), '显卡名字里的尖括号被当成了标签');
+  const box = env.getBoundingClientRect();
+  assert(box.right <= innerWidth + 1, '运行环境那一行超出了窗口');
 });
 
 await test('制作人员名单：跳过后停在最后一张卡片，能接着飞或回主菜单', (ui) => {

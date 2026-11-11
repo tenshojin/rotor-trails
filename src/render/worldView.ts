@@ -3,7 +3,7 @@
 // 含“光线追踪”开关）。每次只加载一张地图的资源，切换地图时完整释放（避免内存泄漏）。
 
 import * as THREE from 'three/webgpu';
-import type { GameSession } from '../sim/session';
+import { STEP, type GameSession } from '../sim/session';
 import type { WorldData } from '../world/worldgen';
 import type { WeatherParams } from '../sim/weather';
 import { QUALITY, type Settings } from '../game/settings';
@@ -41,6 +41,9 @@ import { GRASS_MID, GroundCover } from './groundCover';
 import { RiverView } from './riverView';
 import { EYE_DEFAULT, EyeAdapt } from './eyeAdapt';
 import { earlyGlReadback } from './glReadback';
+
+/** WebGL2 分批编译：每帧最多新编这么久（毫秒），超出的下一帧再编 */
+const COMPILE_BUDGET_MS = 250;
 import { clearSunMap, setSunMap, type FarGrid } from './sunMap';
 import { bakeGi, clearGiMap, disposeGi, GI, giGroundLight, setGiMap } from './giField';
 import { sunFor, type TimeOfDay } from './timeOfDay';
@@ -123,6 +126,8 @@ export class WorldView {
   frames = 0;
   /** renderer.init() 完成后才能渲染 */
   private ready = false;
+  /** WebGL2 分批编译（budgetCompile）到现在编了几条渲染管线：加载界面显示进度 */
+  compiledPrograms = 0;
   /** WebGL2：帧开头交出读回结果（见 glReadback.ts）；WebGPU 是 null */
   private glReadback: (() => void) | null = null;
   private gbT = -10;
@@ -842,8 +847,9 @@ export class WorldView {
     };
     const P = r._pipelines;
     const B = r.backend;
-    // （WebGL2 也试过 KHR_parallel_shader_compile：2026-11-11 实测加载 44.1 s 对 44.4 s，没有用处，还怕个别驱动不报“编好了”，不开）
-    if (!B.isWebGPUBackend) return Object.assign(() => Promise.resolve(), { cancel() {} });
+    // （WebGL2 的 KHR_parallel_shader_compile 试过两次，都不开：2026-11-11 加载时不再空画以后，编译全落在预热里，
+    //  并行预热 60 秒、一个一个同步编 36 秒；之前那次 44.1 s 对 44.4 s。还怕个别驱动不报“编好了”）
+    if (!B.isWebGPUBackend) return this.budgetCompile();
     const list: Array<Promise<void>> = [];
     const pipelineData = new Set<PipelineData>();
     const get = P.getForRender;
@@ -891,6 +897,60 @@ export class WorldView {
       }
     })();
     return Object.assign(complete, { cancel });
+  }
+
+  /**
+   * WebGL2 的分批编译：着色器只能一个一个同步编译，一个几百毫秒（Windows 上还要过微软的 HLSL 编译器），
+   * 一帧把一百多个全编了，整个页面卡死半分钟，加载界面一动不动。这里每帧只新编约 COMPILE_BUDGET_MS 的量，
+   * 编不完的东西这一帧先不画（three.js 看到没有管线就跳过）；两帧之间加载界面能刷新，写出编到第几个。
+   * 一帧下来一个都没推迟，就是都编完了
+   */
+  private budgetCompile(): (() => Promise<void>) & { cancel(): void } {
+    interface Pipelines {
+      get(ro: unknown): { pipeline?: unknown };
+      getForRender(ro: unknown, promises?: unknown): unknown;
+    }
+    const P = (this.renderer as unknown as { _pipelines: Pipelines })._pipelines;
+    const get = P.getForRender;
+    let frame = -1;
+    let spent = 0;
+    let deferred = 0;
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => (finish = resolve));
+    this.compiling = true;
+    this.compiledPrograms = 0;
+    // 共用同一套着色器的物体拿到的是同一条管线：只有新的管线才真的编译一次，进度只数这些
+    const made = new WeakSet<object>();
+    P.getForRender = (ro, promises = null) => {
+      if (this.frames !== frame) {
+        // 新的一帧：上一帧一个都没推迟，就是全编完了
+        if (frame >= 0 && deferred === 0) finish();
+        frame = this.frames;
+        spent = 0;
+        deferred = 0;
+      }
+      if (P.get(ro).pipeline !== undefined) return get.call(P, ro, promises);
+      if (spent > COMPILE_BUDGET_MS) {
+        deferred++;
+        return undefined;
+      }
+      const t = performance.now();
+      const result = get.call(P, ro, promises);
+      spent += performance.now() - t;
+      if (result && typeof result === 'object' && !made.has(result)) {
+        made.add(result);
+        this.compiledPrograms++;
+      }
+      return result;
+    };
+    let restored = false;
+    const cancel = (): void => {
+      if (restored) return;
+      restored = true;
+      P.getForRender = get;
+      this.compiling = false;
+    };
+    return Object.assign(() => finished.finally(cancel), { cancel });
   }
 
   /** 等显卡把已提交的工作（包括着色器编译）都做完；WebGL2 后端没有这个接口，直接返回 */
@@ -1140,7 +1200,9 @@ export class WorldView {
       // （夜里和大雨的时候鸟都回去了）
       this.birds?.update(f.dt, f.t, s ? _pos : null, this.tod !== 'night' && w.rain + w.snow < 0.45);
       // （和物理同一个钟：飞行中用模拟时间，撞上的就是看到的那个位置；主菜单里没有模拟，用画面的钟）
-      const T = s ? s.t : f.t;
+      // 模拟时间每 1/60 秒才跳一格：直接用的话，120、144 Hz 的屏幕上船和车两三帧不动、再跳一下。
+      // 和直升机一样插值到画面这一刻（比物理晚不到一步，和直升机自己差的一样多）
+      const T = s ? s.t - (1 - f.alpha) * STEP : f.t;
       this.vessels?.update(T, this.sky?.night ?? 0);
       this.traffic?.update(T, f.dt, this.sky?.night ?? 0, PlaneMover.flies(w), cam.position);
       this.roadCars?.update(T, this.sky?.night ?? 0);

@@ -211,6 +211,7 @@ const table: Table = {
   '除大峡谷外，地图都是虚构地形，仅体现日本海湾、美国西南峡谷、亚马孙雨林、挪威峡湾、尼泊尔高山的地貌特色，不对应真实地理位置。': ['Apart from the Grand Canyon, the maps are fictional terrain. They only capture the character of a Japanese bay, the canyons of the American Southwest, the Amazon rainforest, a Norwegian fjord and the high mountains of Nepal, and do not match real locations.', 'グランドキャニオン以外のマップは架空の地形です。日本の湾、アメリカ南西部の峡谷、アマゾンの熱帯雨林、ノルウェーのフィヨルド、ネパールの高山の雰囲気を表したもので、実在の場所とは対応していません。'],
   '第三方素材与开源许可': ['Third-party assets and open-source licenses', 'サードパーティ素材とオープンソースライセンス'],
   '版本 {0}。飞起来哪里别扭、哪里出了问题，欢迎告诉我们：': ['Version {0}. If something feels wrong or breaks while you fly, please tell us:', 'バージョン {0}。飛んでいて違和感のあるところや不具合があれば、ぜひお知らせください：'],
+  '运行环境（反馈问题时请附上这一行）：': ['Your setup (please include this line when you report a problem): ', '動作環境（不具合を報告するときは、この行も添えてください）：'],
   '反馈问题和建议': ['Send feedback', 'フィードバックを送る'],
   '旋翼航迹': ['First-person helicopter sim', '一人称視点のヘリコプターシム'],
   '设计与制作': ['Design and development', 'デザイン・制作'],

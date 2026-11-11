@@ -49,6 +49,7 @@ vi.mock('../src/ui/replayPanel', () => ({ ReplayPanel: class {
 vi.mock('../src/world/worldgen', () => ({ generateWorld: vi.fn() }));
 
 import { App, autoQualityStep, defaultQuality, gpuWarning } from '../src/game/app';
+import { browserOf } from '../src/game/version';
 import { SAVE_KEY } from '../src/game/save';
 import { TRAINING } from '../src/maps/training';
 import { getMap } from '../src/maps/index';
@@ -480,6 +481,17 @@ describe('集成显卡的提示', () => {
     expect(gpuWarning('nvidia blackwell', WIN)).toBeNull();
   });
 
+  // Linux 上驱动不在浏览器支持名单里时常常是软件模拟，一秒几帧；双显卡笔记本浏览器默认用核显
+  it('软件模拟：哪个系统都提示打开硬件加速；Linux 的核显提示双显卡笔记本怎么换', () => {
+    const LINUX = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36';
+    expect(gpuWarning('ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)', LINUX)).toContain('软件模拟');
+    expect(gpuWarning('llvmpipe (LLVM 17.0.6, 256 bits)', LINUX)).toContain('硬件加速');
+    expect(gpuWarning('ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)', WIN)).toContain('软件模拟');
+    expect(gpuWarning('ANGLE (Intel, Mesa Intel(R) UHD Graphics 620 (KBL GT2), OpenGL 4.6)', LINUX)).toContain('prime-run');
+    expect(gpuWarning('ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.5.0)', LINUX)).toBeNull();
+    expect(gpuWarning('SwiftShader', ANDROID)).toBeNull();
+  });
+
   it('手机、平板、苹果电脑不提示：Windows 设置里换显卡对它们没有用', () => {
     expect(gpuWarning('ANGLE (Qualcomm, Adreno (TM) 740, OpenGL ES 3.2)', ANDROID)).toBeNull();
     expect(gpuWarning('Mali-G78', ANDROID)).toBeNull();
@@ -555,6 +567,18 @@ describe('飞行存档：离开时自动存、读档键连按两下', () => {
     expect(e2.defaultPrevented).toBe(true);
   });
 
+  // 任务刚完成、结算要等 1.6 秒才出来：这时关网页原来既丢成绩、又问“确定离开吗”
+  it('任务刚完成就关网页：先把成绩记下，不问“确定离开”', () => {
+    app.state = 'playing';
+    app.session = fakeSession('complete');
+    (app as any).completeTimer = 1.2;
+    const show = vi.spyOn(app as any, 'showResult').mockImplementation(() => { app.state = 'result'; });
+    const e = new Event('beforeunload', { cancelable: true });
+    win.dispatchEvent(e);
+    expect(show).toHaveBeenCalledOnce();
+    expect(e.defaultPrevented).toBe(false);
+  });
+
   it('读档键按一下只提示，2.5 秒内再按一下才读；读的是这张图自己存的那一格', () => {
     const map = getMap('japan');
     const save = { format: FLIGHT_FORMAT, savedAt: Date.now(), version: '1.1', auto: false, run: { map: 'japan', weather: 'clear', assist: 'standard', free: false, time: 'day' }, sig: mapSig(map), info: { step: 3, total: 4, durability: 90 }, state: {} };
@@ -598,5 +622,16 @@ describe('默认画质和自动降档', () => {
     expect(autoQualityStep('medium', false, 10)).toEqual({ quality: 'low', rayTracing: false });
     expect(autoQualityStep('low', false, 5)).toBeNull();
     expect(autoQualityStep('low', true, 5)).toEqual({ quality: 'low', rayTracing: false });
+  });
+});
+
+describe('关于页的运行环境', () => {
+  it('认得出常见的浏览器和系统（Linux 玩家反馈时附上这一行）', () => {
+    expect(browserOf('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36')).toBe('Chrome 156 · Linux');
+    expect(browserOf('Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0')).toBe('Firefox 146 · Linux');
+    expect(browserOf('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36 Edg/156.0.0.0')).toBe('Edge 156 · Windows');
+    expect(browserOf('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Safari/605.1.15')).toBe('Safari 19 · macOS');
+    expect(browserOf('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36')).toBe('Chrome 156 · Android');
+    expect(browserOf('')).toBe('? · ?');
   });
 });

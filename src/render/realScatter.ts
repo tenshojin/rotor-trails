@@ -195,8 +195,14 @@ function tuftTexture(): THREE.CanvasTexture {
   return t;
 }
 
-/** 读回去做碰撞的范围：每边多少格 */
-const PROBE = 32;
+/** 读回去做碰撞的范围：每边多少格（外圈的树一格 8 米：边长 512 米） */
+const PROBE = 64;
+/**
+ * 离上一次探的中心多远才再探：探出来的方块边长的一半（256 米），减掉方块中心和飞机最多差的一格、再留 64 米，
+ * 前方 64 米以内的树总是已经知道了（碰撞体在 85 米内才建，直升机最快约 70 m/s，提前量将近一秒）。
+ * WebGL2 上每次读回要停二三十毫秒：原来每 0.4 秒探一次，现在 30 m/s 低空飞也要六秒多一次
+ */
+const REPROBE = (PROBE / 2) * TREE_RING.cell - TREE_RING.cell - 64;
 
 interface Probe {
   def: RingDef;
@@ -226,8 +232,7 @@ export class RealScatter {
   private nextProbe = 0;
   private reading = false;
   private probed = false;
-  /** 上一次探的中心：飞机离它不到 64 米就不再探（树的格子覆盖 ±128 米，碰撞只看身边几十米）。
-   * 原来不管动没动每 0.4 秒探一次，WebGL2 上每次读回都卡一下 */
+  /** 上一次探的中心：飞机离它不到 REPROBE 就不再探。原来不管动没动每 0.4 秒探一次，WebGL2 上每次读回都卡一下 */
   private probeX = Infinity;
   private probeZ = Infinity;
 
@@ -483,7 +488,7 @@ export class RealScatter {
       this.probed = false;
       return;
     }
-    if (this.probed && Math.hypot(pos.x - this.probeX, pos.z - this.probeZ) < 64) return;
+    if (this.probed && Math.hypot(pos.x - this.probeX, pos.z - this.probeZ) < REPROBE) return;
     if (this.probes.length === 0) this.makeProbes();
     if (this.probes.length === 0) return;
     this.reading = true;

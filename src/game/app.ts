@@ -44,7 +44,7 @@ import { InstrumentLists } from './instrumentLists';
 import { nextView } from './views';
 import { currentLang, tr } from '../i18n';
 import { ageText, FLIGHT_FORMAT, mapSig, progressText, RESUME_SLOT, slotOf, stepText, type FlightSave } from './flightSave';
-import { VERSION } from './version';
+import { VERSION, browserOf } from './version';
 
 /** claude.ai 的私有试玩页（Artifact）放不下大峡谷的数据（单个文件超过 20 MiB），那里不列出真实地形的地图（见 tools/artifact-page.mjs） */
 const PLAYABLE_REAL_MAPS = (globalThis as { __artifact?: boolean }).__artifact ? [] : REAL_MAPS;
@@ -135,11 +135,21 @@ export function defaultQuality(gpu: string, webgl: boolean, touch: boolean): { q
   return { quality: lower[q], rayTracing: false };
 }
 
-/** 浏览器跑在集成显卡上时的提示（笔记本常见：有独显但浏览器默认用核显）。
- *  只在 Windows 电脑上说：手机、平板的显卡（Mali、Adreno）也算集成显卡，苹果电脑换不了，这句话对它们没有用，白占主菜单一块地方 */
+/** 浏览器没用上显卡、在用软件模拟（Linux 上驱动不在浏览器的支持名单里时常见）：一秒几帧，玩家只会觉得卡得离谱 */
+const isSoftware = (gpu: string) => /SwiftShader|llvmpipe|softpipe|lavapipe|Basic Render|Software Rasterizer/i.test(gpu);
+
+/** 主菜单上关于显卡的提示：
+ *  - 软件模拟：哪个系统都说，叫玩家打开浏览器的硬件加速；
+ *  - 集成显卡（笔记本常见：有独显但浏览器默认用核显）：Windows 说去系统设置里换；Linux 说双显卡笔记本怎么用上独显。
+ *  手机、平板的显卡（Mali、Adreno）也算集成显卡，苹果电脑换不了，这些话对它们没有用，白占主菜单一块地方 */
 export function gpuWarning(gpu: string, userAgent: string = typeof navigator === 'undefined' ? '' : navigator.userAgent): string | null {
-  if (!isIntegrated(gpu) || !/Windows/i.test(userAgent)) return null;
-  return tr`浏览器当前使用集成显卡（${gpu.replace(/^ANGLE \(|\)$/g, '').slice(0, 60)}），画面可能卡顿。电脑有独立显卡时：Windows 设置 → 系统 → 屏幕 → 显示卡，把浏览器设为“高性能”，重启浏览器即可。`;
+  const name = gpu.replace(/^ANGLE \(|\)$/g, '').slice(0, 60);
+  const mobile = /Android|iPhone|iPad|CrOS/i.test(userAgent);
+  if (isSoftware(gpu) && !mobile) return tr`浏览器没有用上显卡，正在用软件模拟（${name}），游戏会非常卡。请在浏览器设置里打开“硬件加速”（“使用图形加速功能”），然后重启浏览器；Linux 上还要先装好显卡驱动。`;
+  if (!isIntegrated(gpu)) return null;
+  if (/Windows/i.test(userAgent)) return tr`浏览器当前使用集成显卡（${name}），画面可能卡顿。电脑有独立显卡时：Windows 设置 → 系统 → 屏幕 → 显示卡，把浏览器设为“高性能”，重启浏览器即可。`;
+  if (/Linux/i.test(userAgent) && !mobile) return tr`浏览器当前使用集成显卡（${name}），画面可能卡顿。双显卡的笔记本：用 prime-run（NVIDIA）或 DRI_PRIME=1（AMD）启动浏览器，就能用上独立显卡。`;
+  return null;
 }
 
 
@@ -179,6 +189,8 @@ export class App {
   private readonly idlePose = { pos: new THREE.Vector3(), target: new THREE.Vector3(), fov: 34 };
   /** 主菜单的并行编译（见 warmMenu） */
   private menuWarm: { cancel(): void } | null = null;
+  /** 主菜单只放实拍画面、不画实时背景（WebGL2 第一次打开，见 warmMenu） */
+  private menuStill = false;
   private readonly instrumentLists = new InstrumentLists();
   private loadingRun = false;
   private loadWarning: string | null = null;
@@ -325,6 +337,7 @@ export class App {
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
           this.flushSettingsSave();
+          this.settleResult();
           if (this.state === 'playing') this.pause();
           // 手机切到后台，系统可能直接把网页收掉：先替玩家存一份（离开时自动存的那一格，不碰玩家自己存的）
           this.autoSaveFlight();
@@ -345,6 +358,7 @@ export class App {
       window.addEventListener('popstate', () => this.onBrowserBack(), listenerOptions);
       window.addEventListener('beforeunload', (e) => {
         this.flushSettingsSave();
+        this.settleResult();
         // 飞到一半关掉、刷新网页：先自动存一份，下次主菜单“继续飞行”。存上了就不弹“确认离开”
         const saved = this.autoSaveFlight();
         if (!this.leaving && !saved && (this.state === 'playing' || this.state === 'paused')) {
@@ -416,6 +430,9 @@ export class App {
     if (this.frameId !== null) cancelAnimationFrame(this.frameId);
     if (this.earlyId !== null) cancelAnimationFrame(this.earlyId);
     clearTimeout(this.blurTimer);
+    // 主菜单盖着的那张实拍画面（WebGL2 的静态菜单、WebGPU 预热时的）一起撤掉
+    this.menuWarm?.cancel();
+    this.menuWarm = null;
     this.frameId = null;
     this.earlyId = null;
     this.input.onEdge = this.input.onLockChange = this.input.onPadNav = null;
@@ -553,7 +570,7 @@ export class App {
         tutorial: () => this.trainingMenu(),
         settings: () => this.openSettings(),
         help: () => this.ui.help(this.settings.bindings),
-        about: () => this.ui.about({ credits: () => this.startCredits() }),
+        about: () => this.ui.about({ credits: () => this.startCredits(), env: this.envLine() }),
         log: () => this.openLog(),
       },
     );
@@ -677,6 +694,14 @@ export class App {
       state: s.saveState(),
     };
     return this.save.flights.put(auto ? RESUME_SLOT : slotOf(run.map.id, run.free === true), save);
+  }
+
+  /**
+   * 任务刚完成、结算还要等 1.6 秒才出来：这时关网页、切到后台，先把成绩记下（手机切走以后系统可能直接把网页收掉）。
+   * 原来成绩没记下来，关网页时还会问“确定离开吗”：其实这时没有要存的进度了
+   */
+  private settleResult(): void {
+    if (this.state === 'playing' && this.session?.state === 'complete' && this.completeTimer > 0) this.showResult();
   }
 
   /** 离开飞行时（回主菜单、关网页、切到后台）自动存。存上了返回 true */
@@ -1009,6 +1034,17 @@ export class App {
    */
   private async warmMenu(): Promise<void> {
     const v = this.view;
+    if (v.gpuInfo().backend === 'WebGL2') {
+      // WebGL2：着色器只能同步编译，主菜单背景的第一帧要把一百来个着色器一口气编完，整个页面卡死半分钟，菜单都显示不出来。
+      // 第一次的主菜单不画实时背景，一直放实拍画面；进地图时在加载界面里分批编译（WorldView.budgetCompile）
+      const still = document.createElement('div');
+      still.className = 'menu-art';
+      still.style.backgroundImage = "url('ui/map_training_bg.webp')";
+      this.canvas?.parentElement?.insertBefore(still, this.canvas.nextSibling);
+      this.menuStill = true;
+      this.menuWarm = { cancel: () => { this.menuStill = false; still.remove(); } };
+      return;
+    }
     const compiled = v.parallelCompile();
     if (!compiled) return;
     const art = document.createElement('div');
@@ -1061,7 +1097,15 @@ export class App {
     try {
       compiled = v.parallelCompile();
       await frames(6);
-      await waitForOperation(compiled(), this.lifetime.signal, 60000, tr('着色器编译'));
+      // WebGL2 分批编译：一个几百毫秒，第一次进要半分钟上下。加载界面写出编到第几个，等的时间放宽
+      const gl = v.gpuInfo().backend === 'WebGL2';
+      const map = this.run?.map;
+      const progress = gl ? setInterval(() => this.ui.loading(tr`编译着色器（第一次进入会慢一些）：${v.compiledPrograms}`, 0.99, map), 300) : undefined;
+      try {
+        await waitForOperation(compiled(), this.lifetime.signal, gl ? 300000 : 60000, tr('着色器编译'));
+      } finally {
+        clearInterval(progress);
+      }
       v.refreshEnv?.();
       await frames(3);
       await waitForOperation(v.gpuIdle(), this.lifetime.signal, 60000, tr('显卡准备'));
@@ -1998,6 +2042,13 @@ export class App {
 
   // ---------------- 主循环 ----------------
 
+  /** 关于页“运行环境”那一行：WebGPU 还是 WebGL2、显卡、浏览器和系统、画质 */
+  private envLine(): string {
+    const info = this.view.gpuInfo();
+    const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+    return `v${VERSION} · ${info.backend} · ${info.name || '?'} · ${browserOf(ua)} · ${this.settings.quality}${this.settings.rayTracing ? '+RT' : ''}`;
+  }
+
   /** 每帧最先跑的回调（先登记的先跑）：自己先排下一帧，再让渲染层交出读回结果 */
   private early = (): void => {
     if (this.disposed) return;
@@ -2158,7 +2209,9 @@ export class App {
       const cz = Math.cos(a);
       this.idlePose.pos.set(c.x + sx * r, c.y + 0.5, c.z + cz * r);
       this.idlePose.target.set(c.x - cz * 3.6, c.y + 2.6, c.z + sx * 3.6);
-      this.view.render(null, { dt, t: this.t, alpha: 1 }, this.idlePose);
+      // 换地图时加载画面整个盖住画布：这时不画。底下正在一样一样搭新地图，WebGL2 上每画一帧都要把新加进来的东西
+      // 同步编译一遍着色器，加载拖到 40 多秒（“构建建筑与植被”一步 35 秒，WebGPU 0.2 秒）
+      if (this.state !== 'loading' && !this.menuStill) this.view.render(null, { dt, t: this.t, alpha: 1 }, this.idlePose);
       this.touch?.setMode('off');
       this.audio.update(this.audioState(true), dt);
     }
