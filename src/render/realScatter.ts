@@ -226,6 +226,10 @@ export class RealScatter {
   private nextProbe = 0;
   private reading = false;
   private probed = false;
+  /** 上一次探的中心：飞机离它不到 64 米就不再探（树的格子覆盖 ±128 米，碰撞只看身边几十米）。
+   * 原来不管动没动每 0.4 秒探一次，WebGL2 上每次读回都卡一下 */
+  private probeX = Infinity;
+  private probeZ = Infinity;
 
   /** models：灌木、外圈的树（来自 trees.glb）和叶片图集；模型没加载上就不画 */
   constructor(
@@ -479,9 +483,12 @@ export class RealScatter {
       this.probed = false;
       return;
     }
+    if (this.probed && Math.hypot(pos.x - this.probeX, pos.z - this.probeZ) < 64) return;
     if (this.probes.length === 0) this.makeProbes();
     if (this.probes.length === 0) return;
     this.reading = true;
+    const px = pos.x;
+    const pz = pos.z;
     const prev = renderer.getRenderTarget();
     const reads = this.probes.map((p) => {
       p.origin.value.set(Math.floor(pos.x / p.def.cell) - PROBE / 2, Math.floor(pos.z / p.def.cell) - PROBE / 2);
@@ -500,6 +507,8 @@ export class RealScatter {
           }
         });
         this.probed = true;
+        this.probeX = px;
+        this.probeZ = pz;
         done(out);
       })
       .catch(() => undefined)

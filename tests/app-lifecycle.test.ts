@@ -48,7 +48,7 @@ vi.mock('../src/ui/replayPanel', () => ({ ReplayPanel: class {
 } }));
 vi.mock('../src/world/worldgen', () => ({ generateWorld: vi.fn() }));
 
-import { App, gpuWarning } from '../src/game/app';
+import { App, autoQualityStep, defaultQuality, gpuWarning } from '../src/game/app';
 import { SAVE_KEY } from '../src/game/save';
 import { TRAINING } from '../src/maps/training';
 import { getMap } from '../src/maps/index';
@@ -207,14 +207,71 @@ describe('运行与加载恢复', () => {
     expect(browserStore.setItem).not.toHaveBeenCalled();
   });
 
-  it('无鼠标锁定的拖动模式切换窗口也会暂停', () => {
+  it('无鼠标锁定的拖动模式切换窗口也会暂停（焦点 0.3 秒没回来）', () => {
+    vi.useFakeTimers();
+    try {
+      app.state = 'playing';
+      app.session = { restoreOptions: () => [], dispose: vi.fn() } as unknown as GameSession;
+      vi.spyOn(app as any, 'audioState').mockReturnValue({ paused: true });
+      win.dispatchEvent(new Event('blur'));
+      expect(app.state).toBe('playing');
+      vi.advanceTimersByTime(300);
+      expect(app.state).toBe('paused');
+      expect(app.input.active).toBe(false);
+      expect(app.ui.pause).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Linux 玩家反馈“时不时卡一下”：自动降画质要重新编译着色器，WebGL2 上画面停好几秒；
+  // 停的那几秒原来又被算成帧率低，接着再降、再停，一路降到最低
+  it('自动降画质：先提示、下一帧才换；停顿的那一秒不算；换完 12 秒内不再降；差得多一次降两档', () => {
+    const internals = app as any;
     app.state = 'playing';
-    app.session = { restoreOptions: () => [], dispose: vi.fn() } as unknown as GameSession;
-    vi.spyOn(app as any, 'audioState').mockReturnValue({ paused: true });
-    win.dispatchEvent(new Event('blur'));
-    expect(app.state).toBe('paused');
-    expect(app.input.active).toBe(false);
-    expect(app.ui.pause).toHaveBeenCalledOnce();
+    app.session = { state: 'running', restoreOptions: () => [], dispose: vi.fn() } as unknown as GameSession;
+    app.settings.autoQuality = true;
+    app.settings.quality = 'ultra';
+    app.settings.rayTracing = true;
+    const second = (fps: number, longest = 1 / fps) => {
+      internals.fps = fps;
+      internals.frameMax = longest;
+      internals.watchFrameRate();
+      internals.frameMax = 0;
+    };
+    for (let i = 0; i < 7; i++) second(25);
+    second(25, 2.4);
+    expect(internals.pendingQuality).toBeNull();
+    second(25);
+    expect(internals.pendingQuality).toEqual({ quality: 'ultra', rayTracing: false });
+    expect(app.hud.toast).toHaveBeenLastCalledWith(expect.stringContaining('换的时候会停一下'), 'info', 6000);
+    expect(app.settings.rayTracing).toBe(true);
+    const applied = vi.mocked(app.view.applySettings).mock.calls.length;
+    internals.applyAutoQuality();
+    expect(app.settings.rayTracing).toBe(false);
+    expect(vi.mocked(app.view.applySettings).mock.calls.length).toBe(applied + 1);
+    for (let i = 0; i < 12; i++) second(4, 3);
+    for (let i = 0; i < 7; i++) second(12);
+    expect(internals.pendingQuality).toBeNull();
+    second(12);
+    expect(internals.pendingQuality).toEqual({ quality: 'medium', rayTracing: false });
+  });
+
+  // X11 上窗口管理器偶尔让窗口失焦一下又马上还回来：不该弹出暂停菜单
+  it('失焦一下焦点马上回来，不暂停', () => {
+    vi.useFakeTimers();
+    try {
+      app.state = 'playing';
+      app.session = { restoreOptions: () => [], dispose: vi.fn() } as unknown as GameSession;
+      vi.spyOn(app as any, 'audioState').mockReturnValue({ paused: true });
+      (document as unknown as { hasFocus: () => boolean }).hasFocus = () => true;
+      win.dispatchEvent(new Event('blur'));
+      vi.advanceTimersByTime(300);
+      expect(app.state).toBe('playing');
+      expect(app.ui.pause).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each(['failTimer', 'completeTimer'])('暂停冻结 %s，继续飞行后再显示结果', (timer) => {
@@ -520,5 +577,26 @@ describe('飞行存档：离开时自动存、读档键连按两下', () => {
     app.session = fakeSession('crashed');
     (app as any).quickSave();
     expect(app.hud.toast).toHaveBeenLastCalledWith('飞机出事了，现在不能存档', 'warn', 2500);
+  });
+});
+
+describe('默认画质和自动降档', () => {
+  it('WebGL2（浏览器没有 WebGPU）默认低一档、不开光线追踪；WebGPU 照旧', () => {
+    const rtx = 'NVIDIA RTX 3060';
+    expect(defaultQuality(rtx, false, false)).toEqual({ quality: 'ultra', rayTracing: true });
+    expect(defaultQuality(rtx, true, false)).toEqual({ quality: 'high', rayTracing: false });
+    expect(defaultQuality('NVIDIA GeForce GTX 1660', true, false)).toEqual({ quality: 'medium', rayTracing: false });
+    expect(defaultQuality('Mesa Intel(R) UHD Graphics 620', true, false)).toEqual({ quality: 'low', rayTracing: false });
+    expect(defaultQuality(rtx, false, true)).toEqual({ quality: 'low', rayTracing: false });
+  });
+
+  it('光线追踪和画质一起降，平均不到 18 帧一次降两档，最低档不再动', () => {
+    expect(autoQualityStep('ultra', true, 25)).toEqual({ quality: 'ultra', rayTracing: false });
+    expect(autoQualityStep('ultra', true, 12)).toEqual({ quality: 'high', rayTracing: false });
+    expect(autoQualityStep('ultra', false, 25)).toEqual({ quality: 'high', rayTracing: false });
+    expect(autoQualityStep('high', false, 10)).toEqual({ quality: 'low', rayTracing: false });
+    expect(autoQualityStep('medium', false, 10)).toEqual({ quality: 'low', rayTracing: false });
+    expect(autoQualityStep('low', false, 5)).toBeNull();
+    expect(autoQualityStep('low', true, 5)).toEqual({ quality: 'low', rayTracing: false });
   });
 });

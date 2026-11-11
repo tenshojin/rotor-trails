@@ -111,6 +111,30 @@ function pickQuality(gpu: string): Settings['quality'] {
   return 'medium';
 }
 
+/**
+ * 帧率撑不住时降到哪：光线追踪和画质一起降；平均不到 18 帧一次降两档（关光追算一档）。已经是最低就不动（返回 null）
+ */
+export function autoQualityStep(quality: Settings['quality'], rayTracing: boolean, fps: number): { quality: Settings['quality']; rayTracing: boolean } | null {
+  const order = ['low', 'medium', 'high', 'ultra'] as const;
+  let budget = fps < 18 ? 2 : 1;
+  if (rayTracing) budget--;
+  const next = order[Math.max(0, order.indexOf(quality) - budget)];
+  if (next === quality && !rayTracing) return null;
+  return { quality: next, rayTracing: false };
+}
+
+/**
+ * 新存档的默认画质。WebGL2（浏览器没有 WebGPU 时退回的，Linux、Firefox 上很常见）比 WebGPU 慢四成左右，
+ * 着色器又只能一个一个同步编译（换画质时整个画面停几秒）：默认低一档、不开光线追踪，少碰到“帧率不够自动降档”
+ */
+export function defaultQuality(gpu: string, webgl: boolean, touch: boolean): { quality: Settings['quality']; rayTracing: boolean } {
+  if (touch) return { quality: 'low', rayTracing: false };
+  const q = pickQuality(gpu);
+  if (!webgl) return { quality: q, rayTracing: q === 'high' || q === 'ultra' };
+  const lower = { ultra: 'high', high: 'medium', medium: 'medium', low: 'low' } as const;
+  return { quality: lower[q], rayTracing: false };
+}
+
 /** 浏览器跑在集成显卡上时的提示（笔记本常见：有独显但浏览器默认用核显）。
  *  只在 Windows 电脑上说：手机、平板的显卡（Mali、Adreno）也算集成显卡，苹果电脑换不了，这句话对它们没有用，白占主菜单一块地方 */
 export function gpuWarning(gpu: string, userAgent: string = typeof navigator === 'undefined' ? '' : navigator.userAgent): string | null {
@@ -146,6 +170,9 @@ export class App {
   private pendingOperations = 0;
   private viewDisposed = false;
   private frameId: number | null = null;
+  private earlyId: number | null = null;
+  /** 失焦后等一会儿再暂停（见 blur） */
+  private blurTimer: ReturnType<typeof setTimeout> | undefined;
   private startPromise: Promise<void> | null = null;
   private settingsSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly canvas: HTMLCanvasElement;
@@ -203,6 +230,14 @@ export class App {
   private frames = 0;
   private fpsT = 0;
   private lowFps = 0;
+  /** 这一串低帧率的秒里帧率加起来（算平均，看要降几档） */
+  private lowFpsSum = 0;
+  /** 这一秒里最长的一帧（秒） */
+  private frameMax = 0;
+  /** 刚换过画质：还有几秒不看帧率 */
+  private qualityHold = 0;
+  /** 已经提示了、下一帧才换的画质（先让提示显示出来，再停那一下） */
+  private pendingQuality: { quality: Settings['quality']; rayTracing: boolean } | null = null;
   /** 超仿真 */
   private simPanel: SimPanel | null = null;
   private checklistDone = false;
@@ -299,7 +334,13 @@ export class App {
       window.addEventListener('blur', () => {
         // Drag-to-look browsers do not emit pointerlockchange on Alt+Tab.
         // Losing the window must still leave the aircraft safely paused.
-        if (this.state === 'playing') this.pause();
+        // X11 上窗口管理器偶尔让窗口失焦一下又马上还回来（弹通知、输入法、抢一下鼠标）：等 0.3 秒焦点还没回来再暂停。
+        // 按键在 Input 里已经马上松开了；锁着鼠标时浏览器自己会退出锁定，那边照旧马上暂停
+        if (this.state !== 'playing') return;
+        clearTimeout(this.blurTimer);
+        this.blurTimer = setTimeout(() => {
+          if (this.state === 'playing' && !(typeof document.hasFocus === 'function' && document.hasFocus())) this.pause();
+        }, 300);
       }, listenerOptions);
       window.addEventListener('popstate', () => this.onBrowserBack(), listenerOptions);
       window.addEventListener('beforeunload', (e) => {
@@ -373,7 +414,10 @@ export class App {
     this.flushSettingsSave();
     this.lifetime.abort();
     if (this.frameId !== null) cancelAnimationFrame(this.frameId);
+    if (this.earlyId !== null) cancelAnimationFrame(this.earlyId);
+    clearTimeout(this.blurTimer);
     this.frameId = null;
+    this.earlyId = null;
     this.input.onEdge = this.input.onLockChange = this.input.onPadNav = null;
     this.input.onDevice = this.input.onPadConnection = null;
     usePadNames(null);
@@ -402,9 +446,10 @@ export class App {
     this.assertActive();
     this.gpu = this.view.gpuInfo().name;
     if (this.save.fresh || this.save.requalify) {
-      // （手机的显卡名字看不出好坏，先从低档开始）
-      this.settings.quality = this.touch ? 'low' : pickQuality(this.gpu);
-      this.settings.rayTracing = this.settings.quality === 'high' || this.settings.quality === 'ultra';
+      // （手机的显卡名字看不出好坏，先从低档开始；WebGL2 低一档，见 defaultQuality）
+      const pick = defaultQuality(this.gpu, this.view.gpuInfo().backend === 'WebGL2', !!this.touch);
+      this.settings.quality = pick.quality;
+      this.settings.rayTracing = pick.rayTracing;
       this.view.applySettings(this.settings);
       this.save.save();
     }
@@ -425,6 +470,8 @@ export class App {
       this.view.heli.root.quaternion.identity();
     }
     this.last = performance.now();
+    // 排在主循环前面：WebGL2 上在这一帧开始画之前交出读回结果（见 render/glReadback.ts）
+    this.earlyId = requestAnimationFrame(this.early);
     this.frameId = requestAnimationFrame(this.frame);
     if (auto) {
       const m = auto;
@@ -1951,6 +1998,17 @@ export class App {
 
   // ---------------- 主循环 ----------------
 
+  /** 每帧最先跑的回调（先登记的先跑）：自己先排下一帧，再让渲染层交出读回结果 */
+  private early = (): void => {
+    if (this.disposed) return;
+    this.earlyId = requestAnimationFrame(this.early);
+    try {
+      this.view.pollReadback();
+    } catch (error) {
+      console.warn('读回结果交付失败', error);
+    }
+  };
+
   private frame = (now: number): void => {
     if (this.disposed) return;
     this.frameId = requestAnimationFrame(this.frame);
@@ -1980,11 +2038,15 @@ export class App {
       this.padMarked = document.activeElement;
       markPadFocus(this.padMarked);
     }
+    // 上一帧定下的自动降画质（提示已经显示出来了）
+    if (this.pendingQuality) this.applyAutoQuality();
     // Report actual elapsed time; the simulation clamp must not hide long stalls.
     this.fpsT += frameSeconds;
+    if (frameSeconds > this.frameMax) this.frameMax = frameSeconds;
     if (this.fpsT >= 1) {
       this.fps = this.frames / this.fpsT;
       this.watchFrameRate();
+      this.frameMax = 0;
       if (this.state === 'playing' && !this.replay && ++this.medalT >= 15) {
         this.medalT = 0;
         this.checkMedals();
@@ -2102,21 +2164,52 @@ export class App {
     }
   }
 
-  /** 每秒一次：飞行中帧率连续撑不住，自动降一档（玩家自己选过画质就不管） */
+  /**
+   * 每秒一次：飞行中帧率连续 8 秒撑不住，自动降画质（玩家自己选过画质就不管）。
+   * 换画质要重新编译着色器，WebGL2 上整个画面会停好几秒（Linux 上常见）。原来停的那几秒又被算成“帧率低”，
+   * 接着再降一档、再停，一路降到最低，玩家看到的是隔一会儿就卡好几秒。现在：
+   * - 刚换完的 12 秒不看帧率；一秒里有一帧停了半秒以上（编译、读盘这类一次性的停顿），这一秒不算；
+   * - 光线追踪和画质一起降，差得多（平均不到 18 帧）一次降两档：尽量只停一次；
+   * - 先把提示亮出来，下一帧再换，玩家知道为什么停。
+   */
   private watchFrameRate(): void {
+    if (this.qualityHold > 0) {
+      this.qualityHold--;
+      this.lowFps = this.lowFpsSum = 0;
+      return;
+    }
     const flying = this.state === 'playing' && this.session?.state === 'running' && !document.hidden;
-    this.lowFps = flying && this.settings.autoQuality && this.fps < 30 ? this.lowFps + 1 : 0;
+    if (!flying || !this.settings.autoQuality || this.pendingQuality) {
+      this.lowFps = this.lowFpsSum = 0;
+      return;
+    }
+    if (this.frameMax > 0.5) return;
+    if (this.fps >= 30) {
+      this.lowFps = this.lowFpsSum = 0;
+      return;
+    }
+    this.lowFps++;
+    this.lowFpsSum += this.fps;
     if (this.lowFps < 8) return;
-    this.lowFps = 0;
-    const s = this.settings;
-    const order = ['low', 'medium', 'high', 'ultra'] as const;
-    const at = order.indexOf(s.quality);
-    if (s.rayTracing) s.rayTracing = false;
-    else if (at > 0) s.quality = order[at - 1];
-    else return;
-    this.view.applySettings(s);
+    const avg = this.lowFpsSum / this.lowFps;
+    this.lowFps = this.lowFpsSum = 0;
+    const next = autoQualityStep(this.settings.quality, this.settings.rayTracing, avg);
+    if (!next) return;
+    this.pendingQuality = next;
+    this.hud.toast(tr`帧率偏低，画质自动调到“${QUALITY[next.quality].label}”${next.rayTracing !== this.settings.rayTracing ? tr('（光线追踪关闭）') : ''}，换的时候会停一下`, 'info', 6000);
+  }
+
+  /** 换上一帧定下的画质（提示已经显示出来了） */
+  private applyAutoQuality(): void {
+    const next = this.pendingQuality;
+    this.pendingQuality = null;
+    if (!next) return;
+    this.settings.quality = next.quality;
+    this.settings.rayTracing = next.rayTracing;
+    this.view.applySettings(this.settings);
     this.save.save();
-    this.hud.toast(tr`帧率偏低，画质已自动调到“${QUALITY[s.quality].label}”${s.rayTracing ? '' : tr('（光线追踪关闭）')}`, 'info', 5000);
+    this.qualityHold = 12;
+    this.lowFps = this.lowFpsSum = 0;
   }
 
   private readInput(s: GameSession, dt: number): void {

@@ -6,7 +6,7 @@ A first-person helicopter sim that runs in your browser. Nothing to download or 
 
 **Play it here: https://tenshojin.github.io/rotor-trails/**
 
-On a computer you fly with keyboard and mouse, or with a gamepad (Xbox / PlayStation layout). On a phone or tablet, turn the device sideways and fly with two on-screen sticks (Full Sim is computer-only). Desktop Chrome or Edge with hardware acceleration turned on is recommended. Your progress is saved in your own browser. The game is available in English, Japanese and Simplified Chinese; it follows your browser's language, and you can switch at the top right of the main menu. If this is your first time, start with Flight School.
+On a computer you fly with keyboard and mouse, or with a gamepad (Xbox / PlayStation layout). On a phone or tablet, turn the device sideways and fly with two on-screen sticks (Full Sim is computer-only). Desktop Chrome or Edge with hardware acceleration turned on is recommended. In browsers without WebGPU (common on Linux) the game switches to WebGL2 and starts one quality level lower; if the frame rate still can't keep up, it lowers the quality again, with a short pause while it switches. Your progress is saved in your own browser. The game is available in English, Japanese and Simplified Chinese; it follows your browser's language, and you can switch at the top right of the main menu. If this is your first time, start with Flight School.
 
 ![Seto Bay Islands](docs/screenshots/en/04_japan.jpg)
 

@@ -28,6 +28,8 @@ function fixture() {
     scene: new THREE.Scene(), settings, ready: true, rig: { camera }, renderer, sun, sky, lightning: {},
     nav: { guides: false }, terrain: { lodScale: 0, shadowRange: 0 }, trees: { quality: {} }, props: { lodScale: 0 },
     water: { ssr: { value: 0 } }, rivers: { ssr: { value: 0 } }, world: null,
+    // 人眼适应：WebGPU 上在 CPU 适应，后期不乘显卡上的曝光
+    eye: { gpuNode: null },
   });
   view.applySettings(settings);
   return { view, settings, camera, renderer, sun, sky };

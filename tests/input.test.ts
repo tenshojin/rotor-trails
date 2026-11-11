@@ -286,3 +286,90 @@ describe('手柄、触屏和键盘一起用', () => {
     expect(got).toEqual(['pad', 'keyboard']);
   });
 });
+
+// X11 上的毛病（2026-11-11 Linux 玩家反馈“时不时卡一下”）：锁定鼠标时偶尔冒出几百像素的假移动；
+// 有的输入法按住不放会送成“松开、按下”一对一对
+describe('X11 上的鼠标、键盘', () => {
+  let win: EventTarget;
+  let doc: EventTarget & { hidden: boolean; pointerLockElement: EventTarget | null; exitPointerLock: ReturnType<typeof vi.fn> };
+  let canvas: EventTarget & { requestPointerLock: ReturnType<typeof vi.fn> };
+  let input: Input;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    win = new EventTarget();
+    doc = Object.assign(new EventTarget(), { hidden: false, pointerLockElement: null, exitPointerLock: vi.fn() });
+    canvas = Object.assign(new EventTarget(), { requestPointerLock: vi.fn().mockResolvedValue(undefined) });
+    vi.stubGlobal('window', win);
+    vi.stubGlobal('document', doc);
+    input = new Input(canvas as unknown as HTMLCanvasElement, defaultSettings());
+    input.active = true;
+  });
+  afterEach(() => {
+    input.dispose();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  const lock = () => {
+    doc.pointerLockElement = canvas;
+    doc.dispatchEvent(event('pointerlockchange'));
+  };
+
+  it('刚锁上的第一下移动不算，之后正常', () => {
+    lock();
+    win.dispatchEvent(event('mousemove', { movementX: 180, movementY: 40 }));
+    expect(input.takeLook(0)).toEqual([0, 0]);
+    win.dispatchEvent(event('mousemove', { movementX: 12, movementY: 4 }));
+    expect(input.takeLook(0)[0]).toBeGreaterThan(0);
+  });
+
+  it('一个事件里几百像素的假移动不算，正常甩鼠标照算', () => {
+    lock();
+    win.dispatchEvent(event('mousemove', { movementX: 1, movementY: 0 }));
+    input.takeLook(0);
+    win.dispatchEvent(event('mousemove', { movementX: -640, movementY: 3 }));
+    win.dispatchEvent(event('mousemove', { movementX: 2, movementY: -420 }));
+    expect(input.takeLook(0)).toEqual([0, 0]);
+    win.dispatchEvent(event('mousemove', { movementX: 120, movementY: -60 }));
+    const [dx, dy] = input.takeLook(0);
+    expect(dx).toBeGreaterThan(0);
+    expect(dy).not.toBe(0);
+  });
+
+  it('按住不放时冒出来的“松开、按下”不算松开，也不算新按了一下', () => {
+    const edges: string[] = [];
+    input.onEdge = (a) => edges.push(a);
+    win.dispatchEvent(event('keydown', { code: 'KeyW' }));
+    win.dispatchEvent(event('keydown', { code: 'KeyH' }));
+    expect(edges).toEqual(['hover']);
+    for (let i = 0; i < 5; i++) {
+      win.dispatchEvent(event('keyup', { code: 'KeyW' }));
+      win.dispatchEvent(event('keyup', { code: 'KeyH' }));
+      vi.advanceTimersByTime(10);
+      expect(input.is('forward')).toBe(true);
+      win.dispatchEvent(event('keydown', { code: 'KeyW' }));
+      win.dispatchEvent(event('keydown', { code: 'KeyH' }));
+      vi.advanceTimersByTime(20);
+    }
+    expect(input.is('forward')).toBe(true);
+    expect(edges).toEqual(['hover']);
+  });
+
+  it('真松开了 30 毫秒以内生效；失焦马上清空', () => {
+    win.dispatchEvent(event('keydown', { code: 'KeyW' }));
+    win.dispatchEvent(event('keyup', { code: 'KeyW' }));
+    vi.advanceTimersByTime(29);
+    expect(input.is('forward')).toBe(true);
+    vi.advanceTimersByTime(2);
+    expect(input.is('forward')).toBe(false);
+    win.dispatchEvent(event('keydown', { code: 'KeyW' }));
+    win.dispatchEvent(event('keyup', { code: 'KeyW' }));
+    win.dispatchEvent(event('blur'));
+    expect(input.is('forward')).toBe(false);
+    // 失焦清掉的待松开计时，回来以后不会误伤新按下的键
+    win.dispatchEvent(event('keydown', { code: 'KeyW' }));
+    vi.advanceTimersByTime(100);
+    expect(input.is('forward')).toBe(true);
+  });
+});

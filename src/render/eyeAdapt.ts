@@ -3,9 +3,12 @@
 // 太阳落到山后、飞进峡谷的阴影里，暗部也不会死黑。只补偿一部分：黄昏还是黄昏，不会被提成白天。
 //
 // 读回是异步的（几帧之后才拿到结果），不会让 CPU 等 GPU；适应本来就是秒级的慢动作，这点延迟看不出来。
+// 这只对 WebGPU 成立。WebGL2 没有真正的异步读回：读一次要让主线程停下来，等显卡把手上的活全干完，
+// 实测一次 30～90 ms、每 5 帧一次，飞起来一顿一顿的（Linux 上的浏览器常常没有 WebGPU，走的就是 WebGL2）。
+// 所以 WebGL2 上整个适应搬到显卡上做（GpuEye），CPU 不读回。
 
 import * as THREE from 'three/webgpu';
-import { clamp, dot, exp2, float, floor, Fn, log2, Loop, max, mod, texture, uv, vec2, vec3, vec4 } from 'three/tsl';
+import { clamp, dot, exp, exp2, float, floor, Fn, log2, Loop, max, mod, pow, select, texture, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
 
 /** 格子数：8 × 8，排成一行（64 × 4 字节 = 256 字节，正好是 WebGPU 读回一行要求的对齐长度） */
 const GRID = 8;
@@ -49,6 +52,99 @@ export interface EyeAdaptOptions {
 
 export const EYE_DEFAULT: EyeAdaptOptions = { key: 0.23, strength: 0.62, min: 0.58, max: 2.3, tauUp: 2.6, tauDown: 1.1 };
 
+/**
+ * 显卡上的适应（WebGL2 用）：每帧把 64 格亮度按中央权重平均、算出目标曝光、按时间常数靠过去，
+ * 和 CPU 那边 consume() + update() 是同一套算式。结果留在 1 × 1 的贴图里，后期乘在画面上（post.ts 的 display）。
+ * 两张贴图来回倒：读上一帧的那张、写另一张。用 32 位浮点：每帧只挪千分之几，半精度会卡在离目标还差几个百分点的地方
+ */
+class GpuEye {
+  private readonly rts: [THREE.RenderTarget, THREE.RenderTarget];
+  private read = 0;
+  /** 后期读的“当前值” */
+  private readonly cur: THREE.TextureNode;
+  /** 这一步读的“上一帧的值” */
+  private readonly prev: THREE.TextureNode;
+  private readonly material = new THREE.NodeMaterial();
+  private readonly quad = new THREE.QuadMesh(this.material);
+  private readonly u = {
+    dt: uniform(0),
+    snap: uniform(1),
+    key: uniform(EYE_DEFAULT.key),
+    strength: uniform(EYE_DEFAULT.strength),
+    min: uniform(EYE_DEFAULT.min),
+    max: uniform(EYE_DEFAULT.max),
+    tauUp: uniform(EYE_DEFAULT.tauUp),
+    tauDown: uniform(EYE_DEFAULT.tauDown),
+  };
+  /** 1 = 画面乘上适应后的曝光；0 = 乘 1（设置里关了人眼适应，或者第一步还没算） */
+  readonly on = uniform(0);
+  /** 适应之后再加的一点（闪电那一下） */
+  readonly add = uniform(0);
+  /** 后期乘在画面上的倍数 */
+  readonly node: THREE.Node<'float'>;
+  /** 至少算过一步（贴图里有值了） */
+  ready = false;
+
+  constructor(cells: THREE.Texture) {
+    const make = (): THREE.RenderTarget => {
+      const rt = new THREE.RenderTarget(1, 1, { depthBuffer: false, type: THREE.FloatType });
+      rt.texture.name = 'EyeAdaptGpu';
+      rt.texture.minFilter = THREE.NearestFilter;
+      rt.texture.magFilter = THREE.NearestFilter;
+      rt.texture.generateMipmaps = false;
+      return rt;
+    };
+    this.rts = [make(), make()];
+    this.cur = texture(this.rts[0].texture);
+    this.prev = texture(this.rts[0].texture);
+    const u = this.u;
+    const cell = texture(cells);
+    this.material.name = 'EyeAdaptGpu';
+    this.material.fragmentNode = Fn(() => {
+      const m = float(0).toVar();
+      for (let i = 0; i < CELLS; i++) m.addAssign(cell.sample(vec2((i + 0.5) / CELLS, 0.5)).r.mul(WEIGHT[i] * (LOG_MAX - LOG_MIN)));
+      const lum = exp2(m.add(LOG_MIN));
+      const target = clamp(pow(u.key.div(max(lum, 1e-3)), u.strength), u.min, u.max);
+      const prev = this.prev.sample(vec2(0.5, 0.5)).r;
+      const tau = select(target.greaterThan(prev), u.tauUp, u.tauDown);
+      const next = prev.add(target.sub(prev).mul(float(1).sub(exp(u.dt.negate().div(tau)))));
+      const v = select(u.snap.greaterThan(0.5), target, next);
+      return vec4(v, v, v, 1);
+    })();
+    // （用 select 不用 mix：贴图里万一是 NaN，乘 0 还是 NaN，整个画面会黑掉）
+    this.node = select(this.on.greaterThan(0.5), this.cur.sample(vec2(0.5, 0.5)).r.add(this.add), float(1));
+  }
+
+  /** 这一帧的 64 格亮度画好之后算一步 */
+  step(r: THREE.WebGPURenderer, dt: number, snap: boolean, o: EyeAdaptOptions): void {
+    const u = this.u;
+    u.dt.value = Math.max(0, dt);
+    u.snap.value = snap || !this.ready ? 1 : 0;
+    u.key.value = o.key;
+    u.strength.value = o.strength;
+    u.min.value = o.min;
+    u.max.value = o.max;
+    u.tauUp.value = o.tauUp;
+    u.tauDown.value = o.tauDown;
+    this.prev.value = this.rts[this.read].texture;
+    const prevTarget = r.getRenderTarget();
+    r.setRenderTarget(this.rts[1 - this.read]);
+    try {
+      this.quad.render(r);
+    } finally {
+      r.setRenderTarget(prevTarget);
+    }
+    this.read = 1 - this.read;
+    this.cur.value = this.rts[this.read].texture;
+    this.ready = true;
+  }
+
+  dispose(): void {
+    for (const rt of this.rts) rt.dispose();
+    this.material.dispose();
+  }
+}
+
 export class EyeAdapt {
   /** 当前的曝光倍数 */
   value = 1;
@@ -65,6 +161,8 @@ export class EyeAdapt {
   private fresh = true;
   private dead = false;
   private generation = 0;
+  /** WebGL2：在显卡上适应（见 GpuEye），不读回 */
+  private gpu: GpuEye | null = null;
 
   constructor() {
     this.rt = new THREE.RenderTarget(CELLS, 1, { depthBuffer: false, type: THREE.UnsignedByteType });
@@ -101,9 +199,50 @@ export class EyeAdapt {
     this.count = 0;
   }
 
+  /** 渲染器初始化以后按后端设一次：WebGL2 上在显卡上适应 */
+  useGpu(on: boolean): void {
+    if (on && !this.gpu && !this.dead) {
+      this.gpu = new GpuEye(this.rt.texture);
+      this.fresh = true;
+    } else if (!on && this.gpu) {
+      this.gpu.dispose();
+      this.gpu = null;
+    }
+  }
+
+  get onGpu(): boolean {
+    return this.gpu !== null;
+  }
+
+  /** 后期乘在画面上的曝光（只在显卡上适应时有，否则 null：后期不乘，曝光全在 toneMappingExposure 里） */
+  get gpuNode(): THREE.Node<'float'> | null {
+    return this.gpu?.node ?? null;
+  }
+
+  /** 显卡上适应时每帧设：画面乘不乘适应后的曝光（设置里可以关），适应之后再加多少（闪电） */
+  gpuOutput(active: boolean, add: number): void {
+    if (!this.gpu) return;
+    this.gpu.on.value = active && this.gpu.ready ? 1 : 0;
+    this.gpu.add.value = add;
+  }
+
   /** 这帧画面（线性 HDR，色调映射之前）画完之后调用 */
-  sample(r: THREE.WebGPURenderer, tex: THREE.Texture | null): void {
+  sample(r: THREE.WebGPURenderer, tex: THREE.Texture | null, dt = 0): void {
     if (!tex || this.dead) return;
+    if (this.gpu) {
+      // 显卡上：每帧画 64 格，再算一步适应，全程不读回
+      this.src.value = tex;
+      const prevTarget = r.getRenderTarget();
+      r.setRenderTarget(this.rt);
+      try {
+        this.quad.render(r);
+      } finally {
+        r.setRenderTarget(prevTarget);
+      }
+      this.gpu.step(r, dt, this.fresh, this.opt);
+      this.fresh = false;
+      return;
+    }
     if (++this.count < EVERY || this.busy) return;
     this.count = 0;
     this.src.value = tex;
@@ -159,6 +298,8 @@ export class EyeAdapt {
   dispose(): void {
     this.dead = true;
     this.generation++;
+    this.gpu?.dispose();
+    this.gpu = null;
     this.rt.dispose();
     this.material.dispose();
   }

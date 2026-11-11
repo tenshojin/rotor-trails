@@ -40,6 +40,7 @@ import { makeReflectField } from './reflectMap';
 import { GRASS_MID, GroundCover } from './groundCover';
 import { RiverView } from './riverView';
 import { EYE_DEFAULT, EyeAdapt } from './eyeAdapt';
+import { earlyGlReadback } from './glReadback';
 import { clearSunMap, setSunMap, type FarGrid } from './sunMap';
 import { bakeGi, clearGiMap, disposeGi, GI, giGroundLight, setGiMap } from './giField';
 import { sunFor, type TimeOfDay } from './timeOfDay';
@@ -122,6 +123,8 @@ export class WorldView {
   frames = 0;
   /** renderer.init() 完成后才能渲染 */
   private ready = false;
+  /** WebGL2：帧开头交出读回结果（见 glReadback.ts）；WebGPU 是 null */
+  private glReadback: (() => void) | null = null;
   private gbT = -10;
   private trackGpu = false;
   private gpuBusy = false;
@@ -209,6 +212,8 @@ export class WorldView {
   flash = 0;
   /** 拍照模式：曝光补偿（档）、把直升机藏起来、背景虚化（0..1） */
   exposureBias = 0;
+  /** 座舱屏幕夜里调暗用的总曝光（上一帧的） */
+  private glassExposure = 1;
   hideHeli = false;
   photoBlur = 0;
   /** 雷声回调（音频层） */
@@ -259,9 +264,17 @@ export class WorldView {
   /** 初始化 GPU（WebGPU 不可用时退回 WebGL2），必须在第一次渲染前 await。 */
   async init(): Promise<void> {
     await this.renderer.init();
+    // WebGL2 上人眼适应改在显卡上算：那里读回一次要让主线程等显卡把这一帧画完（见 eyeAdapt.ts）
+    this.eye.useGpu((this.renderer.backend as unknown as { isWebGLBackend?: boolean }).isWebGLBackend === true);
+    this.glReadback = earlyGlReadback(this.renderer);
     this.pmrem = new THREE.PMREMGenerator(this.renderer);
     this.ready = true;
     this.applySettings(this.settings);
+  }
+
+  /** 每帧开头、画东西之前调用（App 用一个排在主循环前面的 requestAnimationFrame）：WebGL2 上在这时交出读回结果 */
+  pollReadback(): void {
+    this.glReadback?.();
   }
 
   /** 实际使用的后端与显卡名称 */
@@ -424,7 +437,7 @@ export class WorldView {
     const s = this.settings;
     const key = `${s.quality}_${s.rayTracing}_${s.motionBlur}_${s.volumetric}_${s.renderScale}_${this.dofOn}_${this.dofTaps}`;
     if (key === this.postKey && this.post) return;
-    const next = buildPost(this.renderer, this.scene, this.rig.camera, this.sun, { quality: s.quality, rayTracing: s.rayTracing, motionBlur: s.motionBlur, volumetric: s.volumetric, dof: this.dofOn, upscale: s.quality === 'low' ? 1 : s.renderScale });
+    const next = buildPost(this.renderer, this.scene, this.rig.camera, this.sun, { quality: s.quality, rayTracing: s.rayTracing, motionBlur: s.motionBlur, volumetric: s.volumetric, dof: this.dofOn, upscale: s.quality === 'low' ? 1 : s.renderScale, eye: this.eye.gpuNode });
     const previous = this.post;
     this.post = next;
     this.postKey = key;
@@ -829,6 +842,7 @@ export class WorldView {
     };
     const P = r._pipelines;
     const B = r.backend;
+    // （WebGL2 也试过 KHR_parallel_shader_compile：2026-11-11 实测加载 44.1 s 对 44.4 s，没有用处，还怕个别驱动不报“编好了”，不开）
     if (!B.isWebGPUBackend) return Object.assign(() => Promise.resolve(), { cancel() {} });
     const list: Array<Promise<void>> = [];
     const pipelineData = new Set<PipelineData>();
@@ -944,7 +958,7 @@ export class WorldView {
       this.cockpit.wiperMode = sys ? sys.wiperSpeed : -1;
       this.cockpit.glassUniforms.uFog.value = sys ? sys.fog : 0;
       this.cockpit.glassUniforms.uOutside.value = cockpitView ? 0 : 1;
-      this.cockpit.updateGlass(f.t, weather.rain + weather.snow * 0.3, tel.airspeed, s.buffs.shieldActive ? 0.25 + 0.15 * Math.sin(f.t * 6) : 0, this.renderer.toneMappingExposure);
+      this.cockpit.updateGlass(f.t, weather.rain + weather.snow * 0.3, tel.airspeed, s.buffs.shieldActive ? 0.25 + 0.15 * Math.sin(f.t * 6) : 0, this.glassExposure);
       if (this.landing) {
         // 机头下面的着陆灯：朝前下方，离地面越近越亮堂
         this.landing.position.set(0, -0.9, -2.2).applyQuaternion(_quat).add(_pos);
@@ -1070,7 +1084,20 @@ export class WorldView {
       // 清晨、黄昏整体更暗：曝光只补回一部分（像相机那样稍微提亮，但保留低光的气氛）
       const adapted = this.eye.update(f.dt);
       const fixed = this.tod === 'night' ? 2.8 : 1 + 0.32 * (1 - this.sky.dayK);
-      this.renderer.toneMappingExposure = ((1.0 - w.overcast * 0.12) * (this.settings.eyeAdapt ? adapted : fixed) + this.flash * 0.6) * 2 ** this.exposureBias;
+      const base = 1.0 - w.overcast * 0.12;
+      const bias = 2 ** this.exposureBias;
+      if (this.eye.onGpu) {
+        // WebGL2：适应后的曝光在显卡上，后期把它乘在画面上；这里只放其余的倍数，闪电那一下加在适应之后（总数和下面一样）。
+        // 关了人眼适应时显卡那边乘 1，固定曝光照旧放在这里
+        const gpu = this.settings.eyeAdapt;
+        this.eye.gpuOutput(gpu, (this.flash * 0.6) / base);
+        this.renderer.toneMappingExposure = gpu ? base * bias : (base * fixed + this.flash * 0.6) * bias;
+        // 屏幕调暗要知道总曝光，CPU 这边拿不到显卡上的值：按固定曝光估（夜里适应也是往大了开）
+        this.glassExposure = (base * fixed + this.flash * 0.6) * bias;
+      } else {
+        this.renderer.toneMappingExposure = (base * (this.settings.eyeAdapt ? adapted : fixed) + this.flash * 0.6) * bias;
+        this.glassExposure = this.renderer.toneMappingExposure;
+      }
       const q = QUALITY[set.quality];
       // 分层阴影：视野或宽高比变了要重新划分；每帧把各层阴影框跟随相机（内部按纹素对齐，避免闪烁）
       this.syncCameraProjection();
@@ -1145,7 +1172,7 @@ export class WorldView {
     } finally {
       undoWarm?.();
     }
-    if (set.eyeAdapt) this.eye.sample(this.renderer, this.post?.hdr() ?? null);
+    if (set.eyeAdapt) this.eye.sample(this.renderer, this.post?.hdr() ?? null, f.dt);
     this.frames++;
     this.frameStats.calls = this.renderer.info.render.drawCalls;
     this.frameStats.tris = this.renderer.info.render.triangles;

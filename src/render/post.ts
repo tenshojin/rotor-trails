@@ -65,6 +65,8 @@ export interface PostConfig {
   dof?: boolean;
   /** 景深一个像素看周围多少个点：拍照模式要多一些，圈大了才不花 */
   dofTaps?: number;
+  /** 人眼适应在显卡上算时（WebGL2，见 eyeAdapt.ts 的 GpuEye）乘在画面上的曝光；null = 曝光全在 toneMappingExposure 里 */
+  eye?: THREE.Node<'float'> | null;
 }
 
 export interface Post {
@@ -255,7 +257,7 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
   if (cfg.quality === 'low' && !cfg.rayTracing) {
     // FXAA 要在色调映射与色彩空间转换之后做
     pipeline.outputColorTransform = false;
-    pipeline.outputNode = fxaa(asTexture(grade(display(scenePass, dbg), dbg, float(1))));
+    pipeline.outputNode = fxaa(asTexture(grade(display(scenePass, dbg, cfg.eye ?? null), dbg, float(1))));
     return { pipeline, fog: null, hdr: () => scenePass.getTexture('output'), dispose };
   }
   const up = cfg.upscale ?? 1;
@@ -360,12 +362,14 @@ export function buildPost(renderer: THREE.WebGPURenderer, scene: THREE.Scene, ca
   }
   // 色调映射 + 色彩空间转换之后再调色（在显示空间里调对比度、饱和度更直观）
   pipeline.outputColorTransform = false;
-  pipeline.outputNode = grade(display(out, dbg), dbg, outside);
+  pipeline.outputNode = grade(display(out, dbg, cfg.eye ?? null), dbg, outside);
   return { pipeline, fog: fogNode, hdr, dispose };
 }
 
 /** 线性 HDR → 显示器：曝光、色调映射、sRGB */
-function display(c: THREE.Node<'vec4'>, dbg: PostDebug): THREE.Node<'vec4'> {
+function display(c: THREE.Node<'vec4'>, dbg: PostDebug, eye: THREE.Node<'float'> | null): THREE.Node<'vec4'> {
+  // WebGL2：人眼适应在显卡上算好，乘在色调映射之前（和 CPU 适应时乘进 toneMappingExposure 是一回事）
+  if (eye) c = vec4(c.rgb.mul(eye), c.a);
   const q = new URLSearchParams(globalThis.location?.search ?? '');
   const mode = dbg.tone ?? q.get('tone') ?? 'gt7';
   if (mode === 'neutral') return renderOutput(c);

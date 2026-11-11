@@ -10,6 +10,15 @@ const EDGE: EdgeAction[] = ['hover', 'boost', 'center', 'pause', 'view', 'nav', 
 /** 手柄上按住哪个键算按住这个动作（拍照模式“按住 B 走得快”这类要看按住没有，不是按了一下） */
 const PAD_HOLD: Partial<Record<Action, number>> = { hover: 0, boost: 1, view: 2, center: 3, cruise: 8, pause: 9, trim: 10, photo: 11, nav: 12, hud: 13, mapRange: 14 };
 
+/**
+ * 锁定鼠标时一个事件里最多认多少像素（CSS 像素）。X11 上的 Chrome、Firefox 锁定鼠标是靠把光标拽回窗口中间实现的，
+ * 偶尔会把“拽回去”那段也报成移动，几百像素，视线猛地一跳。真甩鼠标一个事件里也就几十像素
+ * （浏览器按帧合并移动事件：一秒转一千多度、帧率掉到 20 也才一百多像素）
+ */
+export const MOVE_SPIKE = 250;
+/** 松开按键等这么久（毫秒）才算松开：X11 上有的输入法（IBus、fcitx）按住不放会送成“松开、按下”一对一对 */
+export const RELEASE_DELAY = 30;
+
 /** 鼠标移到屏幕边上转头：从离边 EDGE_ZONE 处开始转，越靠边越快 */
 const EDGE_ZONE = 0.2;
 const EDGE_YAW = 1.5;
@@ -32,6 +41,10 @@ export interface PointerClick {
 
 export class Input {
   private down = new Set<string>();
+  /** 刚松开、还没算数的键（见 RELEASE_DELAY） */
+  private releasing = new Map<string, ReturnType<typeof setTimeout>>();
+  /** 刚锁上鼠标的第一下移动不算：有的浏览器会把光标从原来的位置拽到窗口中间那段也算成移动 */
+  private skipMove = false;
   private codeToActions = new Map<string, Action[]>();
   private settings: Settings;
   private canvas: HTMLCanvasElement;
@@ -228,6 +241,8 @@ export class Input {
 
   clear = (): void => {
     this.down.clear();
+    for (const t of this.releasing.values()) clearTimeout(t);
+    this.releasing.clear();
     this.dragging = false;
     this.lookDX = this.lookDY = 0;
     this.mouseHeld = this.rightDrag = false;
@@ -261,6 +276,12 @@ export class Input {
     }
     const target = e.target as HTMLElement | null;
     if (e.isComposing || target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+    // 刚松开（还没到 RELEASE_DELAY）又按下：当作一直按着，不算新按了一下
+    const pending = this.releasing.get(e.code);
+    if (pending !== undefined) {
+      clearTimeout(pending);
+      this.releasing.delete(e.code);
+    }
     const actions = this.codeToActions.get(e.code);
     if (this.active) {
       // 游戏中拦截浏览器快捷键（Ctrl+S/D/H/F/R/P 等可拦截；Ctrl+W 等无法拦截的由离开确认兜底）
@@ -281,7 +302,14 @@ export class Input {
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
-    this.down.delete(e.code);
+    const code = e.code;
+    if (!this.down.has(code)) return;
+    const old = this.releasing.get(code);
+    if (old !== undefined) clearTimeout(old);
+    this.releasing.set(code, setTimeout(() => {
+      this.releasing.delete(code);
+      this.down.delete(code);
+    }, RELEASE_DELAY));
   };
 
   private pointerAt(e: MouseEvent): void {
@@ -305,6 +333,13 @@ export class Input {
       return;
     }
     if (this.locked || this.dragging) {
+      if (this.locked) {
+        if (this.skipMove) {
+          this.skipMove = false;
+          return;
+        }
+        if (Math.abs(e.movementX) > MOVE_SPIKE || Math.abs(e.movementY) > MOVE_SPIKE) return;
+      }
       this.lookDX += e.movementX;
       this.lookDY += e.movementY;
     }
@@ -394,6 +429,7 @@ export class Input {
     if (this.locked) {
       this.lockRequest++;
       this.lockFailed = false;
+      this.skipMove = true;
     } else this.clear();
     this.onLockChange?.(this.locked);
   };

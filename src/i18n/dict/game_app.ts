@@ -82,7 +82,7 @@ const table: Table = {
   '截图已存到下载文件夹': ['Screenshot saved to your downloads folder', 'スクリーンショットをダウンロードフォルダに保存しました'],
   '游戏运行中断，请刷新页面后重试。已保存的进度不受影响。': ['The game stopped unexpectedly. Please refresh the page and try again. Your saved progress is not affected.', 'ゲームが中断されました。ページを更新してもう一度お試しください。保存済みの進行状況に影響はありません。'],
   '没关系，继续飞': ['It\'s fine. Keep flying', '大丈夫、そのまま飛びましょう'],
-  '帧率偏低，画质已自动调到“{0}”{1}': ['The frame rate is low, so quality was lowered to “{0}”{1}', 'フレームレートが低いため、画質を自動で「{0}」に下げました{1}'],
+  '帧率偏低，画质自动调到“{0}”{1}，换的时候会停一下': ['The frame rate is low, so quality is being lowered to “{0}”{1}. The game will pause for a moment while it switches.', 'フレームレートが低いため、画質を自動で「{0}」に下げます{1}。切り替えの間、少し止まります。'],
   '（光线追踪关闭）': [' (ray tracing off)', '（レイトレーシングはオフ）'],
   '已取消自动巡航，你来飞': ['Auto-cruise canceled. You have control', 'オートクルーズを解除しました。操縦をどうぞ'],
   '增强 ×{0}': ['Boost ×{0}', 'ブースト ×{0}'],
