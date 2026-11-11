@@ -8,6 +8,7 @@ import { padNavigate } from '../src/ui/padNav';
 import { PhotoPanel } from '../src/ui/photoPanel';
 import { ReplayPanel } from '../src/ui/replayPanel';
 import type { MapDef } from '../src/maps/types';
+import { speedMark } from '../src/core/speedMark';
 import type { GameSession } from '../src/sim/session';
 import type { WorldView } from '../src/render/worldView';
 
@@ -387,6 +388,44 @@ await test('主菜单：没飞过的人第一个按钮是飞行训练；右上�
 await test('任务简介：主线任务只编一次号', (ui) => {
   ui.briefing(map, undefined, defaultSettings(), { start: () => {}, back: () => {} });
   assert(!/^\d/.test(find<HTMLElement>('ol.obj-list li b').textContent ?? ''), '任务标题前面又手写了一遍编号');
+});
+
+// 玩家反馈：任务写“速度 < 25 m/s”，HUD 上的地速是 km/h，以为单位写错了。说明里的限速跟着 HUD 的速度单位走
+await test('任务简介：说明里的限速按 HUD 的速度单位写', (ui) => {
+  const fast = { ...map, mission: { main: [{ title: '巡查', detail: `速度低于 ${speedMark(25)}。` }], optional: [{ title: '穿越', detail: `低于 ${speedMark(30)} 穿过` }] } } as unknown as MapDef;
+  ui.briefing(fast, undefined, defaultSettings(), { start: () => {}, back: () => {} });
+  const text = fixture.textContent ?? '';
+  assert(text.includes('速度低于 90 km/h。') && text.includes('低于 108 km/h 穿过'), '默认的 km/h 没换过来');
+  assert(!text.includes('{v:'), '速度记号漏到了界面上');
+  ui.briefing(fast, undefined, { ...defaultSettings(), speedUnit: 'kt' }, { start: () => {}, back: () => {} });
+  assert((fixture.textContent ?? '').includes('速度低于 49 kt。'), '选了节（kt）还不是节');
+});
+
+await test('HUD 的任务栏：说明和提示里的限速按速度单位写，换单位马上跟着换', () => {
+  const hud = new Hud(fixture);
+  hud.show(true);
+  const settings: Settings = defaultSettings();
+  const cur = { def: { title: '巡查下游传感器', detail: `速度低于 ${speedMark(25)}。` }, hint: `传感器 C：减速至 ${speedMark(25)} 以下`, progress: 0.5 };
+  const session = {
+    // （不是 running：屏幕上的标记要真的镜头，这里只看任务栏的字）
+    state: 'paused', agl: 20, groundSpeed: 30, altitudeMSL: () => 20, repairProgress: 0,
+    body: { vel: { x: 30, y: 0, z: 0 }, pos: { x: 0, y: 20, z: 0 } },
+    flight: { telemetry: { pitch: 0, roll: 0, heading: 1, airspeed: 30, hoverPowerFrac: 0.6, powerFrac: 0.6, density: 1, torqueLimited: false, hover: 'off' }, assist: { label: '标准' } },
+    damage: { durability: 100, status: 'normal' },
+    windInfo: { dirFrom: 90, speed: 0, gust: 0, gustIn: null, vertical: 0 },
+    buffs: { boostActive: false, boostCharges: 0, boostTime: 0, shieldActive: false, shieldTime: 0 },
+    mission: { current: () => cur, index: 1, main: [{}, cur, {}], optional: [], optionalDone: 0, cargo: 0 },
+    nav: { info: { mode: 'complete', distance: 0, bearing: 0 }, focus: 0 },
+    landingTarget: () => null, terrainWarning: null, weatherInCloud: 0,
+  } as unknown as GameSession;
+  hud.update(session, {} as WorldView, settings, 10);
+  assert(find('.obj-detail').textContent === '速度低于 90 km/h。', `任务说明：${find('.obj-detail').textContent}`);
+  assert(find('.obj-hint').textContent === '传感器 C：减速至 90 km/h 以下', `提示：${find('.obj-hint').textContent}`);
+  settings.speedUnit = 'kt';
+  hud.update(session, {} as WorldView, settings, 11);
+  assert(find('.obj-detail').textContent === '速度低于 49 kt。', '换成节以后说明没跟着换');
+  assert((find('.hud-flight').textContent ?? '').includes('kt'), '地速的单位没换');
+  hud.dispose();
 });
 
 await test('设置：选语言、导出存档；导入先检查、确认了才换', async (ui) => {

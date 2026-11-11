@@ -49,7 +49,7 @@ const table: Table = {
   '降落在东岛气象站': ['Land at the East Island weather station', '東島気象観測所に着陸する'],
   '最终目标：在悬崖顶的气象站停机坪精确降落。': ['Final objective: a precise landing on the weather station pad at the top of the cliff.', '最終目標：崖の上にある気象観測所のヘリパッドへ正確に着陸します。'],
   '巡视海角灯塔': ['Inspect the cape lighthouse', '岬の灯台を巡回する'],
-  '以低于 25 m/s 的速度依次飞过灯塔周围的三个巡查点。': ['Fly past the three inspection points around the lighthouse in order, below 25 m/s.', '25 m/s 未満の速度で、灯台の周りの 3 つの巡回ポイントを順に通過します。'],
+  '以低于 {0} 的速度依次飞过灯塔周围的三个巡查点。': ['Fly past the three inspection points around the lighthouse in order, below {0}.', '{0} 未満の速度で、灯台の周りの 3 つの巡回ポイントを順に通過します。'],
   '灯塔西侧': ['West of the lighthouse', '灯台の西側'],
   '灯塔南侧': ['South of the lighthouse', '灯台の南側'],
   '灯塔东侧': ['East of the lighthouse', '灯台の東側'],

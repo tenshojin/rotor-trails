@@ -2,6 +2,7 @@
 
 import { Perlin2 } from '../core/noise';
 import { clamp, smoothstep } from '../core/math';
+import { speedMark } from '../core/speedMark';
 import { makeWeather } from '../sim/weather';
 import type { MapDef } from './types';
 import { tr, trKey } from '../i18n';
@@ -314,7 +315,7 @@ export const JAPAN: MapDef = {
         id: 'jo-lh',
         kind: 'inspect',
         title: tr('巡视海角灯塔'),
-        detail: tr('以低于 25 m/s 的速度依次飞过灯塔周围的三个巡查点。'),
+        detail: tr`以低于 ${speedMark(25)} 的速度依次飞过灯塔周围的三个巡查点。`,
         points: [
           { pos: [-450, 60, -1450], radius: 28, label: tr('灯塔西侧') },
           { pos: [-372, 60, -1400], radius: 28, label: tr('灯塔南侧') },

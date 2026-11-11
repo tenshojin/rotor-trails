@@ -4,7 +4,7 @@ import { ASSISTS, type AssistId } from '../config/flight';
 import { TIME_OF_DAY, type TimeOfDay } from '../render/timeOfDay';
 import type { MapDef } from '../maps/types';
 import type { MapRecord } from '../game/save';
-import { ACTION_LABEL, DEFAULT_BINDINGS, QUALITY, keyLabel, keyName, onTouchScreen, type Action, type Settings } from '../game/settings';
+import { ACTION_LABEL, DEFAULT_BINDINGS, QUALITY, keyLabel, keyName, onTouchScreen, withSpeeds, type Action, type Settings } from '../game/settings';
 import type { ScoreResult } from '../sim/scoring';
 import type { LandingMetrics } from '../sim/mission';
 import type { Lesson } from '../game/tutorial';
@@ -296,9 +296,9 @@ export class UI {
     let time: TimeOfDay = 'day';
     let assist: AssistId = settings.assist;
     const objs = m.mission.main
-      .map((o) => `<li><b>${o.title}</b><span>${o.detail}</span></li>`)
+      .map((o) => `<li><b>${o.title}</b><span>${withSpeeds(o.detail, settings.speedUnit)}</span></li>`)
       .join('');
-    const opt = m.mission.optional.map((o) => `<li><b>${rec?.optionalDone.includes(o.id) ? '✔ ' : ''}${o.title}</b><span>${o.detail}</span></li>`).join('');
+    const opt = m.mission.optional.map((o) => `<li><b>${rec?.optionalDone.includes(o.id) ? '✔ ' : ''}${o.title}</b><span>${withSpeeds(o.detail, settings.speedUnit)}</span></li>`).join('');
     const forks = m.legs
       .filter((l) => l.paths.length > 1)
       .map((l) => `<li>${l.paths.map((p) => tr`<b>${p.label}</b>：${p.detail}`).join('<br>')}</li>`)

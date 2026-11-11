@@ -2,6 +2,7 @@
 // 降落任务综合判断位置、下降速度、水平速度、姿态与稳定程度，“碰到停机坪”不算完成。
 
 import type { MissionDef, ObjectiveDef, V3 } from '../maps/types';
+import { speedMark } from '../core/speedMark';
 import { tr } from '../i18n';
 
 export type LandingGrade = 'perfect' | 'good' | 'ok' | 'rough' | 'unsafe';
@@ -86,6 +87,8 @@ export interface MissionContext {
   dt: number;
   pos: { x: number; y: number; z: number };
   speed: number;
+  /** 水平地速（HUD 上那个“地速”）。巡查的限速按它判：玩家是看着它减速的。不给时用 speed */
+  hspeed?: number;
   /** 滑橇底面高度（世界 y） */
   skidY: number;
   /** 稳定停放在哪个停机坪上（null = 没有） */
@@ -93,6 +96,18 @@ export interface MissionContext {
   /** 本步的接地事件（只在接地那一步出现） */
   touchdown: { padId: string | null; metrics: LandingMetrics } | null;
   airborne: boolean;
+}
+
+type InspectPoint = Extract<ObjectiveDef, { kind: 'inspect' }>['points'][number];
+
+/**
+ * 离巡查点的判定范围还差多少：判定范围是闪灯下面的一根竖直圆柱（见 maps/types.ts 里 points 的说明）。
+ * far：水平还差几米；high：高出圆柱顶几米；都是 0 并且 inside 才算在里面
+ */
+export function inspectGap(p: InspectPoint, pos: { x: number; y: number; z: number }): { inside: boolean; far: number; high: number } {
+  const horiz = Math.hypot(pos.x - p.pos[0], pos.z - p.pos[2]);
+  const top = p.top ?? p.pos[1] + p.radius;
+  return { inside: horiz < p.radius && pos.y <= top, far: Math.max(0, horiz - p.radius), high: Math.max(0, pos.y - top) };
 }
 
 function mkRT(def: ObjectiveDef): ObjectiveRT {
@@ -248,24 +263,43 @@ export class MissionRuntime {
       if (d.route?.length) {
         while (o.routeIdx < d.route.length - 1 && Math.hypot(ctx.pos.x - d.route[o.routeIdx][0], ctx.pos.z - d.route[o.routeIdx][2]) < 55) o.routeIdx++;
       }
-      let remaining = 0;
+      // 限速看 HUD 上的“地速”（水平速度），和玩家眼睛盯着的数一致。速度在文字里写成记号，显示时换成玩家选的单位
+      const slow = (ctx.hspeed ?? ctx.speed) <= d.maxSpeed;
       // （“太快了”的提示要留到速度降下来为止；按整句比，不按开头的字比：译成别的语言后开头不一样）
-      const fast = tr`速度过快：低于 ${d.maxSpeed} m/s 才能看清`;
-      d.points.forEach((p, i) => {
-        if (o.visited[i]) return;
-        const dd = Math.hypot(ctx.pos.x - p.pos[0], ctx.pos.y - p.pos[1], ctx.pos.z - p.pos[2]);
-        if (dd < p.radius) {
-          if (ctx.speed <= d.maxSpeed) {
+      const fast = tr`速度过快：低于 ${speedMark(d.maxSpeed)} 才能看清`;
+      let remaining = 0;
+      // 离得最近、还没巡查的那个点
+      let next: { label: string; far: number; high: number; gap: number } | null = null;
+      for (let i = 0; i < d.points.length; i++) {
+        if (o.visited[i]) continue;
+        const p = d.points[i];
+        const g = inspectGap(p, ctx.pos);
+        if (g.inside) {
+          if (slow) {
             o.visited[i] = true;
             out.push({ type: 'inspectPoint', obj: o, label: p.label, remaining: o.visited.filter((v) => !v).length });
-          } else o.hint = fast;
+            continue;
+          }
+          o.hint = fast;
         }
-        if (!o.visited[i]) remaining++;
-      });
+        remaining++;
+        const gap = Math.hypot(g.far, g.high);
+        if (!next || gap < next.gap) next = { label: p.label, far: g.far, high: g.high, gap };
+      }
       o.progress = 1 - remaining / d.points.length;
-      if (remaining === 0) this.finish(o, isOpt, null, out);
-      else if (o.hint !== fast) o.hint = tr`剩余 ${remaining} 个巡查点`;
-      if (o.hint === fast && ctx.speed <= d.maxSpeed) o.hint = tr`剩余 ${remaining} 个巡查点`;
+      if (remaining === 0) {
+        this.finish(o, isOpt, null, out);
+        return;
+      }
+      if (o.hint === fast && !slow) return;
+      // 快到下一个巡查点了：直接说还差什么（还要靠近几米、要降多少、要不要减速），不光写“还剩几个”
+      const parts: string[] = [];
+      if (next && next.gap < 150) {
+        if (next.far > 0) parts.push(tr`靠近目标 ${Math.ceil(next.far)} m`);
+        if (next.high > 0) parts.push(tr`降低 ${Math.ceil(next.high)} m`);
+        if (!slow) parts.push(tr`减速至 ${speedMark(d.maxSpeed)} 以下`);
+      }
+      o.hint = next && parts.length ? tr`${next.label}：${parts.join(' · ')}` : tr`剩余 ${remaining} 个巡查点`;
     }
   }
 

@@ -46,7 +46,7 @@ const table: Table = {
   '绕行大本营白塔祈福': ['Circle the white stupa at base camp for luck', 'ベースキャンプの白い仏塔を回って祈る'],
   '在大本营白塔上空 15–45 m 悬停 4 秒。': ['Hover for 4 seconds 15–45 m above the white stupa at base camp.', 'ベースキャンプの白い仏塔の上 15〜45 m で 4 秒間ホバリングします。'],
   '侦察冰瀑': ['Scout the icefall', 'アイスフォールを偵察する'],
-  '以低于 25 m/s 的速度飞过冰川谷上游的两个冰瀑观测点。': ['Fly past the two icefall observation points up the glacier valley at less than 25 m/s.', '25 m/s 未満の速度で、氷河の谷の上流にある 2 つのアイスフォール観測ポイントを通過します。'],
+  '以低于 {0} 的速度飞过冰川谷上游的两个冰瀑观测点。': ['Fly past the two icefall observation points up the glacier valley at less than {0}.', '{0} 未満の速度で、氷河の谷の上流にある 2 つのアイスフォール観測ポイントを通過します。'],
   '冰瀑下段': ['Lower icefall', 'アイスフォール下部'],
   '冰瀑上段': ['Upper icefall', 'アイスフォール上部'],
   '冰川谷谷风': ['Glacier valley wind', '氷河の谷の谷風'],

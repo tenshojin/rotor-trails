@@ -673,7 +673,7 @@ export class GameSession {
     const mev: MissionEvent[] = [];
     const prevIndex = this.mission.index;
     this.mission.update(
-      { t: this.t, dt, pos: b.pos, speed, skidY: this.skidY, settledPad: this.settledPad, touchdown, airborne },
+      { t: this.t, dt, pos: b.pos, speed, hspeed: Math.hypot(b.vel.x, b.vel.z), skidY: this.skidY, settledPad: this.settledPad, touchdown, airborne },
       (id) => (this.pad(id)?.size ?? 20) / 2,
       (id) => this.pad(id)?.pos ?? [0, 0, 0],
       mev,

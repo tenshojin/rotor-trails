@@ -7,7 +7,7 @@ import { BUFFS } from '../sim/buffs';
 import { STATUS_LABEL } from '../sim/damage';
 import { LANDING_LIMITS } from '../sim/mission';
 import type { GameSession } from '../sim/session';
-import { SPEED_K, SPEED_U, keyName, type Settings } from '../game/settings';
+import { SPEED_K, SPEED_U, keyName, withSpeeds, type Settings } from '../game/settings';
 import type { TutorialHud } from '../game/tutorial';
 import type { WorldView } from '../render/worldView';
 import { tr } from '../i18n';
@@ -341,11 +341,12 @@ export class Hud {
         this.busyT = t;
       }
       this.objTitle.textContent = title;
-      this.objDetail.textContent = cur.def.detail;
+      // 任务说明和提示里的限速换成 HUD 的速度单位（和上面“地速”一个单位）
+      this.objDetail.textContent = withSpeeds(cur.def.detail, set.speedUnit);
       this.objBar.style.width = `${cur.progress * 100}%`;
       let hint = cur.hint;
       if (s.repairProgress > 0) hint = tr`维修中… ${Math.round(s.repairProgress * 100)}%`;
-      this.objHint.textContent = hint;
+      this.objHint.textContent = withSpeeds(hint, set.speedUnit);
     } else {
       this.objTitle.textContent = tr('全部任务完成');
       this.objDetail.textContent = '';

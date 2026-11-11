@@ -1,6 +1,7 @@
 // 游戏设置（带默认值与校验）与画质预设。
 
 import type { AssistId } from '../config/flight';
+import { fillSpeeds } from '../core/speedMark';
 import type { LangSetting } from '../i18n';
 import { tr } from '../i18n';
 
@@ -394,6 +395,11 @@ export const SPEED_U = { kmh: 'km/h', kt: 'kt', ms: 'm/s' } as const;
 /** 把 m/s 写成选定的单位，取整，和 HUD 上的读数一个写法（11 m/s → “40 km/h”、“21 kt”、“11 m/s”） */
 export function speedText(metersPerSecond: number, unit: Settings['speedUnit']): string {
   return `${Math.round(metersPerSecond * SPEED_K[unit])} ${SPEED_U[unit]}`;
+}
+
+/** 任务说明、提示里的速度记号（speedMark(25) 写的 {v:25}）换成 HUD 的单位：“90 km/h” */
+export function withSpeeds(text: string, unit: Settings['speedUnit']): string {
+  return fillSpeeds(text, (v) => speedText(v, unit));
 }
 
 export function keyName(code: string): string {

@@ -3,6 +3,7 @@
 
 import { Perlin2 } from '../core/noise';
 import { smoothstep } from '../core/math';
+import { speedMark } from '../core/speedMark';
 import { makeWeather } from '../sim/weather';
 import type { Vec2 } from '../sim/terrain';
 import { randomBands, type RockFormDef } from '../world/rockForm';
@@ -337,7 +338,7 @@ export const HIMALAYA: MapDef = {
         id: 'ho-icefall',
         kind: 'inspect',
         title: tr('侦察冰瀑'),
-        detail: tr('以低于 25 m/s 的速度飞过冰川谷上游的两个冰瀑观测点。'),
+        detail: tr`以低于 ${speedMark(25)} 的速度飞过冰川谷上游的两个冰瀑观测点。`,
         points: [
           { pos: [VP.point(S_GLACIER - 600, 0)[0], Math.round(valleyFloor(S_GLACIER - 600) + 90), VP.point(S_GLACIER - 600, 0)[2]], radius: 45, label: tr('冰瀑下段') },
           { pos: [VP.point(S_GLACIER - 300, 0)[0], Math.round(valleyFloor(S_GLACIER - 300) + 90), VP.point(S_GLACIER - 300, 0)[2]], radius: 45, label: tr('冰瀑上段') },

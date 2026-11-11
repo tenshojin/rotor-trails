@@ -2,6 +2,7 @@
 
 import { Perlin2 } from '../core/noise';
 import { clamp, smoothstep } from '../core/math';
+import { speedMark } from '../core/speedMark';
 import { makeWeather } from '../sim/weather';
 import type { Vec2 } from '../sim/terrain';
 import { randomBands, type RockFormDef } from '../world/rockForm';
@@ -367,7 +368,7 @@ export const FJORD_MAP: MapDef = {
         id: 'fm-beacons',
         kind: 'inspect',
         title: tr('巡查峡湾口导航信标'),
-        detail: tr('依次低速飞过三座导航信标（绿、红、白，闪光节奏不同），速度低于 30 m/s。'),
+        detail: tr`依次低速飞过三座导航信标（绿、红、白，闪光节奏不同），速度低于 ${speedMark(30)}。`,
         points: BEACONS.map((b, i) => ({ pos: [b[0], 68, b[2]] as V3, radius: 45, label: tr`${[tr('绿色'), tr('红色'), tr('白色')][i]}信标` })),
         maxSpeed: 30,
         approach: [BEACONS[1][0], 70, BEACONS[1][2]],
@@ -381,7 +382,8 @@ export const FJORD_MAP: MapDef = {
         id: 'fo-falls',
         kind: 'inspect',
         title: tr('巡视七姐妹瀑布'),
-        detail: tr('以低于 25 m/s 的速度飞近瀑布（60 m 内）。'),
+        // （判定范围是瀑布前面那盏闪灯下的圆柱，离瀑布约 15–105 m；原来写的“60 m 内”对不上，改成说观测点）
+        detail: tr`以低于 ${speedMark(25)} 的速度飞近瀑布前方的观测点。`,
         points: [{ pos: [Math.round(FARM[0] + 160 - FARM_N[0] * 60), 150, Math.round(FARM[2] + 40 - FARM_N[1] * 60)], radius: 45, label: tr('瀑布') }],
         maxSpeed: 25,
         approach: [Math.round(FARM[0] + 160 - FARM_N[0] * 60), 150, Math.round(FARM[2] + 40 - FARM_N[1] * 60)],

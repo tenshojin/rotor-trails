@@ -9,6 +9,7 @@ import type { RockFormDef } from '../world/rockForm';
 import { farRiverLine, PathSampler, polylineDist, riverLine, smoothPath } from './routeUtil';
 import type { MapDef, RouteNodeDef, V3 } from './types';
 import { tr, trKey } from '../i18n';
+import { speedMark } from '../core/speedMark';
 
 /**
  * 地层（从谷底往上）：深色基岩 → 褐色砂岩崖 → 灰绿页岩缓坡 → 石灰岩 → 一整层红色的大崖 → 红色的薄层岩架 →
@@ -108,6 +109,11 @@ const S_ENTRY = MAINP.arcOf(-1430, 1215);
 const S_CONF = MAINP.arcOf(-160, 250);
 const S_STATION = S_CONF + 90;
 const S_SENS = [S_STATION + 420, S_STATION + 820, S_STATION + 1200];
+/** 传感器桩立在谷底、峡谷中线旁边（道具、河道避让、巡查判定都用这一处） */
+const SENSOR_AT: Vec2[] = S_SENS.map((s) => {
+  const p = MAINP.at(s);
+  return [p[0] + 12, p[1] + 6];
+});
 const S_ARCH = S_SENS[2] + 520;
 const S_LEDGE = S_ARCH + 360;
 
@@ -285,10 +291,7 @@ const MAIN_RIVER = riverLine(
         [
           [STATION[0], STATION[2], 46],
           [STATION[0] + 30, STATION[2] + 22, 36],
-          ...S_SENS.map((s): [number, number, number] => {
-            const p = MAINP.at(s);
-            return [p[0] + 12, p[1] + 6, 22];
-          }),
+          ...SENSOR_AT.map((p): [number, number, number] => [p[0], p[1], 22]),
         ],
       );
 
@@ -380,10 +383,7 @@ export const CANYON: MapDef = {
     { type: 'flagpole', pos: [-1500, 0, 860], ground: true, p: { color: 'us' } },
     { type: 'waterTower', pos: [-1570, 0, 860], ground: true },
     { type: 'researchStation', pos: [STATION[0] + 30, 0, STATION[2] + 22], rotY: 0.6, ground: true },
-    ...S_SENS.map((s) => {
-      const p = MAINP.at(s);
-      return { type: 'sensorPost', pos: [p[0] + 12, 0, p[1] + 6] as V3, ground: true };
-    }),
+    ...SENSOR_AT.map((p) => ({ type: 'sensorPost', pos: [p[0], 0, p[1]] as V3, ground: true })),
     { type: 'arch', pos: [ARCH_X, floorAt(S_ARCH) - 3, ARCH_Z], rotY: ARCH_ROT, p: { span: 104, rise: 86, thick: 15, depth: 20 } },
     { type: 'hoodooField', pos: [-640, 0, 220], ground: true, p: { r: 110, n: 16 } },
     { type: 'hoodooField', pos: [-1250, 0, 380], ground: true, p: { r: 120, n: 12 } },
@@ -447,8 +447,10 @@ export const CANYON: MapDef = {
         id: 'cm-sensors',
         kind: 'inspect',
         title: tr('巡查下游传感器'),
-        detail: tr('沿峡谷依次低速飞过 3 个传感器桩（速度 < 25 m/s，半径 32 m 内）。'),
-        points: S_SENS.map((s, i) => ({ pos: MAINP.point(s, floorAt(s) + 36), radius: 32, label: tr`传感器 ${'ABC'[i]}` })),
+        detail: tr`沿峡谷依次低速飞过 3 个传感器桩：离桩 40 m 内、离地 80 m 以下，速度低于 ${speedMark(25)}。`,
+        // 判定范围立在桩上：闪灯在桩顶上方约 10 m，下面一根半径 40 m、顶在离地 80 m 的圆柱，贴着桩低飞、在桩边悬停都算。
+        // （以前是悬在峡谷中线上 36 m 高、半径 32 m 的球，离桩 13 m：桩边离地 8 m 以下反而不算，玩家在第三个桩边停住也完成不了）
+        points: SENSOR_AT.map((p, i) => ({ pos: [Math.round(p[0]), Math.round(floorAt(S_SENS[i]) + 16), Math.round(p[1])] as V3, radius: 40, top: Math.round(floorAt(S_SENS[i]) + 80), label: tr`传感器 ${'ABC'[i]}` })),
         maxSpeed: 25,
         approach: MAINP.point(S_SENS[0], floorAt(S_SENS[0]) + 40),
         route: MAINP.nodes('r', S_SENS[0], S_SENS[2], 90, (s) => floorAt(s) + 36, { label: '' }).map((x) => x.pos),
@@ -474,7 +476,7 @@ export const CANYON: MapDef = {
         id: 'co-arch',
         kind: 'inspect',
         title: tr('穿越大岩拱'),
-        detail: tr('以低于 30 m/s 的速度从大岩拱下方穿过。'),
+        detail: tr`以低于 ${speedMark(30)} 的速度从大岩拱下方穿过。`,
         points: [{ pos: [ARCH_X, LOW(S_ARCH), ARCH_Z], radius: 24, label: tr('岩拱下方') }],
         maxSpeed: 30,
         approach: [ARCH_X, LOW(S_ARCH), ARCH_Z],

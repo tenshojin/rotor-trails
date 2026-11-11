@@ -2,6 +2,7 @@
 
 import { Perlin2 } from '../core/noise';
 import { headingOf, smoothstep } from '../core/math';
+import { speedMark } from '../core/speedMark';
 import { makeWeather } from '../sim/weather';
 import type { Vec2 } from '../sim/terrain';
 import { polylineDist, PathSampler, smoothPath } from './routeUtil';
@@ -341,7 +342,7 @@ export const AMAZON: MapDef = {
         id: 'ao-oxbow',
         kind: 'inspect',
         title: tr('巡查牛轭湖'),
-        detail: tr('以低于 25 m/s 的速度飞过牛轭湖上空的两个观测点。'),
+        detail: tr`以低于 ${speedMark(25)} 的速度飞过牛轭湖上空的两个观测点。`,
         points: [
           { pos: [140, 25, 930], radius: 35, label: tr('牛轭湖西段') },
           { pos: [420, 25, 880], radius: 35, label: tr('牛轭湖东段') },

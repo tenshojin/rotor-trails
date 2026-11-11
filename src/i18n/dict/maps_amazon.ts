@@ -42,7 +42,7 @@ const table: Table = {
   '降落在林冠观测平台': ['Land on the canopy observation platform', '樹冠観測プラットフォームに着陸する'],
   '平台高出地面 38 m，略高于周围树冠。精确降落在 14 m 的平台上。': ['The platform stands 38 m above the ground, just higher than the surrounding canopy. Land precisely on the 14 m platform.', 'プラットフォームは地上 38 m の高さにあり、周りの樹冠より少し高くなっています。14 m のプラットフォームへ正確に着陸してください。'],
   '巡查牛轭湖': ['Survey the oxbow lake', '三日月湖を巡回する'],
-  '以低于 25 m/s 的速度飞过牛轭湖上空的两个观测点。': ['Fly over the two observation points above the oxbow lake, below 25 m/s.', '25 m/s 未満の速度で、三日月湖の上空にある 2 つの観測ポイントを通過します。'],
+  '以低于 {0} 的速度飞过牛轭湖上空的两个观测点。': ['Fly over the two observation points above the oxbow lake, below {0}.', '{0} 未満の速度で、三日月湖の上空にある 2 つの観測ポイントを通過します。'],
   '牛轭湖西段': ['West end of the oxbow lake', '三日月湖の西側'],
   '牛轭湖东段': ['East end of the oxbow lake', '三日月湖の東側'],
   '观察巨型木棉树': ['Observe the giant kapok tree', '巨大なカポックの木を観察する'],

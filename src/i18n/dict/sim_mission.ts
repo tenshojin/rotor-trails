@@ -23,7 +23,9 @@ const table: Table = {
   '靠近目标 {0} m': ['Move {0} m closer to the target', '目標まであと {0} m 近づく'],
   '减速至 {0} m/s 以下': ['Slow down below {0} m/s', '{0} m/s 以下に減速'],
   '保持悬停… {0}%': ['Hold the hover… {0}%', 'ホバリングを維持… {0}%'],
-  '速度过快：低于 {0} m/s 才能看清': ['Too fast: fly below {0} m/s to inspect it', '速すぎます：{0} m/s 未満でないと確認できません'],
+  '速度过快：低于 {0} 才能看清': ['Too fast: fly below {0} to inspect it', '速すぎます：{0} 未満でないと確認できません'],
+  '减速至 {0} 以下': ['Slow down below {0}', '{0} 以下に減速'],
+  '{0}：{1}': ['{0}: {1}', '{0}：{1}'],
   '剩余 {0} 个巡查点': [(n: unknown) => `${n} inspection ${Number(n) === 1 ? 'point' : 'points'} left`, '巡回ポイント 残り {0}'],
 };
 

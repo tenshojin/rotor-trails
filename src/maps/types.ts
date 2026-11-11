@@ -133,7 +133,12 @@ export type ObjectiveDef =
       kind: 'inspect';
       title: string;
       detail: string;
-      points: Array<{ pos: V3; radius: number; label: string }>;
+      /**
+       * 巡查点。pos 是空中那盏闪灯（导航、地图也指向它）。判定范围是闪灯下面一根竖直的圆柱：
+       * 离 pos 水平 radius 以内，高度从地面到 top（不写时是闪灯往上 radius 米）都算——贴着地上的东西低飞、在它旁边悬停也算。
+       * （以前是以 pos 为球心的球：赤岩峡谷的球悬在谷底 36 m 高、离传感器桩 13 m，桩边离地 8 m 以下反而不算）
+       */
+      points: Array<{ pos: V3; radius: number; label: string; top?: number }>;
       maxSpeed: number;
       approach: V3;
       /** 巡查航线（可选）：导航沿此折线前进，巡查点位于航线附近（用于峡谷/河道等弯曲地形） */
