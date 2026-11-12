@@ -750,6 +750,10 @@ a {
 .cp-row .btn {
   margin-left: 6px;
 }
+/* 弹窗（设置、操作说明……）常常盖在暂停菜单上：卡片不透明，不然底下菜单的字会透上来 */
+.modal .card {
+  background: rgb(10, 17, 26);
+}
 .modal {
   position: absolute;
   inset: 0;
@@ -1898,6 +1902,21 @@ kbd.big.on {
     font-size: 14px;
   }
 }
+/* 手机（横着拿高不到 500 像素，竖着拿宽不到 480 像素）：时段、天气、地名几排下来，“继续飞行”被挤到卡片外面，
+   要往下滑才找得到。按钮挪到标题下面，时段、天气、地名放后面（要换再往下滑） */
+@media (max-height: 500px), (max-width: 480px) {
+  .free-pause {
+    display: flex;
+    flex-direction: column;
+  }
+  .free-pause > h2 {
+    order: -2;
+  }
+  .free-actions {
+    order: -1;
+    margin: 2px 0 4px;
+  }
+}
 /* 课程表 */
 .course-tabs {
   display: flex;
@@ -3033,7 +3052,7 @@ canvas.gl.sim-cursor.sim-cursor-hot {
   display: none;
 }
 @media (orientation: portrait) and (max-width: 640px) {
-  .touch-device::after {
+  .touch-device.touch-flight::after {
     content: '把手机横过来玩';
     position: fixed;
     inset: 0;
@@ -3048,12 +3067,12 @@ canvas.gl.sim-cursor.sim-cursor-hot {
 }
 /* 上面那句提示写在样式表里（内容是 CSS 生成的），别的语言各补一条 */
 @media (orientation: portrait) and (max-width: 640px) {
-  :root[lang='en'] .touch-device::after,
-  :root[lang='en'].touch-device::after {
+  :root[lang='en'] .touch-device.touch-flight::after,
+  :root[lang='en'].touch-device.touch-flight::after {
     content: 'Turn your phone sideways to play';
   }
-  :root[lang='ja'] .touch-device::after,
-  :root[lang='ja'].touch-device::after {
+  :root[lang='ja'] .touch-device.touch-flight::after,
+  :root[lang='ja'].touch-device.touch-flight::after {
     content: 'スマートフォンを横向きにしてください';
   }
 }
@@ -3097,4 +3116,24 @@ canvas.gl.sim-cursor.sim-cursor-hot {
   font-size: 12px;
   color: var(--muted);
   line-height: 1.35;
+}
+
+/* 触屏上按钮、分页、下拉框、滑条至少 44 像素高，手指好点（接着鼠标也一样） */
+.touch-device .ui :is(.btn, .tab, .lang-pick button, .seg button) {
+  min-height: 44px;
+  min-width: 44px;
+}
+.touch-device .set-row input[type='range'],
+.touch-device .set-row select {
+  min-height: 44px;
+}
+@media (max-width: 720px) {
+  .touch-device .main-menu { justify-content: flex-start; }
+  .touch-device .lang-pick {
+    position: static;
+    align-self: flex-end;
+    flex-shrink: 0;
+    margin: 0 0 8px auto;
+    max-width: 100%;
+  }
 }

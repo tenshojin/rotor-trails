@@ -307,6 +307,31 @@ export class FlightModel {
     }
   }
 
+
+  /** 读档以后只重算仪表上的读数（姿态、空速、升降速度……），不推进物理、不算操纵和受力 */
+  refreshReadings(b: BodyState, wind: Vector3, altitudeMSL: number): void {
+    const tel = this.telemetry;
+    _fwd.set(0, 0, -1).applyQuaternion(b.quat);
+    _up.set(0, 1, 0).applyQuaternion(b.quat);
+    _right.set(1, 0, 0).applyQuaternion(b.quat);
+    _qInv.copy(b.quat).invert();
+    _vAir.copy(b.vel).sub(wind);
+    _vAirB.copy(_vAir).applyQuaternion(_qInv);
+    tel.pitch = Math.asin(clamp(_fwd.y, -1, 1));
+    tel.roll = Math.atan2(-_right.y, _up.y);
+    tel.heading = Math.atan2(_fwd.x, -_fwd.z);
+    tel.airspeed = _vAir.length();
+    tel.forwardAirspeed = -_vAirB.z;
+    tel.groundSpeed = Math.hypot(b.vel.x, b.vel.z);
+    tel.verticalSpeed = b.vel.y;
+    tel.sideslip = Math.atan2(_vAirB.x, Math.max(3, Math.abs(_vAirB.z)));
+    tel.density = densityRatio(altitudeMSL);
+    tel.collective = this.collective;
+    tel.powerUsed = this.assist.id === 'sim' ? this.shaft : this.enginePower;
+    tel.torque = tel.powerUsed / HELI.transmissionLimit;
+    if (this.assist.id === 'sim') tel.rotorRpm = this.nr;
+  }
+
   /**
    * 计算本步作用在机体上的合外力与合外力矩（世界坐标，不含重力）。
    * 重力由物理世界施加；滑橇弹簧力由起落架模块施加。

@@ -4,11 +4,14 @@
 import type { MapId } from '../maps/types';
 import { defaultSettings, sanitizeSettings, upgradeDescendBindings, upgradeLegacyBindings, type Settings } from './settings';
 import { tr } from '../i18n';
-import { FlightSaves } from './flightSave';
+import { FlightSaves, FLIGHTS_KEY, FLIGHT_FORMAT, isFlightCollection } from './flightSave';
 
 export const SAVE_KEY = 'rotorTrails.save';
-/** v2：默认键位调整（下降键由 Ctrl/X 改为 C，视角回正由 C 改为 Z） */
-export const SAVE_VERSION = 4;
+/** v2：默认键位调整（下降键由 Ctrl/X 改为 C，视角回正由 C 改为 Z）。
+ *  v5：导入完整备份时，进度和飞行存档一起写进这一个键，一次写完（不会只导进去一半）；旧版游戏读到 v5 不会覆盖它 */
+export const SAVE_VERSION = 5;
+/** 能导入的存档文件最大多大（字节）。正常的完整备份远小于这个 */
+export const MAX_BACKUP_BYTES = 10_000_000;
 
 export interface MapRecord {
   completed: boolean;
@@ -121,6 +124,12 @@ export class SaveStore {
   requalify = false;
   private storage: StorageLike | null;
   private flightSaves: FlightSaves | null = null;
+  /** 坏掉、已经备份过的原存档：存的时候可以盖掉它 */
+  private recoveredRaw: string | null = null;
+  /** 导入代次：每导入一次换一个新的。别的标签页导入以后就对不上了，这个标签页不能再写（会把刚导入的盖回去） */
+  private generation: string | undefined;
+  /** 别的标签页导入过存档 */
+  private replaced = false;
 
   constructor(storage?: StorageLike | null) {
     let st: StorageLike | null = null;
@@ -157,6 +166,7 @@ export class SaveStore {
       const parsed: unknown = JSON.parse(raw);
       if (!isSaveObject(parsed)) throw new Error('Invalid save root');
       this.data = migrate(parsed);
+      this.generation = typeof parsed.saveGeneration === 'string' ? parsed.saveGeneration : undefined;
       // v3 之前新存档以外都停在“中”：那是旧默认值，重新按显卡选一次
       if (typeof parsed.version === 'number' && parsed.version < 3 && this.data.settings.quality === 'medium') this.requalify = true;
       if (typeof parsed.version === 'number' && parsed.version > SAVE_VERSION) {
@@ -169,6 +179,7 @@ export class SaveStore {
     } catch {
       try {
         st.setItem(SAVE_KEY + '.corrupt', raw);
+        this.recoveredRaw = raw;
         this.warning = tr('检测到损坏的存档，已恢复为默认设置（原数据已备份）。');
       } catch {
         this.warning = tr('检测到损坏的存档，已恢复为默认设置；原数据备份失败，暂不覆盖原存档。');
@@ -182,20 +193,64 @@ export class SaveStore {
   save(): boolean {
     if (!this.storage) return false;
     try {
-      this.storage.setItem(SAVE_KEY, JSON.stringify({ ...this.data, version: SAVE_VERSION }));
+      const current = this.readStored();
+      this.storage.setItem(SAVE_KEY, JSON.stringify({ ...this.data, version: SAVE_VERSION, ...(this.generation ? { saveGeneration: this.generation } : {}), ...(current && Object.hasOwn(current, 'flights') ? { flights: current.flights } : {}) }));
+      this.recoveredRaw = null;
       this.available = true;
       if (this.warning === tr('保存失败（存储空间已满或被禁止）。')) this.warning = null;
       return true;
     } catch {
       this.available = false;
-      this.warning = tr('保存失败（存储空间已满或被禁止）。');
+      this.warning = this.replaced ? tr('别的标签页导入了存档：这里不再保存，刷新页面后再玩。') : tr('保存失败（存储空间已满或被禁止）。');
       return false;
     }
   }
 
-  /** 飞到一半的存档（见 flightSave.ts）。和主存档同一个存储：主存档读不了、不让写的时候它也不写 */
+  /** 每次写之前都重新读一遍存着的主存档：别的标签页可能刚导入过（代次对不上就不写），飞行存档也可能放在里面 */
+  private readStored(): Record<string, unknown> | null {
+    if (!this.storage) throw new Error('Storage unavailable');
+    const raw = this.storage.getItem(SAVE_KEY);
+    if (raw === null || raw === this.recoveredRaw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!isSaveObject(parsed) || (typeof parsed.version === 'number' && parsed.version > SAVE_VERSION)) throw new Error('Unreadable save');
+    if (parsed.saveGeneration !== this.generation) { this.replaced = true; throw new Error('Save replaced by another tab'); }
+    return parsed;
+  }
+
+  /** 别的标签页导入了存档（这个标签页再写就会盖掉它）。浏览器的 storage 事件里查 */
+  hasExternalReplacement(): boolean {
+    try {
+      this.readStored();
+    } catch {
+      /* 换没换，readStored 记在 replaced 上 */
+    }
+    return this.replaced;
+  }
+
+  /**
+   * 飞到一半的存档（见 flightSave.ts）。和主存档同一个存储：主存档读不了、不让写的时候它也不写。
+   * 平时存在单独的键里（v1～v4 一直这样）；导入过完整备份以后，和进度一起放在主存档里（见 importText），
+   * 之后单独的那个键不再读，也不会在删掉存档以后又冒出来
+   */
   get flights(): FlightSaves {
-    return (this.flightSaves ??= new FlightSaves(this.storage));
+    const st = this.storage;
+    return (this.flightSaves ??= new FlightSaves(
+      st
+        ? {
+            getItem: (key) => {
+              if (key !== FLIGHTS_KEY) return st.getItem(key);
+              const current = this.readStored();
+              return current && Object.hasOwn(current, 'flights') ? JSON.stringify(current.flights) : st.getItem(FLIGHTS_KEY);
+            },
+            setItem: (key, value) => {
+              if (key !== FLIGHTS_KEY) return st.setItem(key, value);
+              const current = this.readStored();
+              if (current && Object.hasOwn(current, 'flights')) st.setItem(SAVE_KEY, JSON.stringify({ ...current, flights: JSON.parse(value) }));
+              else st.setItem(FLIGHTS_KEY, value);
+            },
+          }
+        : null,
+    ));
   }
 
   record(map: MapId): MapRecord {
@@ -209,11 +264,13 @@ export class SaveStore {
 
   /** 导出：整份存档的文本（JSON）。玩家存成文件，换电脑、换浏览器时再导入 */
   exportText(): string {
-    return JSON.stringify({ game: SAVE_KEY, exportedAt: new Date().toISOString(), ...this.data, version: SAVE_VERSION }, null, 1);
+    const flights = this.flights.snapshot();
+    return JSON.stringify({ game: SAVE_KEY, exportedAt: new Date().toISOString(), ...this.data, version: SAVE_VERSION, ...(flights ? { flights } : {}) }, null, 1);
   }
 
   /** 这段文本是不是能导入的存档。newer：比这个版本新的游戏导出的，读了会丢东西，不收 */
   static check(text: string): 'ok' | 'invalid' | 'newer' {
+    if (text.length > MAX_BACKUP_BYTES) return 'invalid';
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
@@ -222,17 +279,47 @@ export class SaveStore {
     }
     if (!isSaveObject(parsed) || typeof parsed.version !== 'number' || !Number.isFinite(parsed.version) || !isSaveObject(parsed.settings)) return 'invalid';
     if (parsed.game !== undefined && parsed.game !== SAVE_KEY) return 'invalid';
-    return parsed.version > SAVE_VERSION ? 'newer' : 'ok';
+    if (parsed.version > SAVE_VERSION) return 'newer';
+    if (Object.hasOwn(parsed, 'flights')) {
+      if (isSaveObject(parsed.flights) && typeof parsed.flights.format === 'number' && parsed.flights.format > FLIGHT_FORMAT) return 'newer';
+      if (!isFlightCollection(parsed.flights)) return 'invalid';
+    }
+    return 'ok';
   }
 
-  /** 导入：和读档走同一套迁移与校验，然后存进浏览器。存不进去（存储不可用）返回 false，现有进度不动 */
+  /** 导入前给玩家看的：通关了几张图、有几份飞行存档、哪天备份的（只看查过的数据）。flightCount 是 null：旧版或者只有进度的备份 */
+  static describe(text: string): { completedMaps: number; flightCount: number | null; exportedAt: number | null } | null {
+    if (SaveStore.check(text) !== 'ok') return null;
+    const parsed = JSON.parse(text);
+    const time = typeof parsed.exportedAt === 'string' ? Date.parse(parsed.exportedAt) : NaN;
+    return { completedMaps: Object.values(migrate(parsed).maps).filter((m) => m?.completed).length,
+      flightCount: parsed.flights ? Object.keys(parsed.flights.slots).length : null,
+      exportedAt: Number.isFinite(time) ? time : null };
+  }
+
+  /** 导入：和读档走同一套迁移与校验，进度和飞行存档一次写进去。存不进去（存储满了、被禁止）返回 false，现有进度和存档都不动 */
   importText(text: string): boolean {
-    if (SaveStore.check(text) !== 'ok') return false;
-    const before = this.data;
-    this.data = migrate(JSON.parse(text));
-    if (this.save()) return true;
-    this.data = before;
-    return false;
+    if (SaveStore.check(text) !== 'ok' || !this.storage) return false;
+    try {
+      const parsed = JSON.parse(text);
+      const next = migrate(parsed);
+      const current = this.readStored();
+      // 旧版（只有进度）的备份：这个浏览器里的飞行存档照旧留着
+      const flights: unknown = Object.hasOwn(parsed, 'flights') ? parsed.flights : current?.flights;
+      const saveGeneration = globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+      this.storage.setItem(SAVE_KEY, JSON.stringify({ ...next, saveGeneration, ...(flights !== undefined ? { flights } : {}) }));
+      this.generation = saveGeneration;
+      this.replaced = false;
+      this.data = next;
+      this.available = true;
+      this.warning = null;
+      this.fresh = this.requalify = false;
+      return true;
+    } catch {
+      this.available = false;
+      this.warning = this.replaced ? tr('别的标签页导入了存档：这里不再保存，刷新页面后再玩。') : tr('保存失败（存储空间已满或被禁止）。');
+      return false;
+    }
   }
 
   /** 记下到过的地方，返回是不是第一次来 */

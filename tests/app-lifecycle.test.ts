@@ -39,6 +39,9 @@ vi.mock('../src/ui/menus', () => ({ UI: class {
   clickToStart = vi.fn();
   dispose = vi.fn();
   compatError = vi.fn();
+  gpuLost = vi.fn();
+  saveChanged = vi.fn();
+  settings = vi.fn();
 } }));
 vi.mock('../src/ui/replayPanel', () => ({ ReplayPanel: class {
   update = vi.fn();
@@ -50,7 +53,7 @@ vi.mock('../src/world/worldgen', () => ({ generateWorld: vi.fn() }));
 
 import { App, autoQualityStep, defaultQuality, gpuWarning } from '../src/game/app';
 import { browserOf } from '../src/game/version';
-import { SAVE_KEY } from '../src/game/save';
+import { SAVE_KEY, SaveStore } from '../src/game/save';
 import { TRAINING } from '../src/maps/training';
 import { getMap } from '../src/maps/index';
 import { FLIGHTS_KEY, FLIGHT_FORMAT, mapSig } from '../src/game/flightSave';
@@ -59,7 +62,7 @@ import { generateWorld } from '../src/world/worldgen';
 
 class Element extends EventTarget {
   className = '';
-  classList = { add: vi.fn(), remove: vi.fn() };
+  classList = { add: vi.fn(), remove: vi.fn(), toggle: vi.fn() };
   appendChild = vi.fn();
   remove = vi.fn();
 }
@@ -138,6 +141,44 @@ describe('运行与加载恢复', () => {
     const description = vi.mocked(app.ui.clickToStart).mock.calls[0][1];
     expect(description).toContain('到达训练坪');
     expect(description.includes('<kbd>')).toBe(hints);
+  });
+
+
+  it('读档后等待玩家开始，不多推进一帧物理或休闲回血', async () => {
+    app.world = { map: TRAINING } as never;
+    vi.spyOn(app as any, 'warmUp').mockResolvedValue(undefined);
+    const session = {
+      t: 0, damage: { durability: 100 },
+      step: vi.fn(() => { session.t += 1 / 60; session.damage.durability += 4 / 60; }),
+      restoreState: vi.fn(() => { session.t = 12.5; session.damage.durability = 64; return true; }),
+      drainEvents: () => [], dispose: vi.fn(),
+      mission: { current: () => ({ def: { title: '继续训练' } }) },
+    };
+    vi.spyOn(GameSession, 'create').mockResolvedValue(session as unknown as GameSession);
+    await app.startRun({
+      map: TRAINING, weather: 'clear', assist: 'standard', free: true, tutorial: false,
+      resume: { sig: mapSig(TRAINING), run: { free: true }, state: {}, info: { step: 0, total: 2, durability: 64 } } as never,
+    });
+    expect(app.state).toBe('ready');
+    expect(session.t).toBe(12.5);
+    expect(session.damage.durability).toBe(64);
+    expect(session.restoreState).toHaveBeenCalledOnce();
+  });
+
+
+  it('导出时当前飞行写入失败，明确返回已有存档备份而非当前完整状态', () => {
+    vi.useFakeTimers();
+    vi.spyOn(app as any, 'saveBlock').mockReturnValue(null);
+    vi.spyOn(app as any, 'autoSaveFlight').mockReturnValue(false);
+    vi.spyOn(app.save, 'exportText').mockReturnValue(JSON.stringify({ version: 5, settings: {}, flights: { format: 1, slots: {} } }));
+    const click = vi.fn();
+    vi.spyOn(document, 'createElement').mockReturnValue({ click } as unknown as HTMLAnchorElement);
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:backup-test');
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    expect((app as any).exportSave()).toBe('saved-only');
+    expect(click).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(2000);
+    expect(revoke).toHaveBeenCalledWith('blob:backup-test');
   });
 
   it('回放放完飞机回到暂停时的地方，转速、镜头都还原，物理接着走', () => {
@@ -523,7 +564,7 @@ describe('飞行存档：离开时自动存、读档键连按两下', () => {
     app = new App(new Element() as unknown as HTMLElement, { getItem: (k) => memory.get(k) ?? null, setItem: (k, v) => void memory.set(k, v) });
     app.run = { map: getMap('japan'), weather: 'clear', assist: 'novice', tutorial: false, time: 'dusk' } as never;
   });
-  afterEach(() => { app.dispose(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+  afterEach(() => { app.dispose(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
   const slots = () => JSON.parse(memory.get(FLIGHTS_KEY) ?? '{"slots":{}}').slots;
 
   it('飞到一半回主菜单：自动存一份（单独一格），进度写对', () => {
@@ -547,6 +588,124 @@ describe('飞行存档：离开时自动存、读档键连按两下', () => {
     app.session = fakeSession();
     (app as any).tutorial = {};
     app.quitToMenu();
+    expect(slots().resume).toBeUndefined();
+  });
+
+  it('手机转竖屏会释放摇杆并暂停，横回来不会擅自继续', () => {
+    app.state = 'playing';
+    app.session = fakeSession();
+    vi.spyOn(app as any, 'audioState').mockReturnValue({ paused: true });
+    const touch = { setMode: vi.fn(), reset: vi.fn(), dispose: vi.fn() };
+    (app as any).touch = touch;
+    app.input.touchActive = true;
+    Object.assign(win, { innerWidth: 390, innerHeight: 844 });
+    win.dispatchEvent(new Event('resize'));
+    expect(app.state).toBe('paused');
+    expect(touch.setMode).toHaveBeenCalledWith('off');
+    expect(app.hud.toast).toHaveBeenCalledWith(expect.stringContaining('竖屏'), 'info', 6000);
+    Object.assign(win, { innerWidth: 844, innerHeight: 390 });
+    win.dispatchEvent(new Event('resize'));
+    expect(app.state).toBe('paused');
+    (app as any).touch = null;
+  });
+
+  it('键鼠切换到触屏主动解除鼠标锁定时不暂停；键鼠失去锁定仍暂停', () => {
+    app.state = 'playing';
+    app.session = fakeSession();
+    vi.spyOn(app as any, 'audioState').mockReturnValue({ paused: true });
+    app.input.touchActive = true;
+    app.input.onLockChange?.(false);
+    expect(app.state).toBe('playing');
+    app.input.touchActive = false;
+    app.input.onLockChange?.(false);
+    expect(app.state).toBe('paused');
+  });
+
+  it.each([false, true])('导入后停止旧会话；刷新被阻止=%s 时也不覆盖新存档', (blocked) => {
+    vi.useFakeTimers();
+    const reload = vi.fn(() => { if (blocked) throw new Error('reload blocked'); });
+    vi.stubGlobal('location', { reload });
+    app.state = 'paused';
+    const session = app.session = fakeSession();
+    app.applySettings({ ...app.settings, fov: 91 });
+    app.openSettings();
+    const options = vi.mocked(app.ui.settings).mock.calls.at(-1)![1];
+    options.importSave!(JSON.stringify({ version: 4, settings: { fov: 62 }, maps: {} }));
+    const imported = memory.get(SAVE_KEY);
+    expect(app.state).toBe('disposed');
+    expect(session.dispose).toHaveBeenCalledOnce();
+    expect(reload).toHaveBeenCalledOnce();
+    win.dispatchEvent(new Event('pagehide'));
+    win.dispatchEvent(new Event('beforeunload', { cancelable: true }));
+    Object.assign(document, { hidden: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    vi.runAllTimers();
+    expect(memory.get(SAVE_KEY)).toBe(imported);
+    expect(JSON.parse(imported!).settings.fov).toBe(62);
+    expect(slots().resume).toBeUndefined();
+  });
+
+  it('其他标签页导入的存储事件终止旧飞行，旧设置和航程不能反向写回', () => {
+    app.state = 'playing';
+    app.session = fakeSession();
+    const store = { getItem: (k: string) => memory.get(k) ?? null, setItem: (k: string, v: string) => { memory.set(k, v); } };
+    const other = new SaveStore(store);
+    expect(other.importText(JSON.stringify({ version: 4, settings: { fov: 63 }, maps: {} }))).toBe(true);
+    const imported = memory.get(SAVE_KEY);
+    win.dispatchEvent(Object.assign(new Event('storage'), { key: SAVE_KEY }));
+    expect(app.state).toBe('disposed');
+    win.dispatchEvent(new Event('pagehide'));
+    expect(memory.get(SAVE_KEY)).toBe(imported);
+    expect(slots().resume).toBeUndefined();
+  });
+
+  it('pagehide 即使没有 visibilitychange / beforeunload 也暂停并写入自动存档', () => {
+    app.state = 'playing';
+    app.session = fakeSession();
+    vi.spyOn(app as any, 'audioState').mockReturnValue({ paused: true });
+    win.dispatchEvent(new Event('pagehide'));
+    expect(app.state).toBe('paused');
+    expect(app.input.active).toBe(false);
+    expect(slots().resume.info.durability).toBe(64);
+    expect(slots().resume.state.snap.t).toBe(12);
+  });
+
+  it('GPU 丢失会保存当前飞行，停止模拟、输入和帧循环；恢复按钮之前不能再起飞', () => {
+    app.state = 'playing';
+    app.session = fakeSession();
+    app.input.active = true;
+    const a = app as any;
+    a.frameId = a.earlyId = 17;
+    const audio = vi.spyOn(app.audio, 'suspend');
+    a.view.onGpuLost();
+    expect(app.state).toBe('paused');
+    expect(slots().resume.state.snap.t).toBe(12);
+    expect(app.ui.gpuLost).toHaveBeenCalledWith(expect.any(Function), true);
+    expect(app.input.active).toBe(false);
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(17);
+    vi.mocked(app.ui.loading).mockClear();
+    a.showLoading('late download', 0.5, getMap('japan'));
+    expect(app.ui.loading).not.toHaveBeenCalled();
+    expect(a.loadingLifetime.signal.aborted).toBe(true);
+    const tick = vi.spyOn(a, 'tick');
+    a.frame(1000);
+    a.early();
+    app.resume();
+    expect(tick).not.toHaveBeenCalled();
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
+    expect(app.state).toBe('paused');
+    a.view.onGpuLost();
+    expect(app.ui.gpuLost).toHaveBeenCalledOnce();
+    expect(audio).toHaveBeenCalledOnce();
+  });
+
+  it('GPU 丢失时不能保存也停止飞行，并如实报告失败', () => {
+    app.state = 'playing';
+    app.session = fakeSession();
+    vi.spyOn(app.save.flights, 'put').mockReturnValue(false);
+    (app as any).view.onGpuLost();
+    expect(app.state).toBe('paused');
+    expect(app.ui.gpuLost).toHaveBeenCalledWith(expect.any(Function), false);
     expect(slots().resume).toBeUndefined();
   });
 
@@ -591,6 +750,26 @@ describe('飞行存档：离开时自动存、读档键连按两下', () => {
     expect(app.hud.toast).toHaveBeenLastCalledWith(expect.stringContaining('再按一次'), 'info', 2500);
     (app as any).quickLoad();
     expect(start).toHaveBeenCalledWith(expect.objectContaining({ map, assist: 'standard', free: false, resume: expect.objectContaining({ info: save.info }) }));
+  });
+
+  it('飞行状态坏了（有 NaN，比如出错的那一帧）：不存，上一份好的留着', () => {
+    app.state = 'paused';
+    app.session = fakeSession();
+    expect((app as any).autoSaveFlight()).toBe(true);
+    const before = memory.get(FLIGHTS_KEY);
+    app.session = { ...fakeSession(), saveState: () => ({ snap: { t: NaN }, checkpoints: [], stats: {} }) } as unknown as GameSession;
+    expect((app as any).autoSaveFlight()).toBe(false);
+    expect(memory.get(FLIGHTS_KEY)).toBe(before);
+  });
+
+  it('飞行存档是更新版本的游戏存的：不覆盖，按存档键时说清楚原因', () => {
+    const newer = JSON.stringify({ format: 99, slots: {} });
+    memory.set(FLIGHTS_KEY, newer);
+    app.state = 'playing';
+    app.session = fakeSession();
+    (app as any).quickSave();
+    expect(memory.get(FLIGHTS_KEY)).toBe(newer);
+    expect(app.hud.toast).toHaveBeenLastCalledWith(expect.stringContaining('更新版本'), 'warn', 6000);
   });
 
   it('按存档键：存进这张图自己的那一格；存不了的时候说原因', () => {

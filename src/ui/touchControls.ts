@@ -31,7 +31,7 @@ interface Stick {
 export function touchOnly(): boolean {
   try {
     if (new URLSearchParams(location.search).get('touch') === '1') return true;
-    return window.matchMedia('(hover: none) and (pointer: coarse)').matches && !window.matchMedia('(any-pointer: fine)').matches;
+    return window.matchMedia('(hover: none) and (pointer: coarse)').matches;
   } catch {
     return false;
   }
@@ -88,9 +88,11 @@ export class TouchControls {
     this.lookLayer.addEventListener('pointermove', this.lookMove);
     this.lookLayer.addEventListener('pointerup', this.lookEnd);
     this.lookLayer.addEventListener('pointercancel', this.lookEnd);
+    this.lookLayer.addEventListener('lostpointercapture', this.lookEnd);
     root.querySelectorAll<HTMLElement>('.t-key').forEach((b) => {
       this.keys.set(b.dataset.k as TouchEdge, b);
       b.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse') return;
         e.preventDefault();
         e.stopPropagation();
         this.onTouch();
@@ -117,7 +119,7 @@ export class TouchControls {
     const el = this.root.querySelector(selector) as HTMLElement;
     const s: Stick = { el, base: el.querySelector('.t-base') as HTMLElement, knob: el.querySelector('.t-knob') as HTMLElement, id: null, x0: 0, y0: 0 };
     el.addEventListener('pointerdown', (e) => {
-      if (s.id !== null) return;
+      if (e.pointerType === 'mouse' || s.id !== null) return;
       e.preventDefault();
       this.onTouch();
       s.id = e.pointerId;
@@ -141,6 +143,7 @@ export class TouchControls {
     };
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', end);
+    el.addEventListener('lostpointercapture', end);
     return s;
   }
 
@@ -162,7 +165,15 @@ export class TouchControls {
   }
 
   private release(s: Stick): void {
+    const id = s.id;
     s.id = null;
+    if (id !== null) {
+      try {
+        s.el.releasePointerCapture?.(id);
+      } catch {
+        /* 浏览器可能已经收回了 */
+      }
+    }
     s.knob.style.transform = '';
     s.base.style.left = s.base.style.top = s.base.style.bottom = '';
     s.base.classList.remove('on');
@@ -171,7 +182,8 @@ export class TouchControls {
   }
 
   private lookStart = (e: PointerEvent): void => {
-    if (this.lookId !== null) return;
+    if (e.pointerType === 'mouse' || this.lookId !== null) return;
+    e.preventDefault();
     this.onTouch();
     this.lookId = e.pointerId;
     this.lookX = e.clientX;
@@ -190,11 +202,25 @@ export class TouchControls {
     if (e.pointerId === this.lookId) this.lookId = null;
   };
 
+  /** 松开所有手指：窗口失焦、屏幕转向、换成鼠标或手柄的时候 */
+  reset = (): void => {
+    this.release(this.left);
+    this.release(this.right);
+    const id = this.lookId;
+    this.lookId = null;
+    if (id !== null) {
+      try {
+        this.lookLayer.releasePointerCapture?.(id);
+      } catch {
+        /* 浏览器可能已经收回了 */
+      }
+    }
+  };
+
   setMode(m: TouchMode): void {
     if (m === this.mode) return;
     // 飞行和拍照的摇杆管的不是一回事：换过去的时候手指还按着也要松开，不然机位接着飞行的量走
-    this.release(this.left);
-    this.release(this.right);
+    this.reset();
     this.mode = m;
     this.root.classList.toggle('hidden', m === 'off');
     this.root.classList.toggle('look-only', m === 'look');
@@ -210,6 +236,7 @@ export class TouchControls {
   }
 
   dispose(): void {
+    this.reset();
     this.root.remove();
   }
 }

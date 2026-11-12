@@ -3,7 +3,7 @@
 import { ASSISTS, type AssistId } from '../config/flight';
 import { TIME_OF_DAY, type TimeOfDay } from '../render/timeOfDay';
 import type { MapDef } from '../maps/types';
-import type { MapRecord } from '../game/save';
+import { MAX_BACKUP_BYTES, type MapRecord } from '../game/save';
 import { ACTION_LABEL, DEFAULT_BINDINGS, QUALITY, keyLabel, keyName, onTouchScreen, withSpeeds, type Action, type Settings } from '../game/settings';
 import type { ScoreResult } from '../sim/scoring';
 import type { LandingMetrics } from '../sim/mission';
@@ -185,13 +185,23 @@ export class UI {
   }
 
   /** 显卡驱动重置、别的程序把显卡占满时：页面还活着，画面没了 */
-  gpuLost(reload: () => void): void {
-    const el = this.openModal(
-      h(`<div class="modal"><div class="card narrow"><h2>${tr`显卡重置了`}</h2>
+  gpuLost(reload: () => void, flightSaved = false): void {
+    const saved = flightSaved ? tr('这一趟飞行已经自动存好了：重新加载以后，在主菜单点“继续飞行”接着飞。') : tr('这一趟飞行没能存上，要重新开始（之前存的档不受影响）。');
+    const el = this.show(
+      h(`<div class="screen center"><div class="card narrow" role="alert"><h2>${tr`显卡重置了`}</h2>
       <p>${tr`浏览器和显卡的连接断了。通常是显卡被别的程序占满，或者驱动崩溃后自己恢复了。`}</p>
-      <p class="muted">${tr`存档没事。这一趟飞行要重新开始。如果经常这样，可以在设置里把画质调低，或者先关掉占用显卡的程序。`}</p>
+      <p>${saved}</p><p class="muted">${tr`如果经常这样，可以在设置里把画质调低，或者先关掉占用显卡的程序。`}</p>
       <button class="btn primary" data-a="reload">${tr`重新加载`}</button></div></div>`),
     );
+    this.bind(el, { reload });
+  }
+
+  saveChanged(reload: () => void, imported = false): void {
+    const title = imported ? tr('存档已导入') : tr('别的标签页导入了存档');
+    const message = imported ? tr('进度和存档已经换好了，正在重新加载游戏。') : tr('这个标签页先停下了，免得把刚导入的存档盖掉。重新加载就能接着玩。');
+    const el = this.show(h('<div class="screen center"><div class="card narrow" role="alert"><h2>' +
+      escapeHtml(title) + '</h2><p>' + escapeHtml(message) + '</p><button class="btn primary" data-a="reload">' +
+      tr('重新加载') + '</button></div></div>'));
     this.bind(el, { reload });
   }
 
@@ -767,10 +777,13 @@ export class UI {
    * exportSave / checkSave / importSave：存档只在这个浏览器里，换电脑、清浏览器数据就没了，所以能导出成文件再导入。
    * 导入要点两次：选好文件先检查（checkSave），提示会覆盖，确认了才真的换（importSave，之后游戏重新加载）
    */
-  settings(cur: Settings, on: { change: (s: Settings) => void; capture: (cb: (code: string) => void) => (() => void) | void; close: () => void; exportSave?: () => void; checkSave?: (text: string) => 'ok' | 'invalid' | 'newer'; importSave?: (text: string) => void }): void {
+  settings(cur: Settings, on: { change: (s: Settings) => void; capture: (cb: (code: string) => void) => (() => void) | void; close: () => void; exportSave?: () => void | 'complete' | 'progress' | 'saved-only' | 'failed'; describeSave?: (text: string) => { completedMaps: number; flightCount: number | null; exportedAt: number | null } | null; checkSave?: (text: string) => 'ok' | 'invalid' | 'newer'; importSave?: (text: string) => void }): void {
     const s: Settings = structuredClone(cur);
     let tab = 'controls';
     let pendingImport: string | null = null;
+    let fileReadVersion = 0;
+    let comfortNotice = '';
+    let pendingPreview: ReturnType<NonNullable<typeof on.describeSave>> = null;
     let saveNotice = '';
     const canFull = !this.touch && typeof document !== 'undefined' && document.fullscreenEnabled === true;
     let cancelCapture: (() => void) | void;
@@ -783,7 +796,7 @@ export class UI {
     };
     const el = this.openModal(h(`<div class="modal"><div class="card wide settings"><div class="screen-head"><h2>${tr`设置`}</h2><button class="btn ghost" data-a="close">${tr('完成@@关闭设置的按钮')}</button></div>
       <div class="tabs" role="tablist" aria-label="${tr`设置分类`}"><button class="tab" id="settings-controls" role="tab" aria-controls="settings-panel" data-a="tab" data-t="controls">${tr`操作`}</button><button class="tab" id="settings-video" role="tab" aria-controls="settings-panel" data-a="tab" data-t="video">${tr`画面`}</button><button class="tab" id="settings-audio" role="tab" aria-controls="settings-panel" data-a="tab" data-t="audio">${tr`声音`}</button><button class="tab" id="settings-assist" role="tab" aria-controls="settings-panel" data-a="tab" data-t="assist">${tr`辅助与显示`}</button></div>
-      <div class="tab-body" id="settings-panel" role="tabpanel"></div><p class="settings-save muted">${tr`设置自动保存到此浏览器`}</p></div></div>`), (notify) => { stopCapture(); if (notify) on.close(); });
+      <div class="tab-body" id="settings-panel" role="tabpanel"></div><p class="settings-save muted">${tr`设置自动保存到此浏览器`}</p></div></div>`), (notify) => { fileReadVersion++; stopCapture(); if (notify) on.close(); });
     const body = el.querySelector('.tab-body') as HTMLDivElement;
     const range = (key: keyof Settings, label: string, min: number, max: number, step: number, fmt: (v: number) => string) =>
       `<label class="set-row"><span>${label}</span><input type="range" data-k="${key}" min="${min}" max="${max}" step="${step}" value="${s[key] as number}"><em>${fmt(s[key] as number)}</em></label>`;
@@ -815,6 +828,7 @@ export class UI {
       } else if (tab === 'video') {
         body.innerHTML =
           (canFull ? `<div class="set-row"><span>${tr`全屏显示`}</span><button type="button" class="btn sm" data-a="fullscreen">${document.fullscreenElement ? tr('退出全屏') : tr('进入全屏')}</button><em class="muted">${tr`也可以按 F11。全屏时 Esc 是暂停，按住 Esc 才退出全屏`}</em></div>` : '') +
+          `<div class="comfort-preset"><h3>${tr`舒适显示`}</h3><p class="muted">${tr`容易晕 3D、或者对闪光敏感：一下关掉镜头震动、头部晃动、动态模糊和闪电闪光。只改画面，飞行手感和天气对飞机的影响不变。`}</p><button type="button" class="btn sm" data-a="comfort">${tr`一键关掉`}</button><p role="status">${escapeHtml(comfortNotice)}</p></div>` +
           select('quality', tr('画质'), (Object.keys(QUALITY) as Array<keyof typeof QUALITY>).map((q) => [q, QUALITY[q].label])) +
           check('rayTracing', tr('光线追踪'), tr('沿地形追踪真实光线：山谷、岩壁、机腹接到地面反上来的彩色光，金属映出地形，舱内光线随脚下的地面变化。进图时多算一秒，飞行时几乎不占性能')) +
           check('volumetric', tr('体积雾与光束'), tr('贴地薄雾、穿过树林与云缝的光束（丁达尔效应）；中画质及以上生效')) +
@@ -848,9 +862,9 @@ export class UI {
           range('hudOpacity', tr('HUD 不透明度'), 0.3, 1, 0.05, pct) +
           check('hints', tr('显示操作提示'), tr('常规提示；教学与安全告警始终保留')) +
           (on.exportSave && on.checkSave && on.importSave
-            ? `<h3>${tr`存档`}</h3><p class="muted">${tr`进度和设置只存在这个浏览器里。换电脑、换浏览器或者清理浏览器数据之前，先导出一份，到那边再导入。`}</p>
+            ? `<h3>${tr`存档`}</h3><p class="muted">${tr`进度、设置和飞到一半的存档都只存在这个浏览器里。换电脑、换浏览器或者清理浏览器数据之前，先导出一份，到那边再导入。`}</p>
               <div class="btn-row save-row"><button type="button" class="btn sm" data-a="exportSave">${tr`导出存档`}</button><button type="button" class="btn sm" data-a="pickSave">${tr`导入存档…`}</button><input type="file" class="save-file" accept=".json,application/json" hidden></div>
-              ${pendingImport !== null ? `<p class="warnbox save-confirm">${tr`导入会覆盖现在的进度和设置，然后重新加载游戏。`} <button type="button" class="btn sm primary" data-a="confirmImport">${tr`确认导入`}</button> <button type="button" class="btn sm ghost" data-a="cancelImport">${tr`取消`}</button></p>` : ''}
+              ${pendingImport !== null ? `<div class="save-preview"><p>${pendingPreview ? tr`通关的地图：${pendingPreview.completedMaps}` : ''}</p><p>${pendingPreview?.exportedAt !== null && pendingPreview?.exportedAt !== undefined ? tr`导出时间：${escapeHtml(new Date(pendingPreview.exportedAt).toLocaleString())}` : ''}</p><p>${pendingPreview?.flightCount !== null && pendingPreview?.flightCount !== undefined ? tr`飞到一半的存档：${pendingPreview.flightCount} 份` : tr`这份是旧版的存档文件，只有进度和设置；这个浏览器里飞到一半的存档会留着。`}</p></div><p class="warnbox save-confirm">${pendingPreview?.flightCount !== null && pendingPreview?.flightCount !== undefined ? tr`导入会换掉这个浏览器里的进度、设置和所有飞到一半的存档，然后重新加载游戏。` : tr`导入会覆盖现在的进度和设置，然后重新加载游戏。`} <button type="button" class="btn sm primary" data-a="confirmImport">${tr`确认导入`}</button> <button type="button" class="btn sm ghost" data-a="cancelImport">${tr`取消`}</button></p>` : ''}
               <p class="save-notice muted" role="status">${escapeHtml(saveNotice)}</p>`
             : '');
       }
@@ -889,7 +903,10 @@ export class UI {
       if (!input.classList?.contains('save-file')) return;
       const file = input.files?.[0];
       if (!file) return;
+      const request = ++fileReadVersion;
       const show = (notice: string, text: string | null): void => {
+        if (!el.isConnected || request !== fileReadVersion) return;
+        pendingPreview = text === null ? null : on.describeSave?.(text) ?? null;
         saveNotice = notice;
         pendingImport = text;
         if (tab === 'assist') {
@@ -897,11 +914,12 @@ export class UI {
           body.querySelector<HTMLElement>(text === null ? '[data-a="pickSave"]' : '[data-a="confirmImport"]')?.focus({ preventScroll: true });
         }
       };
-      // （存档只有几十 KB；选错了一个大文件就不读了）
-      if (file.size > 2_000_000) return show(tr('这不是旋翼航迹的存档文件。'), null);
+      show(tr('正在读文件…'), null);
+      // 选错了一个大文件：读进内存之前就不要了
+      if (file.size > MAX_BACKUP_BYTES) return show(tr('这个文件太大了（存档文件不会超过 10 MB），没有读。现在的进度没有动。'), null);
       void file.text().then(
         (text) => {
-          if (!el.isConnected) return;
+          if (!el.isConnected || request !== fileReadVersion) return;
           const r = on.checkSave?.(text) ?? 'invalid';
           if (r === 'ok') show('', text);
           else show(r === 'newer' ? tr('这份存档来自更新的版本，现在这个版本读不了。刷新页面更新游戏后再导入。') : tr('这不是旋翼航迹的存档文件。'), null);
@@ -913,8 +931,11 @@ export class UI {
       close: () => this.closeModal(),
       tab: (b) => {
         stopCapture();
+        fileReadVersion++;
         tab = b.dataset.t!;
         pendingImport = null;
+        pendingPreview = null;
+        saveNotice = '';
         render();
       },
       fullscreen: () => {
@@ -932,19 +953,30 @@ export class UI {
           }, done);
         }
       },
+      comfort: () => {
+        s.shake = 0;
+        s.headMotion = s.motionBlur = s.lightning = false;
+        comfortNotice = tr('已关掉。下面每一项还能单独再打开。');
+        on.change(structuredClone(s));
+        render();
+        body.querySelector<HTMLElement>('[data-a="comfort"]')?.focus({ preventScroll: true });
+      },
       exportSave: () => {
-        on.exportSave?.();
-        saveNotice = tr('已导出：存档文件在浏览器的下载文件夹里。');
+        fileReadVersion++;
+        const result = on.exportSave?.();
+        saveNotice = result === 'failed' ? tr('没导出成功：浏览器没让下载。再试一次，或者看看浏览器的下载设置。') : result === 'progress' ? tr('已导出进度和设置；飞到一半的存档读不出来，没有放进去。') : result === 'saved-only' ? tr('已导出，但这一趟飞行没存上：文件里是之前存的。') : tr('已导出：存档文件在浏览器的下载文件夹里（进度、设置和飞到一半的存档都在里面）。');
         pendingImport = null;
         render();
         body.querySelector<HTMLElement>('[data-a="exportSave"]')?.focus({ preventScroll: true });
       },
       pickSave: () => body.querySelector<HTMLInputElement>('.save-file')?.click(),
       confirmImport: () => {
-        if (pendingImport !== null) on.importSave?.(pendingImport);
+        if (pendingImport !== null) { fileReadVersion++; on.importSave?.(pendingImport); }
       },
       cancelImport: () => {
+        fileReadVersion++;
         pendingImport = null;
+        pendingPreview = null;
         saveNotice = '';
         render();
         body.querySelector<HTMLElement>('[data-a="pickSave"]')?.focus({ preventScroll: true });

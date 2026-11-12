@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { GameSession, type SessionSave } from '../src/sim/session';
 import { Systems } from '../src/sim/systems';
 import { generateWorld, type WorldData } from '../src/world/worldgen';
-import { FlightSaves, FLIGHTS_KEY, FLIGHT_FORMAT, RESUME_SLOT, ageText, isFlightSave, mapSig, progressText, slotOf, type FlightSave } from '../src/game/flightSave';
+import { FlightSaves, FLIGHTS_KEY, FLIGHT_FORMAT, RESUME_SLOT, ageText, allFinite, isFlightCollection, isFlightSave, mapSig, progressText, slotOf, type FlightSave } from '../src/game/flightSave';
 import { DEFAULT_BINDINGS, sanitizeSettings } from '../src/game/settings';
 import { edgeDistance, edgeWarn } from '../src/render/instruments';
 import { getMap } from '../src/maps/index';
@@ -17,6 +17,7 @@ beforeAll(async () => {
       ...FLAT,
       size: 1024,
       res: 65,
+      erosion: undefined, rivers: undefined, paintFinal: undefined, rockForm: undefined,
       props: [],
       pickups: [],
       mission: {
@@ -76,6 +77,33 @@ describe('飞到一半存档、读档', () => {
     }
   });
 
+
+  it('空中读档立即刷新高度和速度读数，重复刷新不改变快照或下一帧物理', async () => {
+    const s = await GameSession.create(world, 'calm', 'standard', true);
+    const reference = await GameSession.create(world, 'calm', 'standard', true);
+    try {
+      s.teleport(60, 100, -120, 90, 12);
+      for (let i = 0; i < 30; i++) s.step();
+      s.damage.durability = 64;
+      const saved = viaJson(s.saveState());
+      s.teleport(0, 5, 0, 0, 0);
+      s.step();
+      expect(s.restoreState(saved)).toBe(true);
+      expect(reference.restoreState(saved)).toBe(true);
+      expect(s.agl).toBeGreaterThan(80);
+      expect(s.surfaceBelow).toBe('terrain');
+      expect(s.flight.telemetry.groundSpeed).toBeCloseTo(Math.hypot(saved.snap.body.vel[0], saved.snap.body.vel[2]));
+      expect(s.flight.telemetry.verticalSpeed).toBe(saved.snap.body.vel[1]);
+      const before = viaJson(s.saveState());
+      for (let i = 0; i < 2; i++) s.flight.refreshReadings(s.body, s.windNow, s.altitudeMSL());
+      expect(viaJson(s.saveState())).toEqual(before);
+      expect(before).toEqual(saved);
+      s.step();
+      reference.step();
+      expect(viaJson(s.saveState())).toEqual(viaJson(reference.saveState()));
+    } finally { s.dispose(); reference.dispose(); }
+  });
+
   it('存档里检查点最多 8 个：起点加最近的 7 个', async () => {
     const s = await GameSession.create(world, 'calm', 'standard');
     try {
@@ -107,6 +135,31 @@ describe('飞到一半存档、读档', () => {
     } finally {
       s.dispose();
     }
+  });
+
+  it('深层任务、导航、天气或检查点损坏时拒绝读档，整局不产生部分恢复', async () => {
+    const session = await GameSession.create(world, 'calm', 'standard');
+    try {
+      session.teleport(30, 60, 40, 45, 5);
+      const before = viaJson(session.saveState());
+      const mutations = [
+        (x: any) => { x.snap.mission.main[0].visited = null; },
+        (x: any) => { x.snap.mission.landings = null; },
+        (x: any) => { x.snap.nav.legStart = null; },
+        (x: any) => { x.snap.weather.from.windSpeed = 'broken'; },
+        (x: any) => { x.snap.buffs.boostLevel = null; },
+        (x: any) => { x.snap.body.quat = [0, 0, 0, 0]; },
+        (x: any) => { x.checkpoints[0].snap.collective = null; },
+        (x: any) => { x.sys = { lit: 'bad' }; },
+      ];
+      for (const mutate of mutations) {
+        const bad = viaJson(before);
+        mutate(bad);
+        expect(session.restoreState(bad)).toBe(false);
+        expect(viaJson(session.saveState())).toEqual(before);
+      }
+      expect(session.restoreState(before)).toBe(true);
+    } finally { session.dispose(); }
   });
 
   it('超仿真：冷舱没启动就存的档，读回来发动机还是停着的', async () => {
@@ -227,6 +280,87 @@ describe('存档的格子', () => {
     st.m.set(FLIGHTS_KEY, '{oops');
     expect(f.all()).toEqual({});
     expect(new FlightSaves(null).put('x', fake('japan', false, 1))).toBe(false);
+  });
+
+  it('读取被禁止时拒绝覆盖已有槽位，读取恢复后可再次保存', () => {
+    const st = new MemStorage();
+    const f = new FlightSaves(st);
+    f.put('japan/mission', fake('japan', false, 1000));
+    const original = st.m.get(FLIGHTS_KEY);
+    const read = st.getItem.bind(st);
+    st.getItem = () => { throw new Error('read denied'); };
+    expect(f.put('resume', fake('canyon', false, 2000, true))).toBe(false);
+    expect(st.m.get(FLIGHTS_KEY)).toBe(original);
+    st.getItem = read;
+    expect(f.put('resume', fake('canyon', false, 2000, true))).toBe(true);
+    expect(f.get('japan/mission')?.savedAt).toBe(1000);
+  });
+
+  it('更新版本的游戏存的整份存档：不覆盖，说得出原因，也不导出', () => {
+    const st = new MemStorage();
+    const original = JSON.stringify({ format: 99, slots: {} });
+    st.m.set(FLIGHTS_KEY, original);
+    const f = new FlightSaves(st);
+    expect(f.put('resume', fake('japan', false, 2000, true))).toBe(false);
+    expect(f.blocked).toBe('newer');
+    expect(st.m.get(FLIGHTS_KEY)).toBe(original);
+    expect(f.snapshot()).toBeNull();
+  });
+
+  it.each(['{bad', JSON.stringify({ format: 1, slots: [] })])('整份读不出来（%s）：先原样备份，之后照常能存；备份不了就不写', (original) => {
+    const st = new MemStorage();
+    st.m.set(FLIGHTS_KEY, original);
+    const f = new FlightSaves(st);
+    // 还没被新存的盖掉时，导出不算完整备份：免得导到别处把那边的存档清空
+    expect(f.snapshot()).toBeNull();
+    expect(st.m.get(FLIGHTS_KEY + '.corrupt')).toBe(original);
+    expect(f.put('resume', fake('japan', false, 2000, true))).toBe(true);
+    expect(f.get('resume')?.savedAt).toBe(2000);
+    expect(f.blocked).toBeNull();
+    expect(st.m.get(FLIGHTS_KEY + '.corrupt')).toBe(original);
+
+    const st2 = new MemStorage();
+    st2.m.set(FLIGHTS_KEY, original);
+    st2.setItem = (k: string, v: string): void => {
+      if (k.endsWith('.corrupt')) throw new Error('quota');
+      st2.m.set(k, v);
+    };
+    expect(new FlightSaves(st2).put('resume', fake('japan', false, 2000, true))).toBe(false);
+    expect(st2.m.get(FLIGHTS_KEY)).toBe(original);
+  });
+
+  it('这个版本读不懂的一格：不显示，但别的格子照常存，它原样留着；也删得掉', () => {
+    const st = new MemStorage();
+    const odd = { format: 1, savedAt: 5, run: { map: 'japan', assist: 'future-mode' } };
+    st.m.set(FLIGHTS_KEY, JSON.stringify({ format: FLIGHT_FORMAT, slots: { 'japan/mission': fake('japan', false, 1000), 'japan/future': odd } }));
+    const f = new FlightSaves(st);
+    expect(Object.keys(f.all())).toEqual(['japan/mission']);
+    expect(f.put('resume', fake('canyon', false, 2000, true))).toBe(true);
+    const stored = JSON.parse(st.m.get(FLIGHTS_KEY)!).slots;
+    expect(stored['japan/future']).toEqual(odd);
+    expect(Object.keys(stored).sort()).toEqual(['japan/future', 'japan/mission', 'resume']);
+    f.remove('japan/future');
+    expect(JSON.parse(st.m.get(FLIGHTS_KEY)!).slots['japan/future']).toBeUndefined();
+  });
+
+  it('完整备份只带能接着飞的格子：读不懂的、飞行状态不完整的不带', async () => {
+    const s = await GameSession.create(world, 'calm', 'standard');
+    try {
+      const good: FlightSave = { ...fake('japan', false, 1000), state: viaJson(s.saveState()) };
+      const st = new MemStorage();
+      st.m.set(FLIGHTS_KEY, JSON.stringify({ format: FLIGHT_FORMAT, slots: { 'japan/mission': good, resume: fake('canyon', false, 2000, true), odd: { format: 1 } } }));
+      const snap = new FlightSaves(st).snapshot();
+      expect(Object.keys(snap!.slots)).toEqual(['japan/mission']);
+      expect(isFlightCollection(snap)).toBe(true);
+    } finally {
+      s.dispose();
+    }
+  });
+
+  it('飞行状态里有 NaN、无穷大就不算正常', () => {
+    expect(allFinite({ a: [1, 2, { b: 3 }], c: 'x', d: null, e: true })).toBe(true);
+    expect(allFinite({ a: [1, NaN] })).toBe(false);
+    expect(allFinite({ a: { b: { c: -Infinity } } })).toBe(false);
   });
 
   it('外层不完整、格式不对的存档不认', () => {

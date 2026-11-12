@@ -1,7 +1,7 @@
 // 自动化截图/测试：用无头 Chrome（GPU 加速）打开游戏，按步骤执行脚本并截图，同时收集控制台错误。
 // 用法：node tools/shot.mjs <steps.json> <输出目录>
 // steps.json：{ "url": "...", "width": 1920, "height": 1080, "steps": [ { "goto": "新地址" }, { "wait": 1000 }, { "eval": "js 表达式（可 await）" }, { "shot": "name" }, { "until": "js 条件", "timeout": 60000 } ] }
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -44,6 +44,25 @@ const proc = spawn(
   ],
   { stdio: 'ignore' },
 );
+
+// 关掉这个 Chrome（连同 GPU、渲染等子进程）并删掉它的临时配置目录。
+// 以前只 proc.kill() 主进程就马上删目录：子进程还占着里面的文件，删除失败又被忽略，
+// %TEMP% 里因此积了几百个 rotor-shot-*（每个约 200 MB）。中途出错退出时也靠 exit 钩子清理。
+let chromeClosed = false;
+function closeChrome() {
+  if (chromeClosed) return;
+  chromeClosed = true;
+  if (proc.exitCode === null && proc.signalCode === null) {
+    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
+    else proc.kill();
+  }
+  try {
+    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch (e) {
+    console.error(`临时浏览器配置没删掉：${profile}（${e.code || e.message}）`);
+  }
+}
+process.on('exit', closeChrome);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let target = null;
@@ -179,10 +198,5 @@ const errors = logs.filter((l) => l.includes('[error]') || l.includes('[exceptio
 console.log(`console: ${logs.length} lines, ${errors.length} errors`);
 for (const l of (process.env.ALL_LOGS ? logs : errors).slice(0, 40)) console.log('  ' + l.slice(0, 300));
 ws.close();
-proc.kill();
-try {
-  fs.rmSync(profile, { recursive: true, force: true });
-} catch {
-  /* 忽略 */
-}
+closeChrome();
 process.exit(failed ? 2 : 0);

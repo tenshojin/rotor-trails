@@ -1,0 +1,86 @@
+{
+  "url": "http://127.0.0.1:4186/?backend=webgl&lang=en&touch=1&map=japan&free=1&tutorial=0",
+  "width": 844,
+  "height": 390,
+  "mobile": true,
+  "steps": [
+    {
+      "until": "window.__app?.state === 'ready' && !!document.querySelector('.click-start button')",
+      "timeout": 180000
+    },
+    {
+      "eval": "document.querySelector('.click-start button').click()"
+    },
+    {
+      "wait": 1000
+    },
+    {
+      "eval": "(()=>{__app.pause();cancelAnimationFrame(__app.frameId);__app.frameId=null;const s=__app.session;const p=s.body.pos;s.teleport(p.x,s.world.terrain.heightAt(p.x,p.z)+100,p.z,90,9);for(let i=0;i<30;i++)s.step();s.damage.durability=64;s.saveCheckpoint('Airborne backup QA');__app.autoSaveFlight();window.__backup=__app.save.exportText();const data=JSON.parse(__backup);localStorage.setItem('rotorQA.expected',JSON.stringify(data.flights.slots.resume.state.snap));__app.openSettings();document.querySelector('#settings-assist').click();})()"
+    },
+    {
+      "eval": "(()=>{const file=new File([__backup],'full-backup.json',{type:'application/json'});const transfer=new DataTransfer();transfer.items.add(file);const input=document.querySelector('.save-file');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()"
+    },
+    {
+      "until": "!!document.querySelector('.save-confirm')",
+      "timeout": 15000
+    },
+    {
+      "eval": "({preview:document.querySelector('.save-preview')?.textContent,bytes:__backup.length,state:__app.state})",
+      "label": "backup-preview"
+    },
+    {
+      "eval": "document.querySelector('.save-preview').scrollIntoView({block:'center'})"
+    },
+    {
+      "shot": "backup-preview.png"
+    },
+    {
+      "eval": "(()=>{history.replaceState(null,'','/?backend=webgl&lang=en&touch=1');setTimeout(()=>document.querySelector('[data-a=confirmImport]').click(),100)})()"
+    },
+    {
+      "wait": 2500
+    },
+    {
+      "until": "window.__app?.state === 'menu'",
+      "timeout": 180000
+    },
+    {
+      "eval": "({savedTime:__app.save.flights.get('resume')?.state.snap.t,expected:JSON.parse(localStorage.getItem('rotorQA.expected')).t,continueButton:!!document.querySelector('.main-menu [data-a=cont]')})",
+      "label": "after-import-reload"
+    },
+    {
+      "eval": "setTimeout(()=>document.querySelector('.main-menu [data-a=cont]').click(),100)"
+    },
+    {
+      "until": "window.__app?.state === 'ready' && !!document.querySelector('.click-start button')",
+      "timeout": 180000
+    },
+    {
+      "eval": "(()=>{const e=JSON.parse(localStorage.getItem('rotorQA.expected'));const s=__app.session;const p=s.body.pos;return {restoredTime:s.t,expectedTime:e.t,distance:Math.hypot(p.x-e.body.pos[0],p.y-e.body.pos[1],p.z-e.body.pos[2]),speed:s.body.vel.length(),velocityError:Math.hypot(s.body.vel.x-e.body.vel[0],s.body.vel.y-e.body.vel[1],s.body.vel.z-e.body.vel[2]),agl:s.agl,surface:s.surfaceBelow,durability:s.damage.durability,checkpoint:s.checkpoints.at(-1).label,airborneHeight:p.y-s.world.terrain.heightAt(p.x,p.z)}})()",
+      "label": "restored-flight"
+    },
+    {
+      "until": "(()=>{const e=JSON.parse(localStorage.getItem('rotorQA.expected'));const s=__app.session;return s.t===e.t&&Math.hypot(s.body.pos.x-e.body.pos[0],s.body.pos.y-e.body.pos[1],s.body.pos.z-e.body.pos[2])===0&&s.damage.durability===64&&s.checkpoints.at(-1).label==='Airborne backup QA'})()",
+      "timeout": 2000
+    },
+    {
+      "eval": "(()=>{cancelAnimationFrame(__app.frameId);__app.frameId=null;})()"
+    },
+    {
+      "wait": 250
+    },
+    {
+      "shot": "restored-flight.png"
+    },
+    {
+      "eval": "(()=>{__app.beginFlight();__app.pause();cancelAnimationFrame(__app.frameId);__app.frameId=null;__app.openSettings();document.querySelector('#settings-video').click();document.querySelector('[data-a=comfort]').click();})()"
+    },
+    {
+      "eval": "({shake:__app.settings.shake,headMotion:__app.settings.headMotion,motionBlur:__app.settings.motionBlur,lightning:__app.settings.lightning,state:__app.state})",
+      "label": "comfort-applied"
+    },
+    {
+      "shot": "comfort.png"
+    }
+  ]
+}

@@ -20,7 +20,7 @@ import { UI } from '../ui/menus';
 import { generateWorld, type WorldData } from '../world/worldgen';
 import type { AssistId } from '../config/flight';
 import { Input } from './input';
-import { SaveStore, type StorageLike } from './save';
+import { SaveStore, SAVE_KEY, type StorageLike } from './save';
 import { keyName, QUALITY, usePadNames, useTouchNames, type Settings } from './settings';
 import { TouchControls, touchOnly } from '../ui/touchControls';
 import { clamp, damp } from '../core/math';
@@ -43,7 +43,7 @@ import { waitForOperation } from './pending';
 import { InstrumentLists } from './instrumentLists';
 import { nextView } from './views';
 import { currentLang, tr } from '../i18n';
-import { ageText, FLIGHT_FORMAT, mapSig, progressText, RESUME_SLOT, slotOf, stepText, type FlightSave } from './flightSave';
+import { ageText, allFinite, FLIGHT_FORMAT, mapSig, progressText, RESUME_SLOT, slotOf, stepText, type FlightSave } from './flightSave';
 import { VERSION, browserOf } from './version';
 
 /** claude.ai 的私有试玩页（Artifact）放不下大峡谷的数据（单个文件超过 20 MiB），那里不列出真实地形的地图（见 tools/artifact-page.mjs） */
@@ -176,7 +176,10 @@ export class App {
   private completeTimer = -1;
   private lastBlocked = -10;
   private readonly lifetime = new AbortController();
+  private readonly loadingLifetime = new AbortController();
   private disposed = false;
+  /** 显卡连接断了：刷新以前一直停着（看不见画面的时候飞机不能接着飞） */
+  private gpuInterrupted = false;
   private pendingOperations = 0;
   private viewDisposed = false;
   private frameId: number | null = null;
@@ -317,33 +320,45 @@ export class App {
       };
       if (touchOnly()) this.setupTouch(rollback);
       this.input.onLockChange = (locked) => {
-        if (!locked && this.state === 'playing' && !this.input.lockFailed) this.pause();
+        if (!locked && this.state === 'playing' && !this.input.lockFailed && !this.input.touchActive) this.pause();
       };
       this.view.onThunder = (delay, strength) => this.audio.thunder(delay, strength);
-      this.view.onGpuLost = () => {
-        // 画面再也回不来了：存好进度，告诉玩家发生了什么，别让人对着一张定格的图
-        this.save.save();
-        this.audio.suspend();
-        this.input.active = false;
-        this.input.exitLock();
-        this.ui.gpuLost?.(() => location.reload());
-      };
+      this.view.onGpuLost = () => this.handleGpuLost();
       const listenerOptions = { signal: this.lifetime.signal };
+      window.addEventListener('storage', (event) => {
+        if (event.key !== SAVE_KEY || !this.save.hasExternalReplacement()) return;
+        this.stopForSaveReplacement();
+        new UI(this.root).saveChanged(() => {
+          try {
+            globalThis.location?.reload?.();
+          } catch {
+            /* 刷新不了：页面上的“重新加载”按钮还在 */
+          }
+        });
+      }, listenerOptions);
+      // 带触屏的笔记本、二合一电脑：主指针是鼠标（不算纯触屏），手指第一次碰屏幕时才装上屏幕摇杆；之后动鼠标就换回鼠标
+      window.addEventListener('pointerdown', (e) => {
+        if (this.gpuInterrupted) return;
+        if (e.pointerType === 'touch' && !this.input.sim) {
+          if (!this.touch) this.setupTouch([], true);
+          this.touch?.setFree(this.run?.free === true, !!this.run && !this.run.free && !this.run.tutorial);
+          this.input.noteTouch();
+        } else if (e.pointerType === 'mouse') this.input.noteMouse();
+      }, { ...listenerOptions, capture: true });
       window.addEventListener('resize', () => {
+        if (this.gpuInterrupted) return;
         this.rect = null;
+        this.touch?.reset();
         this.view.resize();
         this.hud.resize();
+        this.pauseForPortrait();
       }, listenerOptions);
       document.addEventListener('visibilitychange', () => {
-        if (document.hidden) {
-          this.flushSettingsSave();
-          this.settleResult();
-          if (this.state === 'playing') this.pause();
-          // 手机切到后台，系统可能直接把网页收掉：先替玩家存一份（离开时自动存的那一格，不碰玩家自己存的）
-          this.autoSaveFlight();
-          this.audio.suspend();
-        } else if (this.state !== 'playing') this.audio.resume();
+        if (document.hidden) this.suspendForBackground();
+        else if (!this.gpuInterrupted && this.state !== 'playing') this.audio.resume();
       }, listenerOptions);
+      // Safari、浏览器的“往返缓存”离开页面时可能不发 beforeunload：这里再存一次
+      window.addEventListener('pagehide', () => this.suspendForBackground(), listenerOptions);
       window.addEventListener('blur', () => {
         // Drag-to-look browsers do not emit pointerlockchange on Alt+Tab.
         // Losing the window must still leave the aircraft safely paused.
@@ -384,6 +399,7 @@ export class App {
       this.hud.resize();
     } catch (error) {
       this.lifetime.abort();
+      this.loadingLifetime.abort();
       for (const release of rollback.reverse()) {
         try { release(); } catch (cleanupError) { console.warn('启动失败后的资源清理未完成', cleanupError); }
       }
@@ -405,8 +421,12 @@ export class App {
     }
   }
 
+  private showLoading(label: string, progress: number, map?: MapDef): void {
+    if (!this.disposed && !this.gpuInterrupted) this.ui.loading(label, progress, map);
+  }
+
   private assertActive(): void {
-    if (this.disposed) throw new Error('游戏实例已停止');
+    if (this.disposed || this.gpuInterrupted) throw new Error('游戏实例已停止');
   }
 
   private finishOperation(): void {
@@ -418,6 +438,53 @@ export class App {
     if (this.viewDisposed) return;
     this.viewDisposed = true;
     this.view.dispose();
+  }
+
+  /** 手机转成竖屏：画面被“把手机横过来玩”的提示盖住了，飞行不能在后面接着走，先暂停 */
+  private pauseForPortrait(): boolean {
+    if (!this.touch || !this.input.touchActive || this.creditsOn || this.state !== 'playing' || window.innerWidth > 640 || window.innerHeight <= window.innerWidth) return false;
+    this.touch.setMode('off');
+    this.input.clear();
+    this.pause();
+    this.root.classList.remove('touch-flight');
+    this.hud.toast(tr('手机转成竖屏了，先暂停。横过来以后点“继续飞行”。'), 'info', 6000);
+    return true;
+  }
+
+  private suspendForBackground(): void {
+    if (this.disposed || this.gpuInterrupted) return;
+    this.flushSettingsSave();
+    this.settleResult();
+    if (this.state === 'playing') this.pause();
+    this.autoSaveFlight();
+    this.save.save();
+    this.input.clear();
+    this.audio.suspend();
+  }
+
+  private handleGpuLost(): void {
+    if (this.disposed || this.gpuInterrupted) return;
+    this.gpuInterrupted = true;
+    this.loadingLifetime.abort();
+    this.root.classList.remove('touch-flight');
+    this.flushSettingsSave();
+    this.settleResult();
+    if (this.state === 'playing') this.state = 'paused';
+    let flightSaved = false;
+    try { flightSaved = this.autoSaveFlight(); this.save.save(); }
+    catch (error) { console.warn('显卡中断时未能保存飞行', error); }
+    this.input.active = false;
+    this.input.clear();
+    this.input.exitLock();
+    this.touch?.setMode('off');
+    this.hud.show(false);
+    this.tutBox.classList.add('hidden');
+    this.audio.suspend();
+    clearTimeout(this.blurTimer);
+    if (this.frameId !== null) cancelAnimationFrame(this.frameId);
+    if (this.earlyId !== null) cancelAnimationFrame(this.earlyId);
+    this.frameId = this.earlyId = null;
+    this.ui.gpuLost?.(() => location.reload(), flightSaved);
   }
 
   /** Stop owned callbacks immediately; let in-flight construction settle before freeing the renderer. */
@@ -442,6 +509,10 @@ export class App {
     this.replay = null;
     this.view.onThunder = null;
     this.input.dispose();
+    this.touch?.dispose();
+    this.touch = null;
+    useTouchNames(false);
+    this.root.classList.remove('touch-device', 'touch-flight');
     this.audio.dispose();
     this.session?.dispose();
     this.session = null;
@@ -476,10 +547,10 @@ export class App {
       // 菜单背景：训练场的黄昏
       this.view.setTimeOfDay('dusk');
       const home = getMap('training');
-      this.ui.loading(tr('生成地形'), 0.1, home);
-      const w = await generateWorld(home, true, (p, l) => this.ui.loading(l, p * 0.9, home));
+      this.showLoading(tr('生成地形'), 0.1, home);
+      const w = await generateWorld(home, true, (p, l) => this.showLoading(l, p * 0.9, home));
       this.assertActive();
-      await this.view.load(w, (p, l) => this.ui.loading(l, p, home));
+      await this.view.load(w, (p, l) => this.showLoading(l, p, home));
       this.assertActive();
       this.world = w;
       const pad = w.pads.get(w.map.spawn.padId)!;
@@ -693,6 +764,8 @@ export class App {
       info: { step: Math.min(s.mission.index + 1, main.length), total: main.length, durability: s.damage.durability },
       state: s.saveState(),
     };
+    // 先按读档的标准查一遍：飞行状态里有 NaN 之类的（比如出错的那一帧），存进去也读不回来，还会盖掉上一份好的
+    if (!allFinite(save.state)) return false;
     return this.save.flights.put(auto ? RESUME_SLOT : slotOf(run.map.id, run.free === true), save);
   }
 
@@ -734,7 +807,8 @@ export class App {
     else if (this.saveFlight(false)) {
       this.audio.checkpoint();
       this.hud.toast(k('quickLoad') ? tr`已存档。连按两下 ${k('quickLoad')} 读档` : tr('已存档'), 'good', 2500);
-    } else this.hud.toast(tr('存档失败：浏览器不让存（存储空间满了，或者被禁止了）'), 'warn', 4000);
+    } else if (this.save.flights.blocked === 'newer') this.hud.toast(tr('存档失败：浏览器里的飞行存档是更新版本的游戏存的，这个版本不会覆盖它。刷新页面更新游戏后再存'), 'warn', 6000);
+    else this.hud.toast(tr('存档失败：浏览器不让存（存储空间满了，或者被禁止了）'), 'warn', 4000);
   }
 
   /** 读档键要连按两下（2.5 秒内）：按错一下不至于丢掉刚飞的这一段 */
@@ -782,6 +856,7 @@ export class App {
       },
       exportSave: () => this.exportSave(),
       checkSave: (text) => SaveStore.check(text),
+      describeSave: (text) => SaveStore.describe(text),
       importSave: (text) => {
         if (this.save.importText(text)) this.reloadPage();
         else this.hud.toast(tr('导入失败：浏览器不让保存。现在的进度没有动'), 'warn', 5000);
@@ -790,20 +865,47 @@ export class App {
   }
 
   /** 把存档存成一个文件（浏览器下载） */
-  private exportSave(): void {
-    this.flushSettingsSave();
-    const p = (n: number): string => String(n).padStart(2, '0');
-    const d = new Date();
-    const a = document.createElement('a');
-    a.download = `rotor-trails-save-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}.json`;
-    a.href = URL.createObjectURL(new Blob([this.save.exportText()], { type: 'application/json' }));
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  private exportSave(): 'complete' | 'progress' | 'saved-only' | 'failed' {
+    let url: string | null = null;
+    try {
+      this.flushSettingsSave();
+      const currentMissed = this.saveBlock() === null && !this.autoSaveFlight();
+      const text = this.save.exportText();
+      const p = (n: number): string => String(n).padStart(2, '0');
+      const d = new Date();
+      const a = document.createElement('a');
+      a.download = 'rotor-trails-save-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '.json';
+      url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+      a.href = url;
+      a.click();
+      const downloadUrl = url;
+      setTimeout(() => URL.revokeObjectURL(downloadUrl), 2000);
+      return SaveStore.describe(text)?.flightCount === null ? 'progress' : currentMissed ? 'saved-only' : 'complete';
+    } catch {
+      if (url) URL.revokeObjectURL(url);
+      return 'failed';
+    }
+  }
+
+  private stopForSaveReplacement(): void {
+    // 先把这一局停掉：不然刷新时 pagehide / beforeunload 里的自动存档会把刚导入的盖回去
+    if (this.settingsSaveTimer !== null) clearTimeout(this.settingsSaveTimer);
+    this.settingsSaveTimer = null;
+    this.leaving = true;
+    this.dispose();
   }
 
   private reloadPage(): void {
-    this.leaving = true;
-    globalThis.location?.reload?.();
+    this.stopForSaveReplacement();
+    const reload = (): void => {
+      try {
+        globalThis.location?.reload?.();
+      } catch {
+        /* 刷新不了：页面上的“重新加载”按钮还在 */
+      }
+    };
+    new UI(this.root).saveChanged(reload, true);
+    reload();
   }
 
   /** 换语言：去掉网址里的 ?lang=（它比设置优先，留着就换不过去），重新加载 */
@@ -875,6 +977,13 @@ export class App {
   /** 拿起手柄、碰到键盘鼠标：提示里的按键名跟着换（教学、提示条、路线说明都走 keyName） */
   private onDevice(d: 'keyboard' | 'pad'): void {
     usePadNames(d === 'pad' ? () => this.settings.bindings : null);
+    useTouchNames(this.input.touchActive);
+    const touchLayout = !!this.touch && (touchOnly() || this.input.touchActive);
+    this.root.classList.toggle('touch-device', touchLayout);
+    this.ui.touch = touchLayout;
+    this.tutorialCtx.touch = this.input.touchActive;
+    if (!this.input.touchActive) this.touch?.setMode('off');
+    else { this.input.exitLock(); this.pauseForPortrait(); }
     this.root.classList.toggle('pad-active', d === 'pad');
     // 拿起手柄：现在焦点在哪就框在哪（不用先按一下方向键才看得见）；放下手柄：键盘有浏览器自己的焦点框
     this.padMarked = d === 'pad' ? document.activeElement : null;
@@ -894,7 +1003,7 @@ export class App {
   }
 
   async startRun(cfg: RunConfig): Promise<void> {
-    if (this.disposed || this.loadingRun) return;
+    if (this.disposed || this.gpuInterrupted || this.loadingRun) return;
     this.menuWarm?.cancel();
     this.menuWarm = null;
     this.pendingOperations++;
@@ -908,7 +1017,7 @@ export class App {
     try {
       await this.loadRun(cfg);
     } catch (error) {
-      if (this.disposed) return;
+      if (this.disposed || this.gpuInterrupted) return;
       console.error('关卡加载失败', error);
       this.session?.dispose();
       this.session = null;
@@ -939,28 +1048,28 @@ export class App {
     this.run = cfg;
     this.view.setTimeOfDay(cfg.time ?? 'day');
     if (!this.world || this.world.map.id !== cfg.map.id) {
-      this.ui.loading(tr('生成地形'), 0.02, cfg.map);
+      this.showLoading(tr('生成地形'), 0.02, cfg.map);
       this.view.prefetch(cfg.map);
       // 真实地形的数据大：下载占进度条的前一半
       const dl = cfg.map.real ? 0.5 : 0;
       if (cfg.map.real) {
-        await downloadRealFiles(cfg.map.real, (done, total) => this.ui.loading(tr`下载地形数据 ${Math.round(done / 1e6)} / ${Math.round(total / 1e6)} MB`, (done / total) * dl, cfg.map));
+        await downloadRealFiles(cfg.map.real, (done, total) => this.showLoading(tr`下载地形数据 ${Math.round(done / 1e6)} / ${Math.round(total / 1e6)} MB`, (done / Math.max(1, total)) * dl, cfg.map), this.loadingLifetime.signal);
         this.assertActive();
       }
-      const stage = (p: number, l: string): void => this.ui.loading(l, dl + p * (1 - dl), cfg.map);
+      const stage = (p: number, l: string): void => this.showLoading(l, dl + p * (1 - dl), cfg.map);
       const w = await generateWorld(cfg.map, true, stage);
       this.assertActive();
       await this.view.load(w, stage);
       this.assertActive();
       this.world = w;
     }
-    this.ui.loading(tr('初始化物理'), 0.98, cfg.map);
+    this.showLoading(tr('初始化物理'), 0.98, cfg.map);
     // 人物模型先全部撤下（2026-11-08 用户：“还是把人物相关建模先全部去掉吧，这个我之后再想办法”）：
     // 不加载飞行员。超仿真里点控件就直接生效（useControl 在没有飞行员时不等手伸过去）
     this.eyeDof = cfg.assist === 'sim' && !cfg.tutorial;
     this.view.setDof?.(this.eyeDof);
     const session = await GameSession.create(this.world, cfg.weather, cfg.assist, cfg.free === true);
-    if (this.disposed) {
+    if (this.disposed || this.gpuInterrupted) {
       session.dispose();
       return;
     }
@@ -972,8 +1081,7 @@ export class App {
     let resumed: boolean | null = null;
     if (resume) {
       resumed = resume.sig === mapSig(cfg.map) && session.restoreState(resume.state);
-      // 再推一步：离地高度、下面是什么这些读数是走一步才算的，不然“点击开始”上写的还是读档前的
-      if (resumed) session.step();
+      // restoreState 刷新派生读数；玩家点击开始前不推进物理、回血或任务。
       session.drainEvents();
     }
     this.tutorial = cfg.tutorial ? new Tutorial(this.settings, cfg.course === 'sim' ? SIM_LESSONS : LESSONS) : null;
@@ -999,7 +1107,7 @@ export class App {
     this.autoStart = false;
     this.presses.clear();
     this.state = 'ready';
-    this.ui.loading(tr('编译着色器（第一次进入会慢一些）'), 0.99, cfg.map);
+    this.showLoading(tr('编译着色器（第一次进入会慢一些）'), 0.99, cfg.map);
     await this.warmUp();
     this.assertActive();
     this.hud.show(true);
@@ -1100,7 +1208,7 @@ export class App {
       // WebGL2 分批编译：一个几百毫秒，第一次进要半分钟上下。加载界面写出编到第几个，等的时间放宽
       const gl = v.gpuInfo().backend === 'WebGL2';
       const map = this.run?.map;
-      const progress = gl ? setInterval(() => this.ui.loading(tr`编译着色器（第一次进入会慢一些）：${v.compiledPrograms}`, 0.99, map), 300) : undefined;
+      const progress = gl ? setInterval(() => this.showLoading(tr`编译着色器（第一次进入会慢一些）：${v.compiledPrograms}`, 0.99, map), 300) : undefined;
       try {
         await waitForOperation(compiled(), this.lifetime.signal, gl ? 300000 : 60000, tr('着色器编译'));
       } finally {
@@ -1116,6 +1224,7 @@ export class App {
   }
 
   beginFlight(): void {
+    if (this.gpuInterrupted) return;
     if (!this.session || this.state !== 'ready') return;
     this.audio.init();
     this.ui.clear();
@@ -1150,7 +1259,8 @@ export class App {
       // 超仿真要低头看仪表板：卡片放到上面，别挡住开关
       this.tutBox.classList.toggle('top', this.run?.course === 'sim');
     }
-    if (this.input.lockFailed && !this.input.pad.connected && !this.touch && !this.run?.credits) this.hud.toast(tr('鼠标锁定不可用：按住鼠标拖动或使用方向键观察'), 'warn', 6000);
+    if (this.input.lockFailed && !this.input.pad.connected && !this.input.touchActive && !this.run?.credits) this.hud.toast(tr('鼠标锁定不可用：按住鼠标拖动或使用方向键观察'), 'warn', 6000);
+    this.pauseForPortrait();
   }
 
   /**
@@ -1359,7 +1469,7 @@ export class App {
     // 提示按正在用的设备写：触屏上两根摇杆挪机位、拖动转镜头；手柄的摇杆写成一个词，不然是一串“左摇杆上推左摇杆左推……”。
     // 手柄的十字键走下面这排面板（左右挑、上下调，一进来挑的是焦距），A 按下
     const pad = this.input.device === 'pad';
-    const keys = this.touch && !pad
+    const keys = this.input.touchActive && !pad
       ? tr('左摇杆升降 · 右摇杆前后左右 · 拖动屏幕转镜头 · 下面调焦距、曝光、倾斜 · 点“存图”保存，“返回”回到暂停菜单')
       : pad
         ? tr`右摇杆转镜头 · 左摇杆移动 · ${k('up')} / ${k('down')} 升降 · 按住 ${k('boost')} 走得快 · ${k('strafeLeft')} / ${k('strafeRight')} 倾斜 · 十字键左右挑、上下调（焦距、曝光……） · A 勾选、按按钮 · ${k('cruise')} 收起面板 · ${k('photo')} 存图 · ${k('pause')} 返回`
@@ -1477,7 +1587,7 @@ export class App {
     const k = (a: keyof Settings['bindings']): string => keyName(this.settings.bindings[a][0]);
     // 触屏上没有收起面板、截图这些键，面板上的按钮就是全部操作；手柄和键盘每个按钮都有对应的键
     const pad = this.input.device === 'pad';
-    const keys = this.touch && !pad
+    const keys = this.input.touchActive && !pad
       ? tr('拖动进度条看任意一刻 · 点“拍这一帧”进拍照模式')
       : pad
         ? tr`${k('hover')} 暂停 / 继续 · ${k('strafeLeft')} / ${k('strafeRight')} 退 / 进 5 秒 · ${k('center')} 慢放 · ${k('view')} 换镜头 · ${k('nav')} 拍这一帧 · ${k('hud')} 收起面板 · ${k('photo')} 截图 · ${k('boost')} 结束`
@@ -1651,6 +1761,7 @@ export class App {
   }
 
   resume(): void {
+    if (this.gpuInterrupted) return;
     if (!this.session || (this.state !== 'paused' && this.state !== 'failed')) return;
     this.audio.resume();
     this.ui.clear();
@@ -1663,6 +1774,7 @@ export class App {
     this.stepper.reset();
     this.armBack();
     this.goFullscreen();
+    this.pauseForPortrait();
   }
 
   /**
@@ -1670,11 +1782,11 @@ export class App {
    * 下一次点“开始飞行”“继续飞行”再进去：点按钮本身就是浏览器要求的那一下用户操作
    */
   private goFullscreen(): void {
-    if (!this.touch || document.fullscreenElement) return;
+    if (!this.input.touchActive || document.fullscreenElement) return;
     const el = document.documentElement;
     try {
       void el.requestFullscreen?.({ navigationUI: 'hide' })
-        ?.then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape'))
+        ?.then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> } | undefined)?.lock?.('landscape'))
         .catch(() => undefined);
     } catch {
       /* 浏览器不给全屏（iPhone 的 Safari）：照常玩 */
@@ -1698,6 +1810,7 @@ export class App {
   /** 浏览器“返回”了一步（垫的那一格用掉了）：能当作退一层就退一层，再垫回去 */
   private onBrowserBack(): void {
     this.backArmed = false;
+    if (this.gpuInterrupted) { this.armBack(); return; }
     let handled = true;
     if (this.state === 'disposed') handled = false;
     else if (this.ui.hasModal) this.ui.closeModal();
@@ -1912,6 +2025,7 @@ export class App {
   }
 
   private onEdge(a: 'hover' | 'boost' | 'center' | 'pause' | 'view' | 'nav' | 'mapRange' | 'hud' | 'cruise' | 'trim' | 'photo' | 'quickSave' | 'quickLoad', fromPad = false): void {
+    if (this.gpuInterrupted) return;
     const s = this.session;
     if (this.photoPanel) {
       if (a === 'pause') this.closePhoto();
@@ -2051,7 +2165,7 @@ export class App {
 
   /** 每帧最先跑的回调（先登记的先跑）：自己先排下一帧，再让渲染层交出读回结果 */
   private early = (): void => {
-    if (this.disposed) return;
+    if (this.disposed || this.gpuInterrupted) return;
     this.earlyId = requestAnimationFrame(this.early);
     try {
       this.view.pollReadback();
@@ -2061,19 +2175,28 @@ export class App {
   };
 
   private frame = (now: number): void => {
-    if (this.disposed) return;
+    if (this.disposed || this.gpuInterrupted) return;
     this.frameId = requestAnimationFrame(this.frame);
     try {
       this.tick(now);
     } catch (error) {
       // A failed frame must not keep throwing and advancing flight every refresh.
       console.error('游戏运行中断', error);
+      // 偶尔一帧出错，不该让这一趟白飞：先替玩家存一份（存之前会查，坏掉的飞行状态不会写进去，盖不掉上一份）
+      try {
+        this.autoSaveFlight();
+        this.save.save();
+      } catch {
+        /* 存不上就留着上一份 */
+      }
       this.dispose();
       new UI(this.root).compatError(tr('游戏运行中断，请刷新页面后重试。已保存的进度不受影响。'));
     }
   };
 
   private tick(now: number): void {
+    if (this.gpuInterrupted) return;
+    this.root.classList.toggle('touch-flight', this.input.touchActive && this.state === 'playing' && !this.replay && !this.creditsOn);
     if (this.state !== 'playing') this.padReticle?.classList.remove('on');
     const elapsed = (now - this.last) / 1000;
     this.last = now;
@@ -2195,7 +2318,7 @@ export class App {
       this.view.drawInstruments(this.t, this.instrumentData(s));
       this.listenForWalls(s, dt);
       this.listenFromCamera(s, dt);
-      this.touch?.setMode(this.photoPanel ? 'photo' : this.state !== 'playing' || this.replay || this.creditsOn ? 'off' : 'fly');
+      this.touch?.setMode(!this.input.touchActive ? 'off' : this.photoPanel ? 'photo' : this.state !== 'playing' || this.replay || this.creditsOn ? 'off' : 'fly');
       if (this.touch && this.state === 'playing') this.touchKeyStates(s);
       if (this.state === 'playing') this.watchPlaces(s, dt);
       this.audio.update(this.audioState(this.state !== 'playing' && (!this.replay || !!this.photoPanel)), dt);
@@ -2308,10 +2431,11 @@ export class App {
   }
 
   /** 手机、平板：屏幕上的摇杆，超仿真藏起来（要用鼠标按开关），第一次点屏幕时进全屏、锁横屏 */
-  private setupTouch(rollback: Array<() => void>): void {
+  private setupTouch(rollback: Array<() => void>, hybrid = false): void {
     const t = (this.touch = new TouchControls(this.root));
     rollback.push(() => t.dispose());
     this.input.touch = t;
+    this.input.noteTouch();
     t.onEdge = (a) => {
       if (this.state === 'playing') this.onEdge(a);
     };
@@ -2325,13 +2449,11 @@ export class App {
     this.ui.touch = true;
     this.tutorialCtx.touch = true;
     this.root.classList.add('touch-device');
+    // 纯触屏（手机、平板）：超仿真要用鼠标按开关，默认换成标准；第一次点屏幕就进全屏、锁横屏。
+    // 带触屏的电脑（hybrid）是手指碰了屏幕才装上的：不改玩家选的辅助，也不突然全屏（开始、继续飞行时才进）
+    if (hybrid) return;
     if (this.settings.assist === 'sim') this.settings.assist = 'standard';
-    window.addEventListener('pointerup', () => {
-      const el = document.documentElement;
-      void el.requestFullscreen?.({ navigationUI: 'hide' })
-        ?.then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape'))
-        .catch(() => undefined);
-    }, { once: true, signal: this.lifetime.signal });
+    window.addEventListener('pointerup', () => this.goFullscreen(), { once: true, signal: this.lifetime.signal });
   }
 
   /** 背景音乐放多大：菜单里放，任务和训练里不放（要听发动机和告警），休闲飞行垫在风景底下，让它自己飞的时候大一点 */

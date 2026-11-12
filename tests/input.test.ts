@@ -25,6 +25,54 @@ describe('键盘鼠标生命周期', () => {
     vi.unstubAllGlobals();
   });
 
+  it('暂停或失焦清理也释放触屏摇杆，恢复后没有旧轴输入', () => {
+    input.active = true;
+    const touch = { forward: 1, turn: 1, lateral: 1, vertical: 1, reset: () => { touch.forward = touch.turn = touch.lateral = touch.vertical = 0; } };
+    input.touch = touch;
+    expect(input.axis('back', 'forward')).toBe(1);
+    win.dispatchEvent(event('blur'));
+    expect(input.axis('back', 'forward')).toBe(0);
+    expect(input.axis('down', 'up')).toBe(0);
+  });
+
+  it('混合设备触摸后可切回鼠标锁定，再触摸会更新模式与提示', () => {
+    input.active = true;
+    input.touch = { forward: 0, turn: 0, lateral: 0, vertical: 0, reset: vi.fn() };
+    const changed = vi.fn();
+    input.onDevice = changed;
+    input.noteTouch();
+    expect(input.touchActive).toBe(true);
+    input.requestLock();
+    expect(canvas.requestPointerLock).not.toHaveBeenCalled();
+    input.noteMouse();
+    expect(input.touchActive).toBe(false);
+    input.requestLock();
+    expect(canvas.requestPointerLock).toHaveBeenCalledOnce();
+    input.noteTouch();
+    expect(changed).toHaveBeenCalledTimes(3);
+  });
+
+  it('手机点一下以后浏览器补发的鼠标事件不算换成鼠标，真动了鼠标才换', () => {
+    input.active = true;
+    input.touch = { forward: 0, turn: 0, lateral: 0, vertical: 0, reset: vi.fn() };
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    input.noteTouch();
+    win.dispatchEvent(event('pointerdown', { pointerType: 'touch' }));
+    // 紧跟在手指后面的（Firefox 这类浏览器补发的 mousemove 移动量可能很大）
+    now.mockReturnValue(1300);
+    win.dispatchEvent(event('mousemove', { movementX: 240, movementY: 80 }));
+    canvas.dispatchEvent(event('mousedown', { button: 0 }));
+    expect(input.touchActive).toBe(true);
+    expect(canvas.requestPointerLock).not.toHaveBeenCalled();
+    // Chrome 直接标出是手指点出来的
+    now.mockReturnValue(5000);
+    win.dispatchEvent(event('mousemove', { movementX: 240, movementY: 80, sourceCapabilities: { firesTouchEvents: true } }));
+    expect(input.touchActive).toBe(true);
+    // 过了一秒，真的动了鼠标
+    win.dispatchEvent(event('mousemove', { movementX: 40, movementY: 0 }));
+    expect(input.touchActive).toBe(false);
+  });
+
   it('菜单中的导航键保留浏览器行为，不积累飞行输入', () => {
     for (const code of ['Tab', 'Enter', 'Space', 'ArrowRight', 'KeyW']) {
       const e = event('keydown', { code });

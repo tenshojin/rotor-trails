@@ -19,6 +19,7 @@ const table: Table = {
   '这个存档读不了（地图更新过，或者这里玩不了这张图）': ['This save can\'t be loaded (the map has been updated, or it isn\'t available here)', 'このセーブはロードできません（マップが更新されたか、ここでは遊べないマップです）'],
   '已存档。连按两下 {0} 读档': ['Saved. Press {0} twice to load', 'セーブしました。{0} を 2 回押すとロード'],
   '已存档': ['Saved', 'セーブしました'],
+  '存档失败：浏览器里的飞行存档是更新版本的游戏存的，这个版本不会覆盖它。刷新页面更新游戏后再存': ['Couldn\'t save: the saved flights in this browser come from a newer version of the game, and this version won\'t overwrite them. Refresh the page to update the game, then save again.', 'セーブできませんでした。このブラウザの飛行セーブは新しいバージョンのゲームで作られたもので、このバージョンでは上書きしません。ページを更新してゲームを最新にしてから、もう一度セーブしてください。'],
   '存档失败：浏览器不让存（存储空间满了，或者被禁止了）': ['Couldn\'t save: the browser won\'t store it (storage is full or blocked)', 'セーブできませんでした。ブラウザが保存を許可していません（容量不足か、保存が無効です）'],
   '这里还没有存档（按 {0} 存档）': ['No save here yet (press {0} to save)', 'まだセーブがありません（{0} でセーブ）'],
   '这里还没有存档': ['No save here yet', 'まだセーブがありません'],
@@ -139,6 +140,7 @@ const table: Table = {
   '机体侧翻。在坡地或带着侧向速度接地时容易发生。': ['The aircraft rolled over. This happens easily on a slope or when touching down with sideways speed.', '機体が横転しました。斜面や、横方向の速度が残ったままの接地で起こりやすい事故です。'],
   '机体落水。在水面附近飞行时保持安全高度。': ['The aircraft went into the water. Keep a safe height when flying over water.', '機体が着水しました。水面の近くを飛ぶときは安全な高度を保ちましょう。'],
   '失败原因：{0}': ['Cause: {0}', '失敗の原因：{0}'],
+  '手机转成竖屏了，先暂停。横过来以后点“继续飞行”。': ['Your phone is upright, so the game is paused. Turn it sideways, then tap Resume.', '縦向きになったので一時停止しました。横向きに戻してから「フライトを続ける」をタップしてください。'],
 };
 
 export default table;

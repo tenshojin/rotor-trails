@@ -48,7 +48,8 @@ On a computer you fly with keyboard and mouse, or with a gamepad (Xbox / PlaySta
 - **You can't get stuck**: continue from the latest checkpoint or an earlier safe one, or use “Safe recovery” to return to a stable hover.
 - **Pickups along the way**: power boost, shield and repair kits.
 - **Graphics**: Low, Medium, High and Ultra, chosen automatically for your graphics card the first time you play. Higher quality means you see further: on Ultra, trees are drawn out to 6 km, and terrain and building detail and shadows reach further too. There is also a ray tracing switch, which lets shaded rock walls pick up warm light from the opposite side and the belly of the aircraft catch light bounced off the ground.
-- **Your save is yours**: progress lives in your browser, and you can export it to a file and import it on another computer or browser (Settings → Assists & display).
+- **Your save is yours**: progress, settings and saved flights live in your browser. Export them to a file and import it on another computer or browser to carry on flying (Settings → Assists & display).
+- **Comfort display**: prone to motion sickness or sensitive to flashes? Settings → Graphics turns off camera shake, head motion, motion blur and lightning flashes in one go. Only the picture changes; the handling stays the same.
 
 ## Maps
 

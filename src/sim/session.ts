@@ -22,6 +22,7 @@ import { obstacleTop } from './routeCheck';
 import { Heightfield } from './terrain';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { tr } from '../i18n';
+import { isSessionSaveShape } from './saveValidation';
 
 export const STEP = 1 / 60;
 
@@ -84,7 +85,6 @@ export interface SessionSave {
 const SAVE_CHECKPOINTS = 8;
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-const isVec = (v: unknown, n: number): boolean => Array.isArray(v) && v.length === n && v.every(isNum);
 
 export interface Checkpoint {
   id: number;
@@ -441,6 +441,23 @@ export class GameSession {
     q.set(x + hx * qw + hy * z - hz * y, y - hx * z + hy * qw + hz * x, z + hx * y - hy * x + hz * qw, qw - hx * x - hy * y - hz * z).normalize();
   }
 
+  /** 查一遍脚下：离地高度、下面是什么、旋翼离障碍多远。只查不改：不算碰撞、不回血、不推进任务和时间 */
+  private sampleGround(): number {
+    const b = this.body;
+    const skidOff = -(HELI.skid.attachY - HELI.skid.restLength);
+    const down = this.phys.castDown(b.pos, 3000, false);
+    this.agl = down ? Math.max(0, down.distance - skidOff) : 3000;
+    this.surfaceBelow = down ? down.tag.kind : 'none';
+    const downTree = this.phys.castDown(b.pos, 3000, true);
+    this.aglCanopy = downTree ? Math.max(0, downTree.distance - skidOff) : this.agl;
+    _up.set(0, 1, 0).applyQuaternion(b.quat);
+    _hub.copy(b.pos).addScaledVector(_up, HELI.hubHeight);
+    const hubHit = this.phys.castDown(_hub, 40, false);
+    const rotorClearance = hubHit ? hubHit.distance : Infinity;
+    this.skidY = b.pos.y - skidOff;
+    return rotorClearance;
+  }
+
   step(): void {
     if (this.state === 'crashed' && !this.disposed) {
       this.stepWreck();
@@ -476,17 +493,7 @@ export class GameSession {
     this.wind.sample(b.pos.x, b.pos.y, b.pos.z, this.t, this.windNow);
 
     // ---------- 近地查询 ----------
-    const skidOff = -(HELI.skid.attachY - HELI.skid.restLength);
-    const down = this.phys.castDown(b.pos, 3000, false);
-    this.agl = down ? Math.max(0, down.distance - skidOff) : 3000;
-    this.surfaceBelow = down ? down.tag.kind : 'none';
-    const downTree = this.phys.castDown(b.pos, 3000, true);
-    this.aglCanopy = downTree ? Math.max(0, downTree.distance - skidOff) : this.agl;
-    _up.set(0, 1, 0).applyQuaternion(b.quat);
-    _hub.copy(b.pos).addScaledVector(_up, HELI.hubHeight);
-    const hubHit = this.phys.castDown(_hub, 40, false);
-    const rotorClearance = hubHit ? hubHit.distance : Infinity;
-    this.skidY = b.pos.y - skidOff;
+    const rotorClearance = this.sampleGround();
 
     // ---------- 起落架 ----------
     const tel = this.flight.telemetry;
@@ -874,27 +881,9 @@ export class GameSession {
 
   /** 这份存档能不能读进这一局：结构完整、数值正常、任务的目标数对得上（地图改过以后的旧档不读，免得任务进度错位） */
   canRestore(s: SessionSave | null | undefined): s is SessionSave {
-    if (!s || typeof s !== 'object' || !s.snap || !Array.isArray(s.checkpoints)) return false;
-    const ok = (x: SessionSnapshot | undefined): boolean =>
-      !!x &&
-      isNum(x.t) &&
-      !!x.body &&
-      isVec(x.body.pos, 3) &&
-      isVec(x.body.quat, 4) &&
-      isVec(x.body.vel, 3) &&
-      isVec(x.body.angVel, 3) &&
-      !!x.damage &&
-      isNum(x.damage.durability) &&
-      !!x.buffs &&
-      !!x.nav &&
-      !!x.weather &&
-      !!x.mission &&
-      Array.isArray(x.mission.main) &&
-      Array.isArray(x.mission.optional) &&
-      x.mission.main.length === this.mission.main.length &&
-      x.mission.optional.length === this.mission.optional.length &&
-      Array.isArray(x.pickupsTaken);
-    return ok(s.snap) && s.checkpoints.every((c) => !!c && isNum(c.id) && typeof c.label === 'string' && ok(c.snap));
+    if (!isSessionSaveShape(s)) return false;
+    const matches = (x: SessionSnapshot): boolean => x.mission.main.length === this.mission.main.length && x.mission.optional.length === this.mission.optional.length;
+    return matches(s.snap) && s.checkpoints.every((c) => matches(c.snap));
   }
 
   /** 读档：回到存档那一刻（和“从检查点继续”一样完整恢复，不算一次恢复、不扣分）。读不了返回 false，这一局不动 */
@@ -915,6 +904,7 @@ export class GameSession {
     // 超仿真：applySnapshot 先把系统放到“在飞”的状态，这里再换成存档时的样子（冷舱没启动完就存的，读回来发动机还是停着的）
     if (this.sys && save.sys) this.sys.restore(save.sys);
     if (this.sys && save.sim) this.flight.setSimState(save.sim);
+    this.flight.refreshReadings(this.body, this.windNow, this.altitudeMSL());
     return true;
   }
 
@@ -985,6 +975,8 @@ export class GameSession {
     for (const [, cols] of this.treeProxies) for (const c of cols) this.phys.removeCollider(c);
     this.treeProxies.clear();
     this.updateTreeProxies();
+    this.sampleGround();
+    this.flight.refreshReadings(b, this.windNow, this.altitudeMSL());
   }
 
   /** 调试/测试：把飞机放到指定位置，以给定航向（度）和前向速度飞行。 */

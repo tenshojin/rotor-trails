@@ -203,35 +203,50 @@ export function buildRealData(def: RealTerrainDef, levels: RealGrid[]): RealData
 
 /** 第一次进这张图要下几十兆，加载器一个个读文件时进度条是不动的，玩家以为卡死了。
  * 这里先把文件都拉一遍，进度按字节走；后面的加载直接读浏览器缓存。中途出错不要紧，真正加载时会再报 */
-export async function downloadRealFiles(def: RealTerrainDef, onProgress: (done: number, total: number) => void): Promise<void> {
-  const names = [...def.levels.flatMap((l) => [l.heights, l.image]), def.trees, def.strata?.image, def.aux, def.auxMid, def.scatter].filter((n): n is string => !!n);
+export async function downloadRealFiles(def: RealTerrainDef, onProgress: (done: number, total: number) => void, signal?: AbortSignal): Promise<void> {
+  const names = [...new Set([...def.levels.flatMap((l) => [l.heights, l.image]), def.trees, def.strata?.image, def.aux, def.auxMid, def.scatter].filter((n): n is string => !!n))];
   const known = new Map<string, number>();
   let done = 0;
+  let next = 0;
+  const active = (): void => { if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError'); };
   const report = (): void => {
+    active();
     let total = 0;
     for (const v of known.values()) total += v;
     // 响应头还没全到的时候，总量按地图写的估
     onProgress(done, Math.max(total, def.bytes ?? 0, done));
   };
-  await Promise.all(
-    names.map(async (name) => {
+  // 最多同时下 4 个：手机、慢网络上几十兆的文件一起开下，谁都下不快；中途退出（回主菜单、显卡断了）就停
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      active();
+      const name = names[next++];
+      if (name === undefined) return;
       try {
-        const res = await fetch(new URL(def.base + name, document.baseURI).href);
+        const res = await fetch(new URL(def.base + name, document.baseURI).href, { signal });
+        if (!res.ok) { await res.body?.cancel(); continue; }
         const size = Number(res.headers.get('content-length'));
         if (size > 0) known.set(name, size);
         const reader = res.body?.getReader();
-        if (!reader) return;
-        for (;;) {
-          const { done: end, value } = await reader.read();
-          if (end) break;
-          done += value.byteLength;
-          report();
+        if (!reader) continue;
+        try {
+          for (;;) {
+            active();
+            const { done: end, value } = await reader.read();
+            if (end) break;
+            done += value.byteLength;
+            report();
+          }
+        } finally {
+          reader.releaseLock();
         }
-      } catch {
-        // 真正加载的时候会报错
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        // 这里只是先拉进浏览器缓存：出错不要紧，真正加载的时候会报
       }
-    }),
-  );
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, names.length) }, worker));
 }
 
 const cache = new Map<string, Promise<RealData>>();

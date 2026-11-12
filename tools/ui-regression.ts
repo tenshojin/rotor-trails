@@ -1,6 +1,7 @@
 // 开发服务器中打开 /tools/ui-regression.html。无需浏览器自动化依赖。
 import '../src/ui/style.css';
 import { UI } from '../src/ui/menus';
+import { TouchControls } from '../src/ui/touchControls';
 import { Hud } from '../src/ui/hud';
 import { defaultSettings, type Settings } from '../src/game/settings';
 import { LESSONS } from '../src/game/tutorial';
@@ -121,6 +122,16 @@ await test('休闲飞行选图不提难度和成绩，简报保留时段和天�
   assert(selection === 'rain/night', `选择未保留：${selection}`);
 });
 
+await test('休闲飞行的暂停菜单：地名一多，“继续飞行”也不用滑就看得见', (ui) => {
+  const places = ['谷地全景', '小机场', '北面的雪山', '小河上空'];
+  ui.freePause({ map, time: 'day', weather: 'clear', vistas: places, been: [], total: 5, unseen: ['机库 · 北 250 米', '谷地全景 · 西 10 米', '小机场 · 东北 230 米', '北面的雪山 · 北 860 米', '小河上空 · 北 740 米'], canGo: true, cruise: false, save: { block: null, load: null, saved: false } }, {
+    resume: () => {}, time: () => {}, weather: () => {}, vista: () => {}, go: () => {}, cruise: () => {}, photo: () => {}, settings: () => {}, help: () => {}, quit: () => {}, save: () => {}, load: () => {},
+  });
+  const card = find('.free-pause').getBoundingClientRect();
+  const resume = find('.free-pause [data-a="resume"]').getBoundingClientRect();
+  assert(resume.top >= card.top && resume.bottom <= card.bottom, `继续飞行要在卡片里看得见：按钮 ${Math.round(resume.top)}～${Math.round(resume.bottom)}，卡片 ${Math.round(card.top)}～${Math.round(card.bottom)}`);
+});
+
 await test('休闲飞行的暂停菜单换时段、天气、景点', (ui) => {
   const log: string[] = [];
   ui.freePause({ map, time: 'dusk', weather: 'clear', vistas: ['甲', '乙'], been: ['甲'], total: 3, unseen: ['丙 · 东北 1.2 公里'], canGo: true, cruise: false }, {
@@ -149,10 +160,12 @@ await test('手柄走菜单：方向找最近的控件，A 确认，B 退出弹�
   });
   const first = document.activeElement;
   assert(first === find('[data-a="resume"]'), '一进来焦点要在主按钮上');
-  padNavigate(fixture, 'up');
+  // 矮窗口（横着拿的手机）上按钮挪到了时段、天气上面：往下走到别的按钮，再往上回到主按钮
+  const actionsFirst = find('.chip').getBoundingClientRect().top > (first as HTMLElement).getBoundingClientRect().bottom;
+  padNavigate(fixture, actionsFirst ? 'down' : 'up');
   const chip = document.activeElement as HTMLElement;
-  assert(chip !== first && chip.classList.contains('chip'), '往上走到选项');
-  padNavigate(fixture, 'down');
+  assert(chip !== first && chip.classList.contains(actionsFirst ? 'btn' : 'chip'), actionsFirst ? '往下走到别的按钮' : '往上走到选项');
+  padNavigate(fixture, actionsFirst ? 'up' : 'down');
   const box = (e: Element | null) => { const r = e?.getBoundingClientRect(); return r ? `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}x${Math.round(r.height)}` : ''; };
   assert(document.activeElement === first, `往下走回主按钮：从「${chip.textContent}」${box(chip)} 到了「${document.activeElement?.textContent}」${box(document.activeElement)}，主按钮在 ${box(first)}`);
   padNavigate(fixture, 'ok');
@@ -436,7 +449,7 @@ await test('设置：选语言、导出存档；导入先检查、确认了才�
     change: (value) => { lang = value.lang; },
     capture: () => {},
     close: () => {},
-    exportSave: () => exported++,
+    exportSave: () => { exported++; return 'complete'; },
     checkSave: (text) => (text.includes('"ok"') ? 'ok' : text.includes('newer') ? 'newer' : 'invalid'),
     importSave: (text) => { imported = text; },
   });
@@ -464,6 +477,99 @@ await test('设置：选语言、导出存档；导入先检查、确认了才�
   await choose('{"ok":true}');
   click('[data-a="confirmImport"]');
   assert(imported === '{"ok":true}', '确认以后没有导入');
+});
+
+
+await test('舒适设置只修改四项视觉效果，并保持当前设置页焦点', (ui) => {
+  const settings = { ...defaultSettings(), fov: 89, shake: 0.8, headMotion: true, motionBlur: true, lightning: true, eyeAdapt: false, volMaster: 0.35 };
+  let changed: Settings | null = null;
+  ui.settings(settings, { change: (s) => { changed = s; }, capture: () => {}, close: () => {} });
+  click('#settings-video');
+  click('[data-a="comfort"]');
+  assert(changed !== null, '舒适设置未应用');
+  const result = changed as unknown as Settings;
+  assert(result.shake === 0 && !result.headMotion && !result.motionBlur && !result.lightning, '四项效果没有全部关闭');
+  assert(!result.eyeAdapt && result.fov === 89 && result.volMaster === 0.35 && result.assist === settings.assist, '无关设置被覆盖');
+  assert(document.activeElement === find('[data-a="comfort"]'), '操作后焦点丢失');
+  assert(find<HTMLInputElement>('[data-k="shake"]').value === '0', '滑条未同步');
+  assert(!find<HTMLInputElement>('[data-k="lightning"]').checked, '闪光控件未同步');
+});
+
+await test('导入预览显示备份范围；完整空槽位也明确提示会替换全部飞行', async (ui) => {
+  ui.settings(defaultSettings(), {
+    change: () => {}, capture: () => {}, close: () => {}, exportSave: () => 'complete',
+    checkSave: () => 'ok', describeSave: () => ({ completedMaps: 3, flightCount: 0, exportedAt: 1700000000000 }), importSave: () => {},
+  });
+  click('#settings-assist');
+  const input = find<HTMLInputElement>('.save-file');
+  const data = new DataTransfer();
+  data.items.add(new File(['{}'], 'backup.json', { type: 'application/json' }));
+  input.files = data.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert(find('.save-preview').textContent?.includes('通关的地图：3'), '未显示已完成地图');
+  assert(find('.save-preview').textContent?.includes('飞到一半的存档：0 份'), '空飞行集合被当成旧版备份');
+  assert(find('.save-confirm').textContent?.includes('所有飞到一半的存档'), '覆盖范围未说清');
+  const rect = find('.save-confirm').getBoundingClientRect();
+  assert(rect.left >= 0 && rect.right <= innerWidth + 1, '确认区域横向越界');
+});
+
+await test('快速更换文件时旧读取结果不覆盖新预览；切换分类会取消等待中的导入', async (ui) => {
+  let imported = '';
+  ui.settings(defaultSettings(), {
+    change: () => {}, capture: () => {}, close: () => {}, exportSave: () => 'complete',
+    checkSave: (t) => t === 'new' ? 'ok' : 'invalid', importSave: (t) => { imported = t; },
+  });
+  click('#settings-assist');
+  const pending = (): ((text: string) => void) => {
+    let finish!: (text: string) => void;
+    const promise = new Promise<string>((resolve) => { finish = resolve; });
+    const file = new File(['pending'], 'save.json');
+    Object.defineProperty(file, 'text', { value: () => promise });
+    const data = new DataTransfer(); data.items.add(file);
+    const input = find<HTMLInputElement>('.save-file');
+    input.files = data.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return finish;
+  };
+  const old = pending();
+  const latest = pending();
+  latest('new');
+  await Promise.resolve();
+  assert(!!fixture.querySelector('[data-a="confirmImport"]'), '最新文件未显示确认');
+  old('bad');
+  await Promise.resolve();
+  assert(!!fixture.querySelector('[data-a="confirmImport"]'), '旧读取失败覆盖了最新文件');
+  click('[data-a="confirmImport"]');
+  assert(imported === 'new', '导入了错误的文件');
+  const abandoned = pending();
+  click('#settings-video');
+  abandoned('new');
+  await Promise.resolve();
+  click('#settings-assist');
+  assert(!fixture.querySelector('[data-a="confirmImport"]'), '离开的导入操作在后台复活');
+});
+
+await test('完整、部分和失败的下载结果给出不同提示', (ui) => {
+  for (const result of ['complete', 'progress', 'saved-only', 'failed'] as const) {
+    ui.settings(defaultSettings(), {
+      change: () => {}, capture: () => {}, close: () => {}, exportSave: () => result,
+      checkSave: () => 'ok', importSave: () => {},
+    });
+    click('#settings-assist');
+    click('[data-a="exportSave"]');
+    const message = find('.save-notice').textContent ?? '';
+    assert(message.includes(result === 'complete' ? '飞到一半的存档都在里面' : result === 'progress' ? '没有放进去' : result === 'saved-only' ? '这一趟飞行没存上' : '没导出成功'), '下载结果提示不真实');
+  }
+});
+
+await test('存档更新恢复页不会被 Escape 关闭，重新加载入口可用', (ui) => {
+  let reloaded = 0;
+  ui.saveChanged(() => { reloaded++; });
+  press(find('[data-a="reload"]'), 'Escape');
+  assert(!!fixture.querySelector('[role="alert"]'), '恢复页被关闭');
+  click('[data-a="reload"]');
+  assert(reloaded === 1, '重新加载回调未触发');
 });
 
 await test('关于页：版本号、反馈入口、制作人员名单', (ui) => {
@@ -539,6 +645,44 @@ await test('存档：暂停菜单的存档、读档；存不了时灰掉；失�
   ui.failed({ cause: '坠毁', detail: '', checkpoints: [], load: '任务 2/4 · 耐久 86 · 3 分钟前' }, { checkpoint: () => {}, restart: () => {}, quit: () => {}, load: () => load++ });
   click('.fail [data-a="load"]');
   assert(load === 2, '失败页的读档没有回调');
+});
+
+await test('GPU 恢复页关闭旧菜单且不能被 Escape 误关，按保存结果提示', (ui) => {
+  menu(ui);
+  ui.help(defaultSettings().bindings);
+  let reloads = 0;
+  ui.gpuLost(() => reloads++, true);
+  assert(!ui.hasModal && !fixture.querySelector('.main-menu'), '旧菜单仍可操作');
+  assert(fixture.textContent?.includes('这一趟飞行已经自动存好了'), '未显示保存成功');
+  const button = find('[data-a="reload"]');
+  press(button, 'Escape');
+  assert(button.isConnected, 'Escape 关闭了恢复页');
+  button.click();
+  assert(reloads === 1, '重新加载按钮未响应');
+  ui.gpuLost(() => {}, false);
+  assert(fixture.textContent?.includes('这一趟飞行没能存上'), '错误宣称保存成功');
+});
+
+await test('触控捕获丢失、重置与模式切换不遗留摇杆或视线输入', () => {
+  const t = new TouchControls(fixture);
+  t.setMode('fly');
+  const left = find('.t-left');
+  left.setPointerCapture = () => {};
+  left.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 90, clientY: 150 }));
+  left.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 90, clientY: 90 }));
+  assert(t.vertical > 0.9, '摇杆未输出');
+  left.dispatchEvent(new PointerEvent('lostpointercapture', { pointerId: 1 }));
+  assert(t.vertical === 0 && t.turn === 0, '失去捕获后仍在升降');
+  const look = find('.t-look');
+  look.setPointerCapture = () => {};
+  let looked = 0;
+  t.onLook = () => looked++;
+  look.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 2, clientX: 50, clientY: 50 }));
+  look.dispatchEvent(new PointerEvent('pointermove', { pointerId: 2, clientX: 60, clientY: 50 }));
+  t.reset();
+  look.dispatchEvent(new PointerEvent('pointermove', { pointerId: 2, clientX: 70, clientY: 50 }));
+  assert(looked === 1, '重置后旧手指仍控制视线');
+  t.dispose();
 });
 
 document.querySelector('#summary')!.textContent = `${passed} 项通过，${failed} 项失败 · 当前窗口 ${innerWidth} × ${innerHeight}`;

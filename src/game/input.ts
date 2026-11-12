@@ -30,6 +30,7 @@ export interface TouchAxes {
   turn: number;
   lateral: number;
   vertical: number;
+  reset?(): void;
 }
 
 export interface PointerClick {
@@ -58,6 +59,10 @@ export class Input {
   onEdge: ((a: EdgeAction, fromPad?: boolean) => void) | null = null;
   /** 玩家现在用的是键盘鼠标还是手柄：最后动的那个（提示里的键名跟着换） */
   device: 'keyboard' | 'pad' = 'keyboard';
+  /** 现在是不是在用手指操作（触屏摇杆）。带触屏的笔记本、二合一电脑：碰屏幕算触屏，动鼠标、按键盘、用手柄就换回去，照样能锁鼠标 */
+  touchActive = false;
+  /** 手指（或触控笔）最后一次按下、抬起的时间。手机上点一下，浏览器随后还会补发一串鼠标事件，不能当成换了鼠标 */
+  private touchAt = -Infinity;
   onDevice: ((d: 'keyboard' | 'pad') => void) | null = null;
   /** 手柄接上（true）或断开（false） */
   onPadConnection: ((connected: boolean, name: string) => void) | null = null;
@@ -106,6 +111,8 @@ export class Input {
     document.addEventListener('visibilitychange', this.onVisibility);
     document.addEventListener('pointerlockchange', this.onPointerLock);
     document.addEventListener('pointerlockerror', this.onPointerLockError);
+    window.addEventListener('pointerdown', this.onTouchPointer, { capture: true });
+    window.addEventListener('pointerup', this.onTouchPointer, { capture: true });
     window.addEventListener('mousemove', this.onMouseMove);
     canvas.addEventListener('mousedown', this.onMouseDown);
     window.addEventListener('mouseup', this.onMouseUp);
@@ -196,11 +203,29 @@ export class Input {
 
   /** 手指碰了屏幕上的摇杆或按键：提示换回触屏的叫法（之前拿过手柄的话） */
   noteTouch(): void {
+    this.setDevice('keyboard', true);
+  }
+
+  /** 真的用了鼠标（指针事件说是鼠标）：换回键盘鼠标 */
+  noteMouse(): void {
     this.setDevice('keyboard');
   }
 
-  private setDevice(d: 'keyboard' | 'pad'): void {
-    if (d === this.device) return;
+  private onTouchPointer = (e: PointerEvent): void => {
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') this.touchAt = performance.now();
+  };
+
+  /** 这个鼠标事件是不是手指点出来的（手机、平板点一下，浏览器为了兼容旧网页会补发 mousemove / mousedown）。
+   *  Chrome 直接标出来；别的浏览器看是不是紧跟在手指操作后面（一秒内） */
+  private fromTouch(e: MouseEvent): boolean {
+    const caps = (e as MouseEvent & { sourceCapabilities?: { firesTouchEvents?: boolean } | null }).sourceCapabilities;
+    return caps?.firesTouchEvents === true || performance.now() - this.touchAt < 1000;
+  }
+
+  private setDevice(d: 'keyboard' | 'pad', touch = false): void {
+    if (d === this.device && touch === this.touchActive) return;
+    if (!touch) this.touch?.reset?.();
+    this.touchActive = touch;
     this.device = d;
     this.onDevice?.(d);
   }
@@ -240,6 +265,7 @@ export class Input {
   }
 
   clear = (): void => {
+    this.touch?.reset?.();
     this.down.clear();
     for (const t of this.releasing.values()) clearTimeout(t);
     this.releasing.clear();
@@ -321,8 +347,8 @@ export class Input {
   }
 
   private onMouseMove = (e: MouseEvent): void => {
-    // （手一碰鼠标就是在用键盘鼠标；只差一两个像素的抖动不算）
-    if (Math.abs(e.movementX) + Math.abs(e.movementY) > 2) this.setDevice('keyboard');
+    // （手一碰鼠标就是在用键盘鼠标；只差一两个像素的抖动不算，手指点出来的也不算）
+    if (Math.abs(e.movementX) + Math.abs(e.movementY) > 2 && !this.fromTouch(e)) this.setDevice('keyboard');
     if (!this.active) return;
     if (this.simMode && !this.freeMouse) {
       this.pointerAt(e);
@@ -356,7 +382,7 @@ export class Input {
   };
 
   private onMouseDown = (e: MouseEvent): void => {
-    this.setDevice('keyboard');
+    if (!this.fromTouch(e)) this.setDevice('keyboard');
     if (!this.active) return;
     // （超仿真里进拍照模式也是这样：这时候鼠标不是手）
     if (this.freeMouse) {
@@ -391,7 +417,7 @@ export class Input {
   };
 
   requestLock(): void {
-    if (!this.active || this.disposed || this.simMode || this.freeMouse || this.touch) return;
+    if (!this.active || this.disposed || this.simMode || this.freeMouse || this.touchActive) return;
     const request = ++this.lockRequest;
     const failed = () => {
       if (request === this.lockRequest && this.active && !this.locked && !this.disposed) this.lockFailed = true;
@@ -470,6 +496,8 @@ export class Input {
     document.removeEventListener('visibilitychange', this.onVisibility);
     document.removeEventListener('pointerlockchange', this.onPointerLock);
     document.removeEventListener('pointerlockerror', this.onPointerLockError);
+    window.removeEventListener('pointerdown', this.onTouchPointer, { capture: true });
+    window.removeEventListener('pointerup', this.onTouchPointer, { capture: true });
     window.removeEventListener('mousemove', this.onMouseMove);
     this.canvas.removeEventListener('mousedown', this.onMouseDown);
     window.removeEventListener('mouseup', this.onMouseUp);
@@ -482,7 +510,7 @@ export class Input {
 const NO_CLICKS: PointerClick[] = [];
 
 /** 摇杆（手柄或屏幕上的）往这个动作的方向推了多少（0..1） */
-function stickAmount(p: TouchAxes, a: Action): number {
+function stickAmount(p: Omit<TouchAxes, 'reset'>, a: Action): number {
   switch (a) {
     case 'forward':
       return Math.max(0, p.forward);
