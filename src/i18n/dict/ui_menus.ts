@@ -3,6 +3,10 @@
 import type { Table } from '../index.ts';
 
 const table: Table = {
+  '自动性能优化': ['Automatic performance tuning', 'パフォーマンス自動調整'],
+  '持续掉帧时自动降低画质，最低档继续调整渲染分辨率。手动修改画质、光线追踪或分辨率后关闭，可在此重新开启。': ['Reduces quality during sustained low frame rates, then render resolution at the lowest preset. Manual quality, ray tracing or resolution changes turn this off; enable it again here.', '低フレームレートが続くと画質を下げ、最低画質では描画解像度を調整します。画質・レイトレーシング・解像度を手動で変えると無効になります。ここで再び有効にできます。'],
+  '增加地形反弹光与金属反射，也会增加加载和渲染负担；低配设备建议关闭。': ['Adds terrain bounce lighting and metal reflections, with additional loading and rendering cost. Recommended off on less powerful devices.', '地形からの反射光と金属の映り込みを追加しますが、読み込みと描画の負荷も増加します。性能の低い端末ではオフを推奨します。'],
+  '渲染分辨率（中及以上使用时间超分，低画质直接缩放）': ['Render resolution (temporal upscaling at Medium or above; direct scaling at Low)', '描画解像度（中以上は時間的超解像、低は直接拡大）'],
   '这个文件太大了（存档文件不会超过 10 MB），没有读。现在的进度没有动。': ['That file is too large (save files are under 10 MB), so it was not read. Your current progress is unchanged.', 'ファイルが大きすぎます（セーブファイルは 10 MB 未満です）。読み込んでいません。今の進行状況はそのままです。'],
   '这个标签页先停下了，免得把刚导入的存档盖掉。重新加载就能接着玩。': ['This tab has stopped so it won\'t overwrite the save that was just imported. Reload to keep playing.', '読み込んだばかりのセーブデータを上書きしないよう、このタブは止めました。再読み込みすると続けて遊べます。'],
   '进度和存档已经换好了，正在重新加载游戏。': ['Your progress and saved flights have been replaced. Reloading the game…', '進行状況とセーブデータを置き換えました。ゲームを読み込み直しています…'],
@@ -273,10 +277,8 @@ const table: Table = {
   '也可以按 F11。全屏时 Esc 是暂停，按住 Esc 才退出全屏': ['F11 works too. In fullscreen, Esc pauses; hold Esc to leave fullscreen', 'F11 でも切り替えられます。全画面中は Esc がポーズになり、Esc の長押しで全画面を終了します'],
   '画质': ['Quality', '画質'],
   '光线追踪': ['Ray tracing', 'レイトレーシング'],
-  '沿地形追踪真实光线：山谷、岩壁、机腹接到地面反上来的彩色光，金属映出地形，舱内光线随脚下的地面变化。进图时多算一秒，飞行时几乎不占性能': ['Traces real light rays across the terrain: valleys, rock walls and the belly of the aircraft pick up colored light bounced from the ground, metal reflects the terrain, and the cabin light changes with the ground below. Adds about a second when a map loads and costs almost nothing in flight', '地形に沿って実際に光線を追跡します。谷や岩壁、機体の腹に地面からの色づいた反射光が届き、金属には地形が映り込み、機内の光は足元の地面に合わせて変わります。マップ読み込みが 1 秒ほど延びますが、飛行中の負荷はほとんどありません'],
   '体积雾与光束': ['Volumetric fog and light shafts', 'ボリュームフォグと光芒'],
   '贴地薄雾、穿过树林与云缝的光束（丁达尔效应）；中画质及以上生效': ['Ground mist and light shafts through trees and gaps in the clouds; Medium quality and above', '地表の薄い霧、木々や雲の切れ間から差す光の筋。画質「中」以上で有効'],
-  '渲染分辨率（低于 100% 时用时间超分还原清晰度）': ['Render resolution (below 100%, temporal upscaling restores sharpness)', 'レンダリング解像度（100% 未満では時間方向の超解像で鮮明さを補います）'],
   '视野范围（FOV）': ['Field of view (FOV)', '視野角（FOV）'],
   '座舱视点居中（0% = 右侧机长座位）': ['Cockpit eye position (0% = the pilot\'s seat on the right)', 'コックピット視点の位置（0% = 右側の機長席）'],
   '镜头震动强度': ['Camera shake', 'カメラの揺れ'],

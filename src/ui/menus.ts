@@ -830,9 +830,10 @@ export class UI {
           (canFull ? `<div class="set-row"><span>${tr`全屏显示`}</span><button type="button" class="btn sm" data-a="fullscreen">${document.fullscreenElement ? tr('退出全屏') : tr('进入全屏')}</button><em class="muted">${tr`也可以按 F11。全屏时 Esc 是暂停，按住 Esc 才退出全屏`}</em></div>` : '') +
           `<div class="comfort-preset"><h3>${tr`舒适显示`}</h3><p class="muted">${tr`容易晕 3D、或者对闪光敏感：一下关掉镜头震动、头部晃动、动态模糊和闪电闪光。只改画面，飞行手感和天气对飞机的影响不变。`}</p><button type="button" class="btn sm" data-a="comfort">${tr`一键关掉`}</button><p role="status">${escapeHtml(comfortNotice)}</p></div>` +
           select('quality', tr('画质'), (Object.keys(QUALITY) as Array<keyof typeof QUALITY>).map((q) => [q, QUALITY[q].label])) +
-          check('rayTracing', tr('光线追踪'), tr('沿地形追踪真实光线：山谷、岩壁、机腹接到地面反上来的彩色光，金属映出地形，舱内光线随脚下的地面变化。进图时多算一秒，飞行时几乎不占性能')) +
+          check('autoQuality', tr('自动性能优化'), tr('持续掉帧时自动降低画质，最低档继续调整渲染分辨率。手动修改画质、光线追踪或分辨率后关闭，可在此重新开启。')) +
+          check('rayTracing', tr('光线追踪'), tr('增加地形反弹光与金属反射，也会增加加载和渲染负担；低配设备建议关闭。')) +
           check('volumetric', tr('体积雾与光束'), tr('贴地薄雾、穿过树林与云缝的光束（丁达尔效应）；中画质及以上生效')) +
-          range('renderScale', tr('渲染分辨率（低于 100% 时用时间超分还原清晰度）'), 0.5, 1, 0.05, pct) +
+          range('renderScale', tr('渲染分辨率（中及以上使用时间超分，低画质直接缩放）'), 0.5, 1, 0.05, pct) +
           range('fov', tr('视野范围（FOV）'), 50, 100, 1, (v) => `${Math.round(v)}°`) +
           range('viewCenter', tr('座舱视点居中（0% = 右侧机长座位）'), 0, 1, 0.05, pct) +
           range('shake', tr('镜头震动强度'), 0, 1, 0.05, pct) +
@@ -891,7 +892,11 @@ export class UI {
         const em = t.parentElement?.querySelector('em');
         if (em) em.textContent = k === 'fov' ? `${Math.round(Number(t.value))}°` : k === 'mouseSensitivity' || k === 'padSensitivity' ? Number(t.value).toFixed(2) : `${Math.round(Number(t.value) * 100)}%`;
       } else rec[k] = t.value;
-      if (k === 'quality' || k === 'rayTracing') s.autoQuality = false;
+      if (k === 'quality' || k === 'rayTracing' || k === 'renderScale') {
+        s.autoQuality = false;
+        const auto = body.querySelector<HTMLInputElement>('[data-k="autoQuality"]');
+        if (auto) auto.checked = false;
+      }
       on.change(structuredClone(s));
       if (k === 'assist') {
         render();

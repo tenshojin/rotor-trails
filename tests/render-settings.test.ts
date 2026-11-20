@@ -36,6 +36,19 @@ function fixture() {
 }
 
 describe('render settings invalidation', () => {
+  it('low resolution changes resize only, preserving shaders, shadows and post resources', () => {
+    const f = fixture();
+    const low = { ...f.settings, quality: 'low' as const };
+    f.view.applySettings(low);
+    vi.clearAllMocks();
+    f.view.applySettings({ ...low, renderScale: 0.6 });
+    expect(f.renderer.setDrawingBufferSize).toHaveBeenCalledOnce();
+    expect(f.renderer.setDrawingBufferSize).toHaveBeenLastCalledWith(1280, 720, 0.48);
+    expect(buildPost).not.toHaveBeenCalled();
+    expect(f.sun.setShadows).not.toHaveBeenCalled();
+    expect(f.sun.updateFrustums).not.toHaveBeenCalled();
+  });
+
   it('does no render rebuild, resize, shadow work or environment bake for audio/input/UI changes', () => {
     const f = fixture();
     const geometry = new THREE.BoxGeometry();

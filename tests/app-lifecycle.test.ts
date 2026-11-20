@@ -84,6 +84,69 @@ describe('运行与加载恢复', () => {
   });
   afterEach(() => { app.dispose(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
+  it('最低画质继续降低分辨率、不预热，长时间极低帧率也能触发，最低保留 50%', () => {
+    const a = app as any;
+    app.state = 'playing';
+    app.session = { state: 'running', dispose: vi.fn() } as unknown as GameSession;
+    app.settings.quality = 'low';
+    app.settings.rayTracing = false;
+    a.fps = 2; a.frameMax = 0.6;
+    for (let i = 0; i < 8; i++) a.watchFrameRate();
+    expect(app.settings.renderScale).toBe(0.8);
+    expect(a.pendingQuality).toBeNull();
+    expect(app.view.parallelCompile).not.toHaveBeenCalled();
+    expect(app.view.applySettings).toHaveBeenCalledWith(expect.objectContaining({ renderScale: 0.8 }));
+    for (let i = 0; i < 80; i++) a.watchFrameRate();
+    expect(app.settings.renderScale).toBe(0.5);
+    expect(app.view.applySettings).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(['manual', 'rewarming', 'replay'])('不会在 %s 状态自动改画质', (mode) => {
+    const a = app as any;
+    app.state = 'playing';
+    app.session = { state: 'running', dispose: vi.fn() } as unknown as GameSession;
+    app.settings.quality = 'low';
+    if (mode === 'manual') app.settings.autoQuality = false;
+    if (mode === 'rewarming') a.rewarming = true;
+    if (mode === 'replay') a.replay = {};
+    a.fps = 12; a.frameMax = 0.1;
+    for (let i = 0; i < 40; i++) a.watchFrameRate();
+    expect(app.settings.renderScale).toBe(1);
+    expect(a.pendingQuality).toBeNull();
+    a.replay = null; a.rewarming = false;
+  });
+
+  it('后台 RAF 不绘图、不更新音频，返回时清除后台经过时间', () => {
+    const a = app as any;
+    const audio = vi.spyOn(app.audio, 'update');
+    Object.assign(document, { hidden: true });
+    a.frames = 20; a.fpsT = 2; a.lowFps = 7;
+    a.tick(30000);
+    expect(app.view.render).not.toHaveBeenCalled();
+    expect(audio).not.toHaveBeenCalled();
+    expect(a.last).toBe(30000);
+    expect(a.frames + a.fpsT + a.lowFps).toBe(0);
+    vi.spyOn(performance, 'now').mockReturnValue(60000);
+    Object.assign(document, { hidden: false });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(a.last).toBe(60000);
+  });
+
+  it('暂停菜单在 120 Hz 屏幕上最多绘制 30 次，预热时恢复逐帧处理', () => {
+    const a = app as any;
+    app.state = 'paused';
+    app.session = { state: 'complete', dispose: vi.fn() } as unknown as GameSession;
+    a.instrumentData = vi.fn();
+    a.audioState = vi.fn().mockReturnValue({ paused: true });
+    a.last = 0;
+    for (let i = 1; i <= 120; i++) a.tick(i * 1000 / 120);
+    expect(app.view.render).toHaveBeenCalledTimes(30);
+    a.rewarming = true;
+    a.tick(1000 + 1000 / 120);
+    expect(app.view.render).toHaveBeenCalledTimes(31);
+    a.rewarming = false;
+  });
+
   it('构造中途失败也释放已经创建的画面与 HUD，不遗留画布', () => {
     const canvas = new Element();
     vi.spyOn(document, 'createElement')
@@ -827,10 +890,23 @@ describe('飞行存档：离开时自动存、读档键连按两下', () => {
 });
 
 describe('默认画质和自动降档', () => {
-  it('WebGL2（浏览器没有 WebGPU）默认低一档、不开光线追踪；WebGPU 照旧', () => {
+  it('入门独显不开极高或光追；WebGL2 高档降一级，触屏和核显从低档开始', () => {
     const rtx = 'NVIDIA RTX 3060';
-    expect(defaultQuality(rtx, false, false)).toEqual({ quality: 'ultra', rayTracing: true });
-    expect(defaultQuality(rtx, true, false)).toEqual({ quality: 'high', rayTracing: false });
+    expect(defaultQuality(rtx, false, false)).toEqual({ quality: 'medium', rayTracing: false });
+    expect(defaultQuality(rtx, true, false)).toEqual({ quality: 'medium', rayTracing: false });
+    expect(defaultQuality('NVIDIA GeForce RTX 5090', false, false)).toEqual({ quality: 'high', rayTracing: false });
+    expect(defaultQuality('NVIDIA GeForce RTX 5090', true, false)).toEqual({ quality: 'medium', rayTracing: false });
+    expect(defaultQuality('NVIDIA GeForce RTX 5070 Ti Laptop GPU', false, false)).toEqual({ quality: 'medium', rayTracing: false });
+    expect(defaultQuality('AMD Radeon RX 6500 XT', false, false)).toEqual({ quality: 'medium', rayTracing: false });
+    expect(defaultQuality('AMD Radeon 780M', false, false)).toEqual({ quality: 'low', rayTracing: false });
+    expect(defaultQuality('Apple M1', false, false)).toEqual({ quality: 'medium', rayTracing: false });
+    expect(defaultQuality('nvidia blackwell', false, false)).toEqual({ quality: 'high', rayTracing: false });
+    expect(defaultQuality('nvidia blackwell', false, false, 'ultra')).toEqual({ quality: 'high', rayTracing: false });
+    expect(defaultQuality('amd rdna-3', false, false)).toEqual({ quality: 'high', rayTracing: false });
+    expect(defaultQuality('nvidia turing', false, false)).toEqual({ quality: 'medium', rayTracing: false });
+    expect(defaultQuality('apple metal-3', false, false)).toEqual({ quality: 'medium', rayTracing: false });
+    expect(defaultQuality(rtx, false, false, 'ultra')).toEqual({ quality: 'medium', rayTracing: false });
+    expect(defaultQuality('NVIDIA RTX 5090', false, false, 'low')).toEqual({ quality: 'low', rayTracing: false });
     expect(defaultQuality('NVIDIA GeForce GTX 1660', true, false)).toEqual({ quality: 'medium', rayTracing: false });
     expect(defaultQuality('Mesa Intel(R) UHD Graphics 620', true, false)).toEqual({ quality: 'low', rayTracing: false });
     expect(defaultQuality(rtx, false, true)).toEqual({ quality: 'low', rayTracing: false });

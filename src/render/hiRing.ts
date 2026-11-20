@@ -73,13 +73,17 @@ export class HiRing {
     if (new URLSearchParams(location.search).get('hires') === '0') return null;
     // （可以是完整的网址：数据放在别的仓库）
     const base = new URL(/^https?:/.test(def.hi) ? def.hi : def.base + def.hi, document.baseURI).href;
+    const abort = new AbortController();
+    const timeout = setTimeout(() => abort.abort(), 10000);
     try {
-      const res = await fetch(base + 'index.json');
+      const res = await fetch(base + 'index.json', { signal: abort.signal });
       if (!res.ok) return null;
       return new HiRing(backend.device, base, (await res.json()) as HiIndex, slots);
     } catch (e) {
       console.warn('30 厘米影像的索引读不到，继续用 1.25 米的：', e);
       return null;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 

@@ -6,7 +6,7 @@ import type { FarGrid } from './sunMap';
 
 export async function loadRealImages(def: RealTerrainDef, anisotropy: number): Promise<THREE.Texture[]> {
   const loader = new THREE.TextureLoader();
-  return Promise.all(
+  const results = await Promise.allSettled(
     def.levels.map(async (l) => {
       const t = await loader.loadAsync(new URL(def.base + l.image, document.baseURI).href);
       t.flipY = false;
@@ -20,6 +20,12 @@ export async function loadRealImages(def: RealTerrainDef, anisotropy: number): P
       return t;
     }),
   );
+  const failure = results.find((result) => result.status === 'rejected');
+  if (failure) {
+    for (const result of results) if (result.status === 'fulfilled') result.value.dispose();
+    throw failure.reason;
+  }
+  return results.map((result) => (result as PromiseFulfilledResult<THREE.Texture>).value);
 }
 
 /** 岩层色表：一行像素，左边低、右边高 */

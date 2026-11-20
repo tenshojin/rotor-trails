@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { GRAND_CANYON } from '../src/maps/grandcanyon';
 import { packLum } from '../src/render/terrainLayers';
 import { hasTile, ringOrigin, ringRadius, RingTiles, type HiIndex, type TileIo } from '../src/world/hiTiles';
@@ -79,6 +79,33 @@ describe('有哪些块', () => {
 });
 
 describe('环形贴图的调度', () => {
+  it('六个请求全挂起也会超时腾出位置；取消后迟到的解码结果只释放一次', async () => {
+    vi.useFakeTimers();
+    const pending: Array<{ resolve: (v: string) => void; signal: AbortSignal }> = [];
+    const io: TileIo<string> = {
+      load: (_c, _r, signal) => new Promise((resolve) => pending.push({ resolve, signal })),
+      upload: vi.fn(), drop: vi.fn(),
+    };
+    const ring = new RingTiles(INDEX, 4, io);
+    try {
+      ring.update(0, 0, 0.016);
+      expect(pending).toHaveLength(6);
+      await vi.advanceTimersByTimeAsync(15000);
+      expect(pending.every((r) => r.signal.aborted)).toBe(true);
+      ring.update(0, 0, 0.016);
+      expect(pending).toHaveLength(12);
+      pending[0].resolve('late');
+      await Promise.resolve();
+      expect(io.drop).toHaveBeenCalledExactlyOnceWith('late');
+      expect(io.upload).not.toHaveBeenCalled();
+      ring.dispose();
+      expect(vi.getTimerCount()).toBe(0);
+      ring.setEnabled(true);
+      ring.update(3000, 3000, 1);
+      expect(pending).toHaveLength(12);
+    } finally { ring.dispose(); vi.useRealTimers(); }
+  });
+
   it('窗口里的块全部到位，每块写在坐标取模的格子里，权重淡入到 1', async () => {
     const io = new FakeIo();
     const ring = new RingTiles(INDEX, 4, io);

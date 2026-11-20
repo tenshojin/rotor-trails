@@ -94,6 +94,7 @@ import { WaterView } from './water';
 import { CloudLayer, Lightning, LightningBolt, RainFx, SNOW } from './weatherFx';
 import type { InstrumentData } from './instruments';
 import { updateScreenScale } from './screenSize';
+import { drawingRatio } from './renderBudget';
 import { tr } from '../i18n';
 
 export interface FrameInfo {
@@ -177,6 +178,7 @@ export class WorldView {
   private renderWidth = 0;
   private renderHeight = 0;
   private pixelRatio = 0;
+  private maxRenderDimension = 8192;
   // 地图相关
   world: WorldData | null = null;
   sky: SkyDome | null = null;
@@ -310,6 +312,13 @@ export class WorldView {
   /** 初始化 GPU（WebGPU 不可用时退回 WebGL2），必须在第一次渲染前 await。 */
   async init(): Promise<void> {
     await this.renderer.init();
+    const backend = this.renderer.backend as unknown as { device?: { limits: { maxTextureDimension2D: number } }; gl?: WebGL2RenderingContext };
+    if (backend.device) this.maxRenderDimension = backend.device.limits.maxTextureDimension2D;
+    else if (backend.gl) {
+      const gl = backend.gl;
+      const viewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS) as Int32Array;
+      this.maxRenderDimension = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), viewport[0], viewport[1]);
+    }
     // WebGL2 上人眼适应改在显卡上算：那里读回一次要让主线程等显卡把这一帧画完（见 eyeAdapt.ts）
     this.eye.useGpu((this.renderer.backend as unknown as { isWebGLBackend?: boolean }).isWebGLBackend === true);
     this.glReadback = earlyGlReadback(this.renderer);
@@ -481,7 +490,8 @@ export class WorldView {
   private buildPost(): void {
     if (!this.ready) return;
     const s = this.settings;
-    const key = `${s.quality}_${s.rayTracing}_${s.motionBlur}_${s.volumetric}_${s.renderScale}_${this.dofOn}_${this.dofTaps}`;
+    const upscale = s.quality === 'low' ? 1 : s.renderScale;
+    const key = `${s.quality}_${s.rayTracing}_${s.motionBlur}_${s.volumetric}_${upscale}_${this.dofOn}_${this.dofTaps}`;
     if (key === this.postKey && this.post) return;
     const next = buildPost(this.renderer, this.scene, this.rig.camera, this.sun, { quality: s.quality, rayTracing: s.rayTracing, motionBlur: s.motionBlur, volumetric: s.volumetric, dof: this.dofOn, upscale: s.quality === 'low' ? 1 : s.renderScale, eye: this.eye.gpuNode });
     const previous = this.post;
@@ -494,8 +504,8 @@ export class WorldView {
     const c = this.renderer.domElement;
     const w = Math.max(1, c.clientWidth || window.innerWidth);
     const h = Math.max(1, c.clientHeight || window.innerHeight);
-    // 低画质没有时间抗锯齿，只能靠浏览器放大；其他档用时间超分（见 post.ts），画布始终是屏幕分辨率
-    const dpr = Math.min(window.devicePixelRatio || 1, QUALITY[this.settings.quality].pixelRatio) * (this.settings.quality === 'low' ? this.settings.renderScale : 1);
+    // 低画质直接缩放画布；其他档在像素预算内的输出尺寸上做时间超分（见 post.ts）。
+    const dpr = drawingRatio(w, h, window.devicePixelRatio, this.settings.quality, this.settings.renderScale, this.maxRenderDimension);
     if (w !== this.renderWidth || h !== this.renderHeight || dpr !== this.pixelRatio) {
       // One resize notification, even when both viewport and display DPR change.
       this.renderer.setDrawingBufferSize(w, h, dpr);
@@ -592,14 +602,14 @@ export class WorldView {
       if (real) {
         progress?.(0.86, tr('加载航拍影像'));
         const images = await loadRealImages(real.def, (this.renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend ? 16 : 8);
-        const strata = await loadStrata(real.def);
-        const aux = await loadAux(real.def);
-        const auxMid = await loadAux(real.def, real.def.auxMid);
-        const scatter = await loadAux(real.def, real.def.scatter);
         this.mapTextures.push(...images);
+        const strata = await loadStrata(real.def);
         if (strata) this.mapTextures.push(strata);
+        const aux = await loadAux(real.def);
         if (aux) this.mapTextures.push(aux);
+        const auxMid = await loadAux(real.def, real.def.auxMid);
         if (auxMid) this.mapTextures.push(auxMid);
+        const scatter = await loadAux(real.def, real.def.scatter);
         if (scatter) this.mapTextures.push(scatter);
         this.hiRing = await HiRing.create(this.renderer, real.def, QUALITY[this.settings.quality].hiRing);
         this.terrain = new RealTerrain(real, images, strata, [aux, auxMid], layers, this.hiRing);

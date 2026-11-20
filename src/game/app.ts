@@ -105,11 +105,14 @@ const isIntegrated = (gpu: string) =>
 /** 超仿真的默认视线：比平时低一点，仪表板和自己的手都在视野里 */
 const SIM_PITCH = -0.2;
 
-/** 按显卡挑默认画质：近几代独立显卡“极高”，其他独立显卡“高”，集成显卡/软件渲染“低”，其余“中” */
+/** 名称只能粗估性能，不能推断显存、功耗或散热；极高和光追留给玩家主动选择。 */
 function pickQuality(gpu: string): Settings['quality'] {
-  if (/RTX ?[3-9]\d|RX ?[6-9]\d|nvidia (ampere|lovelace|ada|blackwell|rubin)|amd rdna-?[3-9]/i.test(gpu)) return 'ultra';
-  if (/RTX|GTX 1[6-9]|GTX [2-9]\d|Radeon RX ?[5-9]|Apple M[1-9]|Arc A[57]|nvidia (turing|ampere|lovelace|ada|blackwell|hopper|rubin)|amd rdna-?[2-9]|apple metal-?3|xe-hpg|battlemage/i.test(gpu)) return 'high';
   if (isIntegrated(gpu)) return 'low';
+  if (/Radeon.*\b(?:610|680|7[468]0|8[069]0)M\b/i.test(gpu)) return 'low';
+  if (/Laptop|Mobile|Max-Q/i.test(gpu)) return 'medium';
+  if (/RTX\s*[3-9]0[789]0|RX\s*[6-9][789]00|Apple M[1-9]\s+(?:Pro|Max|Ultra)/i.test(gpu)) return 'high';
+  // WebGPU 只给架构名（如 “nvidia blackwell”），认不出型号：近几代独显从“高”起步，入门卡撑不住由自动降档兜底
+  if (/^nvidia (ampere|lovelace|ada|blackwell|rubin)\b|^amd rdna-?[3-9]/i.test(gpu)) return 'high';
   return 'medium';
 }
 
@@ -126,15 +129,18 @@ export function autoQualityStep(quality: Settings['quality'], rayTracing: boolea
 }
 
 /**
- * 新存档的默认画质。WebGL2（浏览器没有 WebGPU 时退回的，Linux、Firefox 上很常见）比 WebGPU 慢四成左右，
- * 着色器又只能一个一个同步编译（换画质时整个画面停几秒）：默认低一档、不开光线追踪，少碰到“帧率不够自动降档”
+ * 新存档从保守档位开始。WebGL2 的高档再降一级，避免首次加载大量同步编译。
  */
-export function defaultQuality(gpu: string, webgl: boolean, touch: boolean): { quality: Settings['quality']; rayTracing: boolean } {
+export function defaultQuality(gpu: string, webgl: boolean, touch: boolean, previous?: Settings['quality']): { quality: Settings['quality']; rayTracing: boolean } {
   if (touch) return { quality: 'low', rayTracing: false };
   const q = pickQuality(gpu);
-  if (!webgl) return { quality: q, rayTracing: q === 'high' || q === 'ultra' };
   const lower = { ultra: 'high', high: 'medium', medium: 'medium', low: 'low' } as const;
-  return { quality: lower[q], rayTracing: false };
+  const recommended = webgl ? lower[q] : q;
+  const order = ['low', 'medium', 'high', 'ultra'] as const;
+  // Existing automatic saves can carry the old Ultra+RT default. Cap those before
+  // loading a map, but never undo a previous automatic downgrade.
+  const quality = previous && order.indexOf(previous) < order.indexOf(recommended) ? previous : recommended;
+  return { quality, rayTracing: false };
 }
 
 /** 浏览器没用上显卡、在用软件模拟（Linux 上驱动不在浏览器的支持名单里时常见）：一秒几帧，玩家只会觉得卡得离谱 */
@@ -360,7 +366,12 @@ export class App {
       }, listenerOptions);
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) this.suspendForBackground();
-        else if (!this.gpuInterrupted && this.state !== 'playing') this.audio.resume();
+        else {
+          this.last = performance.now();
+          this.frames = this.fpsT = this.frameMax = 0;
+          this.lowFps = this.lowFpsSum = 0;
+          if (!this.gpuInterrupted && this.state !== 'playing') this.audio.resume();
+        }
       }, listenerOptions);
       // Safari、浏览器的“往返缓存”离开页面时可能不发 beforeunload：这里再存一次
       window.addEventListener('pagehide', () => this.suspendForBackground(), listenerOptions);
@@ -540,9 +551,9 @@ export class App {
     await this.view.init();
     this.assertActive();
     this.gpu = this.view.gpuInfo().name;
-    if (this.save.fresh || this.save.requalify) {
+    if (this.save.fresh || this.save.requalify || this.settings.autoQuality) {
       // （手机的显卡名字看不出好坏，先从低档开始；WebGL2 低一档，见 defaultQuality）
-      const pick = defaultQuality(this.gpu, this.view.gpuInfo().backend === 'WebGL2', !!this.touch);
+      const pick = defaultQuality(this.gpu, this.view.gpuInfo().backend === 'WebGL2', !!this.touch, this.save.fresh || this.save.requalify ? undefined : this.settings.quality);
       this.settings.quality = pick.quality;
       this.settings.rayTracing = pick.rayTracing;
       this.view.applySettings(this.settings);
@@ -2192,6 +2203,7 @@ export class App {
   private early = (): void => {
     if (this.disposed || this.gpuInterrupted) return;
     this.earlyId = requestAnimationFrame(this.early);
+    if (document.hidden) return;
     try {
       this.view.pollReadback();
     } catch (error) {
@@ -2221,6 +2233,18 @@ export class App {
 
   private tick(now: number): void {
     if (this.gpuInterrupted) return;
+    // Some browsers still deliver background RAFs. Do not render, poll input or restart audio.
+    // Reset timing so returning to the page cannot count hidden time as a slow frame.
+    if (document.hidden) {
+      this.last = now;
+      this.frames = this.fpsT = this.frameMax = 0;
+      this.lowFps = this.lowFpsSum = 0;
+      return;
+    }
+    // Menus do not need a 120/144 Hz 3D background. Keep flight, photo/replay and
+    // shader warm-up at display cadence; accumulate elapsed time between menu frames.
+    if ((this.state === 'menu' || this.state === 'paused') && !this.photoPanel && !this.photoPending && !this.replay &&
+        !this.rewarming && !this.menuWarm && !this.view.compiling && now >= this.last && now - this.last < 1000 / 30 - 0.5) return;
     this.root.classList.toggle('touch-flight', this.input.touchActive && this.state === 'playing' && !this.replay && !this.creditsOn);
     if (this.state !== 'playing') this.padReticle?.classList.remove('on');
     const elapsed = (now - this.last) / 1000;
@@ -2379,12 +2403,13 @@ export class App {
       this.lowFps = this.lowFpsSum = 0;
       return;
     }
-    const flying = this.state === 'playing' && this.session?.state === 'running' && !document.hidden;
+    const flying = this.state === 'playing' && this.session?.state === 'running' && !document.hidden && !this.rewarming && !this.replay;
     if (!flying || !this.settings.autoQuality || this.pendingQuality) {
       this.lowFps = this.lowFpsSum = 0;
       return;
     }
-    if (this.frameMax > 0.5) return;
+    // Ignore isolated loading stalls, but do not permanently exempt a device running below 10 FPS.
+    if (this.frameMax > 0.5 && this.fps >= 10) return;
     if (this.fps >= 30) {
       this.lowFps = this.lowFpsSum = 0;
       return;
@@ -2395,7 +2420,18 @@ export class App {
     const avg = this.lowFpsSum / this.lowFps;
     this.lowFps = this.lowFpsSum = 0;
     const next = autoQualityStep(this.settings.quality, this.settings.rayTracing, avg);
-    if (!next) return;
+    if (!next) {
+      // Lowest preset still needs a fallback on weak GPUs. Low uses FXAA, so resizing does
+      // not rebuild shaders or interrupt the simulation. Respect manual settings above.
+      const scale = Math.max(0.5, Math.round((this.settings.renderScale - (avg < 18 ? 0.2 : 0.1)) * 100) / 100);
+      if (scale >= this.settings.renderScale) return;
+      this.settings.renderScale = scale;
+      this.view.applySettings(this.settings);
+      this.save.save();
+      this.qualityHold = 8;
+      this.hud.toast(tr`为保持流畅，渲染分辨率自动调到 ${Math.round(scale * 100)}%`, 'info', 4000);
+      return;
+    }
     this.pendingQuality = next;
     this.hud.toast(tr`帧率偏低，画质自动调到“${QUALITY[next.quality].label}”${next.rayTracing !== this.settings.rayTracing ? tr('（光线追踪关闭）') : ''}，换的时候会停一下`, 'info', 6000);
   }
@@ -2404,7 +2440,7 @@ export class App {
   private applyAutoQuality(): void {
     const next = this.pendingQuality;
     this.pendingQuality = null;
-    if (!next) return;
+    if (!next || !this.settings.autoQuality) return;
     this.settings.quality = next.quality;
     this.settings.rayTracing = next.rayTracing;
     this.view.applySettings(this.settings);

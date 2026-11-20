@@ -49,6 +49,7 @@ interface Slot<T> {
 
 /** 同时下载几块 */
 const MAX_LOADING = 6;
+const LOAD_TIMEOUT_MS = 15000;
 /** 块写好之后淡入的时间（秒） */
 const FADE = 0.4;
 const RETRY = 6;
@@ -87,6 +88,7 @@ export class RingTiles<T> {
   private loading = 0;
   private pending = false;
   private enabled = true;
+  private disposed = false;
   private readonly half: number;
 
   constructor(
@@ -101,6 +103,7 @@ export class RingTiles<T> {
 
   /** 关掉：什么都不下载，贴图里有的也不用（画质降到低的时候） */
   setEnabled(on: boolean): void {
+    if (this.disposed) return;
     if (on === this.enabled) return;
     this.enabled = on;
     if (!on) {
@@ -189,11 +192,36 @@ export class RingTiles<T> {
     s.abort = abort;
     s.state = State.Loading;
     this.loading++;
-    this.io.load(id % n, Math.floor(id / n), abort.signal).then(
+    let settled = false;
+    const finish = (): boolean => {
+      if (settled) return false;
+      settled = true;
+      clearTimeout(timeout);
+      abort.signal.removeEventListener('abort', fail);
+      this.loading--;
+      this.pending = true;
+      return true;
+    };
+    const fail = (): void => {
+      if (!finish() || s.abort !== abort) return;
+      s.abort = null;
+      s.state = State.Failed;
+      s.wait = RETRY;
+    };
+    // A stalled fetch/decode must not monopolize all six slots forever. Late results
+    // still need closing even if a browser/decoder ignores cancellation.
+    const timeout = setTimeout(() => { fail(); abort.abort(); }, LOAD_TIMEOUT_MS);
+    abort.signal.addEventListener('abort', fail, { once: true });
+    let work: Promise<T>;
+    try {
+      work = this.io.load(id % n, Math.floor(id / n), abort.signal);
+    } catch {
+      fail();
+      return;
+    }
+    work.then(
       (item) => {
-        this.loading--;
-        this.pending = true;
-        if (s.abort !== abort) {
+        if (!finish() || s.abort !== abort) {
           this.io.drop(item);
           return;
         }
@@ -201,14 +229,7 @@ export class RingTiles<T> {
         s.item = item;
         s.state = State.Ready;
       },
-      () => {
-        this.loading--;
-        this.pending = true;
-        if (s.abort !== abort) return;
-        s.abort = null;
-        s.state = State.Failed;
-        s.wait = RETRY;
-      },
+      fail,
     );
   }
 
@@ -235,6 +256,7 @@ export class RingTiles<T> {
   }
 
   dispose(): void {
-    for (let i = 0; i < this.slots.length; i++) this.reset(i, -1);
+    this.setEnabled(false);
+    this.disposed = true;
   }
 }
