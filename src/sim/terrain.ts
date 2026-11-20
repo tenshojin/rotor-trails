@@ -215,13 +215,16 @@ export class HeightBuilder {
   readonly data: Float32Array;
   readonly surface: Uint8Array;
 
-  constructor(size: number, res: number) {
+  /** data、surface：接着用已经算好的高度和地表掩码（后台线程算好传回来的，见 world/worldgen.ts） */
+  constructor(size: number, res: number, data?: Float32Array, surface?: Uint8Array) {
     this.size = size;
     this.res = res;
     this.cell = size / (res - 1);
     this.half = size / 2;
-    this.data = new Float32Array(res * res);
-    this.surface = new Uint8Array(res * res * 4);
+    if (data && data.length !== res * res) throw new Error('高度数据的大小不对');
+    if (surface && surface.length !== res * res * 4) throw new Error('地表掩码的大小不对');
+    this.data = data ?? new Float32Array(res * res);
+    this.surface = surface ?? new Uint8Array(res * res * 4);
   }
 
   x(ix: number): number {

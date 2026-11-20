@@ -1,0 +1,59 @@
+{
+ "url": "about:blank",
+ "width": 1600,
+ "height": 900,
+ "preloadFile": "tools/perfProbe.js",
+ "steps": [
+  {
+   "cpu": "start"
+  },
+  {
+   "goto": "http://localhost:4173/?lang=zh"
+  },
+  {
+   "until": "window.__app && window.__app.state===\"menu\" && !document.querySelector(\".menu-art\")",
+   "timeout": 180000
+  },
+  {
+   "cpu": "stop",
+   "label": "打开网页 → 主菜单",
+   "minRun": 150,
+   "top": 8,
+   "gapMs": 0
+  },
+  {
+   "eval": "(()=>{const s=window.__perf.summary();return {ms:s.now,longTotal:s.longTotal,longMax:s.longMax,maxGap:Math.max(0,...window.__perf.gaps.map(g=>g[1])),big:s.big}})()",
+   "label": "打开网页 → 主菜单",
+   "max": 2000
+  },
+  {
+   "wait": 1000
+  },
+  {
+   "eval": "(window.__perf.lt.length=0, window.__perf.marks.length=0, window.__perf.gaps.length=0, true)"
+  },
+  {
+   "cpu": "start"
+  },
+  {
+   "eval": "(async()=>{document.querySelector(\"[data-a=play]\").click();await new Promise(r=>setTimeout(r,400));document.querySelector(\".map-japan\").click();await new Promise(r=>setTimeout(r,400));document.querySelector(\"[data-a=start]\").click();return true})()",
+   "label": "点开始"
+  },
+  {
+   "until": "window.__app.state===\"ready\" && !document.querySelector(\".screen.loading\")",
+   "timeout": 180000
+  },
+  {
+   "cpu": "stop",
+   "label": "主菜单 → 日本",
+   "minRun": 150,
+   "top": 8,
+   "gapMs": 0
+  },
+  {
+   "eval": "(()=>{const s=window.__perf.summary();return {ms:s.now,longTotal:s.longTotal,longMax:s.longMax,maxGap:Math.max(0,...window.__perf.gaps.map(g=>g[1])),big:s.big}})()",
+   "label": "主菜单 → 日本",
+   "max": 2000
+  }
+ ]
+}

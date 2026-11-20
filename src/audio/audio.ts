@@ -125,7 +125,11 @@ export class AudioEngine {
   private paused = true;
   enabled = true;
 
-  /** 必须在用户手势中调用（浏览器自动播放策略）。 */
+  /**
+   * 建声音引擎（打开声卡、搭好整套节点，要几百毫秒）。已经建好了就只是恢复。
+   * 浏览器的自动播放规则：用户还没点过页面时建出来的是暂停的，要在之后的某次点击、按键里再调用一次才恢复
+   * （游戏启动加载时先建，主菜单的按键音、开始飞行都会再调用）。
+   */
   init(): void {
     if (this.ctx?.state === 'closed') this.dispose();
     if (this.ctx) {

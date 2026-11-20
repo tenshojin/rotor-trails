@@ -18,6 +18,8 @@ import { Hud } from '../ui/hud';
 import { downloadRealFiles } from '../world/realData';
 import { UI } from '../ui/menus';
 import { generateWorld, type WorldData } from '../world/worldgen';
+import { cloudNoiseOffThread, shapeOffThread } from '../world/genWorker';
+import { cloudNoiseSettled, prepareCloudNoise } from '../render/cloudNoise';
 import type { AssistId } from '../config/flight';
 import { Input } from './input';
 import { SaveStore, SAVE_KEY, type StorageLike } from './save';
@@ -253,6 +255,9 @@ export class App {
   private qualityHold = 0;
   /** 已经提示了、下一帧才换的画质（先让提示显示出来，再停那一下） */
   private pendingQuality: { quality: Settings['quality']; rayTracing: boolean } | null = null;
+  /** 改了画质 / 光线追踪，正在盖着“正在应用画面设置”重新预热（见 rewarm）：飞行暂时不往前走 */
+  private rewarming = false;
+  private rewarmAgain = false;
   /** 超仿真 */
   private simPanel: SimPanel | null = null;
   private checklistDone = false;
@@ -529,6 +534,8 @@ export class App {
   }
 
   private async startApp(): Promise<void> {
+    // 体积云的三维噪声在主线程上要算将近一秒：现在就交给后台线程，等用到时早就好了
+    prepareCloudNoise(cloudNoiseOffThread());
     // 先初始化 GPU（WebGPU，不可用时自动退回 WebGL2），再按显卡选默认画质
     await this.view.init();
     this.assertActive();
@@ -548,7 +555,12 @@ export class App {
       this.view.setTimeOfDay('dusk');
       const home = getMap('training');
       this.showLoading(tr('生成地形'), 0.1, home);
-      const w = await generateWorld(home, true, (p, l) => this.showLoading(l, p * 0.9, home));
+      // 声音引擎第一次建要占主线程几百毫秒（Windows 上光打开声卡就两三百毫秒）。等到主菜单第一下点击（按键音）才建，
+      // 那一下就要愣住；趁现在地形在后台线程里算、主线程闲着先建好。没有点击过的页面里建出来是暂停的，第一次点击时恢复
+      setTimeout(() => {
+        if (!this.disposed && !this.gpuInterrupted) this.audio.init();
+      }, 40);
+      const w = await generateWorld(home, true, (p, l) => this.showLoading(l, p * 0.9, home), { offThread: shapeOffThread });
       this.assertActive();
       await this.view.load(w, (p, l) => this.showLoading(l, p, home));
       this.assertActive();
@@ -929,9 +941,12 @@ export class App {
   applySettings(s: Settings): void {
     if (this.disposed) return;
     const langChanged = s.lang !== this.settings.lang;
+    // 画质、光线追踪一换，大部分材质和渲染管线都要重建（见 rewarm）
+    const heavy = s.quality !== this.settings.quality || s.rayTracing !== this.settings.rayTracing;
     this.settings = s;
     this.save.data.settings = s;
     this.view.applySettings(s);
+    if (heavy) void this.rewarm();
     this.input.setSettings(s);
     this.tutorial?.setSettings(s);
     this.hud.setOpacity(s.hudOpacity);
@@ -1037,8 +1052,15 @@ export class App {
     // 读档只用一次：之后“从关卡起点重新开始”用的也是这个 cfg，要真的从头开始
     const resume = cfg.resume;
     cfg.resume = undefined;
-    this.audio.init();
     this.audio.applyVolumes({ master: this.settings.volMaster, engine: this.settings.volEngine, ambience: this.settings.volAmbience, alerts: this.settings.volAlerts, music: this.settings.volMusic });
+    // 声音引擎第一次建要占主线程几百毫秒（打开声卡、合成混响）：放在这次点击里做，点了“开始”要愣一下才出加载界面。
+    // 等加载界面画出来以后再建（这时地形在后台线程里算，主线程闲着）。不是在点击里建的会先暂停，点“开始飞行”时（beginFlight）恢复。
+    // 制作人员名单加载完直接开飞，没有那一下点击（有的浏览器不让点击以外的地方恢复声音）：照旧在这次点击里建
+    if (cfg.credits) this.audio.init();
+    else
+      setTimeout(() => {
+        if (!this.disposed && !this.gpuInterrupted) this.audio.init();
+      }, 40);
     this.state = 'loading';
     this.refreshControlHint();
     this.hud.show(false);
@@ -1057,7 +1079,8 @@ export class App {
         this.assertActive();
       }
       const stage = (p: number, l: string): void => this.showLoading(l, dl + p * (1 - dl), cfg.map);
-      const w = await generateWorld(cfg.map, true, stage);
+      // 地形成形（几秒的纯计算）在后台线程里做，这段时间加载界面照常刷新
+      const w = await generateWorld(cfg.map, true, stage, { offThread: shapeOffThread });
       this.assertActive();
       await this.view.load(w, stage);
       this.assertActive();
@@ -1214,6 +1237,8 @@ export class App {
       } finally {
         clearInterval(progress);
       }
+      // 云的噪声还在后台线程里算的话等它（一般早就好了），环境贴图要带上云
+      await waitForOperation(cloudNoiseSettled(), this.lifetime.signal, 60000, tr('显卡准备'));
       v.refreshEnv?.();
       await frames(3);
       await waitForOperation(v.gpuIdle(), this.lifetime.signal, 60000, tr('显卡准备'));
@@ -2230,10 +2255,10 @@ export class App {
     }
     const s = this.session;
     let alpha = 1;
-    const running = this.state === 'playing' && s && s.state === 'running';
+    const running = this.state === 'playing' && s && s.state === 'running' && !this.rewarming;
     const renderDt = this.state === 'paused' ? this.replayDt(dt) : dt;
     this.t += renderDt;
-    if (s && s.state === 'crashed' && !this.tutorial && !this.replay && (this.state === 'playing' || this.state === 'failed')) {
+    if (s && s.state === 'crashed' && !this.tutorial && !this.replay && !this.rewarming && (this.state === 'playing' || this.state === 'failed')) {
       // 残骸还在往下掉
       const steps = this.stepper.advance(dt);
       for (let i = 0; i < steps; i++) s.step?.();
@@ -2386,6 +2411,72 @@ export class App {
     this.save.save();
     this.qualityHold = 12;
     this.lowFps = this.lowFpsSum = 0;
+    void this.rewarm();
+  }
+
+  /**
+   * 改了画质或光线追踪以后，场景里大部分材质和渲染管线都要重建。照常画下一帧的话，three.js 在这一帧里同步建完所有材质
+   * （主线程卡一秒多），渲染管线也是同步编译的：显卡进程一条一条编，编完之前一帧都出不来（实测画面停 2～11 秒，像死机）。
+   * 这里盖一层“正在应用画面设置”，在下面照加载时的办法预热（分批建材质、并行编译管线、藏着的东西也编上），编完再撤掉。
+   * 飞行中（自动降画质）这段时间不往前飞，撤掉以后接着飞。主菜单第一次的预热、WebGL2 的静态菜单、加载中都不用：那边自己会编
+   */
+  private async rewarm(): Promise<void> {
+    if (this.rewarming) {
+      this.rewarmAgain = true;
+      return;
+    }
+    const v = this.view;
+    const live = (): boolean => {
+      if (this.disposed || this.gpuInterrupted) return false;
+      if (this.state === 'menu') return !this.menuStill && !this.menuWarm;
+      return this.state === 'playing' || this.state === 'paused' || this.state === 'failed' || this.state === 'result';
+    };
+    if (!live() || v.compiling) return;
+    this.rewarming = true;
+    let veil: HTMLElement | null = null;
+    try {
+      veil = document.createElement('div');
+      veil.className = 'screen center applying';
+      veil.setAttribute('role', 'status');
+      veil.innerHTML = `<div class="card narrow"><h2>${tr('正在应用画面设置')}</h2><p>${tr('重新编译着色器，几秒钟就好。')}</p></div>`;
+      this.root.appendChild(veil);
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      do {
+        this.rewarmAgain = false;
+        v.setWarm(true);
+        const compiled = v.parallelCompile();
+        // 画面不再往前走（回到加载、显卡断开）或者两分钟还没编完就不等了：之后的预热会接着编
+        let settled = false;
+        let gone = false;
+        const left = (async () => {
+          const t0 = performance.now();
+          while (!settled && live() && performance.now() - t0 < 120000) await sleep(100);
+          if (!settled) gone = true;
+        })();
+        try {
+          await Promise.race([compiled(), left]);
+        } finally {
+          settled = true;
+          compiled.cancel();
+          v.setWarm(false);
+        }
+        if (gone) break;
+        v.refreshEnv?.();
+      } while (this.rewarmAgain && live());
+      // 编完之后的头几帧还要重烘环境贴图、光线追踪的全局光照（又是一批计算管线）：也在遮罩下面画完，等显卡空下来再撤
+      const target = v.frames + 3;
+      const t0 = performance.now();
+      while (live() && v.frames < target && performance.now() - t0 < 10000) await sleep(30);
+      if (live()) await Promise.race([v.gpuIdle(), sleep(10000)]);
+    } catch (error) {
+      console.warn('应用画面设置时预热失败：', error);
+    } finally {
+      veil?.remove();
+      this.rewarming = false;
+      // 盖着的这段时间不算进飞行时间
+      this.stepper.reset();
+      this.last = performance.now();
+    }
   }
 
   private readInput(s: GameSession, dt: number): void {

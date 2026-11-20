@@ -88,6 +88,8 @@ const table: Table = {
   '没关系，继续飞': ['It\'s fine. Keep flying', '大丈夫、そのまま飛びましょう'],
   '帧率偏低，画质自动调到“{0}”{1}，换的时候会停一下': ['The frame rate is low, so quality is being lowered to “{0}”{1}. The game will pause for a moment while it switches.', 'フレームレートが低いため、画質を自動で「{0}」に下げます{1}。切り替えの間、少し止まります。'],
   '（光线追踪关闭）': [' (ray tracing off)', '（レイトレーシングはオフ）'],
+  '正在应用画面设置': ['Applying graphics settings', 'グラフィック設定を適用中'],
+  '重新编译着色器，几秒钟就好。': ['Recompiling shaders. This takes a few seconds.', 'シェーダーを再コンパイルしています。数秒で終わります。'],
   '已取消自动巡航，你来飞': ['Auto-cruise canceled. You have control', 'オートクルーズを解除しました。操縦をどうぞ'],
   '增强 ×{0}': ['Boost ×{0}', 'ブースト ×{0}'],
   '增强': ['Boost', 'ブースト'],

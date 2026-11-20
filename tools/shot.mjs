@@ -1,6 +1,7 @@
 // 自动化截图/测试：用无头 Chrome（GPU 加速）打开游戏，按步骤执行脚本并截图，同时收集控制台错误。
 // 用法：node tools/shot.mjs <steps.json> <输出目录>
 // steps.json：{ "url": "...", "width": 1920, "height": 1080, "steps": [ { "goto": "新地址" }, { "wait": 1000 }, { "eval": "js 表达式（可 await）" }, { "shot": "name" }, { "until": "js 条件", "timeout": 60000 } ] }
+// 查卡顿：{ "cpu": "start" } … { "cpu": "stop", "window": 250 }（见 reportBusy），配合 "preloadFile": "tools/perfProbe.js"；例子见 tools/steps/loading_check.json
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -111,8 +112,9 @@ await send('Log.enable');
 await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: cfg.mobile ? 2 : 1, mobile: !!cfg.mobile });
 // 手机：{ "mobile": true } 打开触屏模拟，步骤里用 { "touch": [[x, y], ...], "phase": "start|move|end" } 按屏幕
 if (cfg.mobile) await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
-// preload：每次打开页面时最先执行的脚本（比如钩住 WebGPU 接口，抓取生成的着色器）
+// preload：每次打开页面时最先执行的脚本（比如钩住 WebGPU 接口，抓取生成的着色器）；preloadFile：同上，写在文件里（如卡顿探针 tools/perfProbe.js）
 if (cfg.preload) await send('Page.addScriptToEvaluateOnNewDocument', { source: cfg.preload });
+if (cfg.preloadFile) await send('Page.addScriptToEvaluateOnNewDocument', { source: fs.readFileSync(cfg.preloadFile, 'utf8') });
 await send('Page.navigate', { url: cfg.url });
 const evaluate = async (expr) => {
   const res = await send('Runtime.evaluate', { expression: `(async () => { return (${expr}); })()`, awaitPromise: true, returnByValue: true });
@@ -122,6 +124,93 @@ const evaluate = async (expr) => {
   }
   return res.result?.result?.value;
 };
+// 主线程连续忙（采样不是 idle）的每一段：多长、段里哪些函数占时间（含子调用，同一采样里一个函数只算一次）。
+// 段与段之间要隔开 gapMs 以上的空闲才算两段（浏览器在长任务之间会插一两个空闲采样）
+function reportBusy(prof, s) {
+  const minRun = s.minRun ?? 100;
+  const gapMs = s.gapMs ?? 4;
+  const byId = new Map(prof.nodes.map((n) => [n.id, n]));
+  const parent = new Map();
+  for (const n of prof.nodes) for (const c of n.children ?? []) parent.set(c, n.id);
+  const keyOf = (n) => `${n.callFrame.functionName || '(anon)'} ${(n.callFrame.url || '').split('/').pop().split('?')[0]}:${n.callFrame.lineNumber + 1}`;
+  const idle = (n) => n.callFrame.functionName === '(idle)';
+  const runs = [];
+  let t = prof.startTime;
+  let cur = null;
+  let idleSince = null;
+  for (let i = 0; i < prof.samples.length; i++) {
+    t += prof.timeDeltas[i] ?? 0;
+    const n = byId.get(prof.samples[i]);
+    if (idle(n)) {
+      idleSince ??= t;
+      if (cur && t - idleSince > gapMs * 1000) {
+        runs.push(cur);
+        cur = null;
+      }
+      continue;
+    }
+    idleSince = null;
+    if (!cur) cur = { t0: t, t1: t, hits: new Map(), n: 0 };
+    cur.t1 = t;
+    cur.n++;
+    const seen = new Set();
+    for (let id = n.id; id !== undefined; id = parent.get(id)) {
+      const node = byId.get(id);
+      const f = node.callFrame.functionName;
+      if (f === '(root)' || f === '(program)' || f === '') continue;
+      const k = keyOf(node);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      cur.hits.set(k, (cur.hits.get(k) ?? 0) + 1);
+    }
+  }
+  if (cur) runs.push(cur);
+  // 很长的一段（加载时 setTimeout(0) 之间一个空闲采样都没有，会连成一整段）按时间切开：
+  // 每一小段列出“最里层的项目自己的函数”（开发服务器上 /src/ 下的文件；three.js 里的时间算到调用它的那个项目函数上）
+  const own = (n) => {
+    for (let id = n.id; id !== undefined; id = parent.get(id)) {
+      const node = byId.get(id);
+      if (/\/src\//.test(node.callFrame.url) || /\/assets\/(boot|index)-/.test(node.callFrame.url)) return keyOf(node);
+    }
+    return null;
+  };
+  const windowMs = s.window ?? 0;
+  const timeline = [];
+  if (windowMs > 0) {
+    let tt = prof.startTime;
+    for (let i = 0; i < prof.samples.length; i++) {
+      tt += prof.timeDeltas[i] ?? 0;
+      const n = byId.get(prof.samples[i]);
+      if (idle(n)) continue;
+      const w = Math.floor((tt - prof.startTime) / 1000 / windowMs);
+      const slot = (timeline[w] ??= { n: 0, ms: 0, hits: new Map() });
+      slot.n++;
+      slot.ms += (prof.timeDeltas[i] ?? 0) / 1000;
+      const k = own(n) ?? '(浏览器 / 引擎)';
+      slot.hits.set(k, (slot.hits.get(k) ?? 0) + 1);
+    }
+  }
+  const long = runs.filter((r) => (r.t1 - r.t0) / 1000 >= minRun);
+  const total = long.reduce((a, r) => a + (r.t1 - r.t0) / 1000, 0);
+  const max = Math.max(0, ...long.map((r) => (r.t1 - r.t0) / 1000));
+  console.log(`busy ${s.label ?? ''}: ${long.length} 段 ≥ ${minRun} ms，合计 ${total.toFixed(0)} ms，最长 ${max.toFixed(0)} ms`);
+  for (const r of long) {
+    const ms = (r.t1 - r.t0) / 1000;
+    console.log(`  @${((r.t0 - prof.startTime) / 1000).toFixed(0)} ms  ${ms.toFixed(0)} ms`);
+    const top = [...r.hits.entries()].filter(([k]) => !/^\((garbage collector|anon)\)/.test(k)).sort((a, b) => b[1] - a[1]).slice(0, s.top ?? 10);
+    for (const [k, v] of top) console.log(`      ${((100 * v) / r.n).toFixed(0).padStart(3)}%  ${k}`);
+  }
+  if (windowMs > 0) {
+    console.log(`  时间线（每 ${windowMs} ms，忙的比例和最里层的项目函数）：`);
+    timeline.forEach((slot, w) => {
+      if (!slot || slot.ms < windowMs * 0.2) return;
+      const busy = Math.min(100, (slot.ms * 100) / windowMs);
+      const top = [...slot.hits.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k} ${((100 * v) / slot.n).toFixed(0)}%`);
+      console.log(`    ${String(w * windowMs).padStart(6)} ms 忙 ${busy.toFixed(0).padStart(3)}%  ${top.join(' · ')}`);
+    });
+  }
+}
+
 let failed = false;
 for (const s of cfg.steps) {
   if (s.goto) {
@@ -150,6 +239,14 @@ for (const s of cfg.steps) {
     console.log(`profile ${s.label ?? ''}: ${(total / 1000).toFixed(0)} ms sampled`);
     for (const [k, v] of [...dt.entries()].sort((a, b) => b[1] - a[1]).slice(0, s.top ?? 25)) console.log(`  ${((100 * v) / total).toFixed(1).padStart(5)}%  ${k}`);
   }
+  if (s.cpu === 'start') {
+    // 卡顿归因：{ "cpu": "start" } 开始录 CPU 采样（跨页面跳转也接着录），
+    // { "cpu": "stop", "label": "名字", "minRun": 100 } 停止，列出主线程连续忙超过 minRun 毫秒的每一段和段里占时间最多的函数（含子调用）
+    await send('Profiler.enable');
+    await send('Profiler.setSamplingInterval', { interval: 500 });
+    await send('Profiler.start');
+  }
+  if (s.cpu === 'stop') reportBusy((await send('Profiler.stop')).result.profile, s);
   if (s.until) {
     const t0 = Date.now();
     let ok = false;

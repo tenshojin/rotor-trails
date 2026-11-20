@@ -30,6 +30,8 @@ function preloadGame(): Plugin {
 export default defineConfig({
   base: './',
   plugins: [preloadGame()],
+  // 后台线程（src/workers/gen.worker.ts）按 ES 模块打包，和开发服务器上一样用 { type: 'module' } 开
+  worker: { format: 'es' },
   build: {
     target: 'es2022',
     // Rapier 物理引擎把 WASM 以 base64 内嵌在 JS 里（约 3 MB），单独成块后超过默认提示阈值是预期的

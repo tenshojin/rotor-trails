@@ -65,6 +65,8 @@ class Element extends EventTarget {
   classList = { add: vi.fn(), remove: vi.fn(), toggle: vi.fn() };
   appendChild = vi.fn();
   remove = vi.fn();
+  setAttribute = vi.fn();
+  innerHTML = '';
 }
 
 describe('运行与加载恢复', () => {
@@ -106,6 +108,47 @@ describe('运行与加载恢复', () => {
     expect(capture).toBeDefined();
     expect(remove.mock.calls.some(([type, fn]) => type === 'keydown' && fn === capture![1])).toBe(true);
     expect(view.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('改画质时盖上“正在应用画面设置”，在下面并行预热，编完撤掉；别的设置不用', async () => {
+    app.state = 'paused';
+    const view = app.view as any;
+    let finish!: () => void;
+    const compile = Object.assign(vi.fn(() => new Promise<void>((resolve) => { finish = resolve; })), { cancel: vi.fn() });
+    view.parallelCompile.mockReturnValue(compile);
+    view.gpuIdle.mockResolvedValue(undefined);
+    const veils: Element[] = [];
+    vi.mocked((app as any).root.appendChild).mockImplementation((el: Element) => { veils.push(el); return el; });
+    app.applySettings({ ...app.settings, volMaster: 0.3 });
+    expect(view.parallelCompile).not.toHaveBeenCalled();
+    app.applySettings({ ...app.settings, quality: app.settings.quality === 'low' ? 'high' : 'low' });
+    expect((app as any).rewarming).toBe(true);
+    expect(view.setWarm).toHaveBeenCalledWith(true);
+    expect(veils.map((v) => v.className)).toEqual(['screen center applying']);
+    // 盖着的时候又改了一次：编完再来一轮，不另开
+    app.applySettings({ ...app.settings, rayTracing: !app.settings.rayTracing });
+    expect(view.parallelCompile).toHaveBeenCalledOnce();
+    finish();
+    await vi.waitFor(() => expect(view.parallelCompile).toHaveBeenCalledTimes(2));
+    // 编完以后还要再画几帧（每次去看都过了一帧）
+    let n = 0;
+    Object.defineProperty(view, 'frames', { get: () => ++n, configurable: true });
+    finish();
+    await vi.waitFor(() => expect((app as any).rewarming).toBe(false));
+    expect(compile.cancel).toHaveBeenCalledTimes(2);
+    expect(view.setWarm).toHaveBeenLastCalledWith(false);
+    expect(veils[0].remove).toHaveBeenCalledOnce();
+  });
+
+  it('加载中、主菜单第一次预热时改画质不另开预热（那边自己会编）', () => {
+    const view = app.view as any;
+    app.state = 'loading';
+    app.applySettings({ ...app.settings, quality: app.settings.quality === 'low' ? 'high' : 'low' });
+    app.state = 'menu';
+    (app as any).menuWarm = { cancel: vi.fn() };
+    app.applySettings({ ...app.settings, quality: app.settings.quality === 'low' ? 'high' : 'low' });
+    expect(view.parallelCompile).not.toHaveBeenCalled();
+    expect((app as any).rewarming).toBe(false);
   });
 
   it('操作提示开关立即生效，重新改键显示真实按键，暂停时收起', () => {

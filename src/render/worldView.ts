@@ -44,6 +44,38 @@ import { earlyGlReadback } from './glReadback';
 
 /** WebGL2 分批编译：每帧最多新编这么久（毫秒），超出的下一帧再编 */
 const COMPILE_BUDGET_MS = 250;
+/** 预热时每帧最多花这么久（毫秒）新建材质（节点图 → 着色器代码，three.js 在主线程上同步做），超出的下一帧再建 */
+const BUILD_BUDGET_MS = 90;
+
+/**
+ * 预热时一帧一帧地看“这一帧有没有推迟的东西”：一帧下来一个都没推迟，就是全做完了（下一帧开头报告）。
+ * 新建材质和 WebGL2 编译着色器两层预算共用一个，任何一层推迟了都不算完。
+ */
+export class FrameGate {
+  private frame = -1;
+  /** 这一帧推迟了几个 */
+  deferred = 0;
+  /** 这一帧新建了几个材质 */
+  built = 0;
+  /** 这一帧新建材质一共花了多久（毫秒）：只算新建的那些，照常画的不算 */
+  spent = 0;
+  private finish!: () => void;
+  readonly done = new Promise<void>((resolve) => (this.finish = resolve));
+
+  tick(frame: number): void {
+    if (frame === this.frame) return;
+    if (this.frame >= 0 && this.deferred === 0) this.finish();
+    this.frame = frame;
+    this.deferred = 0;
+    this.built = 0;
+    this.spent = 0;
+  }
+
+  /** 停止预热（取消、超时）：等着的人不再等 */
+  end(): void {
+    this.finish();
+  }
+}
 import { clearSunMap, setSunMap, type FarGrid } from './sunMap';
 import { bakeGi, clearGiMap, disposeGi, GI, giGroundLight, setGiMap } from './giField';
 import { sunFor, type TimeOfDay } from './timeOfDay';
@@ -213,7 +245,16 @@ export class WorldView {
   /** 光线追踪的全局光照：探针图要不要重算；算的时候太阳多亮（天气变了按比例调）；正在并行编译（那时什么都画不出来） */
   private giDirty = true;
   private giSun = 1;
-  private compiling = false;
+  private compiling_ = false;
+  /** 正在预热编译（parallelCompile 装着钩子）：这时不能再开一轮 */
+  get compiling(): boolean {
+    return this.compiling_;
+  }
+  private set compiling(on: boolean) {
+    this.compiling_ = on;
+  }
+  /** 正在进行的那一轮预热编译：同一时间只能有一轮（渲染器上的钩子不能套两层） */
+  private activeCompile: { cancel(): void } | null = null;
   flash = 0;
   /** 拍照模式：曝光补偿（档）、把直升机藏起来、背景虚化（0..1） */
   exposureBias = 0;
@@ -513,6 +554,7 @@ export class WorldView {
     try {
       this.world = world;
       const map = world.map;
+      // 每一步都要占主线程几十到几百毫秒：步与步之间让出一下，加载界面才刷新得了（不然整段连成一块，页面像卡死了）
       const tick = () => new Promise<void>((r) => setTimeout(r, 0));
       progress?.(0.82, tr('构建地形网格'));
       await tick();
@@ -524,8 +566,12 @@ export class WorldView {
       const forestTex = makeForestTexture(world.trees, map.size, world.flow);
       // 体积雾：贴地薄雾按离地高度变淡、林区更浓
       const groundTex = makeGroundHeightTexture(lowT, map.waterLevel);
-      const macroTex = makeTerrainMacroTexture(lowT);
-      this.mapTextures.push(surfaceTex, forestTex, groundTex, macroTex);
+      this.mapTextures.push(surfaceTex, forestTex, groundTex);
+      await tick();
+      // 地形宏观图：程序生成的地图在后台线程里已经算好了（world.macro），真实地形当场算
+      const macroTex = makeTerrainMacroTexture(lowT, real ? undefined : world.macro);
+      this.mapTextures.push(macroTex);
+      await tick();
       await loadRockRelief();
       if (map.rockForm?.massive) await loadBlockRelief();
       // 水面倒影飞出画面后接着走的地形图
@@ -538,6 +584,7 @@ export class WorldView {
       fogMaps.forest = forestTex;
       VFOG.mapSize.value = map.size;
       progress?.(0.84, tr('加载地形材质'));
+      await tick();
       const layers = early ? await early.layers : texSize > 0 ? await loadTerrainLayers(map.id, map.biome, texSize) : null;
       if (layers) this.mapTextures.push(layers.color, layers.normal);
       layersTaken = true;
@@ -565,17 +612,20 @@ export class WorldView {
       } else {
         this.terrainUniforms = makeTerrainUniforms(map, world.terrain, surfaceTex, forestTex, macroTex, layers);
         if (this.terrainUniforms.strataLUT) this.mapTextures.push(this.terrainUniforms.strataLUT);
+        await tick();
         this.terrain = new TerrainView(map, world.terrain, this.terrainUniforms);
         this.rig.camera.far = 30000;
         this.rig.camera.updateProjectionMatrix();
       }
       this.scene.add(this.terrain.group);
+      await tick();
       const [sunAz, sunEl] = sunFor(map, this.tod);
       this.sky = new SkyDome(sunAz, sunEl, map.biome.fogTint, map.biome.grass, this.tod === 'night', map.biome.air);
       this.sky.setAurora(map.aurora ?? 0);
       this.eye.setMax(eyeMax(this.tod));
       this.updateLandingLight();
       this.sun.csm.lightMargin = 400 + 1800 * (1 - this.sky.dayK);
+      await tick();
       setSunMap(real ? real.sunInner : world.terrain, this.sky.sunDir, this.farGrid, real?.sunOuter);
       this.sky.setLand(field.color, map.size);
       this.eye.snap();
@@ -606,6 +656,7 @@ export class WorldView {
       this.props = new PropsView(world, this.modelLib, detail);
       this.props.lodScale = QUALITY[this.settings.quality].terrainLod;
       this.scene.add(this.props.group);
+      await tick();
       this.trees = new TreeView(world.trees, treeLib, map.biome.rock, map.rockForm ?? null, map.leafTint, !!real);
       this.scene.add(this.trees.group);
       if (map.birds) {
@@ -665,6 +716,7 @@ export class WorldView {
       }
       this.clouds = new CloudLayer(map.size);
       this.scene.add(this.clouds.group);
+      await tick();
       // 超大地图：地图要盖住能飞的整个范围
       this.minimap = real && map.flightSize ? makeMinimapCanvas({ ...map, size: map.flightSize }, real.sunOuter, world.trees) : makeMinimapCanvas(map, lowT, world.trees);
       this.cockpit.minimap = this.minimap;
@@ -841,6 +893,8 @@ export class WorldView {
       pipeline?: unknown;
       error?: boolean;
     }
+    // 上一轮还没收尾（比如主菜单预热到一半就开始加载地图）：先撤掉它的钩子
+    this.activeCompile?.cancel();
     const r = this.renderer as unknown as {
       _pipelines: { getForRender(ro: Ro, promises?: Array<Promise<void>> | null): unknown };
       backend: { isWebGPUBackend?: boolean; get(o: unknown): PipelineData; draw(ro: Ro, info: unknown): void };
@@ -855,6 +909,8 @@ export class WorldView {
     const get = P.getForRender;
     const draw = B.draw;
     this.compiling = true;
+    const gate = new FrameGate();
+    const unbuild = this.budgetBuild(gate, BUILD_BUDGET_MS);
     P.getForRender = function (ro, promises = null) {
       const offset = list.length;
       const result = get.call(P, ro, promises ?? list);
@@ -874,15 +930,20 @@ export class WorldView {
     const cancel = () => {
       if (restored) return;
       restored = true;
+      unbuild();
+      gate.end();
       P.getForRender = get;
       B.draw = draw;
       this.compiling = false;
+      if (this.activeCompile === handle) this.activeCompile = null;
     };
     let completion: Promise<void> | null = null;
     const complete = () => completion ??= (async () => {
       try {
-        // 等的时候还在画帧，可能又添了新的管线。先等所有编译收尾，
+        // 先等材质分批建完（之前推迟的物体还没申请管线），
+        // 等的时候还在画帧，可能又添了新的管线。再等所有编译收尾，
         // 再报告失败；无论成功与否都恢复正常渲染函数。
+        await gate.done;
         const failures: PromiseRejectedResult[] = [];
         for (let done = 0; done < list.length; ) {
           const n = list.length;
@@ -896,7 +957,9 @@ export class WorldView {
         cancel();
       }
     })();
-    return Object.assign(complete, { cancel });
+    const handle = Object.assign(complete, { cancel });
+    this.activeCompile = handle;
+    return handle;
   }
 
   /**
@@ -914,24 +977,23 @@ export class WorldView {
     const get = P.getForRender;
     let frame = -1;
     let spent = 0;
-    let deferred = 0;
-    let finish!: () => void;
-    const finished = new Promise<void>((resolve) => (finish = resolve));
+    const gate = new FrameGate();
     this.compiling = true;
     this.compiledPrograms = 0;
+    // 节点图也是同步建的：和编译放在同一份预算里（一个物体第一次画时两样一起做）
+    const unbuild = this.budgetBuild(gate, COMPILE_BUDGET_MS);
     // 共用同一套着色器的物体拿到的是同一条管线：只有新的管线才真的编译一次，进度只数这些
     const made = new WeakSet<object>();
     P.getForRender = (ro, promises = null) => {
+      // 新的一帧：上一帧一个都没推迟，就是全编完了（见 FrameGate）
+      gate.tick(this.frames);
       if (this.frames !== frame) {
-        // 新的一帧：上一帧一个都没推迟，就是全编完了
-        if (frame >= 0 && deferred === 0) finish();
         frame = this.frames;
         spent = 0;
-        deferred = 0;
       }
       if (P.get(ro).pipeline !== undefined) return get.call(P, ro, promises);
       if (spent > COMPILE_BUDGET_MS) {
-        deferred++;
+        gate.deferred++;
         return undefined;
       }
       const t = performance.now();
@@ -947,10 +1009,75 @@ export class WorldView {
     const cancel = (): void => {
       if (restored) return;
       restored = true;
+      unbuild();
       P.getForRender = get;
       this.compiling = false;
+      if (this.activeCompile === handle) this.activeCompile = null;
     };
-    return Object.assign(() => finished.finally(cancel), { cancel });
+    const handle = Object.assign(() => gate.done.finally(cancel), { cancel });
+    this.activeCompile = handle;
+    return handle;
+  }
+
+  /**
+   * 新建材质的分批：一个物体第一次画，three.js 要在主线程上把它的材质建成节点图、生成着色器代码，一个几毫秒到上百毫秒。
+   * 预热的第一帧把场景里所有东西一口气建完，主线程卡死好几秒（真显卡 WebGPU 上进日本地图 2.5～3.8 秒、主菜单 2.5 秒），
+   * 加载界面不动、主菜单点不动。这里每帧只建约 budgetMs 的量（至少一个），剩下的这一帧先不画、下一帧接着建。
+   * 预热帧被加载界面（主菜单是实拍画面）盖着：这次预热里已经画过的物体不再提交绘制，只走 updateBefore
+   * （后期、倒影这些嵌套的渲染通道靠它往下走，里面的新物体才轮得到），预热帧因此很快。
+   * 只推迟“真要新建节点图”的物体（缓存里没有的）：缓存里有的照常处理，所以推迟的东西一定越来越少，不会一直完不成。
+   * 返回撤掉钩子的函数；renderer 不是 three.js 的（单元测试里的替身）就不装，并且直接报告“完成”。
+   */
+  private budgetBuild(gate: FrameGate, budgetMs: number): () => void {
+    interface RenderObjectLike {
+      _nodeBuilderState?: unknown;
+      initialCacheKey?: unknown;
+    }
+    type Direct = (this: unknown, ...args: unknown[]) => void;
+    const R = this.renderer as unknown as {
+      _renderObjectDirect?: Direct;
+      _objects?: { get(...args: unknown[]): RenderObjectLike };
+      _nodes?: { nodeBuilderCache?: Map<unknown, unknown>; updateBefore(ro: RenderObjectLike): void };
+      _currentRenderContext?: unknown;
+      _currentRenderBundle?: unknown;
+    };
+    const direct = R._renderObjectDirect;
+    const objects = R._objects;
+    const nodes = R._nodes;
+    if (typeof direct !== 'function' || !objects || !nodes) {
+      gate.end();
+      return () => {};
+    }
+    const own = Object.prototype.hasOwnProperty.call(R, '_renderObjectDirect');
+    const visited = new WeakSet<object>();
+    const view = this;
+    R._renderObjectDirect = function (this: unknown, ...args: unknown[]): void {
+      const [object, material, scene, camera, lightsNode, , clippingContext, passId] = args;
+      if (R._currentRenderBundle != null) return direct.apply(this, args);
+      gate.tick(view.frames);
+      const ro = objects.get(object, material, scene, camera, lightsNode, R._currentRenderContext, clippingContext, passId);
+      if (!ro._nodeBuilderState && !nodes.nodeBuilderCache?.has(ro.initialCacheKey)) {
+        if (gate.built > 0 && gate.spent > budgetMs) {
+          gate.deferred++;
+          return;
+        }
+        gate.built++;
+        visited.add(ro as object);
+        const t = performance.now();
+        direct.apply(this, args);
+        gate.spent += performance.now() - t;
+        return;
+      } else if (visited.has(ro as object)) {
+        nodes.updateBefore(ro);
+        return;
+      }
+      visited.add(ro as object);
+      direct.apply(this, args);
+    };
+    return () => {
+      if (own) R._renderObjectDirect = direct;
+      else delete R._renderObjectDirect;
+    };
   }
 
   /** 等显卡把已提交的工作（包括着色器编译）都做完；WebGL2 后端没有这个接口，直接返回 */

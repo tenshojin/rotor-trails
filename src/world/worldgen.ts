@@ -4,14 +4,12 @@ import { Rng } from '../core/noise';
 import { makeFlowMap, type FlowMap } from './flow';
 import type { MapDef, PadDef, V3 } from '../maps/types';
 import { obstacleTop } from '../sim/routeCheck';
-import { HeightBuilder, rimWobble, type Heightfield } from '../sim/terrain';
+import { HeightBuilder, type Heightfield } from '../sim/terrain';
 import { bridgeDeckY, buildingFrame, loadRealData, loadRealTrees, outerForest, type RealData } from './realData';
-import { erode } from './erosion';
-import { dissect } from './fluvial';
 import { PropBuilder, type ColliderSpec } from './propBuilder';
 import { makeMovers, type Mover } from '../sim/movers';
-import { carveRiver, settleRiver } from './river';
-import { applyRockForm } from './rockForm';
+import { cloneMapForGen, shapeTerrain, type ShapeStage } from './shape';
+import type { ShapedTerrain } from './genJobs';
 import { buildPad, type PropCtx } from './props/common';
 import { PROP_FNS } from './props/index';
 import { scatterTrees, type TreeSet } from './vegetation';
@@ -32,88 +30,62 @@ export interface WorldData {
   ctx: PropCtx;
   /** 会动的东西（船、路上的车、绕场的小飞机）：位置只看时间，物理和画面共用 */
   movers: Mover[];
+  /** 后台线程顺手算好的地形宏观图像素（render/terrainMacro.ts）；没有就在构建画面时当场算 */
+  macro?: Uint8Array;
+}
+
+export interface GenOptions {
+  /**
+   * 把地形成形（最占时间的一段：地形函数、河流下切、雨水侵蚀，连同水系图和地形宏观图）交给后台线程，
+   * 见 world/genWorker.ts 的 shapeOffThread。失败了就在主线程上照常做，结果一样
+   */
+  offThread?: (map: MapDef, stage: (s: ShapeStage) => void) => Promise<ShapedTerrain>;
 }
 
 export type ProgressFn = (p: number, label: string) => void;
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
-/** 侵蚀的保护图：停机坪、空地、村落和建筑的平地不动（0），往外渐变到 1 */
-function protectMask(map: MapDef): Float32Array {
-  const r = map.res;
-  const cell = map.size / (r - 1);
-  const half = map.size / 2;
-  const mask = new Float32Array(r * r).fill(1);
-  const wob = map.rockForm ? 0.4 : 0;
-  const spot = (x: number, z: number, rad: number, blend: number): void => {
-    const R = rad * (1 + wob) + blend;
-    const x0 = Math.max(0, Math.floor((x - R + half) / cell));
-    const x1 = Math.min(r - 1, Math.ceil((x + R + half) / cell));
-    const z0 = Math.max(0, Math.floor((z - R + half) / cell));
-    const z1 = Math.min(r - 1, Math.ceil((z + R + half) / cell));
-    for (let iz = z0; iz <= z1; iz++)
-      for (let ix = x0; ix <= x1; ix++) {
-        const dx = ix * cell - half - x;
-        const dz = iz * cell - half - z;
-        const t = Math.min(1, Math.max(0, (Math.hypot(dx, dz) - rad * (1 + wob * rimWobble(x, z, Math.atan2(dz, dx)))) / blend));
-        const k = iz * r + ix;
-        mask[k] = Math.min(mask[k], t * t * (3 - 2 * t));
-      }
-  };
-  for (const p of map.pads) spot(p.pos[0], p.pos[2], p.size * 1.3 + 12, 40);
-  for (const [x, z, rad] of map.clearings) spot(x, z, rad, 40);
-  for (const p of map.props) {
-    if (!p.ground) continue;
-    spot(p.pos[0], p.pos[2], Number(p.p?.r ?? 22) + 8, 30);
-  }
-  return mask;
-}
-
-export async function generateWorld(map: MapDef, withMesh: boolean, progress?: ProgressFn): Promise<WorldData> {
+export async function generateWorld(map: MapDef, withMesh: boolean, progress?: ProgressFn, opts: GenOptions = {}): Promise<WorldData> {
+  const recipe = map;
   // 自动航点高度与补给绑定属于这次生成的结果，不应写回共享的地图配方。
-  map = {
-    ...map,
-    nodes: map.nodes.map((node) => ({ ...node, pos: [...node.pos] })),
-    pickups: map.pickups.map((pickup) => ({ ...pickup, pos: [...pickup.pos] })),
-    rivers: map.rivers?.map((river) => ({ ...river, pts: river.pts.map((p): [number, number, number, number] => [p[0], p[1], p[2], p[3]]) })),
-  };
+  map = cloneMapForGen(map);
   progress?.(0.05, map.real ? tr('下载真实地形') : tr('生成地形'));
   await tick();
-  const hb = new HeightBuilder(map.size, map.res);
-  const real = map.real ? await loadRealData(map.real) : undefined;
-  if (real) {
-    hb.data.set(real.levels[0].data);
-    // 地图外面的远景和阳光的山影都从测绘数据里取
-    map.farTerrain = (x, z) => real.heightAt(x, z);
-  }
-  map.buildTerrain(hb);
-  // 地面停机坪：压平地形（坪面略高于地面）
-  for (const p of map.pads) {
-    if (p.style === 'ground') {
-      hb.flatten(p.pos[0], p.pos[2], p.size * 0.72, p.pos[1] - 0.45, 18);
-      hb.paintCircle(1, p.pos[0], p.pos[2], p.size * 0.8, 8, 0.8);
-      hb.paintCircle(2, p.pos[0], p.pos[2], p.size * 0.8 + 6, 6, 1);
+  const stage = (s: ShapeStage): void => {
+    if (s === 'dissect') progress?.(0.15, tr('河流下切'));
+    else progress?.(0.25, tr('雨水侵蚀'));
+  };
+  let shaped: ShapedTerrain | null = null;
+  if (!map.real && opts.offThread) {
+    try {
+      shaped = await opts.offThread(recipe, stage);
+    } catch (error) {
+      console.warn('后台线程没能生成地形，改在主线程上生成：', error);
     }
   }
-  const protection = map.erosion || map.dissect || map.rockForm || map.rivers?.length ? protectMask(map) : undefined;
-  if (map.dissect) {
-    progress?.(0.15, tr('河流下切'));
-    await tick();
-    dissect(hb.data, map.res, { ...map.dissect, size: map.size, waterLevel: map.waterLevel, mask: protection, seed: map.seed });
-  }
-  if (map.erosion) {
-    progress?.(0.25, tr('雨水侵蚀'));
-    await tick();
-    erode(hb.data, map.res, map.seed, { droplets: map.erosion, waterLevel: map.waterLevel, mask: protection });
-  }
-  if (map.rockForm) applyRockForm(hb.data, map.res, map.size, map.rockForm, protection!);
-  if (map.rivers) {
-    for (const r of map.rivers) {
-      settleRiver(hb, r);
-      carveRiver(hb, r, protection!);
+  let hb: HeightBuilder;
+  let real: RealData | undefined;
+  if (shaped) {
+    hb = new HeightBuilder(map.size, map.res, shaped.data, shaped.surface);
+    hb.rimWobble = shaped.rimWobble;
+    shaped.rivers?.forEach((pts, i) => {
+      const r = map.rivers?.[i];
+      if (r) r.pts = pts;
+    });
+  } else {
+    hb = new HeightBuilder(map.size, map.res);
+    real = map.real ? await loadRealData(map.real) : undefined;
+    if (real) {
+      hb.data.set(real.levels[0].data);
+      // 地图外面的远景和阳光的山影都从测绘数据里取
+      map.farTerrain = (x, z) => real!.heightAt(x, z);
     }
+    await shapeTerrain(map, hb, async (s) => {
+      stage(s);
+      await tick();
+    });
   }
-  map.paintFinal?.(hb);
   const terrain = hb.build();
   if (real && map.flightSize) terrain.outer = real.outer;
   progress?.(0.45, tr('布置建筑与停机坪'));
@@ -145,7 +117,7 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
   }
   progress?.(0.65, tr('种植植被'));
   await tick();
-  const flow = makeFlowMap(real ? real.low : terrain, map.waterLevel);
+  const flow = shaped?.flow ?? makeFlowMap(real ? real.low : terrain, map.waterLevel);
   const keepOut = map.pads.map((p): [number, number, number] => [p.pos[0], p.pos[2], p.size * 0.75 + 14]);
   // 照着航拍描的房子：撞得上，房子里面不长树
   for (const b of map.real?.buildings ?? []) {
@@ -163,7 +135,7 @@ export async function generateWorld(map: MapDef, withMesh: boolean, progress?: P
   // 画面用的最细一层换成压平停机坪之后的高度，和物理碰撞面是同一份数据
   const realView = real && { ...real, levels: [{ ...real.levels[0], data: terrain.data }, ...real.levels.slice(1)] };
   const movers = makeMovers(map, (x, z) => terrain.heightAt(x, z), ctx.ground);
-  const world: WorldData = { map, terrain, surface: hb.surface, flow, builder: B, colliders: B.colliders, trees, pads, ctx, real: realView, movers };
+  const world: WorldData = { map, terrain, surface: hb.surface, flow, builder: B, colliders: B.colliders, trees, pads, ctx, real: realView, movers, macro: shaped?.macro };
   resolveAutoAltitudes(world);
   attachPickupsToNodes(world);
   progress?.(0.8, tr('完成'));

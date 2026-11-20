@@ -59,6 +59,14 @@ npm run regress:recovery
 CHROME_EXTRA_ARGS="--disable-gpu --use-angle=swiftshader" node tools/shot.mjs <步骤文件> <输出目录>
 ```
 
+查加载卡不卡（先 `npm run build`，再开 `.claude/launch.json` 的 `rotor-preview`）：
+
+```bash
+node tools/shot.mjs tools/steps/loading_check.json tmp/shots
+```
+
+它走一遍“打开网页 → 主菜单 → 进日本地图”，每段打印：用时、卡死（长任务）合计和最长一次、超过 200 ms 的各在哪一步。想知道卡在哪个函数：步骤里 `{ "cpu": "stop" }` 加上 `"window": 250`，按 250 ms 一格列出最里层的项目函数（开发服务器上看得到函数名，正式版本是压缩过的名字）。页面里的探针是 `tools/perfProbe.js`（步骤文件的 `"preloadFile"`）。
+
 软件 WebGPU（`--enable-unsafe-webgpu --enable-features=Vulkan,WebGPUService --use-webgpu-adapter=swiftshader --disable-gpu-sandbox --disable-gpu-compositing`，不要加 `--use-angle=swiftshader`）能拿到适配器，但主菜单的预编译超过 9 分钟，基本用不了。WGSL 编不编得过还是要真显卡看。
 
 单独跑一张地图（bash 语法；PowerShell 中先执行 `$env:MAP="himalaya"; $env:PATHS="0,1"`）：
@@ -237,6 +245,7 @@ src/
   world/       世界生成：高度场、建筑与道具、植被
   render/      渲染：地形、水、天空、树、建筑、座舱、仪表、导航标记、天气特效
   game/        应用状态机、输入、设置、存档、教学
+  workers/     后台线程：生成世界时的纯计算（地形成形、水系、宏观图、云噪声），不带 three.js
   i18n/        多语言：tr() 和按来源文件分的字典（dict/，中文原文 → [英文, 日文]）
   ui/          HUD、菜单与样式
   audio/       程序化音效（旋翼、发动机、风、雨、告警）

@@ -690,6 +690,11 @@ a {
 .menu-art.off {
   opacity: 0;
 }
+/* 改了画质 / 光线追踪，下面正在重新预热（app.ts 的 rewarm）：盖住半成品画面，也挡住点击 */
+.screen.applying {
+  z-index: 40;
+  background: rgba(4, 8, 12, 0.94);
+}
 /* 加载新地图时旧场景正在被替换：用不透明背景遮住，避免看到半成品画面。背景是这张图的实拍画面 */
 .screen.loading {
   background: linear-gradient(180deg, rgba(4, 8, 12, 0.1) 45%, rgba(4, 8, 12, 0.82)), var(--art, none) center / cover no-repeat, radial-gradient(ellipse at 50% 40%, #13263a, #070d14 70%);
@@ -718,6 +723,31 @@ a {
 .load-foot .lbar {
   height: 3px;
   margin-bottom: 7px;
+}
+/* 地形在后台线程里算的那几秒进度条不动：一道光慢慢扫过，看得出还在干活（合成线程上动，主线程忙的时候也照样动） */
+.load-foot .lbar {
+  position: relative;
+}
+.load-foot .lbar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 30%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  animation: lbar-sweep 1.8s linear infinite;
+}
+@keyframes lbar-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .load-foot .lbar::after {
+    display: none;
+  }
 }
 .click-start {
   cursor: pointer;

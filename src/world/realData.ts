@@ -104,10 +104,11 @@ export async function loadRealTrees(def: RealTerrainDef, terrain: Heightfield, k
   const ss: number[] = [];
   const ts: number[] = [];
   const rs: number[] = [];
+  // 二十几万棵树 × 几百处房子、停机坪：先比横竖距离（远的一下就排除），近的才算真正的距离。结果和逐个算 hypot 完全一样，快十来倍
   for (let i = 0; i < n; i++) {
     const x = (xz[i * 2] / 65535 - 0.5) * terrain.size;
     const z = (xz[i * 2 + 1] / 65535 - 0.5) * terrain.size;
-    if (keepOut.some(([cx, cz, r]) => Math.hypot(x - cx, z - cz) < r)) continue;
+    if (keepOut.some(([cx, cz, r]) => Math.abs(x - cx) < r && Math.abs(z - cz) < r && Math.hypot(x - cx, z - cz) < r)) continue;
     xs.push(x);
     ys.push(terrain.heightAt(x, z) - 0.2);
     zs.push(z);
