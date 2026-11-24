@@ -93,7 +93,8 @@
   }
   function stop(e) {
     // 打字时不让游戏收到按键（Esc 关窗口除外）
-    if (e.type === 'keydown' && e.key === 'Escape') {
+    // 输入法正在选字时按 Esc 是取消选字，不是关窗口（中文 / 日文输入时常用）
+    if (e.type === 'keydown' && e.key === 'Escape' && !e.isComposing && e.keyCode !== 229) {
       close();
       e.preventDefault();
     }
