@@ -11,6 +11,7 @@ import type { Lesson } from '../game/tutorial';
 import { GRADE_LABEL } from '../sim/mission';
 import { LANGS, tr, type Lang, type LangSetting } from '../i18n';
 import { AUTHOR, FEEDBACK_URL, VERSION } from '../game/version';
+import { inArtifact, openFeedback } from './feedback';
 
 export interface CheckpointItem {
   index: number;
@@ -240,10 +241,10 @@ export class UI {
           <button class="btn" data-a="help">${tr`操作说明`}</button>
           <button class="btn ghost" data-a="about">${tr`关于与授权`}</button>
         </div>
-        <div class="menu-foot">${opts.warning ? `<div class="warnbox">${opts.warning}</div>` : ''}<span>v${VERSION} · ${tr`没有时间限制，按自己的节奏飞行`}</span></div>
+        <div class="menu-foot">${opts.warning ? `<div class="warnbox">${opts.warning}</div>` : ''}<span>v${VERSION} · ${tr`没有时间限制，按自己的节奏飞行`}</span>${inArtifact() ? '' : ` <button class="foot-link" data-a="feedback">${tr`反馈问题和建议`}</button>`}</div>
       </div>`),
     );
-    this.bind(el, { cont: () => on.cont?.(), play: on.play, free: on.free, tutorial: on.tutorial, settings: on.settings, help: on.help, about: on.about, log: () => on.log?.(), lang: (b) => on.lang?.(b.dataset.v as Lang) });
+    this.bind(el, { cont: () => on.cont?.(), play: on.play, free: on.free, tutorial: on.tutorial, settings: on.settings, help: on.help, about: on.about, log: () => on.log?.(), lang: (b) => on.lang?.(b.dataset.v as Lang), feedback: () => openFeedback('main-menu') });
   }
 
   /** 飞行训练的课程表 */
@@ -716,7 +717,7 @@ export class UI {
       <h3>${tr`第三方开源库`}</h3>
       <ul class="tips"><li>three.js — MIT License</li><li>${tr`Rapier（@dimforge/rapier3d-compat）— Apache License 2.0`}</li><li>${tr`开发工具：Vite（MIT）、TypeScript（Apache-2.0）、Vitest（MIT）`}</li></ul>
       <p class="muted">${tr`除大峡谷外，地图都是虚构地形，仅体现日本海湾、美国西南峡谷、亚马孙雨林、挪威峡湾、尼泊尔高山的地貌特色，不对应真实地理位置。`} <a href="./licenses.md" target="_blank" rel="noopener">${tr`第三方素材与开源许可`}</a></p>
-      <p class="muted">${tr`版本 ${VERSION}。飞起来哪里别扭、哪里出了问题，欢迎告诉我们：`} <a href="${FEEDBACK_URL}" target="_blank" rel="noopener">${tr`反馈问题和建议`}</a></p>
+      <p class="muted">${tr`版本 ${VERSION}。飞起来哪里别扭、哪里出了问题，欢迎告诉我们：`} ${inArtifact() ? `<a href="${FEEDBACK_URL}" target="_blank" rel="noopener">${tr`反馈问题和建议`}</a>` : `<button class="btn" data-a="feedback">${tr`反馈问题和建议`}</button> <a href="${FEEDBACK_URL}" target="_blank" rel="noopener">${tr`也可以在 GitHub 上提`}</a>`}</p>
       ${on.env ? `<p class="muted env-line">${tr`运行环境（反馈问题时请附上这一行）：`}<code>${escapeHtml(on.env)}</code></p>` : ''}</div></div>`),
     );
     this.bind(el, {
@@ -725,6 +726,7 @@ export class UI {
         this.closeModal(false);
         on.credits?.();
       },
+      feedback: () => openFeedback('about', on.env),
     });
   }
 

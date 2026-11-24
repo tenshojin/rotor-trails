@@ -21,5 +21,8 @@
   ],
   "ui/menus.ts": [
     "语言 / Language"
+  ],
+  "ui/feedbackWidget.js": [
+    ""
   ]
 }

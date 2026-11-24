@@ -334,6 +334,20 @@ a {
   color: var(--muted);
   font-size: 13px;
 }
+.foot-link {
+  margin-left: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.foot-link:hover {
+  color: var(--text, #fff);
+}
 .warnbox {
   background: rgba(255, 179, 71, 0.15);
   border: 1px solid var(--amber);
