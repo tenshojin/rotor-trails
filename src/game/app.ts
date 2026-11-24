@@ -1845,6 +1845,9 @@ export class App {
 
   /** 浏览器“返回”了一步（垫的那一格用掉了）：能当作退一层就退一层，再垫回去 */
   private onBrowserBack(): void {
+    // 这次返回是反馈小窗的（小窗开着按了返回，或者点 ✕ 关小窗时它自己退掉垫的那一格）：归小窗处理，
+    // 这里别再关弹窗 / 暂停，也别动 backArmed（我们垫的那一格还在）
+    if ((window as unknown as { JimiFeedback?: { ownsBack?: () => boolean } }).JimiFeedback?.ownsBack?.()) return;
     this.backArmed = false;
     if (this.gpuInterrupted) { this.armBack(); return; }
     let handled = true;
