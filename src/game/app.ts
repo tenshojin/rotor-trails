@@ -1239,10 +1239,19 @@ export class App {
     try {
       compiled = v.parallelCompile();
       await frames(6);
-      // WebGL2 分批编译：一个几百毫秒，第一次进要半分钟上下。加载界面写出编到第几个，等的时间放宽
+      // WebGL2 分批编译：一个几百毫秒，第一次进要半分钟到一两分钟。加载界面写出编到第几个、等了几秒，等的时间放宽。
+      // 玩家反馈“卡在进度条最后进不去”：停在 99% 一动不动像是死了，刷新又得从头编。几秒以后在底下说清楚这是正常的、别刷新
+      // （编好的浏览器会存着：着色器代码每次一字不差，见 render/stableShaders.ts）。WebGPU 一般几秒就好，超过 5 秒也写出秒数
       const gl = v.gpuInfo().backend === 'WebGL2';
       const map = this.run?.map;
-      const progress = gl ? setInterval(() => this.showLoading(tr`编译着色器（第一次进入会慢一些）：${v.compiledPrograms}`, 0.99, map), 300) : undefined;
+      const loading = this.state === 'ready';
+      const t0 = performance.now();
+      const progress = setInterval(() => {
+        const sec = Math.round((performance.now() - t0) / 1000);
+        if (gl) this.showLoading(tr`编译着色器：已编好 ${v.compiledPrograms} 个 · ${sec} 秒`, 0.99, map);
+        else if (loading && sec >= 5) this.showLoading(tr`编译着色器（第一次进入会慢一些）：${sec} 秒`, 0.99, map);
+        if (gl && loading && sec >= 5) this.ui.loadingNote?.(tr('现在用的是 WebGL2（这个浏览器没有 WebGPU）：第一次进一张地图要把一百多个着色器一个一个编好，可能要一两分钟，停在这里是正常的，请别刷新。编好的浏览器会存着，下次再进快很多；画质调到“低”（没有阴影）第一次也能快三倍左右。'));
+      }, 300);
       try {
         await waitForOperation(compiled(), this.lifetime.signal, gl ? 300000 : 60000, tr('着色器编译'));
       } finally {

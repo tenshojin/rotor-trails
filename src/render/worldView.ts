@@ -95,6 +95,7 @@ import { CloudLayer, Lightning, LightningBolt, RainFx, SNOW } from './weatherFx'
 import type { InstrumentData } from './instruments';
 import { updateScreenScale } from './screenSize';
 import { drawingRatio } from './renderBudget';
+import { stableUniformOrder } from './stableShaders';
 import { tr } from '../i18n';
 
 export interface FrameInfo {
@@ -312,6 +313,8 @@ export class WorldView {
   /** 初始化 GPU（WebGPU 不可用时退回 WebGL2），必须在第一次渲染前 await。 */
   async init(): Promise<void> {
     await this.renderer.init();
+    // 每次生成的着色器代码一字不差，浏览器才认得出上次编好的（见 stableShaders.ts）。要在 init 之后：没有 WebGPU 时后端在 init 里换成 WebGL2
+    stableUniformOrder(this.renderer);
     const backend = this.renderer.backend as unknown as { device?: { limits: { maxTextureDimension2D: number } }; gl?: WebGL2RenderingContext };
     if (backend.device) this.maxRenderDimension = backend.device.limits.maxTextureDimension2D;
     else if (backend.gl) {

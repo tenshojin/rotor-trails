@@ -584,6 +584,62 @@ describe('运行与加载恢复', () => {
     expect(compile.cancel).toHaveBeenCalledOnce();
   });
 
+  // 玩家反馈“卡在进度条最后进不去”：WebGL2 第一次进图要把一百多个着色器一个一个编完，停在 99% 像是死了，刷新又得从头编
+  const slowCompile = (backend: 'WebGL2' | 'WebGPU') => {
+    vi.useFakeTimers();
+    const view = app.view as any;
+    view.gpuInfo = () => ({ backend, name: '' });
+    view.compiledPrograms = 7;
+    let n = 0;
+    Object.defineProperty(view, 'frames', { get: () => ++n, configurable: true });
+    view.gpuIdle.mockResolvedValue(undefined);
+    let finish!: () => void;
+    view.parallelCompile.mockReturnValue(Object.assign(vi.fn(() => new Promise<void>((resolve) => { finish = resolve; })), { cancel: vi.fn() }));
+    const ui = (app as any).ui;
+    ui.loadingNote = vi.fn();
+    return { ui, done: () => finish() };
+  };
+
+  it('WebGL2 编得久：加载界面写出编好几个、等了几秒，5 秒以后底下说明这是正常的、别刷新', async () => {
+    const { ui, done } = slowCompile('WebGL2');
+    app.state = 'ready';
+    const pending = (app as any).warmUp();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(ui.loading).toHaveBeenLastCalledWith(expect.stringMatching(/已编好 7 个 · [34] 秒/), 0.99, undefined);
+    expect(ui.loadingNote).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(ui.loadingNote).toHaveBeenCalledWith(expect.stringContaining('请别刷新'));
+    done();
+    // 编完还要再画几帧（等定时器）
+    await vi.advanceTimersByTimeAsync(500);
+    await pending;
+    const calls = ui.loading.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(ui.loading.mock.calls.length).toBe(calls);
+  });
+
+  it('WebGPU 超过 5 秒也写出秒数、不出那段说明；暂停菜单里换时段的预热不弹加载界面', async () => {
+    const { ui, done } = slowCompile('WebGPU');
+    app.state = 'ready';
+    let pending = (app as any).warmUp();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(ui.loading).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(ui.loading).toHaveBeenLastCalledWith(expect.stringMatching(/：6 秒$/), 0.99, undefined);
+    expect(ui.loadingNote).not.toHaveBeenCalled();
+    done();
+    await vi.advanceTimersByTimeAsync(500);
+    await pending;
+    ui.loading.mockClear();
+    app.state = 'paused';
+    pending = (app as any).warmUp();
+    await vi.advanceTimersByTimeAsync(8000);
+    done();
+    await vi.advanceTimersByTimeAsync(500);
+    await pending;
+    expect(ui.loading).not.toHaveBeenCalled();
+  });
+
   it('连续滑动设置仅写一次，退出实例前刷新尚未保存的最终值', async () => {
     vi.useFakeTimers();
     const save = vi.spyOn(app.save, 'save');

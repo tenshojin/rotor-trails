@@ -2603,6 +2603,11 @@ canvas.gl.sim-cursor.sim-cursor-hot {
   line-height: 1.6;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
 }
+/* 编译得久时换成的说明（停在这里是正常的、别刷新）：比小提示醒目一点 */
+.ltip.lnote {
+  color: var(--text);
+  max-width: 46em;
+}
 
 /* 休闲飞行的地名字幕 */
 /* （超仿真默认没有 HUD，字幕照样有；只有自己按 U 收起来才不显示） */

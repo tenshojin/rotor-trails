@@ -491,6 +491,14 @@ export class UI {
     (el.querySelector('.llabel') as HTMLElement).textContent = label;
   }
 
+  /** 加载画面底下那句小提示换成一段说明（例如 WebGL2 编译得久：说清楚停在这里是正常的）；不在加载画面就不管 */
+  loadingNote(text: string): void {
+    const tip = this.screen?.classList.contains('loading') ? this.screen.querySelector('.ltip') : null;
+    if (!tip || tip.textContent === text) return;
+    tip.textContent = text;
+    tip.classList.add('lnote');
+  }
+
   /** 抽一句加载提示：触屏上不抽要用键盘、手柄才有的键的那几句 */
   pickTip(rand = Math.random()): string {
     const pool = TIPS.filter((t) => !(this.touch && t.pc));
